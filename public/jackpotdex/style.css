@@ -1,0 +1,87 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; background: #0f1117; color: #e5e7eb; padding: 14px; max-width: 720px; margin: 0 auto; }
+.dim { color: #8b93a7; font-weight: 400; font-size: .85em; }
+.hidden { display: none !important; }
+header h1 { font-size: 1.35rem; margin-bottom: 6px; }
+.who { font-size: 1.05rem; color: #fbbf24; font-weight: 700; margin-bottom: 8px; }
+.stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+.stat { background: #1a1d27; border-radius: 10px; padding: 8px 10px; }
+.stat .k { font-size: .75rem; color: #8b93a7; }
+.stat .v { font-size: 1.1rem; font-weight: 700; color: #fff; }
+.bar { height: 10px; background: #1a1d27; border-radius: 6px; overflow: hidden; }
+.bar-fill { height: 100%; background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+.bar-label { font-size: .8rem; color: #fbbf24; margin: 4px 0 12px; }
+.tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.tab { flex: 1; background: #1a1d27; color: #cbd5e1; border: none; border-radius: 10px; padding: 10px; font-size: .95rem; font-weight: 600; }
+.tab.active { background: #f59e0b; color: #1a1d27; }
+.state { text-align: center; color: #8b93a7; padding: 40px 0; }
+.panel { display: flex; flex-direction: column; gap: 8px; }
+.panel h3 { margin: 12px 0 2px; font-size: .95rem; color: #cbd5e1; }
+.pickbar { background: #1f2330; border: 1px solid #f59e0b55; border-radius: 12px; padding: 12px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 8px; }
+.pickttl { font-weight: 700; color: #fbbf24; }
+.pickbar select { background: #0f1117; color: #e5e7eb; border: 1px solid #2a2f40; border-radius: 8px; padding: 9px; font-size: .95rem; }
+.pickbar button { background: #f59e0b; color: #1a1d27; border: none; border-radius: 8px; padding: 11px; font-weight: 700; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.card { display: flex; gap: 10px; align-items: center; background: #1a1d27; border-radius: 12px; padding: 10px 12px; border: 1px solid #232838; }
+.card.done { border-color: #f59e0b66; background: #1f2330; }
+.card.locked { opacity: .5; }
+.card.masked { opacity: .55; border-style: dashed; border-color: #2a2f40; }
+.card.masked .name { color: #8b93a7; }
+.useN { display: inline-block; font-size: .68rem; font-weight: 700; color: #fbbf24; background: #f59e0b22; border: 1px solid #f59e0b44; border-radius: 6px; padding: 1px 6px; vertical-align: middle; white-space: nowrap; }
+.card .ico { width: 48px; height: 48px; flex: 0 0 48px; border-radius: 8px; object-fit: cover; background: #0f1117; }
+.card .ico.emoji { font-size: 1.7rem; line-height: 48px; text-align: center; }
+.modal-card .big { width: 180px; height: 180px; border-radius: 14px; object-fit: cover; background: #0f1117; }
+.modal-card .big.emoji { font-size: 4rem; line-height: 180px; text-align: center; }
+.card .body { flex: 1; min-width: 0; }
+.card .name { font-weight: 700; font-size: .98rem; }
+.card .desc { font-size: .78rem; color: #8b93a7; }
+.mini { height: 5px; background: #2a2f40; border-radius: 4px; margin: 5px 0 2px; overflow: hidden; }
+.mini-fill { height: 100%; background: #f59e0b; }
+.prog { font-size: .72rem; color: #8b93a7; text-align: right; }
+.rankrow { display: flex; align-items: center; gap: 10px; background: #1a1d27; border-radius: 10px; padding: 9px 12px; }
+.rk { width: 28px; font-weight: 700; }
+.rn { flex: 1; font-weight: 600; }
+.rs { color: #fbbf24; font-size: .85rem; }
+footer { margin-top: 16px; text-align: center; }
+.modal { position: fixed; inset: 0; background: #000a; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal-card { background: #1a1d27; border-radius: 16px; padding: 24px; text-align: center; max-width: 320px; }
+.modal-card .ico.big { font-size: 3rem; }
+.modal-card h2 { margin: 10px 0; }
+.modal-card p { color: #cbd5e1; margin-bottom: 16px; }
+.modal-card button { background: #f59e0b; color: #1a1d27; border: none; border-radius: 10px; padding: 10px 24px; font-weight: 700; }
+.season { display: flex; align-items: center; gap: 10px; background: #1a1d27; border-radius: 12px; padding: 12px 14px; border: 1px solid #232838; cursor: pointer; }
+.season.v2 { border-color: #f59e0b88; background: #1f2330; }
+.season-badge { background: #f59e0b; color: #1a1d27; font-size: .7rem; font-weight: 800; border-radius: 6px; padding: 3px 7px; white-space: nowrap; }
+.season-body { flex: 1; min-width: 0; }
+.season-ttl { font-weight: 700; font-size: 1rem; }
+.season-sub { font-size: .78rem; color: #8b93a7; margin-top: 2px; }
+.season-go { color: #f59e0b; font-size: 1.4rem; font-weight: 700; }
+.podium-wrap { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; text-align: left; }
+.podium { display: flex; align-items: center; gap: 10px; background: #1f2330; border-radius: 10px; padding: 10px 12px; border: 1px solid #232838; }
+.podium.r1 { border-color: #f59e0b88; }
+.podium .pm { width: 30px; font-size: 1.15rem; text-align: center; }
+.podium .pn { flex: 1; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.podium .ps { color: #fbbf24; font-size: .85rem; white-space: nowrap; }
+.hall-rest { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; text-align: left; }
+
+/* ── 배치3b: 도전·숙련·빌드도감·기록 탭 ── */
+.tabs-wrap { flex-wrap: wrap; }
+.tabs-wrap .tab { flex: 1 1 calc(25% - 6px); min-width: 78px; padding: 9px 6px; font-size: .85rem; }
+.sum-line { font-size: .82rem; color: #fbbf24; background: #1f2330; border: 1px solid #f59e0b33; border-radius: 8px; padding: 8px 11px; margin-bottom: 4px; }
+/* 도전 카드 — 진행바·달성·고정목표 */
+.card.chal { align-items: stretch; }
+.card.chal .body { display: flex; flex-direction: column; justify-content: center; }
+.card.chal.pinned { border-color: #f59e0b; background: #2a230f; box-shadow: 0 0 0 1px #f59e0b66; }
+/* 숙련도 메달 */
+.medal-badge { font-size: 1rem; }
+.card.medal-gold { border-color: #fbbf2488; background: #2a230f; }
+.card.medal-silver { border-color: #c7cdd966; }
+.card.medal-bronze { border-color: #cd7f3266; }
+/* 빌드도감 조합 */
+.ico.emoji.combo { font-size: 1.25rem; letter-spacing: -2px; }
+.card.build .name .dim { font-size: .8em; }
+/* 개인기록 */
+.reclist { display: flex; flex-direction: column; gap: 7px; }
+.recrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #1a1d27; border-radius: 10px; padding: 11px 14px; border: 1px solid #232838; }
+.recrow .rl { color: #cbd5e1; font-weight: 600; font-size: .92rem; }
+.recrow .rv { color: #fbbf24; font-weight: 800; font-size: 1.05rem; white-space: nowrap; }

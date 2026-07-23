@@ -1,0 +1,11 @@
+# 텍스트는 자동 정규화, 바이너리는 그대로
+* text=auto
+
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.woff  binary
+*.woff2 binary

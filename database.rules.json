@@ -1,0 +1,26 @@
+{
+  "rules": {
+    "jackpotdex": {
+      "$token": {
+        ".read": true,
+        ".write": true,
+        ".validate": "$token.length >= 6 && $token.length <= 40"
+      }
+    },
+    "jackpotcmd": {
+      "$token": {
+        ".read": true,
+        ".write": true,
+        ".validate": "$token.length >= 6 && $token.length <= 40"
+      }
+    },
+    "jackpotcatalog": {
+      ".read": true,
+      ".write": true
+    },
+    "jackpothall": {
+      ".read": true,
+      ".write": true
+    }
+  }
+}

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>🎰 잭팟런 — 시작 조합 선택</title>
+  <link rel="stylesheet" href="pick.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="head">
+      <h1>🎰 잭팟런 — <span class="sub">시작 조합 선택</span></h1>
+      <div class="lead">캐릭터 + 슬롯머신 + 장치 조합으로 이번 런의 방향을 정하세요.</div>
+      <div id="who" class="who dim">불러오는 중…</div>
+    </header>
+
+    <div id="loading" class="state">불러오는 중…</div>
+    <div id="error" class="state err hidden"></div>
+
+    <main id="picker" class="hidden">
+      <!-- 추천 조합 -->
+      <div class="recos">
+        <button class="reco beginner" data-reco="beginner"><span class="ri">🌱</span>초보 추천</button>
+        <button class="reco high" data-reco="high"><span class="ri">🔥</span>고점 추천</button>
+        <button class="reco challenge" data-reco="challenge"><span class="ri">😈</span>도전 조합</button>
+        <button class="reco" data-reco="random"><span class="ri">🎲</span>랜덤</button>
+      </div>
+
+      <!-- 진행 단계(탭) -->
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-tab="char"><span class="tnum">① 캐릭터</span><span class="tpick" id="tp-char">선택 전</span></button>
+        <button class="tab" data-tab="mac"><span class="tnum">② 슬롯머신</span><span class="tpick" id="tp-mac">선택 전</span></button>
+        <button class="tab" data-tab="dev"><span class="tnum">③ 장치</span><span class="tpick" id="tp-dev">장치 없이</span></button>
+      </nav>
+
+      <div class="layout">
+        <section class="col-main">
+          <div class="toolbar">
+            <div class="chips" id="chips"></div>
+            <div class="sortrow">
+              <label for="sort">정렬</label>
+              <select id="sort">
+                <option value="reco">추천순</option>
+                <option value="diff">난이도 낮은 순</option>
+                <option value="ceiling">점수 고점 높은 순</option>
+                <option value="recent">최근 해금 순</option>
+              </select>
+            </div>
+          </div>
+          <div class="sechead"><h2 id="sec-title">🎭 캐릭터</h2><span class="cnt" id="sec-cnt"></span></div>
+          <div class="grid" id="grid"></div>
+          <p class="note" id="sec-note"></p>
+        </section>
+
+        <!-- 조합 요약 + 시작바 -->
+        <aside class="summary" id="summary">
+          <div class="sum-compact">
+            <div class="sum-combo">
+              <div class="cmb" id="sum-combo"><span class="ph">캐릭터·머신을 고르세요</span></div>
+              <div class="bl" id="sum-bl"></div>
+            </div>
+            <div class="sum-grade" id="sum-grade" style="display:none"></div>
+            <button class="sum-toggle" id="sum-toggle">상세 ▲</button>
+            <button class="go" id="go" disabled>🎰 이 조합으로 시작</button>
+          </div>
+          <div id="msg"></div>
+          <div class="sum-detail" id="sum-detail"></div>
+        </aside>
+      </div>
+    </main>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

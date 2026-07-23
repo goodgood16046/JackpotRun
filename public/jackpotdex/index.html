@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🎰 잭팟런 도감</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>🎰 잭팟런 <span class="dim">도감 · 진행도</span></h1>
+    <div id="who" class="who">불러오는 중…</div>
+    <div class="stats" id="stats"></div>
+    <div class="bar"><div class="bar-fill" id="achFill"></div></div>
+    <div class="bar-label" id="achLabel"></div>
+  </header>
+
+  <nav class="tabs tabs-wrap">
+    <button class="tab active" data-tab="ach">🏅 업적</button>
+    <button class="tab" data-tab="chal">🎯 도전</button>
+    <button class="tab" data-tab="dex">📖 도감</button>
+    <button class="tab" data-tab="mastery">🏅 숙련도</button>
+    <button class="tab" data-tab="build">📦 빌드도감</button>
+    <button class="tab" data-tab="rec">📈 기록</button>
+    <button class="tab" data-tab="rank">🏆 랭킹</button>
+    <button class="tab" data-tab="hall">🏛 명예의전당</button>
+  </nav>
+
+  <main id="main">
+    <div id="loading" class="state">불러오는 중…</div>
+    <div id="error" class="state hidden"></div>
+    <section id="ach" class="panel"></section>
+    <section id="chal" class="panel hidden"></section>
+    <section id="dex" class="panel hidden"></section>
+    <section id="mastery" class="panel hidden"></section>
+    <section id="build" class="panel hidden"></section>
+    <section id="rec" class="panel hidden"></section>
+    <section id="rank" class="panel hidden"></section>
+    <section id="hall" class="panel hidden"></section>
+  </main>
+
+  <footer id="foot" class="dim"></footer>
+  <!-- 상세는 카드 클릭 시 모달 -->
+  <div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
