@@ -16,9 +16,14 @@ JackpotRunWeb/
 ├─ public/                # 배포 대상(정적)
 │  ├─ jackpotpick/        # 시작 조합 선택 (index.html, app.js, meta.js, pick.css)
 │  └─ jackpotdex/         # 도감/진행도 (index.html, app.js, style.css, img/*.png ×290)
-└─ tools/                 # 배포 대상 아님(빌드 전용)
-   ├─ gen_images.ps1      # 도감 이미지 재생성 (pollinations.ai)
-   └─ prompts.json        # 이미지 프롬프트 매니페스트
+├─ tools/                 # 배포 대상 아님(빌드 전용)
+│  ├─ gen_images.ps1      # 도감 이미지 재생성 (pollinations.ai)
+│  └─ prompts.json        # 이미지 프롬프트 매니페스트
+└─ unity-assets/          # 배포 대상 아님 — Unity 이관용 추출본(2026-07-29)
+   ├─ manifest.json/.csv  # 294건 메타데이터(이름·효과·등급·해금조건·큐레이션)
+   ├─ prompts.json        # 이미지 생성 프롬프트 사본
+   ├─ regen_missing.ps1   # 아트 없는 장치 4종 생성(미실행)
+   └─ Sprites/<카테고리>/  # 290장을 8개 카테고리로 분류
 ```
 
 ## 아키텍처 (중요)
@@ -57,6 +62,32 @@ firebase deploy --only hosting,database --project jackpotrun-web
 powershell -File tools/gen_images.ps1
 ```
 이미 존재하고 2KB 초과인 파일은 skip. 결과는 `public/jackpotdex/img/<id>.png`.
+
+## Unity 이관용 추출본 (`unity-assets/`)
+
+봇/웹에서 쓰는 이미지 290장을 카테고리별로 분류하고, `SlotV2Engine.kt` · `jackpotdex/app.js` ·
+`jackpotpick/meta.js` 에서 뽑은 게임 데이터 294건을 결합한 패키지. **배포 대상이 아니다**
+(`firebase.json` 의 hosting public 은 `public/` 뿐).
+
+- 이미지는 전부 256×256 PNG, 불투명 배경(누끼 아님). 확대 시 뭉개지므로 고해상도가 필요하면
+  `prompts.json` 의 프롬프트로 재생성한다.
+- `manifest.json` 의 `id` 가 스프라이트 파일명과 1:1 → Unity 에서 로딩 키로 그대로 사용 가능.
+- 장치 4종(`dev_holdfile`·`dev_major`·`dev_retake`·`dev_syllabus`)은 원래부터 아트가 없다.
+  `unity-assets/regen_missing.ps1` 로 생성할 수 있다(외부 요청 발생).
+- `Sprites/` 의 PNG 는 `public/jackpotdex/img/` 와 내용이 같다. git 은 동일 blob 을 한 번만
+  저장하므로 저장소 용량은 거의 늘지 않는다.
+
+## 원격 저장소
+
+GitHub 원격은 아직 없다. 로컬 베어 저장소를 원격으로 쓴다.
+
+```powershell
+git remote -v            # origin → C:\dev\git-remotes\JackpotRunWeb.git
+git push origin main
+```
+
+같은 네트워크의 다른 PC 에서 쓰려면 `C:\dev\git-remotes` 를 SMB 로 공유한 뒤
+`\\DESKTOP-8IV6RC3\gitremotes\JackpotRunWeb.git` 를 원격 URL 로 clone 한다.
 
 ## 데모(백엔드 없이 UI 확인)
 - 선택: `/jackpotpick/?demo=1` — Firebase 초기화 없이 하드코딩 데이터로 렌더.
