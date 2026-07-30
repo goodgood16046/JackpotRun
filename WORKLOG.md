@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-30 - GitHub 원격 연결 및 Unity 작업 커밋
+
+- 사용자 지시로 `https://github.com/goodgood16046/JackpotRun.git`(Public) 연결 — 웹 저장소(구 JackpotRunWeb 번들)의 정식 원격. 번들 대비 신규 커밋 2개(원격 문서화) 수신.
+- 프로젝트 루트(`e:\UnityProject\JackpotRun`)를 git 저장소로 초기화하고 origin/main 체크아웃 — 웹 파일(public/, unity-assets/ 등)이 루트로 합류, Unity 작업(Client/, Docs/ 등)과 한 저장소가 됨.
+- `CLAUDE.md` 병합: 저장소 버전(웹 컨텍스트 + GitHub 워크플로) + 로컬 규칙(모델 역할 파이프라인·작업 로그) + Unity 클라이언트 안내 통합. 기존 로컬본은 `CLAUDE.local.md`(gitignore)로 보존.
+- `.gitignore` 확장: Unity Library/Temp 등 + 머신 종속 항목(Tools/unity-mcp, .mcp.json, .claude/) + 구 번들 파일.
+- 커밋 `e2b4799`: Unity 클라이언트 671파일 (스프라이트 290 + 메타, 스크립트 13, 설정, 문서). Kotlin 게임 로직은 이 저장소에도 **없음** 재확인(전 커밋 .kt 0개).
+- ⚠️ **푸시 보류**: 이 PC에 GitHub 자격증명 없음 — 저장소 규칙대로 **사용자가 터미널에서 `git push` 1회 직접 실행**(브라우저 로그인) 필요. 이후부터는 Claude가 push 가능.
+
 ## 2026-07-30 - 앱(Android) 타깃 베이스라인 적용
 
 앱 출시 방침 확정에 따라 파이프라인(Fable 설계 §5.5 → Sonnet 구현 → Opus 검수 → Fable 수정)으로 진행.
