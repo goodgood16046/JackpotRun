@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-07-30 - kotlin-reference 스냅샷 추가 (잭팟런 v2 원본 로직)
+
+직전 항목의 "Kotlin 게임 로직은 이 저장소에도 없음"을 해소. 사용자 지시로 봇 원본 소스를 스냅샷 반입.
+
+- `kotlin-reference/` 신규 — 봇(`C:\dev\KakaoOpenChatBot`)의 잭팟런 **v2 파일 6개, 525KB**.
+  원본과 **SHA256 전량 일치** 확인(잘림·변형 없음).
+  - `game/SlotV2Engine.kt`(2,206줄) — 머신별 심볼 확률표, EXP/점수 공식, 스테이지 요구치 곡선, 콤보·세트 규칙, 카탈로그 정의(MACHINES/CHARS/AUGMENTS/RELICS/CURSES/ITEMS/DEVICES)
+  - `game/SlotV2Service.kt`(2,437줄) — 런 흐름(스핀→스테이지→상점→보스), 상점가·리롤, 코인 경제, 장치 쿨다운
+  - `game/SlotV2AchievementsExt.kt`(631줄) — 업적 조건·보상 정확값
+  - `game/SlotV2WebService.kt`(304줄) — RTDB 노드 스키마, 토큰 발급(24-hex UUID·60분 TTL·1인1개)
+  - `data/SlotV2Entities.kt`(122줄) · `data/SlotV2Dao.kt`(54줄) — 저장 스키마·랭킹 쿼리
+- **v1 슬롯 제외** — 봇에는 슬롯이 2개 병행한다(v1 `슬롯` / v2 `잭팟`). 잭팟런은 v2. 파일명에 `V2` 없으면 잭팟런이 아니다.
+- ⚠️ **스냅샷이라 갈라진다.** 봇 본체가 비-git 이어서 서브모듈 불가. 진실의 출처는 항상 `C:\dev\KakaoOpenChatBot`. 단독 빌드 불가(참조 전용). 주의사항은 `kotlin-reference/README.md`.
+- 보안 스캔: API키·비밀키·비밀번호·Bearer 토큰 **없음**, 하드코딩된 방 linkId **없음**. URL 2개(`jackpotrun-web.web.app`, RTDB base)는 이미 웹 클라이언트에 공개된 값이라 추가 노출 없음.
+- `CLAUDE.md`: "이 저장소에 없는 것" 섹션을 `kotlin-reference/` 안내로 교체. **manifest = 무엇이 있는가 / kotlin-reference = 어떻게 계산되는가** 역할 구분 명시. 디렉터리 트리에 `Client/`·`Docs/`·`kotlin-reference/` 반영. 이미 Public 이 된 사실에 맞춰 RTDB 규칙 경고 문구 갱신.
+
 ## 2026-07-30 - GitHub 원격 연결 및 Unity 작업 커밋
 
 - 사용자 지시로 `https://github.com/goodgood16046/JackpotRun.git`(Public) 연결 — 웹 저장소(구 JackpotRunWeb 번들)의 정식 원격. 번들 대비 신규 커밋 2개(원격 문서화) 수신.
