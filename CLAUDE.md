@@ -77,11 +77,12 @@ cd JackpotRun
 평소 작업은 일반적인 `git pull` / `git push` 로 충분하다. 양쪽 PC 에서 작업해도 되지만
 **작업 시작 전 `git pull` 을 습관화**할 것.
 
-> ⚠️ **푸시는 사람이 직접 실행해야 한다.** 이 환경의 Git Credential Manager 는 비대화형
-> 세션에서 인증을 거부하므로(`Cannot prompt because user interactivity has been disabled`),
-> Claude 가 `git push` 를 대신 실행할 수 없다. 커밋까지는 Claude 가 하고, 푸시는
-> **사용자가 직접 열어둔 터미널**에서 `git push` 를 실행한다. 최초 1회 브라우저 로그인 후에는
-> Windows 자격증명에 저장된다.
+> ⚠️ **각 PC 의 첫 푸시 1회만 사람이 직접 실행해야 한다.** Git Credential Manager 는 저장된
+> 자격증명이 없으면 브라우저 OAuth 창을 띄워야 하는데, Claude 의 셸은 비대화형이라
+> `Cannot prompt because user interactivity has been disabled` 로 실패한다.
+> → 새 PC 에서는 **사용자가 터미널에서 `git push` 를 한 번** 실행해 브라우저 로그인을 마친다.
+> 그 뒤로는 Windows 자격증명(`git:https://github.com`)에 저장되어 **Claude 도 정상적으로
+> `git push` 할 수 있다**(DESKTOP-8IV6RC3 에서 확인 완료, 2026-07-30).
 
 ⚠️ **Public 저장소다.** 커밋에 토큰·비밀키를 넣지 말 것. `database.rules.json` 의 개방 규칙은
 이미 공개돼 있다(아래 미해결 이슈).
