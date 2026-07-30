@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-07-30 - 엔진 C# 이식 1단계 (S1 코어 + S2 콘텐츠) — Opus 전수 대조 통과
+
+파이프라인: Fable 설계(`Docs/ENGINE_PORT_DESIGN.md`) → 사양 추출 3부(`Docs/EngineSpec/`) → Sonnet 3병렬(S1 코어공식·테스트 하네스 / S2a 퍼크 157 / S2b 아이템·장치·세트·연구) → Opus 전수 기계 대조 → Fable 반영.
+
+- **순수 C# 엔진** `Client/Jackpot/Assets/JackpotRun/Scripts/Engine/` (UnityEngine 비의존) + `Tools/EngineTests`(dotnet net8.0) 골든 테스트 **798개 통과**.
+- 이식 완료: 밸런스 상수 27 · quota/stageClearScore/티어/계정EXP 공식 · 심볼 14 · 머신 16(가중치표) · 캐릭터 16 · 보스 4 · 증강 80 · 유물 61 · 저주 16 · 아이템 73 · 장치 16 · 세트 33(캐릭/머신/장치 게이트 14종 포함) · school 10 + 게이트 오버라이드 45 + BASE_PERK 22.
+- **Opus 검수: 리터럴 400건+ 전수 대조 수치 불일치 0건**, 골든값 독립 재산출 확인(순환검증 아님), Rng 의미론(빈 컬렉션 미소비·셔플 방향·복원추출) 일치 판정. 원본 버그 4종은 [원본 버그 유지] 주석으로 보존.
+- 반영: BASE_PERK_IDS를 `Schools.BasePerkIds`로 공개(단일 정의), 조건부 증강 하한 함정·Rng.Next(0) 의미차를 S3에 전달, S4 백로그(INSTANT_CLEAR_ITEMS·needsArg 등) 설계서 기록. fx 회귀 스냅샷 테스트는 후속 추가 예정.
+- 진행 중: S3(런 상태머신·Mods·스핀 파이프라인·스테이지 진행) Sonnet 구현.
+
+## 2026-07-30 - Docs/EngineSpec/02_service.md 작성 (SlotV2Service.kt 사양 추출)
+
+- `kotlin-reference/game/SlotV2Service.kt` 전체(실측 2,591줄 — 기존 WORKLOG 기재 "2,437줄"과 불일치 확인, `wc -l`로 재검증)를 정독하고 C# 이식용 정밀 사양 문서를 신규 작성: `Docs/EngineSpec/02_service.md`. 수치는 원문 그대로(반올림·요약 없음), Kotlin 라인번호 병기.
+- 포함 내용: 런 상태 머신(state 전이표 + `SlotV2RunRow` 전 필드 표, `data/SlotV2Entities.kt` 참조), 스핀 처리 26단계 정확 순서(장치/아이템/증강/보스룰 발동 순서·정수절삭 연산 포함 — 밸런스 핵심), 스테이지 진행(실패 체인 4단계·보스 특수룰), 상점(오퍼 6칸 생성규칙·가격·리롤 정액 6코인·판매 기능 없음 확인), 노드/이벤트 시스템(8종 노드 + EVENT 10종 랜덤표 + 티어결정), 코인 경제(획득처/사용처 전액 표), 명령어 목록(스핀 4종+장치 5종+아이템+시스템), 점수/랭킹/기록, 장치 쿨다운/파괴 규칙, C# 이식 주의 12항.
+- 특이사항 발견(문서 §11·§12에 정리): `dev_bell` 파괴가 메인 슬롯만 초기화(보조 슬롯 장착 시 결함 가능성), `devCooldown` 필드가 Service.kt 내 set/check 코드 없음(Engine 쪽 확인 필요), `hasPrism` 배율상한 판정이 임시 `phasePerks`(broken_prism 효과)를 무시, `SlotV2RunRow.state` KDoc 주석과 실제 state 불일치(`EVENT_ITEMSHOP`/`EVENT_GAMBLE`/`EVENT_REST`/`EVENT_CURSE` 미실재), `dev_retake` 유물노드 동작-안내 비대칭.
+- 이 문서는 §1 런상태만 예외적으로 `data/SlotV2Entities.kt`를 함께 인용(RunRow 필드 선언부가 Service.kt에 없어 불가피).
+
 ## 2026-07-30 - kotlin-reference 스냅샷 추가 (잭팟런 v2 원본 로직)
 
 직전 항목의 "Kotlin 게임 로직은 이 저장소에도 없음"을 해소. 사용자 지시로 봇 원본 소스를 스냅샷 반입.
