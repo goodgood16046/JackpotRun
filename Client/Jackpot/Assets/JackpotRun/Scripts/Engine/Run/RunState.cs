@@ -109,6 +109,12 @@ namespace JackpotRun.Engine
         // NODE_SELECT에서 제시된 3택(02_service.md §3-E). 다른 상태의 선택지는 위 "제외 목록" 주석 참조.
         public readonly List<NodeKind> NodeOptions = new List<NodeKind>();
 
+        // ── S4 전용 상태 필드 (위 "제외 목록" 주석이 예고한 대로 S4가 추가) ──────────────────
+        // EVENT_AUGMENT/EVENT_RELIC에서 제시된 후보 퍽 id 목록(NodeEvents.cs). 항상 0~3개.
+        public readonly List<string> PerkOfferIds = new List<string>();
+        // EVENT_SHOP에서 제시된 상점 6칸(Shop.cs). ShopEntry는 Shop.cs 정의(같은 어셈블리라 순환참조 없음).
+        public readonly List<ShopEntry> ShopOffer = new List<ShopEntry>();
+
         public bool FlameNext = false; // 다음 스핀 EXP -50%
         public bool SeedNext = false;  // 다음 스핀 🌱 성장 예약
 

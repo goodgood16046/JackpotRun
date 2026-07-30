@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-31 - 엔진 C# 이식 3단계 (S4 상점·노드·아이템·장치·RunController) — 테스트 11,504개
+
+- **S4 (Sonnet → Opus 검수 → Fable 반영)**: `Engine/Run/` Shop(perkGate→gatedPool→pickPerksByTier→offerPerks 확률 파이프라인, 5% 세트시너지 주입 포함 — RNG 소비 순서 call-for-call 일치) · NodeEvents(노드 8종+EVENT 10종 랜덤표) · ItemUse(INSTANT 23케이스+즉시클리어 캡+retake_form) · DeviceActions(MANIP 9단계 net-adjust·보조슬롯 0.6약화·gambler 무료재굴림) · RunController(typed action façade, §7 명령 전수 매핑).
+- **S3 회귀망 보강**: Tests_RunNet.cs +256 어서션(조건부 증강 경계·Evaluate 세부·보스 4종 절삭·거부 경로 전수).
+- **Opus S4 검수**: 치명 0 · 중요 2 · 경미 6. 확률 실측 전부 이론값 일치(티어표·10%등급업·5%주입 4.55~4.98%·EVENT 12%프리즘), MANIP 계약·노드/이벤트 전수 일치, RunState/StageFlow 수정분 git diff로 로직 변화 0 확인.
+- 반영(중요2+경미5): broken_prism 누적→덮어쓰기(Kotlin CSV 대입 의미) · Retake 풀소진 시 코인/마커 롤백 · 보조슬롯 ARMED/PEEK 검증 · HandleContinue mods 원본 생략 보존 · PERK_OFFER에 보류포함 플래그 · UI 계약 주석 2건(STAGE_CLEARED result null·stat 참조 계약). 표시모드 전환 명령은 S6 UI 소관으로 이관.
+- 전 스위트 **11,504 통과**. 100시드 풀런(상점·노드 포함) 예외 0, 평균 도달 S4.77.
+- 진행 중: S4 테스트 결손 보강(INSTANT 효과·Retake/Hold·시뮬 액션 커버), S5b(프로필·스탯 트래킹·저장 어댑터).
+
 ## 2026-07-30 - 엔진 C# 이식 2단계 (S3 런·스핀 + S5a 업적482 + 회귀망) — 테스트 2,025개
 
 - **S3 (Sonnet → Opus 검수 → Fable 반영)**: `Engine/Run/` — RunState(SlotV2RunRow 이식, 카톡 전용 필드 제외 목록 주석) · Mods(fx 범용 해석기 + 캐릭터/조건부11종 id별 case) · SpinResolver(스핀 26단계, capMul 이중 클램프, 정수 절삭 위치 보존) · StageFlow(클리어 보상/실패 4단계 체인/3노드 롤).

@@ -97,7 +97,14 @@ namespace JackpotRun.Engine
         }
 
         // ── §3-D/§3-E: 클리어 보상 계산 + 스테이지 스코프 상태 리셋 + 다음 노드 3택 준비 ──
-        private static ClearOutcome ClearStage(RunState run, SpinOutcome outcome)
+        // 가시성: private → internal (S4, 2026-07-30). 이 파일 하단 "S4 훅" 주석이 "결과를 곧바로
+        // StageFlow.ClearStage/HandleFailure로 확정"하라고 S4에 직접 지시하므로, MANIP/도박꾼재굴림
+        // (DeviceActions.cs)과 즉시클리어형 아이템(grad_ring/gold_grad_bell, ItemUse.cs)이 스핀을 거치지
+        // 않고도 동일한 클리어 보상 계산을 재사용해야 한다. 로직은 한 글자도 바꾸지 않았다 — 접근제한자만
+        // 완화(같은 어셈블리 내 다른 Run/*.cs 파일에서 SpinOutcome을 직접 구성해 호출). HandleFailure는
+        // MANIP/도박꾼재굴림이 fate_bell/보험증서 회생 체인을 타지 않고 바로 ForceGameOver(이미 public)로
+        // 가므로 internal로 열 필요가 없어 private 그대로 둔다.
+        internal static ClearOutcome ClearStage(RunState run, SpinOutcome outcome)
         {
             int clearedStage = run.Stage;
             int spins = outcome.spins;
