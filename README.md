@@ -79,15 +79,14 @@ powershell -File tools/gen_images.ps1
 
 ## 원격 저장소
 
-GitHub 원격은 아직 없다. 로컬 베어 저장소를 원격으로 쓴다.
+- `origin` = <https://github.com/goodgood16046/JackpotRun.git> (Public)
+- `local` = `C:\dev\git-remotes\JackpotRunWeb.git` (로컬 베어, 백업용 — 선택)
 
 ```powershell
-git remote -v            # origin → C:\dev\git-remotes\JackpotRunWeb.git
-git push origin main
+git clone https://github.com/goodgood16046/JackpotRun.git
 ```
 
-같은 네트워크의 다른 PC 에서 쓰려면 `C:\dev\git-remotes` 를 SMB 로 공유한 뒤
-`\\DESKTOP-8IV6RC3\gitremotes\JackpotRunWeb.git` 를 원격 URL 로 clone 한다.
+⚠️ Public 저장소이므로 토큰·비밀키를 커밋하지 말 것.
 
 ## 데모(백엔드 없이 UI 확인)
 - 선택: `/jackpotpick/?demo=1` — Firebase 초기화 없이 하드코딩 데이터로 렌더.

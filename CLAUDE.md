@@ -63,24 +63,34 @@ JackpotRunWeb/
 
 ## 원격 / 다른 PC 와의 동기화
 
-- `origin` = `C:\dev\git-remotes\JackpotRunWeb.git` — **DESKTOP-8IV6RC3 의 로컬 베어 저장소.**
-  다른 PC 에서는 이 경로에 접근할 수 없다.
-- **GitHub 원격 없음.** 그 PC 에는 `gh` CLI 도 토큰도 없어 저장소 생성 자체가 불가능했다.
-- 다른 PC 로는 **번들 파일**로 옮긴다: `git clone JackpotRunWeb.bundle JackpotRunWeb`
+- `origin` = **<https://github.com/goodgood16046/JackpotRun.git>** (Public, 2026-07-30 연결)
+- `local` = `C:\dev\git-remotes\JackpotRunWeb.git` — DESKTOP-8IV6RC3 의 로컬 베어(백업용).
+  그 PC 에서만 접근 가능하며 필수는 아니다.
 
-> ⚠️ **양쪽에서 동시에 작업하지 말 것.** 공통 원격이 없어 자동 병합이 안 되고 수동 병합해야 한다.
-> 양방향 작업이 필요해지면 GitHub 저장소나 SMB 공유를 **먼저** 붙이고 시작하라.
-
-### 이 저장소를 번들로 다시 내보내기
+새 PC 에서 시작:
 
 ```powershell
-git bundle create <경로>\JackpotRunWeb.bundle --all
+git clone https://github.com/goodgood16046/JackpotRun.git
+cd JackpotRun
 ```
 
-### 번들에서 받은 쪽이 이후 변경분을 되돌려 보낼 때
+평소 작업은 일반적인 `git pull` / `git push` 로 충분하다. 양쪽 PC 에서 작업해도 되지만
+**작업 시작 전 `git pull` 을 습관화**할 것.
+
+> ⚠️ **푸시는 사람이 직접 실행해야 한다.** 이 환경의 Git Credential Manager 는 비대화형
+> 세션에서 인증을 거부하므로(`Cannot prompt because user interactivity has been disabled`),
+> Claude 가 `git push` 를 대신 실행할 수 없다. 커밋까지는 Claude 가 하고, 푸시는
+> **사용자가 직접 열어둔 터미널**에서 `git push` 를 실행한다. 최초 1회 브라우저 로그인 후에는
+> Windows 자격증명에 저장된다.
+
+⚠️ **Public 저장소다.** 커밋에 토큰·비밀키를 넣지 말 것. `database.rules.json` 의 개방 규칙은
+이미 공개돼 있다(아래 미해결 이슈).
+
+### 참고: 오프라인 이관(번들)
+
+네트워크 없이 옮겨야 할 때만 사용한다.
 
 ```powershell
-git bundle create back.bundle main            # 받은 쪽에서 생성
-git bundle verify back.bundle                 # 원본 쪽에서 검증 후
-git pull back.bundle main                     # 병합
+git bundle create <경로>\JackpotRun.bundle --all   # 내보내기
+git clone JackpotRun.bundle JackpotRun            # 받는 쪽
 ```
