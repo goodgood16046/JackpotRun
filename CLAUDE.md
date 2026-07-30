@@ -1,11 +1,34 @@
-# JackpotRunWeb — Claude 작업 컨텍스트
+# JackpotRun — Claude 작업 컨텍스트
 
-카카오 오픈채팅 봇(모카봇)의 **잭팟런(Jackpot Run)** 웹 클라이언트 + **Unity 이관용 리소스 추출본**.
+카카오 오픈채팅 봇(모카봇)의 **잭팟런(Jackpot Run)** 웹 클라이언트 + **Unity 앱 클라이언트**.
 
 ## 현재 목표
 
-**잭팟런을 Unity로 재개발한다.** `unity-assets/` 가 그 출발점이다.
+**잭팟런을 Unity 모바일 앱으로 재개발한다.** `unity-assets/` 가 데이터 출발점이고,
+Unity 프로젝트는 **`Client/Jackpot`** (2022.3.39f1, Android 타깃)이다.
 웹(`public/`)은 기존 카톡 봇용으로 계속 운영 중이므로 Unity 작업이 건드리지 않는다.
+
+## 모델 역할 분담 (필수)
+
+모든 구현 작업은 [FABLE_RULES.md](FABLE_RULES.md)의 4단계 파이프라인을 따른다:
+
+1. **계획 및 설계** — Fable (메인 세션)
+2. **구현** — Sonnet 서브에이전트 (Agent 도구, `model: sonnet`)
+3. **1차 검수** — Opus 서브에이전트 (Agent 도구, `model: opus`)
+4. **최종 검수** — Fable (메인 세션)
+
+구현이 없는 단순 질문·조회는 파이프라인 없이 Fable이 직접 처리한다.
+
+## 작업 로그 (필수)
+
+모든 작업 완료 시 [WORKLOG.md](WORKLOG.md)에 `## 날짜 - 작업내용` 서식으로 기록한다. 최신 항목이 위로.
+
+## Unity 클라이언트 (`Client/Jackpot`)
+
+- 설계 문서: [Docs/UNITY_PORT_DESIGN.md](Docs/UNITY_PORT_DESIGN.md) — 데이터 변환·C# API·UI·앱 베이스라인 사양
+- 카탈로그: `unity-assets/manifest.json` → `Client/Jackpot/Tools/convert_manifest.py` → `Assets/JackpotRun/Resources/JackpotRun/catalog.json` (JsonUtility-safe)
+- UI는 전부 코드 생성 uGUI, TMP 미사용(한글은 번들 Pretendard 폰트)
+- Android 베이스라인 자동 적용: `Assets/JackpotRun/Editor/AndroidAppBaseline.cs` (패키지 `com.phigolf.jackpotrun`)
 
 ## ⚠️ 이 저장소에 없는 것 — 먼저 읽을 것
 
