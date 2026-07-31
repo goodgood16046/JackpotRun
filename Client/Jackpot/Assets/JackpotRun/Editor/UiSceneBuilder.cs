@@ -229,19 +229,25 @@ namespace JackpotRun.EditorTools
             public CanvasGroup group;
             public PickView view;
             public Button backButton;
+            public Text headWhoText; // S10 head 블록 "@닉 — ..." — index.html #who
             public Button[] recoButtons;
             public Button[] tabButtons;
             public Image[] tabButtonImages;
-            public Text[] tabLabelTexts;
+            public Text[] tabNumTexts; // S10 .tnum(① 등, 완료 시 " ✓" 그린 접미)
+            public Text[] tabLabelTexts; // .tpick
             public RectTransform chipsContent;
             public RectTransform chipTemplate;
             public Button[] sortButtons;
             public Image[] sortButtonImages;
+            public Text sectionTitleText; // S10 .sechead h2
+            public Text sectionCountText; // S10 .sechead .cnt "해금 n/m"
             public RectTransform gridContent;
             public CanvasGroup gridCanvasGroup;
             public RectTransform cardTemplate;
             public Text comboText;
+            public Text comboBuildText; // S10 .sum-combo .bl(골드 빌드토큰 요약줄)
             public Text gradeText;
+            public Image gradeBadgeImage; // S10 .sum-grade 배지 배경(등급색 저알파 틴트)
             public Text ceilingValueText;
             public Text stabilityValueText;
             public Text difficultyValueText;
@@ -249,7 +255,8 @@ namespace JackpotRun.EditorTools
             public Text blurbText;
             public Text prosText;
             public Text consText;
-            public Text buildText;
+            public RectTransform buildChipsContent; // S10 .sd-builds 칩 로우
+            public RectTransform buildChipTemplate;
             public Button startButton;
         }
 
@@ -532,13 +539,15 @@ namespace JackpotRun.EditorTools
             result.changeNickButton = UiKit.Button(nickRow, "닉네임 변경", new Vector2(170, 44), UiKit.Card, UiKit.TextPrimary, null, panelSprite);
             UiKit.SizeHint(result.changeNickButton, preferredWidth: 170, preferredHeight: 44, flexibleWidth: 0, flexibleHeight: 0);
 
-            result.profileSummaryText = UiKit.Text(bottom, "", 24, UiKit.Good, TextAnchor.MiddleCenter);
+            // S10: 웹 pick.css의 골드 단일 CTA 톤에 맞춰 시작=Accent(금), 도감=PanelBg(중립)로 통일
+            // (이전 Good/Blue 투톤은 웹에 대응 화면이 없어 자체 정한 값이었다).
+            result.profileSummaryText = UiKit.Text(bottom, "", 24, UiKit.Accent, TextAnchor.MiddleCenter);
             UiKit.SizeHint(result.profileSummaryText, preferredHeight: 40);
 
-            result.startButton = UiKit.Button(bottom, "게임 시작", new Vector2(0, 140), UiKit.Good, UiKit.Bg, null, panelSprite);
+            result.startButton = UiKit.Button(bottom, "게임 시작", new Vector2(0, 140), UiKit.Accent, UiKit.Bg, null, panelSprite);
             UiKit.SizeHint(result.startButton, preferredHeight: 140);
 
-            result.dexButton = UiKit.Button(bottom, "도감", new Vector2(0, 140), UiKit.Blue, UiKit.Bg, null, panelSprite);
+            result.dexButton = UiKit.Button(bottom, "도감", new Vector2(0, 140), UiKit.PanelBg, UiKit.TextPrimary, null, panelSprite);
             UiKit.SizeHint(result.dexButton, preferredHeight: 140);
 
             var footerSpacer = UiKit.Panel(bottom, "FooterSpacer", new Color(0f, 0f, 0f, 0f));
@@ -598,11 +607,15 @@ namespace JackpotRun.EditorTools
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
-        // ── PickView 화면 ────────────────────────────────────────────────────────────
+        // ── PickView 화면 — S10: public/jackpotpick/index.html DOM 순서 그대로 재구성 ──────
+        // head(타이틀+lead+who) → tabs → recos → toolbar(chips+sort) → sechead → grid → summary.
+        // 뒤로가기 버튼은 웹에 없는 앱 전용 내비게이션이라 head 위 별도 소형 행으로 유지한다.
         private static PickBuildResult BuildPickScreen(Transform canvasRoot)
         {
             var result = new PickBuildResult();
             var panelSprite = UiSpriteGen.Load("panel_r24");
+            var pillSprite = UiSpriteGen.Load("chip_r999");
+            var r13Sprite = UiSpriteGen.Load("rrect_r13");
 
             var root = UiKit.Panel(canvasRoot, "PickScreen", UiKit.Bg);
             UiKit.Fill(root);
@@ -614,57 +627,68 @@ namespace JackpotRun.EditorTools
             UiKit.Fill(col);
             // 루트 VGroup은 childForceExpandHeight=false(UiKit.VGroup 고정값) — 아래 각 행은 전부
             // preferredHeight+flexibleHeight=0으로 "명시"해 잔여 공간을 나눠 갖지 못하게 한다.
-            // 그리드 스크롤만 flexibleHeight=1로 잔여 전부를 가져간다(Fable 육안 검수 수정 지시,
-            // 2026-07-31: 행 높이 배분 붕괴 — pill/탭/정렬 행이 거대 카드로 부풀고 그리드가 15%로 압축됨).
+            // 그리드 스크롤만 flexibleHeight=1로 잔여 전부를 가져간다(S9 Fable 육안 검수 수정 지시 유지).
 
-            // 헤더 — 110, "← 메뉴"는 160×64 소형(행이 늘어나도 늘어나지 않도록 forceExpandHeight=false)
-            var header = UiKit.HGroup(col, 16, new RectOffset(24, 24, 16, 12), true, false);
-            UiKit.SizeHint(header, preferredHeight: 110, flexibleHeight: 0);
-            header.gameObject.GetComponent<HorizontalLayoutGroup>().childForceExpandHeight = false;
-            result.backButton = UiKit.Button(header, "← 메뉴", new Vector2(160, 64), UiKit.PanelBg, UiKit.TextPrimary, null, panelSprite);
-            UiKit.SizeHint(result.backButton, preferredWidth: 160, preferredHeight: 64, flexibleWidth: 0, flexibleHeight: 0);
-            var headerTitle = UiKit.Text(header, "캐릭터 · 머신 · 장치를 골라 시작하세요", UiKit.TextStyle.Body, TextAnchor.MiddleLeft);
-            UiKit.SizeHint(headerTitle, flexibleWidth: 1, flexibleHeight: 0);
-            // header가 controlChildH=false라 자식 높이를 만지지 않는다 — 새 RectTransform의 기본
-            // sizeDelta(100×100)를 그대로 두면 폭만 맞고 높이가 어긋나므로 back 버튼과 같은 64로 맞춘다.
-            headerTitle.rectTransform.sizeDelta = new Vector2(headerTitle.rectTransform.sizeDelta.x, 64f);
+            // 뒤로가기 — 36 소형 행(웹에는 없는 앱 전용 내비게이션, 최소한으로 축소).
+            var navRow = UiKit.HGroup(col, 0, new RectOffset(24, 24, 10, 0), true, false);
+            UiKit.SizeHint(navRow, preferredHeight: 46, flexibleHeight: 0);
+            result.backButton = UiKit.Button(navRow, "← 메뉴", new Vector2(140, 46), UiKit.PanelBg, UiKit.TextPrimary, null, panelSprite);
+            UiKit.SizeHint(result.backButton, preferredWidth: 140, preferredHeight: 46, flexibleWidth: 0, flexibleHeight: 0);
 
-            // 추천 4버튼(순서: 입문/고점/도전/랜덤 — PickView.RecoKinds와 일치해야 함) — 행 84, 버튼 64
-            var recoRow = UiKit.HGroup(col, 12, new RectOffset(24, 24, 10, 10), true, false);
-            UiKit.SizeHint(recoRow, preferredHeight: 84, flexibleHeight: 0);
-            recoRow.gameObject.GetComponent<HorizontalLayoutGroup>().childForceExpandHeight = false;
-            string[] recoLabels = { "입문", "고점", "도전", "랜덤" };
-            result.recoButtons = new Button[recoLabels.Length];
-            for (int i = 0; i < recoLabels.Length; i++)
-            {
-                var btn = UiKit.Button(recoRow, recoLabels[i], new Vector2(0, 64), UiKit.Card, UiKit.Accent, null, panelSprite);
-                UiKit.SizeHint(btn, flexibleWidth: 1, preferredHeight: 64, flexibleHeight: 0);
-                result.recoButtons[i] = btn;
-            }
+            // 1) head — index.html .head: h1(sub만 골드) + .lead + .who. 값은 폰트 ×1.6(13.5→22, 14→22).
+            var head = UiKit.VGroup(col, 4, new RectOffset(24, 24, 4, 0), true, true);
+            head.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+            UiKit.SizeHint(head, preferredHeight: 108, flexibleHeight: 0);
+            var headTitle = UiKit.Text(head, "잭팟런 — <color=#FFD23F>시작 조합 선택</color>", 38, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            headTitle.supportRichText = true;
+            UiKit.SizeHint(headTitle, preferredHeight: 46, flexibleHeight: 0);
+            var headLead = UiKit.Text(head, "캐릭터 + 슬롯머신 + 장치 조합으로 이번 런의 방향을 정하세요.", 22, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(headLead, preferredHeight: 28, flexibleHeight: 0);
+            result.headWhoText = UiKit.Text(head, "", 22, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(result.headWhoText, preferredHeight: 30, flexibleHeight: 0);
 
-            // 탭 3버튼(순서: 캐릭터/머신/장치 — PickView.TabOrder와 일치해야 함) — 행 130(탭은 행 전체를
-            // 채우는 큰 터치영역이 맞으므로 forceExpandHeight=true 유지, 내부 제목+라벨은 중앙 정렬로 보정)
-            var tabsRow = UiKit.HGroup(col, 12, new RectOffset(24, 24, 8, 8), true, true);
-            UiKit.SizeHint(tabsRow, preferredHeight: 130, flexibleHeight: 0);
-            // S8 항목⑤: astral 이모지(🎭🎰🔧)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            // 2) tabs — .tabs 3탭: .tnum(① 등, 완료 시 그린 ✓) + 제목 + .tpick(선택값).
+            var tabsRow = UiKit.HGroup(col, 12, new RectOffset(24, 24, 10, 8), true, true);
+            UiKit.SizeHint(tabsRow, preferredHeight: 128, flexibleHeight: 0);
+            string[] tabNums = { "①", "②", "③" };
             string[] tabTitles = { "캐릭터", "슬롯머신", "장치" };
             result.tabButtons = new Button[3];
             result.tabButtonImages = new Image[3];
+            result.tabNumTexts = new Text[3];
             result.tabLabelTexts = new Text[3];
             for (int i = 0; i < 3; i++)
             {
-                var (btn, bg, label) = BuildTabButton(tabsRow, tabTitles[i], panelSprite);
+                var (btn, bg, num, label) = BuildTabButton(tabsRow, tabNums[i], tabTitles[i], r13Sprite);
                 result.tabButtons[i] = btn;
                 result.tabButtonImages[i] = bg;
+                result.tabNumTexts[i] = num;
                 result.tabLabelTexts[i] = label;
             }
 
-            // 필터 칩(가로 스크롤 + 템플릿) — 행 64
+            // 3) recos — .recos 4 pill(입문=teal/고점=pink/도전=red 테두리, 랜덤=기본). astral 이모지
+            // (🌱🔥😈🎲)는 렌더링되지 않아 한글 라벨만 사용(S8 항목⑤ 관례).
+            var recoRow = UiKit.HGroup(col, 10, new RectOffset(24, 24, 4, 10), true, false);
+            UiKit.SizeHint(recoRow, preferredHeight: 62, flexibleHeight: 0);
+            recoRow.gameObject.GetComponent<HorizontalLayoutGroup>().childForceExpandHeight = false;
+            string[] recoLabels = { "입문 추천", "고점 추천", "도전 조합", "랜덤" };
+            Color[] recoBorders = { UiKit.Teal, UiKit.Pink, UiKit.Red, UiKit.Bd2 };
+            result.recoButtons = new Button[recoLabels.Length];
+            for (int i = 0; i < recoLabels.Length; i++)
+            {
+                var btn = UiKit.Button(recoRow, recoLabels[i], new Vector2(0, 62), new Color(1f, 1f, 1f, 0.03f), UiKit.TextPrimary, null, pillSprite);
+                UiKit.SizeHint(btn, flexibleWidth: 1, preferredHeight: 62, flexibleHeight: 0);
+                var recoOutline = UiKit.AddGlowOutline(btn.gameObject, recoBorders[i], 1.5f);
+                recoOutline.enabled = true; // 상시 표시 — pick.css .reco.beginner/.high/.challenge 테두리색 재해석(글로우로 근사).
+                result.recoButtons[i] = btn;
+            }
+
+            // 4) toolbar — .chips(필터, 가로 스크롤+템플릿) + .sortrow(정렬 4버튼 — Unity 표준 select가
+            // 없어 기존 버튼열 그대로 유지, 색만 통일. 재해석 항목으로 보고 대상).
             var chipScroll = UiKit.Scroll(col, out var chipsContent, vertical: false);
-            UiKit.SizeHint(chipScroll, preferredHeight: 64, flexibleHeight: 0);
+            UiKit.SizeHint(chipScroll, preferredHeight: 60, flexibleHeight: 0);
             var chipsHlg = chipsContent.gameObject.AddComponent<HorizontalLayoutGroup>();
             chipsHlg.spacing = 10;
-            chipsHlg.padding = new RectOffset(20, 20, 8, 8);
+            chipsHlg.padding = new RectOffset(20, 20, 6, 6);
             chipsHlg.childControlWidth = false;
             chipsHlg.childControlHeight = true;
             chipsHlg.childForceExpandWidth = false;
@@ -675,37 +699,46 @@ namespace JackpotRun.EditorTools
             result.chipsContent = chipsContent;
             result.chipTemplate = BuildChipTemplate(chipsContent);
 
-            // 정렬 4버튼(순서: 추천순/난이도순/고점순/최근해금순 — PickView.SortKeys와 일치해야 함) — 행 72, 버튼 56
-            var sortRow = UiKit.HGroup(col, 10, new RectOffset(24, 24, 8, 8), true, false);
-            UiKit.SizeHint(sortRow, preferredHeight: 72, flexibleHeight: 0);
+            var sortRow = UiKit.HGroup(col, 10, new RectOffset(24, 24, 6, 10), true, false);
+            UiKit.SizeHint(sortRow, preferredHeight: 60, flexibleHeight: 0);
             sortRow.gameObject.GetComponent<HorizontalLayoutGroup>().childForceExpandHeight = false;
             string[] sortLabels = { "추천순", "난이도순", "고점순", "최근해금순" };
             result.sortButtons = new Button[sortLabels.Length];
             result.sortButtonImages = new Image[sortLabels.Length];
             for (int i = 0; i < sortLabels.Length; i++)
             {
-                var btn = UiKit.Button(sortRow, sortLabels[i], new Vector2(0, 56), UiKit.Card, UiKit.TextPrimary, null, panelSprite);
-                UiKit.SizeHint(btn, flexibleWidth: 1, preferredHeight: 56, flexibleHeight: 0);
+                var btn = UiKit.Button(sortRow, sortLabels[i], new Vector2(0, 60), UiKit.PanelBg, UiKit.TextPrimary, null, panelSprite);
+                UiKit.SizeHint(btn, flexibleWidth: 1, preferredHeight: 60, flexibleHeight: 0);
                 result.sortButtons[i] = btn;
                 result.sortButtonImages[i] = btn.GetComponent<Image>();
             }
 
-            // 카드 그리드(세로 스크롤 + 템플릿) — 잔여 전부(flexibleHeight=1), 이 행만 flexible
+            // 5) sechead — .sechead: 제목 + "해금 n/m".
+            var sechead = UiKit.HGroup(col, 8, new RectOffset(24, 24, 6, 6), true, true);
+            UiKit.SizeHint(sechead, preferredHeight: 40, flexibleHeight: 0);
+            result.sectionTitleText = UiKit.Text(sechead, "캐릭터", 22, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(result.sectionTitleText, flexibleWidth: 1, flexibleHeight: 0);
+            result.sectionCountText = UiKit.Text(sechead, "", 19, UiKit.TextSecondary, TextAnchor.MiddleRight);
+            UiKit.SizeHint(result.sectionCountText, preferredWidth: 240, flexibleWidth: 0, flexibleHeight: 0);
+
+            // 6) 카드 그리드(세로 스크롤 + 템플릿) — 잔여 전부(flexibleHeight=1), 이 행만 flexible
             var gridScroll = UiKit.Scroll(col, out var gridContent, vertical: true);
             UiKit.SizeHint(gridScroll, preferredHeight: 0, flexibleHeight: 1);
-            UiKit.Grid(gridContent, new Vector2(500, 460), new Vector2(20, 20), 2);
-            gridContent.gameObject.GetComponent<GridLayoutGroup>().padding = new RectOffset(20, 12, 20, 20);
+            UiKit.Grid(gridContent, new Vector2(500, 460), new Vector2(16, 16), 2);
+            gridContent.gameObject.GetComponent<GridLayoutGroup>().padding = new RectOffset(20, 12, 8, 20);
             result.gridContent = gridContent;
             result.gridCanvasGroup = gridContent.gameObject.AddComponent<CanvasGroup>();
             result.cardTemplate = BuildCardTemplate(gridContent);
 
-            // 요약 패널
+            // 7) summary — 하단 고정 시트
             BuildSummaryPanel(col, result, panelSprite);
 
             return result;
         }
 
-        private static (Button btn, Image bg, Text label) BuildTabButton(Transform parent, string title, Sprite sprite)
+        // S10 — pick.css .tab: .tnum(11px dim2, 완료 시 " ✓" green 접미는 PickView가 텍스트로 append)
+        // + 제목(13.5px 800) + .tpick(11px gold). 반경 13(r13Sprite)으로 pick.css .tab{border-radius:13px}.
+        private static (Button btn, Image bg, Text num, Text label) BuildTabButton(Transform parent, string num, string title, Sprite sprite)
         {
             var go = new GameObject("Tab", typeof(RectTransform), typeof(Image), typeof(Button), typeof(PressFx));
             var rt = (RectTransform)go.transform;
@@ -719,21 +752,24 @@ namespace JackpotRun.EditorTools
             }
             var btn = go.GetComponent<Button>();
             btn.targetGraphic = img;
-            // 탭 행(tabsRow) 자체는 130 고정(BuildPickScreen), 탭 버튼은 forceExpandHeight=true로 그
+            // 탭 행(tabsRow) 자체는 128 고정(BuildPickScreen), 탭 버튼은 forceExpandHeight=true로 그
             // 행 전체 높이를 채우는 큰 터치영역이 의도다 — preferredHeight는 채워질 값의 기준선일 뿐.
             UiKit.SizeHint(btn, flexibleWidth: 1, preferredHeight: 114, flexibleHeight: 0);
 
-            var col = UiKit.VGroup(rt, 2, new RectOffset(8, 8, 10, 10), true, true);
+            var col = UiKit.VGroup(rt, 3, new RectOffset(8, 8, 10, 10), true, true);
             UiKit.Fill(col);
-            // 제목+선택라벨 2줄(합계 ~68px)이 채워진 탭 높이(114) 안에서 위로 쏠리지 않도록 중앙 정렬
+            // 3줄(tnum+제목+tpick, 합계 ~74px)이 채워진 탭 높이 안에서 위로 쏠리지 않도록 중앙 정렬
             // (UiKit.VGroup 공용 헬퍼는 UpperCenter 고정이라 여기서 컴포넌트를 직접 덮어쓴다).
             col.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+            var numText = UiKit.Text(col, num, 18, UiKit.Dim2, TextAnchor.MiddleCenter, true);
+            numText.supportRichText = true;
+            UiKit.SizeHint(numText, preferredHeight: 24, flexibleHeight: 0);
             var titleText = UiKit.Text(col, title, 22, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
-            UiKit.SizeHint(titleText, preferredHeight: 38, flexibleHeight: 0);
-            var labelText = UiKit.Text(col, "선택 전", 17, UiKit.TextSecondary, TextAnchor.MiddleCenter);
-            UiKit.SizeHint(labelText, preferredHeight: 28, flexibleHeight: 0);
+            UiKit.SizeHint(titleText, preferredHeight: 30, flexibleHeight: 0);
+            var labelText = UiKit.Text(col, "선택 전", 18, UiKit.Accent, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(labelText, preferredHeight: 24, flexibleHeight: 0);
 
-            return (btn, img, labelText);
+            return (btn, img, numText, labelText);
         }
 
         // 필터 칩 템플릿 — HorizontalLayoutGroup+ContentSizeFitter로 라벨 길이에 맞춰 스스로 너비를
@@ -763,134 +799,221 @@ namespace JackpotRun.EditorTools
             return chip;
         }
 
-        // 카드 템플릿 — "Body"(VerticalLayoutGroup: 아이콘 300 + 이름행 40 + 효과 1줄 52)는 스태킹
-        // 컨테이너, Lock/Selected/IconEmoji는 오버레이라 카드 루트의 직계 자식으로 둔다(PickView.cs의
-        // Find 경로 계약과 정확히 일치해야 한다 — "Body/Icon", "Body/Name", "Body/Badge",
-        // "Body/Badge/Label", "Body/Eff", "IconEmoji", "Lock", "Lock/Hint", "Selected").
+        // 자기 텍스트 길이에 맞춰 스스로 폭을 정하는 필 배지 — 난이도 배지(Badge)/태그 칩(Tag0..3)/
+        // 코너 배지(Corner)/요약 빌드칩 공용(BuildChipTemplate과 동일 기법: HorizontalLayoutGroup+
+        // ContentSizeFitter로 라벨 길이만큼 폭을 정한다). 부모가 LayoutGroup이 아니면(예: 카드 루트에
+        // 바로 얹는 Corner) 세로도 스스로 정해야 하므로 verticalFit도 같이 켠다(SizeHint로 부모가
+        // 통제하는 경우는 그 값이 우선한다).
+        private static (RectTransform root, Image bg, Text label) BuildAutoPill(
+            Transform parent, string name, Sprite sprite, int fontSize, RectOffset padding, bool bold)
+        {
+            var pill = UiKit.Panel(parent, name, UiKit.PanelBg, sprite);
+            var img = pill.GetComponent<Image>();
+            var hlg = pill.gameObject.AddComponent<HorizontalLayoutGroup>();
+            hlg.padding = padding;
+            hlg.childControlWidth = true;
+            hlg.childControlHeight = true;
+            hlg.childForceExpandWidth = false;
+            hlg.childForceExpandHeight = false;
+            hlg.childAlignment = TextAnchor.MiddleCenter;
+            var csf = pill.gameObject.AddComponent<ContentSizeFitter>();
+            csf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            var label = UiKit.Text(pill, "", fontSize, UiKit.TextPrimary, TextAnchor.MiddleCenter, bold);
+            label.name = "Label";
+            return (pill, img, label);
+        }
+
+        // 카드 템플릿 — S10: pick.css .jcard 구조 그대로 이식(좌측 난이도색 스트라이프 + 좌측 아이콘83×83
+        // + 우측 이름/역할 + 효과 박스 + 태그 칩 + 장단점·추천빌드(또는 잠금 시 해금 박스) + 우상단
+        // 코너 배지). 자식 경로 계약(PickView.cs Find 경로와 정확히 일치해야 한다): "Stripe"(Image),
+        // "Body/Top/IconSlot/Icon"·"IconEmoji", "Body/Top/Info/NameRow/Name"·"Badge"(+"/Label"),
+        // "Body/Top/Info/Role", "Body/Eff/Text", "Body/Tags/Tag0".."Tag3"(+"/Label"), "Body/ProsCons",
+        // "Body/Foot", "Body/UnlockBox/Text", "Corner"(+"/Label"). 폰트/치수는 pick.css px × 1.6
+        // (S10 설계 지시), 라운드 반경은 UiSpriteGen rrect_rN 이름 그대로(스케일 없음).
         private static RectTransform BuildCardTemplate(Transform parent)
         {
-            var card = UiKit.Panel(parent, "CardTemplate", UiKit.Card, UiSpriteGen.Load("card_grad"));
-            var cardImg = card.GetComponent<Image>();
-            var cardBtn = card.gameObject.AddComponent<Button>();
-            cardBtn.targetGraphic = cardImg;
-            card.gameObject.AddComponent<PressFx>();
-            UiKit.AddGlowOutline(card.gameObject, UiKit.Accent, 3f);
+            var r7 = UiSpriteGen.Load("rrect_r7");
+            var r9 = UiSpriteGen.Load("rrect_r9");
+            var r11 = UiSpriteGen.Load("rrect_r11");
+            var pill999 = UiSpriteGen.Load("chip_r999");
+            var cardGrad15 = UiSpriteGen.Load("card_grad_r15");
 
-            var body = UiKit.VGroup(card, 8, new RectOffset(18, 18, 18, 14), true, true);
+            var card = UiKit.Panel(parent, "CardTemplate", UiKit.Panel2, cardGrad15);
+            var cardBtn = card.gameObject.AddComponent<Button>();
+            cardBtn.targetGraphic = card.GetComponent<Image>();
+            card.gameObject.AddComponent<PressFx>();
+            UiKit.AddGlowOutline(card.gameObject, UiKit.Accent, 3f); // 선택 시 펄스(PickView.PulseOutline 그대로 유지)
+            card.gameObject.AddComponent<CanvasGroup>(); // 잠금 시 알파 .62 — pick.css .jcard.locked{opacity:.62} 재해석
+
+            // 좌측 4px→6px 난이도색 스트라이프(.jcard::before) — 카드 루트 직계 자식, Body 패딩 왼쪽에
+            // 그만큼(6) 여유를 둬 겹치지 않게 한다.
+            var stripe = UiKit.Panel(card, "Stripe", UiKit.Bd);
+            stripe.name = "Stripe";
+            UiKit.SetAnchors(stripe, new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(6f, 0f));
+
+            var body = UiKit.VGroup(card, 14, new RectOffset(25, 19, 19, 18), true, true);
             body.name = "Body";
             UiKit.Fill(body);
 
-            var icon = UiKit.Image(body, null, Color.white);
+            // ── Top: 아이콘83×83(좌) + 이름/배지/역할(우) — align-items:center 재현은 BuildTabButton과
+            // 동일 기법(행 자체를 controlChildH=true로 83 고정, 내부 Info VGroup을 MiddleLeft로 재정렬).
+            var top = UiKit.HGroup(body, 18, new RectOffset(0, 0, 0, 0), true, true);
+            top.name = "Top";
+            UiKit.SizeHint(top, preferredHeight: 83, flexibleHeight: 0);
+
+            var iconSlot = UiKit.Panel(top, "IconSlot", UiKit.Hex("#0E1019"), r11);
+            UiKit.SizeHint(iconSlot, preferredWidth: 83, preferredHeight: 83, flexibleWidth: 0, flexibleHeight: 0);
+            var icon = UiKit.Image(iconSlot, null, Color.white);
             icon.name = "Icon";
-            UiKit.SizeHint(icon, preferredHeight: 300);
-
-            var nameRow = UiKit.HGroup(body, 10, new RectOffset(0, 0, 0, 0), true, true);
-            nameRow.name = "NameRow"; // PickView가 "Body/NameRow/..." 경로로 바인딩한다 — 이름 계약
-            UiKit.SizeHint(nameRow, preferredHeight: 40);
-
-            var nameText = UiKit.Text(nameRow, "이름", 26, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
-            nameText.name = "Name";
-            UiKit.SizeHint(nameText, flexibleWidth: 1, preferredHeight: 40);
-
-            var badge = UiKit.Panel(nameRow, "Badge", UiKit.Blue, UiSpriteGen.Load("chip_r999"));
-            UiKit.SizeHint(badge, preferredWidth: 96, flexibleWidth: 0, preferredHeight: 34);
-            var badgeLabel = UiKit.Text(badge, "배지", 15, UiKit.Bg, TextAnchor.MiddleCenter, true);
-            badgeLabel.name = "Label";
-            UiKit.Fill(badgeLabel.rectTransform);
-
-            var effText = UiKit.Text(body, "효과 설명", 19, UiKit.TextSecondary, TextAnchor.UpperLeft);
-            effText.name = "Eff";
-            UiKit.SizeHint(effText, preferredHeight: 52);
-
-            // 스프라이트가 없을 때(예: "장치 없이" 카드)의 이모지 폴백 — Body 스태킹에 끼지 않도록
-            // 카드 루트 직계 자식으로 두고 Icon 슬롯 자리(패딩 18 + 높이 300)를 수동으로 겹친다.
-            // S8 항목⑤: 🚫(astral)는 렌더링되지 않는다 — BMP 기호(⊘, "없음")로 대체.
-            var iconEmoji = UiKit.Text(card, "⊘", 96, UiKit.TextPrimary, TextAnchor.MiddleCenter);
+            UiKit.Fill(icon.rectTransform);
+            var iconEmoji = UiKit.Text(iconSlot, "", 34, UiKit.TextPrimary, TextAnchor.MiddleCenter);
             iconEmoji.name = "IconEmoji";
-            iconEmoji.rectTransform.anchorMin = new Vector2(0f, 1f);
-            iconEmoji.rectTransform.anchorMax = new Vector2(1f, 1f);
-            iconEmoji.rectTransform.pivot = new Vector2(0.5f, 1f);
-            iconEmoji.rectTransform.sizeDelta = new Vector2(0f, 300f);
-            iconEmoji.rectTransform.anchoredPosition = new Vector2(0f, -18f);
-            iconEmoji.gameObject.SetActive(false);
+            UiKit.Fill(iconEmoji.rectTransform);
 
-            var lockOverlay = UiKit.Panel(card, "Lock", UiKit.LockScrim);
-            lockOverlay.name = "Lock";
-            UiKit.Fill(lockOverlay);
-            var lockCol = UiKit.VGroup(lockOverlay, 6, new RectOffset(16, 16, 16, 16), true, true);
-            lockCol.name = "LockCol"; // PickView가 "LockCol/Hint" 경로로 바인딩 — 이름 계약
-            UiKit.Fill(lockCol);
-            // S8 항목⑤: 🔒(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
-            var lockIcon = UiKit.Text(lockCol, "[잠김]", 24, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
-            UiKit.SizeHint(lockIcon, preferredHeight: 36);
-            var lockHint = UiKit.Text(lockCol, "", 16, UiKit.TextSecondary, TextAnchor.UpperLeft);
-            lockHint.name = "Hint";
-            UiKit.SizeHint(lockHint, flexibleHeight: 1);
-            lockOverlay.gameObject.SetActive(false);
+            var info = UiKit.VGroup(top, 3, new RectOffset(0, 0, 0, 0), true, false);
+            info.name = "Info";
+            UiKit.SizeHint(info, flexibleWidth: 1);
+            info.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleLeft;
 
-            var selectedMark = UiKit.Text(card, "선택됨 ✓", 16, UiKit.Accent, TextAnchor.UpperRight, true);
-            selectedMark.name = "Selected";
-            UiKit.SetAnchors(selectedMark.rectTransform, new Vector2(1, 1), new Vector2(1, 1),
-                new Vector2(-190, -32), new Vector2(-14, -6));
-            selectedMark.gameObject.SetActive(false);
+            var nameRow = UiKit.HGroup(info, 8, new RectOffset(0, 0, 0, 0), true, true);
+            nameRow.name = "NameRow";
+            UiKit.SizeHint(nameRow, preferredHeight: 34, flexibleHeight: 0);
+            var nameText = UiKit.Text(nameRow, "", 25, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            nameText.name = "Name";
+            UiKit.SizeHint(nameText, flexibleWidth: 1, flexibleHeight: 0);
+            var (badgeRoot, badgeBg, badgeLabel) = BuildAutoPill(nameRow, "Badge", r7, 17, new RectOffset(11, 11, 3, 3), true);
+            badgeLabel.color = UiKit.Hex("#15161F"); // pick.css .b-diff{color:#15161f} 고정 어두운 글자
+
+            var role = UiKit.Text(info, "", 18, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            role.name = "Role";
+            UiKit.SizeHint(role, preferredHeight: 24, flexibleHeight: 0);
+
+            // ── Eff: 효과 박스(.jc-eff) ──
+            var eff = UiKit.Panel(body, "Eff", new Color(1f, 1f, 1f, 0.035f), r9);
+            UiKit.SizeHint(eff, preferredHeight: 70, flexibleHeight: 0);
+            var effText = UiKit.Text(eff, "", 20, UiKit.Hex("#CDD3E6"), TextAnchor.UpperLeft);
+            effText.name = "Text";
+            UiKit.SetAnchors(effText.rectTransform, Vector2.zero, Vector2.one, new Vector2(14f, 11f), new Vector2(-14f, -11f));
+
+            // ── Tags: 태그 칩(.jc-tags) 최대 4개 고정 슬롯 — Unity uGUI에 flex-wrap이 없어 한 줄
+            // 비줄바꿈으로 재해석(대부분 엔트리가 1~3개라 실질 영향 적음, S10 보고 대상).
+            var tags = UiKit.HGroup(body, 8, new RectOffset(0, 0, 0, 0), false, true);
+            tags.name = "Tags";
+            UiKit.SizeHint(tags, preferredHeight: 30, flexibleHeight: 0);
+            for (int i = 0; i < 4; i++)
+                BuildAutoPill(tags, "Tag" + i, r7, 17, new RectOffset(11, 11, 3, 3), true);
+
+            // ── 장점(최대2)/주의(최대1) 리치텍스트(.jc-pc) + 추천빌드(.jc-foot) — 잠금 시 숨기고
+            // UnlockBox로 대체(app.js "unlocked ? bodyExtra : lockHint"와 동일 분기).
+            var prosCons = UiKit.Text(body, "", 19, UiKit.TextPrimary, TextAnchor.UpperLeft);
+            prosCons.name = "ProsCons";
+            prosCons.supportRichText = true;
+            UiKit.SizeHint(prosCons, preferredHeight: 80, flexibleHeight: 0);
+
+            var foot = UiKit.Text(body, "", 18, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            foot.name = "Foot";
+            foot.supportRichText = true;
+            UiKit.SizeHint(foot, preferredHeight: 26, flexibleHeight: 0);
+
+            // ── UnlockBox(.jc-unlock, 점선 테두리는 Image 단색 한계로 생략 — S10 재해석 항목) ──
+            var unlockBox = UiKit.Panel(body, "UnlockBox", new Color(1f, 0.824f, 0.247f, 0.08f), r9);
+            unlockBox.name = "UnlockBox";
+            UiKit.SizeHint(unlockBox, preferredHeight: 90, flexibleHeight: 0);
+            var unlockText = UiKit.Text(unlockBox, "", 18, UiKit.Accent, TextAnchor.UpperLeft);
+            unlockText.name = "Text";
+            unlockText.supportRichText = true;
+            UiKit.SetAnchors(unlockText.rectTransform, Vector2.zero, Vector2.one, new Vector2(14f, 10f), new Vector2(-14f, -10f));
+
+            // ── Corner: 잠금/선택 배지(app.js corner = !unlocked ? lock : selected ? check : "" —
+            // 상호배타라 노드 하나를 재사용, 배경·글자색은 PickView가 상태별로 다시 칠한다) ──
+            var (cornerRoot, cornerBg, cornerLabel) = BuildAutoPill(card, "Corner", pill999, 18, new RectOffset(14, 14, 5, 5), true);
+            cornerRoot.anchorMin = cornerRoot.anchorMax = new Vector2(1f, 1f);
+            cornerRoot.pivot = new Vector2(1f, 1f);
+            cornerRoot.anchoredPosition = new Vector2(-14f, -14f);
+            cornerRoot.gameObject.SetActive(false);
 
             card.gameObject.SetActive(false);
             return card;
         }
 
+        // S10 — pick.css .summary/.sum-compact/.sd-* 이식. 고정 560(안의 각 줄 전부 flexibleHeight=0
+        // 명시, colsRow(장점/주의)만 flexibleHeight=1로 잔여를 가져간다 — 예산:
+        // 36+24+68+64+90(min)+36+112 + spacing8×6=48 + padding32 = 510, 560-510=50이 colsRow 여유).
         private static void BuildSummaryPanel(Transform parent, PickBuildResult result, Sprite panelSprite)
         {
-            // 고정 500(Fable 육안 검수 수정 지시) — 안의 각 줄도 전부 flexibleHeight=0으로 명시하고,
-            // pros/cons 2열(colsRow)만 flexibleHeight=1로 남는 공간을 가져간다(최소 100은 유지되도록
-            // 위 고정 줄 합계를 500 예산 안에 맞춰뒀다: 36+32+56+48+30+110 + spacing48 = 360,
-            // 500-32(패딩)-360 = 108 ≥ minHeight 100).
+            var r9 = UiSpriteGen.Load("rrect_r9");
+            var r11 = UiSpriteGen.Load("rrect_r11");
+            var pill999 = UiSpriteGen.Load("chip_r999");
+
             var panel = UiKit.Panel(parent, "Summary", UiKit.PanelBg, panelSprite);
-            UiKit.SizeHint(panel, preferredHeight: 500, flexibleHeight: 0);
+            UiKit.SizeHint(panel, preferredHeight: 560, flexibleHeight: 0);
             var col = UiKit.VGroup(panel, 8, new RectOffset(24, 24, 16, 16), true, true);
             UiKit.Fill(col);
 
-            result.comboText = UiKit.Text(col, "", 26, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
-            UiKit.SizeHint(result.comboText, preferredHeight: 36, flexibleHeight: 0);
+            // .sum-combo(조합명, 좌) + .sum-grade(등급 배지, 우) 한 행에.
+            var comboRow = UiKit.HGroup(col, 12, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(comboRow, preferredHeight: 36, flexibleHeight: 0);
+            result.comboText = UiKit.Text(comboRow, "", 26, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(result.comboText, flexibleWidth: 1, flexibleHeight: 0);
+            var gradeBadge = UiKit.Panel(comboRow, "GradeBadge", new Color(0f, 0f, 0f, 0f), r9);
+            UiKit.SizeHint(gradeBadge, preferredWidth: 148, preferredHeight: 34, flexibleWidth: 0, flexibleHeight: 0);
+            result.gradeBadgeImage = gradeBadge.GetComponent<Image>();
+            result.gradeText = UiKit.Text(gradeBadge, "", 19, UiKit.TextSecondary, TextAnchor.MiddleCenter, true);
+            UiKit.Fill(result.gradeText.rectTransform);
 
-            result.gradeText = UiKit.Text(col, "", 26, UiKit.TextSecondary, TextAnchor.MiddleLeft, true);
-            UiKit.SizeHint(result.gradeText, preferredHeight: 32, flexibleHeight: 0);
+            // .bl(빌드토큰 골드 요약줄).
+            result.comboBuildText = UiKit.Text(col, "", 18, UiKit.Accent, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(result.comboBuildText, preferredHeight: 24, flexibleHeight: 0);
 
-            var meterRow = UiKit.HGroup(col, 20, new RectOffset(0, 0, 0, 0), true, true);
-            UiKit.SizeHint(meterRow, preferredHeight: 56, flexibleHeight: 0);
-            var ceil = BuildMeterCell(meterRow, "점수 고점");
-            var stab = BuildMeterCell(meterRow, "안정성");
-            var diff = BuildMeterCell(meterRow, "난이도");
+            var meterRow = UiKit.HGroup(col, 12, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(meterRow, preferredHeight: 68, flexibleHeight: 0);
+            var ceil = BuildMeterCell(meterRow, "점수 고점", r11);
+            var stab = BuildMeterCell(meterRow, "안정성", r11);
+            var diff = BuildMeterCell(meterRow, "난이도", r11);
             result.ceilingValueText = ceil.value;
             result.stabilityValueText = stab.value;
             result.difficultyValueText = diff.value;
             result.difficultyLabelText = diff.label;
 
-            result.blurbText = UiKit.Text(col, "", 19, UiKit.TextPrimary, TextAnchor.UpperLeft);
-            UiKit.SizeHint(result.blurbText, preferredHeight: 48, flexibleHeight: 0);
+            // .sd-blurb(골드 톤 박스).
+            var blurbPanel = UiKit.Panel(col, "Blurb", new Color(1f, 0.824f, 0.247f, 0.06f), r11);
+            UiKit.SizeHint(blurbPanel, preferredHeight: 64, flexibleHeight: 0);
+            result.blurbText = UiKit.Text(blurbPanel, "", 19, UiKit.TextPrimary, TextAnchor.UpperLeft);
+            result.blurbText.supportRichText = true;
+            UiKit.SetAnchors(result.blurbText.rectTransform, Vector2.zero, Vector2.one, new Vector2(14f, 8f), new Vector2(-14f, -8f));
 
+            // .sd-cols(장점▲/주의▼ 2열, ▲▼ 프리픽스는 PickView가 리치텍스트로 넣는다).
             var colsRow = UiKit.HGroup(col, 20, new RectOffset(0, 0, 0, 0), true, true);
-            UiKit.SizeHint(colsRow, minHeight: 100, flexibleHeight: 1);
-            result.prosText = BuildListCell(colsRow, "장점", UiKit.Good);
-            result.consText = BuildListCell(colsRow, "주의", UiKit.Bad);
+            UiKit.SizeHint(colsRow, minHeight: 90, flexibleHeight: 1);
+            result.prosText = BuildListCell(colsRow, "장점", UiKit.Green);
+            result.consText = BuildListCell(colsRow, "주의", UiKit.ConWarn);
 
-            result.buildText = UiKit.Text(col, "", 17, UiKit.TextSecondary, TextAnchor.UpperLeft);
-            UiKit.SizeHint(result.buildText, preferredHeight: 30, flexibleHeight: 0);
+            // .sd-builds(빌드 토큰 칩 로우) — 템플릿은 자기 텍스트 길이만큼 폭을 정하는 필(BuildAutoPill),
+            // 인스턴스는 PickView.UpdateSummary가 buildChipsContent 아래로 복제한다(필터 칩과 동일 기법).
+            var buildRow = UiKit.HGroup(col, 8, new RectOffset(0, 0, 0, 0), false, true);
+            buildRow.name = "BuildChips";
+            UiKit.SizeHint(buildRow, preferredHeight: 36, flexibleHeight: 0);
+            result.buildChipsContent = buildRow;
+            result.buildChipTemplate = BuildAutoPill(buildRow, "BuildChipTemplate", pill999, 17, new RectOffset(12, 12, 5, 5), true).root;
+            result.buildChipTemplate.gameObject.SetActive(false);
 
-            // 활성(interactable) 상태 = Accent(#FFD23F) 배경 + 검정(UiKit.Bg) 글자로 또렷하게(이미 이
-            // 색 조합이지만 130→110 높이 조정과 함께 재확인). 비활성일 때만 Button.disabledColor/
-            // PressFx 알파로 흐려진다 — 캐릭터·머신 미선택 상태의 기본값이라 정상 동작이다.
-            result.startButton = UiKit.Button(col, "시작", new Vector2(0, 110), UiKit.Accent, UiKit.Bg, null, panelSprite);
-            UiKit.SizeHint(result.startButton, preferredHeight: 110, flexibleHeight: 0);
+            // 활성(interactable) 상태 = Accent(#FFD23F) 배경 + 검정(UiKit.Bg) 글자로 또렷하게. 비활성일
+            // 때만 Button.disabledColor/PressFx 알파로 흐려진다 — 캐릭터·머신 미선택 상태의 기본값.
+            result.startButton = UiKit.Button(col, "이 조합으로 시작", new Vector2(0, 112), UiKit.Accent, UiKit.Bg, null, panelSprite);
+            UiKit.SizeHint(result.startButton, preferredHeight: 112, flexibleHeight: 0);
         }
 
-        private static (Text label, Text value) BuildMeterCell(RectTransform row, string label)
+        private static (Text label, Text value) BuildMeterCell(RectTransform row, string label, Sprite sprite)
         {
-            var cell = UiKit.VGroup(row, 2, new RectOffset(0, 0, 0, 0), true, true);
-            UiKit.SizeHint(cell, flexibleWidth: 1);
+            var cellPanel = UiKit.Panel(row, "Meter", UiKit.PanelBg, sprite);
+            UiKit.SizeHint(cellPanel, flexibleWidth: 1, flexibleHeight: 0);
+            var cell = UiKit.VGroup(cellPanel, 2, new RectOffset(10, 10, 8, 8), true, true);
+            UiKit.Fill(cell);
             var l = UiKit.Text(cell, label, 18, UiKit.TextSecondary, TextAnchor.MiddleCenter);
-            UiKit.SizeHint(l, preferredHeight: 24);
-            var v = UiKit.Text(cell, "", 24, UiKit.Accent, TextAnchor.MiddleCenter, true);
-            UiKit.SizeHint(v, preferredHeight: 30);
+            UiKit.SizeHint(l, preferredHeight: 22);
+            var v = UiKit.Text(cell, "", 22, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(v, preferredHeight: 28);
             return (l, v);
         }
 
@@ -900,7 +1023,8 @@ namespace JackpotRun.EditorTools
             UiKit.SizeHint(cell, flexibleWidth: 1);
             var t = UiKit.Text(cell, title, 19, color, TextAnchor.MiddleLeft, true);
             UiKit.SizeHint(t, preferredHeight: 26);
-            var body = UiKit.Text(cell, "", 17, UiKit.TextPrimary, TextAnchor.UpperLeft);
+            var body = UiKit.Text(cell, "", 18, UiKit.TextPrimary, TextAnchor.UpperLeft);
+            body.supportRichText = true;
             UiKit.SizeHint(body, flexibleHeight: 1);
             return body;
         }
@@ -908,19 +1032,25 @@ namespace JackpotRun.EditorTools
         private static void WirePickView(PickBuildResult r)
         {
             var so = new SerializedObject(r.view);
+            so.FindProperty("headWhoText").objectReferenceValue = r.headWhoText;
             SetObjectArray(so, "recoButtons", r.recoButtons);
             SetObjectArray(so, "tabButtons", r.tabButtons);
             SetObjectArray(so, "tabButtonImages", r.tabButtonImages);
+            SetObjectArray(so, "tabNumTexts", r.tabNumTexts);
             SetObjectArray(so, "tabLabelTexts", r.tabLabelTexts);
             so.FindProperty("chipsContent").objectReferenceValue = r.chipsContent;
             so.FindProperty("chipTemplate").objectReferenceValue = r.chipTemplate;
             SetObjectArray(so, "sortButtons", r.sortButtons);
             SetObjectArray(so, "sortButtonImages", r.sortButtonImages);
+            so.FindProperty("sectionTitleText").objectReferenceValue = r.sectionTitleText;
+            so.FindProperty("sectionCountText").objectReferenceValue = r.sectionCountText;
             so.FindProperty("gridContent").objectReferenceValue = r.gridContent;
             so.FindProperty("gridCanvasGroup").objectReferenceValue = r.gridCanvasGroup;
             so.FindProperty("cardTemplate").objectReferenceValue = r.cardTemplate;
             so.FindProperty("comboText").objectReferenceValue = r.comboText;
+            so.FindProperty("comboBuildText").objectReferenceValue = r.comboBuildText;
             so.FindProperty("gradeText").objectReferenceValue = r.gradeText;
+            so.FindProperty("gradeBadgeImage").objectReferenceValue = r.gradeBadgeImage;
             so.FindProperty("ceilingValueText").objectReferenceValue = r.ceilingValueText;
             so.FindProperty("stabilityValueText").objectReferenceValue = r.stabilityValueText;
             so.FindProperty("difficultyValueText").objectReferenceValue = r.difficultyValueText;
@@ -928,7 +1058,8 @@ namespace JackpotRun.EditorTools
             so.FindProperty("blurbText").objectReferenceValue = r.blurbText;
             so.FindProperty("prosText").objectReferenceValue = r.prosText;
             so.FindProperty("consText").objectReferenceValue = r.consText;
-            so.FindProperty("buildText").objectReferenceValue = r.buildText;
+            so.FindProperty("buildChipsContent").objectReferenceValue = r.buildChipsContent;
+            so.FindProperty("buildChipTemplate").objectReferenceValue = r.buildChipTemplate;
             so.FindProperty("startButton").objectReferenceValue = r.startButton;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
@@ -1946,10 +2077,11 @@ namespace JackpotRun.EditorTools
                 UnityEditor.Events.UnityEventTools.AddStringPersistentListener(tabBtn.onClick, result.view.SetCategory, cat);
             }
 
-            // 카드 그리드(3열) — 잔여 전부.
+            // 카드 그리드(3열) — S10: jackpotdex/style.css .card는 가로 배치(아이콘 좌 + 이름/설명 우)라
+            // 세로 아트 카드보다 훨씬 낮다 — 셀 높이를 420→150으로 축소.
             var gridScroll = UiKit.Scroll(col, out var gridContent, vertical: true);
             UiKit.SizeHint(gridScroll, flexibleHeight: 1);
-            UiKit.Grid(gridContent, new Vector2(328, 420), new Vector2(16, 16), 3);
+            UiKit.Grid(gridContent, new Vector2(328, 150), new Vector2(16, 16), 3);
             gridContent.gameObject.GetComponent<GridLayoutGroup>().padding = new RectOffset(20, 20, 20, 20);
             result.gridContent = gridContent;
             result.cardTemplate = BuildDexCardTemplate(gridContent);
@@ -1970,52 +2102,57 @@ namespace JackpotRun.EditorTools
             return v;
         }
 
-        // 자식 경로 계약(DexView.cs): IconSlot/Icon·IconSlot/IconEmoji, "Name"/"Desc"/"Sub"(Text),
+        // S10 — jackpotdex/style.css .card: 가로 배치(아이콘 좌 48px→77 + 이름/설명 우). 자식 경로
+        // 계약(DexView.cs): "Content/IconSlot/Icon"·"IconSlot/IconEmoji", "Content/Name"/"Desc"/"Sub",
         // "Lock"(GameObject)+"Lock/Hint"(Text).
         private static RectTransform BuildDexCardTemplate(Transform parent)
         {
-            var card = UiKit.Panel(parent, "DexCardTemplate", UiKit.Card, UiSpriteGen.Load("card_grad"));
+            var r11 = UiSpriteGen.Load("rrect_r11");
+            var card = UiKit.Panel(parent, "DexCardTemplate", UiKit.Panel2, UiSpriteGen.Load("card_grad_r15"));
             var cardBtn = card.gameObject.AddComponent<Button>();
             cardBtn.targetGraphic = card.GetComponent<Image>();
             card.gameObject.AddComponent<PressFx>();
 
             // "Content" 이름 계약(DexView.cs) — Transform.Find는 직계 자식만 찾으므로 Icon/Name/Desc/Sub는
-            // "Content/..."로 찾는다(NodePanel/PerkOfferPanel/ShopPanel과 동일 이유). "Lock"은 card의
-            // 직계 자식(오버레이)이라 이름 그대로 찾을 수 있지만, 그 안의 Hint는 lockCol(아래)의 자식이라
-            // 마찬가지로 "Content/Hint"(lockCol을 "Content"로 명명)로 찾는다.
-            var col = UiKit.VGroup(card, 6, new RectOffset(14, 14, 14, 12), true, true);
-            col.name = "Content";
-            UiKit.Fill(col);
+            // "Content/..."로 찾는다(NodePanel/PerkOfferPanel/ShopPanel과 동일 이유).
+            var row = UiKit.HGroup(card, 14, new RectOffset(14, 14, 12, 12), true, true);
+            row.name = "Content";
+            UiKit.Fill(row);
 
-            BuildIconSlot(col, 220, 96); // Icon/IconEmoji가 IconSlot 자식이지만 IconSlot 자체는 col의 셀.
-            var iconSlot = col.Find("IconSlot");
-            var iconSlotLe = iconSlot.GetComponent<LayoutElement>();
-            iconSlotLe.preferredWidth = -1; // 세로 스택이라 폭은 채우고 높이만 고정.
-            iconSlotLe.flexibleWidth = 1;
-            iconSlotLe.preferredHeight = 220;
-            iconSlotLe.flexibleHeight = 0;
+            var iconSlot = UiKit.Panel(row, "IconSlot", UiKit.Hex("#0E1019"), r11);
+            UiKit.SizeHint(iconSlot, preferredWidth: 77, preferredHeight: 77, flexibleWidth: 0, flexibleHeight: 0);
+            var icon = UiKit.Image(iconSlot, null, Color.white);
+            icon.name = "Icon";
+            UiKit.Fill(icon.rectTransform);
+            var iconEmoji = UiKit.Text(iconSlot, "", 30, UiKit.TextPrimary, TextAnchor.MiddleCenter);
+            iconEmoji.name = "IconEmoji";
+            UiKit.Fill(iconEmoji.rectTransform);
 
-            var name = UiKit.Text(col, "", 22, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            var info = UiKit.VGroup(row, 3, new RectOffset(0, 0, 0, 0), true, false);
+            UiKit.SizeHint(info, flexibleWidth: 1);
+            info.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleLeft;
+
+            var name = UiKit.Text(info, "", 20, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
             name.name = "Name";
-            UiKit.SizeHint(name, preferredHeight: 30, flexibleHeight: 0);
+            UiKit.SizeHint(name, preferredHeight: 26, flexibleHeight: 0);
 
-            var desc = UiKit.Text(col, "", 16, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            var desc = UiKit.Text(info, "", 16, UiKit.TextSecondary, TextAnchor.UpperLeft);
             desc.name = "Desc";
-            UiKit.SizeHint(desc, flexibleHeight: 1);
+            UiKit.SizeHint(desc, preferredHeight: 40, flexibleHeight: 0);
 
-            var sub = UiKit.Text(col, "", 15, UiKit.Accent, TextAnchor.UpperLeft);
+            var sub = UiKit.Text(info, "", 15, UiKit.Accent, TextAnchor.UpperLeft);
             sub.name = "Sub";
-            UiKit.SizeHint(sub, preferredHeight: 22, flexibleHeight: 0);
+            UiKit.SizeHint(sub, preferredHeight: 20, flexibleHeight: 0);
 
+            // 잠금 — jackpotdex .card.masked 재해석: 전체를 어둡게(알파) + "❓ ???" 마스킹은 DexView가
+            // Name/Desc 텍스트 자체를 바꿔치기하고, 이 오버레이는 우측 상단에 조건 힌트만 작게 보여준다.
             var lockOverlay = UiKit.Panel(card, "Lock", UiKit.LockScrim);
             UiKit.Fill(lockOverlay);
-            var lockCol = UiKit.VGroup(lockOverlay, 6, new RectOffset(14, 14, 14, 14), true, true);
+            var lockCol = UiKit.VGroup(lockOverlay, 4, new RectOffset(14, 14, 10, 10), true, true);
             lockCol.name = "Content";
             UiKit.Fill(lockCol);
-            // S8 항목⑤: 🔒(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
-            var lockIcon = UiKit.Text(lockCol, "[잠김]", 22, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
-            UiKit.SizeHint(lockIcon, preferredHeight: 32, flexibleHeight: 0);
-            var lockHint = UiKit.Text(lockCol, "", 15, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            lockCol.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.LowerLeft;
+            var lockHint = UiKit.Text(lockCol, "", 15, UiKit.TextSecondary, TextAnchor.LowerLeft);
             lockHint.name = "Hint";
             UiKit.SizeHint(lockHint, flexibleHeight: 1);
             lockOverlay.gameObject.SetActive(false);

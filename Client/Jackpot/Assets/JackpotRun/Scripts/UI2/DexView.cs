@@ -111,12 +111,14 @@ namespace JackpotRun.UI2
             var iconEmoji = card.Find("Content/IconSlot/IconEmoji")?.GetComponent<Text>();
             if (iconEmoji != null) { iconEmoji.text = e.emoji; iconEmoji.gameObject.SetActive(sprite == null); }
 
+            // jackpotdex/style.css .card.masked 재해석 — 잠긴 카드는 이름/설명을 "❓ ???"로 가린다
+            // (해금 조건은 Lock 오버레이 하단에 별도 표시).
             var nameText = card.Find("Content/Name")?.GetComponent<Text>();
-            if (nameText != null) nameText.text = e.nameKo;
+            if (nameText != null) nameText.text = unlocked ? e.nameKo : "❓ ???";
             var descText = card.Find("Content/Desc")?.GetComponent<Text>();
-            if (descText != null) descText.text = e.descKo;
+            if (descText != null) descText.text = unlocked ? e.descKo : "미해금 — 조건을 확인하세요";
 
-            string sub = BuildSubline(e);
+            string sub = unlocked ? BuildSubline(e) : "";
             var subText = card.Find("Content/Sub")?.GetComponent<Text>();
             if (subText != null)
             {

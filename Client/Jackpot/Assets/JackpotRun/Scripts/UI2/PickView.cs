@@ -29,12 +29,16 @@ namespace JackpotRun.UI2
         // 정적 인스턴스를 계산 프로퍼티로 읽는다(호출부는 그대로 "appRoot.XXX").
         private AppRoot appRoot => AppRoot.Instance;
 
+        [Header("head — S10 index.html #who")]
+        [SerializeField] private Text headWhoText;
+
         [Header("추천 4버튼 — 순서 고정: 입문/고점/도전/랜덤 (RecoKinds)")]
         [SerializeField] private Button[] recoButtons = Array.Empty<Button>();
 
         [Header("탭 3버튼 — 순서 고정: 캐릭터/머신/장치 (TabOrder)")]
         [SerializeField] private Button[] tabButtons = Array.Empty<Button>();
         [SerializeField] private Image[] tabButtonImages = Array.Empty<Image>();
+        [SerializeField] private Text[] tabNumTexts = Array.Empty<Text>(); // S10 .tnum(①/②/③ + 완료 시 " ✓")
         [SerializeField] private Text[] tabLabelTexts = Array.Empty<Text>();
 
         [Header("필터 칩")]
@@ -45,6 +49,10 @@ namespace JackpotRun.UI2
         [SerializeField] private Button[] sortButtons = Array.Empty<Button>();
         [SerializeField] private Image[] sortButtonImages = Array.Empty<Image>();
 
+        [Header("sechead — S10 index.html .sechead")]
+        [SerializeField] private Text sectionTitleText;
+        [SerializeField] private Text sectionCountText;
+
         [Header("카드 그리드")]
         [SerializeField] private RectTransform gridContent;
         [SerializeField] private CanvasGroup gridCanvasGroup;
@@ -52,7 +60,9 @@ namespace JackpotRun.UI2
 
         [Header("요약 패널")]
         [SerializeField] private Text comboText;
+        [SerializeField] private Text comboBuildText; // S10 .sum-combo .bl
         [SerializeField] private Text gradeText;
+        [SerializeField] private Image gradeBadgeImage; // S10 .sum-grade 배경(등급색 저알파 틴트)
         [SerializeField] private Text ceilingValueText;
         [SerializeField] private Text stabilityValueText;
         [SerializeField] private Text difficultyValueText;
@@ -60,8 +70,12 @@ namespace JackpotRun.UI2
         [SerializeField] private Text blurbText;
         [SerializeField] private Text prosText;
         [SerializeField] private Text consText;
-        [SerializeField] private Text buildText;
+        [SerializeField] private RectTransform buildChipsContent; // S10 .sd-builds
+        [SerializeField] private RectTransform buildChipTemplate;
         [SerializeField] private Button startButton;
+
+        // pick.css .tab .tnum 텍스트(①/②/③) — 완료 시 PickMeta 없이 그대로 " ✓"(green) 접미한다.
+        private static readonly string[] TabNums = { "①", "②", "③" };
 
         // ── 상태 (매번 화면에 들어올 때 OnEnable에서 초기화 — 기존 PickScreen.Init과 동일 규칙) ──
         private string _tab = "char";
@@ -133,6 +147,13 @@ namespace JackpotRun.UI2
 
             if (gridCanvasGroup != null) gridCanvasGroup.alpha = 1f;
 
+            if (headWhoText != null)
+            {
+                string nick = LoginView.SavedNick();
+                headWhoText.text = (string.IsNullOrEmpty(nick) ? "" : "@" + nick + " — ") +
+                    "캐릭터 + 머신 + 장치를 골라 시작을 예약하세요";
+            }
+
             RefreshTabLabels();
             UpdateTabHighlight();
             UpdateSortHighlight();
@@ -197,6 +218,19 @@ namespace JackpotRun.UI2
             if (tabLabelTexts.Length > 0) tabLabelTexts[0].text = c != null ? $"{c.emoji} {c.name}" : "선택 전";
             if (tabLabelTexts.Length > 1) tabLabelTexts[1].text = m != null ? $"{m.emoji} {m.name}" : "선택 전";
             if (tabLabelTexts.Length > 2) tabLabelTexts[2].text = d != null ? $"{d.emoji} {d.name}" : "장치 없이";
+
+            // pick.css .tab.done .tnum::after{content:" ✓";color:green} — 캐릭터/머신은 선택해야 완료,
+            // 장치는 "장치 없이"도 완료로 간주(app.js refreshTabLabels()의 dev 탭 .add("done") 그대로).
+            bool[] done = { c != null, m != null, true };
+            for (int i = 0; i < tabNumTexts.Length && i < TabNums.Length; i++)
+                tabNumTexts[i].text = TabNums[i] + (done[i] ? " <color=#4ADE80>✓</color>" : "");
+        }
+
+        private static string TabTitleOf(string tab)
+        {
+            if (tab == "char") return "캐릭터";
+            if (tab == "mac") return "슬롯머신";
+            return "장치";
         }
 
         // ── 필터 칩 ───────────────────────────────────────────────────────────────────
@@ -266,27 +300,50 @@ namespace JackpotRun.UI2
             if (_tab == "dev") BuildCard("dev", "", isNoneDevice: true);
             foreach (var id in ids) BuildCard(_tab, id, isNoneDevice: false);
 
+            // S10 .sechead: 제목 + "해금 n/m"(+필터 적용 중이면 필터명도).
+            if (sectionTitleText != null) sectionTitleText.text = TabTitleOf(_tab);
+            if (sectionCountText != null)
+            {
+                var full = TabIds(_tab);
+                int total = full.Length;
+                int unlocked = 0;
+                foreach (var id in full) if (IsUnlocked(_tab, id)) unlocked++;
+                sectionCountText.text = _filter != "전체"
+                    ? $"해금 {unlocked}/{total} · 필터 “{_filter}”"
+                    : $"해금 {unlocked}/{total}";
+            }
+
             _justPickedTab = null;
             _justPickedId = null;
         }
 
+        // S10 — pick.css .jcard 구조 그대로 채운다(UiSceneBuilder.BuildCardTemplate의 Find 경로 계약과
+        // 정확히 일치해야 한다). 로직(정렬/필터/추천/Evaluate/해금판정)은 그대로, 채워 넣는 필드만 확장.
         private void BuildCard(string tab, string id, bool isNoneDevice)
         {
-            string name, effText, badgeLabel, unlockHint;
+            string name, role, effText, badgeLabel, unlockHint, prosConsRich, footRich;
             Color badgeColor;
+            string[] tags = null;
             Sprite icon = null;
             bool unlocked;
             bool selected;
+            bool hasBadge;
+            bool hasBody; // ProsCons/Foot(unlocked) 또는 UnlockBox(locked) — none 카드는 둘 다 숨김
 
             if (isNoneDevice)
             {
                 name = "장치 없이";
+                role = "기본 · 장치 미장착";
                 effText = "이번 런은 장치를 장착하지 않습니다. 순수 캐릭터·머신 조합.";
-                badgeLabel = "기본";
-                badgeColor = UiKit.Blue;
+                badgeLabel = "";
+                badgeColor = UiKit.Dim2;
                 unlocked = true;
                 selected = _selDev == "";
                 unlockHint = null;
+                prosConsRich = "";
+                footRich = "";
+                hasBadge = false;
+                hasBody = false;
             }
             else
             {
@@ -295,20 +352,35 @@ namespace JackpotRun.UI2
                 if (m == null) return;
 
                 name = m.name;
+                role = m.role;
                 effText = m.eff;
+                tags = m.tags;
                 icon = JackpotCatalog.LoadSprite(entry);
                 unlocked = IsUnlocked(tab, id);
                 selected = (tab == "char" && _selChar == id) || (tab == "mac" && _selMac == id) || (tab == "dev" && _selDev == id);
+                hasBadge = true;
+                hasBody = true;
 
                 if (tab == "dev")
                 {
                     badgeLabel = string.IsNullOrEmpty(m.kind) ? "능동" : m.kind;
-                    badgeColor = m.kind == "패시브" ? UiKit.Good : UiKit.Blue;
+                    badgeColor = m.kind == "패시브" ? UiKit.Teal : UiKit.Blue;
+                    string line1 = !string.IsNullOrEmpty(m.cmd) ? $"<b>명령</b> .{m.cmd}" : "<b>유형</b> 패시브(상시 자동)";
+                    prosConsRich = line1 + "\n" + $"<b>쿨다운</b> {m.cool}";
+                    footRich = $"추천: <color=#FFD23F><b>{m.when}</b></color>";
                 }
                 else
                 {
                     badgeLabel = PickMeta.DiffLabel(m.diff);
                     badgeColor = PickMeta.DiffColor(m.diff);
+                    var lines = new List<string>();
+                    if (m.pros != null)
+                        for (int i = 0; i < m.pros.Length && lines.Count < 2; i++)
+                            lines.Add($"<color=#4ADE80><b>＋</b></color> {m.pros[i]}");
+                    if (m.cons != null && m.cons.Length > 0)
+                        lines.Add($"<color=#FF9B9B><b>－</b></color> {m.cons[0]}");
+                    prosConsRich = string.Join("\n", lines);
+                    footRich = $"추천 빌드: <color=#FFD23F><b>{m.build}</b></color>";
                 }
                 unlockHint = !string.IsNullOrEmpty(m.unlock) ? m.unlock : "조건 미정";
             }
@@ -317,39 +389,116 @@ namespace JackpotRun.UI2
             card.gameObject.SetActive(true);
             card.name = isNoneDevice ? "Card_none" : "Card_" + id;
 
-            // "Body"는 아이콘/이름/배지/효과 텍스트를 세로로 쌓는 내부 VerticalLayoutGroup 컨테이너
-            // (UiSceneBuilder.BuildCardTemplate) — Lock/Selected/IconEmoji는 오버레이라 카드 루트의
-            // 직계 자식으로 따로 둔다(레이아웃 그룹 스태킹에서 제외하기 위함).
-            var iconImage = card.Find("Body/Icon")?.GetComponent<Image>();
+            var stripeImg = card.Find("Stripe")?.GetComponent<Image>();
+            if (stripeImg != null) stripeImg.color = badgeColor;
+
+            var iconImage = card.Find("Body/Top/IconSlot/Icon")?.GetComponent<Image>();
             if (iconImage != null)
             {
                 iconImage.sprite = icon;
                 iconImage.enabled = icon != null;
             }
-            var iconEmoji = card.Find("IconEmoji")?.gameObject;
-            if (iconEmoji != null) iconEmoji.SetActive(icon == null);
-
-            var nameText = card.Find("Body/NameRow/Name")?.GetComponent<Text>();
-            if (nameText != null) nameText.text = name;
-
-            var badgeBg = card.Find("Body/NameRow/Badge")?.GetComponent<Image>();
-            if (badgeBg != null) badgeBg.color = badgeColor;
-            var badgeLabelText = card.Find("Body/NameRow/Badge/Label")?.GetComponent<Text>();
-            if (badgeLabelText != null) badgeLabelText.text = badgeLabel;
-
-            var effTextComp = card.Find("Body/Eff")?.GetComponent<Text>();
-            if (effTextComp != null) effTextComp.text = effText;
-
-            var lockRoot = card.Find("Lock");
-            if (lockRoot != null)
+            var iconEmojiText = card.Find("Body/Top/IconSlot/IconEmoji")?.GetComponent<Text>();
+            if (iconEmojiText != null)
             {
-                lockRoot.gameObject.SetActive(!unlocked);
-                var hintText = lockRoot.Find("LockCol/Hint")?.GetComponent<Text>();
-                if (hintText != null) hintText.text = "해금: " + (unlockHint ?? "조건 미정");
+                // S8 항목⑤ 관례 그대로: astral 이모지가 렌더링되지 않아 BMP 대체 기호를 쓴다.
+                iconEmojiText.text = "⊘";
+                iconEmojiText.gameObject.SetActive(icon == null);
             }
 
-            var selectedMark = card.Find("Selected");
-            if (selectedMark != null) selectedMark.gameObject.SetActive(selected);
+            var nameText = card.Find("Body/Top/Info/NameRow/Name")?.GetComponent<Text>();
+            if (nameText != null) nameText.text = name;
+
+            var badgeRoot = card.Find("Body/Top/Info/NameRow/Badge");
+            if (badgeRoot != null)
+            {
+                badgeRoot.gameObject.SetActive(hasBadge);
+                if (hasBadge)
+                {
+                    var badgeBg = badgeRoot.GetComponent<Image>();
+                    if (badgeBg != null) badgeBg.color = badgeColor;
+                    var badgeLabelText = badgeRoot.Find("Label")?.GetComponent<Text>();
+                    if (badgeLabelText != null) badgeLabelText.text = badgeLabel;
+                }
+            }
+
+            var roleText = card.Find("Body/Top/Info/Role")?.GetComponent<Text>();
+            if (roleText != null) roleText.text = role;
+
+            var effTextComp = card.Find("Body/Eff/Text")?.GetComponent<Text>();
+            if (effTextComp != null) effTextComp.text = effText;
+
+            // .jc-tags — 고정 4슬롯(Tag0..Tag3), Unity에 flex-wrap이 없어 비줄바꿈 한 줄로 재해석.
+            var tagsRoot = card.Find("Body/Tags");
+            for (int i = 0; i < 4; i++)
+            {
+                var slot = tagsRoot?.Find("Tag" + i);
+                if (slot == null) continue;
+                bool has = tags != null && i < tags.Length;
+                slot.gameObject.SetActive(has);
+                if (!has) continue;
+                string tagLabel = tags[i];
+                string cls = PickMeta.TagClass.TryGetValue(tagLabel, out var c) ? c : "";
+                var slotBg = slot.GetComponent<Image>();
+                if (slotBg != null) slotBg.color = UiKit.TagBg(cls);
+                var slotLabel = slot.Find("Label")?.GetComponent<Text>();
+                if (slotLabel != null)
+                {
+                    slotLabel.text = tagLabel;
+                    slotLabel.color = UiKit.TagFg(cls);
+                }
+            }
+
+            // 잠금 시 opacity .62(css .jcard.locked) — 채도 감소(filter:saturate(.5))는 Unity UI로
+            // 재현할 수 없어 생략(S10 재해석 항목, 보고 대상).
+            var canvasGroup = card.GetComponent<CanvasGroup>();
+            if (canvasGroup != null) canvasGroup.alpha = unlocked ? 1f : 0.62f;
+
+            var prosConsGo = card.Find("Body/ProsCons")?.gameObject;
+            var footGo = card.Find("Body/Foot")?.gameObject;
+            var unlockBoxGo = card.Find("Body/UnlockBox")?.gameObject;
+            bool showBody = hasBody && unlocked;
+            bool showUnlockBox = hasBody && !unlocked;
+            prosConsGo?.SetActive(showBody);
+            footGo?.SetActive(showBody);
+            unlockBoxGo?.SetActive(showUnlockBox);
+            if (showBody)
+            {
+                var prosConsText = prosConsGo?.GetComponent<Text>();
+                if (prosConsText != null) prosConsText.text = prosConsRich;
+                var footText = footGo?.GetComponent<Text>();
+                if (footText != null) footText.text = footRich;
+            }
+            else if (showUnlockBox)
+            {
+                var unlockText = card.Find("Body/UnlockBox/Text")?.GetComponent<Text>();
+                if (unlockText != null) unlockText.text = $"<color=#8B93A7>해금:</color> {unlockHint}";
+            }
+
+            // .jc-lock(우상단 🔒 잠김) / .jc-check(선택됨 ✓) — app.js corner 로직대로 상호배타라
+            // 노드 하나(Corner)를 상태별로 다시 칠해 재사용한다.
+            var corner = card.Find("Corner");
+            if (corner != null)
+            {
+                var cornerImg = corner.GetComponent<Image>();
+                var cornerLabel = corner.Find("Label")?.GetComponent<Text>();
+                if (!unlocked)
+                {
+                    corner.gameObject.SetActive(true);
+                    if (cornerImg != null) cornerImg.color = new Color(14f / 255f, 16f / 255f, 25f / 255f, 0.85f);
+                    if (cornerLabel != null) { cornerLabel.text = "잠김"; cornerLabel.color = UiKit.TextSecondary; }
+                }
+                else if (selected)
+                {
+                    corner.gameObject.SetActive(true);
+                    if (cornerImg != null) cornerImg.color = UiKit.Gold;
+                    if (cornerLabel != null) { cornerLabel.text = "선택됨 ✓"; cornerLabel.color = UiKit.Bg; }
+                }
+                else
+                {
+                    corner.gameObject.SetActive(false);
+                }
+            }
 
             var outline = card.GetComponent<Outline>();
             if (outline != null)
@@ -465,7 +614,7 @@ namespace JackpotRun.UI2
             }
         }
 
-        // ── 요약 패널(PickScreen.UpdateSummary 이관) ─────────────────────────────────
+        // ── 요약 패널(PickScreen.UpdateSummary 이관, S10: pick.css .sum-*/.sd-* 룩) ───────────
         private void UpdateSummary()
         {
             var c = !string.IsNullOrEmpty(_selChar) ? MetaOf("char", _selChar) : null;
@@ -482,7 +631,9 @@ namespace JackpotRun.UI2
 
             if (!ready)
             {
+                if (comboBuildText != null) comboBuildText.text = "";
                 if (gradeText != null) gradeText.text = "";
+                if (gradeBadgeImage != null) gradeBadgeImage.color = new Color(0f, 0f, 0f, 0f);
                 if (blurbText != null) blurbText.text = "캐릭터와 슬롯머신을 고르면 조합 시너지·점수 고점·안정성·난이도를 분석해 드려요.";
                 if (ceilingValueText != null) ceilingValueText.text = "";
                 if (stabilityValueText != null) stabilityValueText.text = "";
@@ -490,26 +641,72 @@ namespace JackpotRun.UI2
                 if (difficultyLabelText != null) difficultyLabelText.text = "난이도";
                 if (prosText != null) prosText.text = "";
                 if (consText != null) consText.text = "";
-                if (buildText != null) buildText.text = "";
+                ClearBuildChips();
                 return;
             }
 
             var ev = PickMeta.Evaluate(_selChar, _selMac, _selDev);
             if (ev == null) return;
 
+            if (comboBuildText != null)
+                comboBuildText.text = ev.buildTokens != null ? string.Join(" / ", ev.buildTokens) : "";
+
             if (gradeText != null)
             {
                 gradeText.text = $"시너지 {ev.grade}";
                 gradeText.color = ev.gradeColor;
             }
+            if (gradeBadgeImage != null)
+            {
+                var badgeTint = ev.gradeColor;
+                badgeTint.a = 0.14f; // pick.css .sum-grade{border:1px solid currentColor} 재해석 — 저알파 배경 틴트
+                gradeBadgeImage.color = badgeTint;
+            }
             if (ceilingValueText != null) ceilingValueText.text = ev.ceilingStars;
             if (stabilityValueText != null) stabilityValueText.text = ev.stabilityStars;
             if (difficultyValueText != null) difficultyValueText.text = ev.difficultyStars;
             if (difficultyLabelText != null) difficultyLabelText.text = $"난이도 · {ev.diffLabel}";
-            if (blurbText != null) blurbText.text = $"시너지 {ev.grade}. {ev.blurb}";
-            if (prosText != null) prosText.text = (ev.pros != null && ev.pros.Count > 0) ? string.Join("\n", ev.pros) : "";
-            if (consText != null) consText.text = (ev.cons != null && ev.cons.Count > 0) ? string.Join("\n", ev.cons) : "특별한 약점 없음";
-            if (buildText != null) buildText.text = ev.buildTokens != null ? string.Join(" / ", ev.buildTokens) : "";
+            if (blurbText != null) blurbText.text = $"<color=#FFD23F><b>시너지 {ev.grade}.</b></color> {ev.blurb}";
+
+            // pick.css .sd-box.pro li::before(▲ green) / .con li::before(▼ #ff9b9b) 프리픽스.
+            if (prosText != null)
+                prosText.text = (ev.pros != null && ev.pros.Count > 0)
+                    ? string.Join("\n", ev.pros.ConvertAll(p => "<color=#4ADE80>▲</color> " + p))
+                    : "";
+            if (consText != null)
+                consText.text = (ev.cons != null && ev.cons.Count > 0)
+                    ? string.Join("\n", ev.cons.ConvertAll(p => "<color=#FF9B9B>▼</color> " + p))
+                    : "<color=#FF9B9B>▼</color> 특별한 약점 없음";
+
+            RenderBuildChips(ev.buildTokens);
+        }
+
+        // .sd-builds — 빌드 토큰을 골드 필 칩으로(필터 칩과 동일한 템플릿 인스턴스화 기법).
+        private void RenderBuildChips(List<string> tokens)
+        {
+            ClearBuildChips();
+            if (buildChipsContent == null || buildChipTemplate == null || tokens == null) return;
+            foreach (var token in tokens)
+            {
+                var chip = Instantiate(buildChipTemplate, buildChipsContent);
+                chip.gameObject.SetActive(true);
+                chip.name = "BuildChip_" + token;
+                var bg = chip.GetComponent<Image>();
+                if (bg != null) bg.color = new Color(1f, 0.824f, 0.247f, 0.06f);
+                var label = chip.Find("Label")?.GetComponent<Text>();
+                if (label != null) { label.text = token; label.color = UiKit.Accent; }
+            }
+        }
+
+        private void ClearBuildChips()
+        {
+            if (buildChipsContent == null) return;
+            for (int i = buildChipsContent.childCount - 1; i >= 0; i--)
+            {
+                var child = buildChipsContent.GetChild(i);
+                if (buildChipTemplate != null && child == buildChipTemplate) continue;
+                Destroy(child.gameObject);
+            }
         }
 
         private void OnStartClicked()

@@ -15,19 +15,35 @@ namespace JackpotRun.UI2
     //      직접 참조·사용한다.
     public static class UiKit
     {
-        // ── 팔레트 (S7 "화면 사양" 공통) ──────────────────────────────────────────────
-        public static readonly Color Bg = Hex("#0B0E1A");
-        public static readonly Color PanelBg = Hex("#151A2E");
-        public static readonly Color Card = Hex("#1B2138");
-        public static readonly Color CardTop = Hex("#232B49"); // 카드 그라데이션 상단(+8% 밝게 근사, UiSpriteGen.card_grad와 짝)
-        public static readonly Color Accent = Hex("#FFD23F");
-        public static readonly Color TextPrimary = Hex("#E8EAF2");
-        public static readonly Color TextSecondary = Hex("#8B93A7");
-        public static readonly Color Good = Hex("#34D3C0");
-        public static readonly Color Bad = Hex("#FF6B6B");
-        public static readonly Color Blue = Hex("#5B8CFF");
-        public static readonly Color Purple = Hex("#A974FF");
-        public static readonly Color LockScrim = new Color(0.043f, 0.055f, 0.102f, 0.62f);
+        // ── 팔레트 (S10 — public/jackpotpick/pick.css :root 그대로 이식) ──────────────────
+        // 기존 필드명은 유지하고 값만 pick.css 값으로 교체했다(호출부 전부 그대로 동작).
+        // pick.css에 없던 색(bg1/panel2/bd/bd2/dim2/amber/pink/green)은 CSS 변수명 그대로 새로 추가.
+        public static readonly Color Bg = Hex("#0B0D15"); // --bg0
+        public static readonly Color Bg1 = Hex("#11131F"); // --bg1(헤더 그라데이션 등)
+        public static readonly Color PanelBg = Hex("#171A27"); // --panel
+        public static readonly Color Panel2 = Hex("#1C2030"); // --panel2(카드 그라데이션 상단/밝은 패널)
+        public static readonly Color Card = Panel2; // 기존 소비처 호환용 별칭 — panel2와 동일
+        // 탭/카드 "활성" 강조색 — pick.css .tab.active{background:linear-gradient(180deg,#2a2238,#211c30)}
+        // 두 스톱의 평균(#251f34, 보라 톤)으로 근사(uGUI Image는 단색만 지원 — 그라데이션 재해석).
+        // PickView/DexView의 활성 탭·선택 카드 강조에 공용으로 쓰인다(기존 필드명 유지).
+        public static readonly Color CardTop = Hex("#251F34");
+        public static readonly Color Bd = Hex("#2A3048"); // --bd(기본 테두리)
+        public static readonly Color Bd2 = Hex("#394365"); // --bd2(hover/강조 테두리)
+        public static readonly Color Accent = Hex("#FFD23F"); // --gold
+        public static readonly Color Gold = Accent; // pick.css 이름 그대로 쓰고 싶은 호출부용 별칭
+        public static readonly Color Amber = Hex("#F59E0B"); // --amber
+        public static readonly Color Pink = Hex("#FF7ADB"); // --pink
+        public static readonly Color TextPrimary = Hex("#E9EBF5"); // --txt
+        public static readonly Color TextSecondary = Hex("#8B93A7"); // --dim
+        public static readonly Color Dim2 = Hex("#69718A"); // --dim2(탭 번호 등 더 흐린 보조색)
+        public static readonly Color Good = Hex("#34D3C0"); // --teal(기존 소비처 호환 별칭)
+        public static readonly Color Teal = Good;
+        public static readonly Color Bad = Hex("#FF6B6B"); // --red(기존 소비처 호환 별칭)
+        public static readonly Color Red = Bad;
+        public static readonly Color Blue = Hex("#5B8CFF"); // --blue
+        public static readonly Color Purple = Hex("#A974FF"); // --purple
+        public static readonly Color Green = Hex("#4ADE80"); // --green(장점 프리픽스 등 teal과 별개의 색)
+        public static readonly Color LockScrim = new Color(11f / 255f, 13f / 255f, 21f / 255f, 0.62f); // bg0 62%
 
         // 등급 3종 — Tier enum(JackpotRun.Engine)과 대응하지만 여기서는 카탈로그 pick.tier 문자열
         // ("SILVER"/"GOLD"/"PRISM")을 그대로 받는다(뷰가 카탈로그 데이터를 직접 다루므로). 별도
@@ -47,6 +63,34 @@ namespace JackpotRun.UI2
                 default: return TextSecondary;
             }
         }
+
+        // ── 태그 칩 배색 (pick.css .tg.hot/.good/.high + 기본) — PickMeta.TagClass("hot"/"good"/"high")
+        // 값 그대로 4종. 배경은 CSS rgba 그대로(半투명), 글자는 밝은 보정색, 테두리는 생략(Image
+        // 단일색이라 별도 스트로크 없이 배경만으로 구분 — S10 재해석 항목).
+        public static Color TagBg(string cls)
+        {
+            switch (cls)
+            {
+                case "hot": return new Color(1f, 107f / 255f, 107f / 255f, 0.14f);
+                case "good": return new Color(52f / 255f, 211f / 255f, 192f / 255f, 0.13f);
+                case "high": return new Color(1f, 122f / 255f, 219f / 255f, 0.13f);
+                default: return new Color(1f, 1f, 1f, 0.05f);
+            }
+        }
+
+        public static Color TagFg(string cls)
+        {
+            switch (cls)
+            {
+                case "hot": return Hex("#FF9B9B");
+                case "good": return Hex("#6EE7D8");
+                case "high": return Hex("#FFB0E8");
+                default: return TextSecondary;
+            }
+        }
+
+        // pick.css .jc-pc .li.con b(#ff9b9b) — 카드/요약의 "주의·－" 프리픽스 공용색.
+        public static readonly Color ConWarn = Hex("#FF9B9B");
 
         // ── 텍스트 스타일 프리셋 ──────────────────────────────────────────────────────
         public enum TextStyle

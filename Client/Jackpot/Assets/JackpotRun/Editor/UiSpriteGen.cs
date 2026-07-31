@@ -76,6 +76,21 @@ namespace JackpotRun.EditorTools
 
                 foreach (var (id, hex) in SymbolColors)
                     WriteSprite("sym_" + id, CreateSymbolTile(CanvasSize, id, ParseHex(hex)), Border(32), overwrite);
+
+                // ── S10 — pick.css .jcard 룩 이식용 라운드 반경별 9-slice 추가 (새 파일명, 기존
+                // 파일은 건드리지 않는다 — overwrite:false 그대로도 신규 파일이라 항상 생성된다).
+                // r7=badge(.b-diff)/jc-lock, r9=jc-eff/jc-unlock 박스, r11=jc-ico/meter 셀, r13=.tab,
+                // r15=플랫 라운드(장식용). 값은 pick.css의 border-radius px 그대로(스케일 없음 — S10
+                // 설계 지시: "라운드 반경별 9-slice: r7/r9/r11/r13/r15/r999" 이름이 곧 반경).
+                WriteSprite("rrect_r7", CreateRoundedRect(CanvasSize, 7, Color.white), Border(7), overwrite);
+                WriteSprite("rrect_r9", CreateRoundedRect(CanvasSize, 9, Color.white), Border(9), overwrite);
+                WriteSprite("rrect_r11", CreateRoundedRect(CanvasSize, 11, Color.white), Border(11), overwrite);
+                WriteSprite("rrect_r13", CreateRoundedRect(CanvasSize, 13, Color.white), Border(13), overwrite);
+                WriteSprite("rrect_r15", CreateRoundedRect(CanvasSize, 15, Color.white), Border(15), overwrite);
+                // .jcard 배경 — linear-gradient(180deg, panel2, panel)를 그레이스케일 곱연산으로 재현.
+                // 소비측이 Image.color = UiKit.Panel2(밝은 쪽, top)로 틴트하면: 아래(bottom)=0.815×Panel2
+                // ≈ Panel, 위(top)=1.0×Panel2 그대로 — panel_r24/card_grad와 동일한 "흰색 베이스 굽기" 관례.
+                WriteSprite("card_grad_r15", CreateRoundedRectGradient(CanvasSize, 15, 0.815f, 1f), Border(15), overwrite);
             }
             finally
             {
