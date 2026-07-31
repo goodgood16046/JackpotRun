@@ -342,7 +342,7 @@ namespace JackpotRun.UI2
             if (lockRoot != null)
             {
                 lockRoot.gameObject.SetActive(!unlocked);
-                var hintText = lockRoot.Find("Hint")?.GetComponent<Text>();
+                var hintText = lockRoot.Find("LockCol/Hint")?.GetComponent<Text>();
                 if (hintText != null) hintText.text = "해금: " + (unlockHint ?? "조건 미정");
             }
 

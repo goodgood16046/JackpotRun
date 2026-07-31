@@ -4,6 +4,8 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using JackpotRun.Data;
+using JackpotRun.Engine;
 using JackpotRun.UI2;
 
 namespace JackpotRun.EditorTools
@@ -15,9 +17,9 @@ namespace JackpotRun.EditorTools
     // 반복 실행 안전 — 매번 완전히 새 인메모리 씬을 만들어 같은 경로에 덮어쓰므로(기존 씬을 열어
     // 이어붙이지 않음) 몇 번을 다시 실행해도 결과가 결정론적이다.
     //
-    // [이번 슬라이스 범위] MenuView/PickView는 실제 컴포넌트와 완전히 와이어링한다. RunScreen/DexScreen은
-    // 아직 뷰가 없다(S7b) — 여기서는 자리표시 화면(배경+안내문구+메뉴로 버튼)만 만들고 화면 전환
-    // 인프라(ScreenRouter 등록)만 연결한다. S7b가 이 자리에 RunView/DexView를 추가로 붙인다.
+    // MenuView/PickView/RunView/DexView 전부 실제 컴포넌트와 완전히 와이어링한다(S7a+S7b). 페이즈
+    // 패널/팝업(NodePanel 등)과 DexDetailPopup은 전역 OverlayLayer 산하에 짓고 RunView/DexView가
+    // [SerializeField]로 참조한다.
     public static class UiSceneBuilder
     {
         private const string ScenesFolder = "Assets/JackpotRun/Scenes";
@@ -54,9 +56,18 @@ namespace JackpotRun.EditorTools
 
             var menu = BuildMenuScreen(canvasRoot);
             var pick = BuildPickScreen(canvasRoot);
-            var run = BuildPlaceholderScreen(canvasRoot, "RunScreen", "🎰 런 화면 — S7b에서 이어 만듭니다");
-            var dex = BuildPlaceholderScreen(canvasRoot, "DexScreen", "📖 도감 화면 — S7b에서 이어 만듭니다");
+
+            // OverlayLayer는 RunScreen/DexScreen보다 먼저 Transform을 확보해야 그 자식으로 페이즈
+            // 패널/팝업을 지을 수 있다 — 화면 위에 그려지도록 하는 형제 순서(menu,pick,run,dex,overlay,
+            // toast)는 아래에서 run/dex를 만든 뒤 overlay.SetAsLastSibling()으로 되돌린다.
             var overlay = BuildOverlayLayer(canvasRoot);
+            var runOverlay = BuildRunOverlayPanels(overlay);
+            var dexDetail = BuildDexDetailPopup(overlay);
+
+            var run = BuildRunScreen(canvasRoot);
+            var dex = BuildDexScreen(canvasRoot, dexDetail);
+
+            ((RectTransform)overlay).SetAsLastSibling();
             var toast = BuildToast(canvasRoot);
 
             var appRootGo = new GameObject("AppRoot");
@@ -73,17 +84,22 @@ namespace JackpotRun.EditorTools
             appRootSo.FindProperty("router").objectReferenceValue = router;
             appRootSo.FindProperty("menuView").objectReferenceValue = menu.view;
             appRootSo.FindProperty("pickView").objectReferenceValue = pick.view;
+            appRootSo.FindProperty("runView").objectReferenceValue = run.view;
+            appRootSo.FindProperty("dexView").objectReferenceValue = dex.view;
             appRootSo.ApplyModifiedPropertiesWithoutUndo();
 
             WireMenuView(menu, appRoot);
             WirePickView(pick, appRoot);
+            WireRunView(run, runOverlay, appRoot);
+            WireDexView(dex, dexDetail, appRoot);
 
             // 화면 간 내비게이션은 AppRoot의 공개 메서드에 UnityEvent 퍼시스턴트 리스너로 직접 연결한다
-            // (씬에 구워지므로 뷰가 별도로 이 참조를 들고 있을 필요가 없다).
+            // (씬에 구워지므로 뷰가 별도로 이 참조를 들고 있을 필요가 없다). RunView는 appRoot를
+            // [SerializeField]로 직접 들고 있어(WireRunView) GameOverPanel의 "메뉴로" 등은 런타임 코드가
+            // appRoot.EndRun()을 직접 호출한다 — 별도 퍼시스턴트 리스너가 필요 없다.
             UnityEventTools.AddPersistentListener(menu.startButton.onClick, appRoot.ShowPick);
             UnityEventTools.AddPersistentListener(menu.dexButton.onClick, appRoot.ShowDex);
             UnityEventTools.AddPersistentListener(pick.backButton.onClick, appRoot.ShowMenu);
-            UnityEventTools.AddPersistentListener(run.backButton.onClick, appRoot.EndRun);
             UnityEventTools.AddPersistentListener(dex.backButton.onClick, appRoot.ShowMenu);
 
             if (!AssetDatabase.IsValidFolder(ScenesFolder))
@@ -144,11 +160,67 @@ namespace JackpotRun.EditorTools
             public Button startButton;
         }
 
-        private sealed class PlaceholderBuildResult
+        // ── S7b 결과 컨테이너(RunScreen/DexScreen 및 그 오버레이 패널) ────────────────────
+        private sealed class RunBuildResult
         {
             public RectTransform root;
             public CanvasGroup group;
+            public UI2.RunView view;
+
+            public RectTransform hudRoot;
+            public Text stageText, cursesText, expBarText, spinsText, coinsText, scoreText;
+            public RectTransform expBarFill;
+            public Image expBarFillImage;
+            public Outline hudOutline;
+            public Image[] unluckyPips;
+            public CanvasGroup bossBannerGroup;
+            public RectTransform bossBannerRect;
+            public Text bossBannerText;
+
+            public RectTransform reelSectionRoot;
+            public RectTransform reelRow;
+            public RectTransform cellTemplate;
+            public (string id, Sprite sprite)[] symbolSprites;
+            public CanvasGroup flashOverlay;
+            public CanvasGroup jackpotBannerGroup;
+            public RectTransform jackpotBannerRect;
+
+            public Text resultLineText; // 릴과 노트 사이 "스테이지 정보 영역"(flex 1) — 획득 요약 큰 텍스트
+
+            public RectTransform notesRoot;
+            public RectTransform notesRowsContent;
+            public RectTransform notesRowTemplate;
+
+            public CanvasGroup controlsGroup;
+            public Button[] modeButtons;
+            public Button spinButton;
+            public Button bagButton;
+            public Text bagButtonLabel;
+            public RectTransform deviceRow;
+            public RectTransform deviceButtonTemplate;
+        }
+
+        private sealed class RunOverlayResult
+        {
+            public UI2.NodePanel nodePanel;
+            public UI2.PerkOfferPanel perkOfferPanel;
+            public UI2.ShopPanel shopPanel;
+            public UI2.PostSpinPanel postSpinPanel;
+            public UI2.GameOverPanel gameOverPanel;
+            public UI2.BagPopup bagPopup;
+            public UI2.ManipPickPopup manipPickPopup;
+        }
+
+        private sealed class DexBuildResult
+        {
+            public RectTransform root;
+            public CanvasGroup group;
+            public UI2.DexView view;
             public Button backButton;
+            public Text statBestScoreText, statBestStageText, statRunsText, statTotalScoreText;
+            public Image[] tabImages;
+            public RectTransform gridContent;
+            public RectTransform cardTemplate;
         }
 
         // ── 씬 골격 ──────────────────────────────────────────────────────────────────
@@ -518,6 +590,7 @@ namespace JackpotRun.EditorTools
             lockOverlay.name = "Lock";
             UiKit.Fill(lockOverlay);
             var lockCol = UiKit.VGroup(lockOverlay, 6, new RectOffset(16, 16, 16, 16), true, true);
+            lockCol.name = "LockCol"; // PickView가 "LockCol/Hint" 경로로 바인딩 — 이름 계약
             UiKit.Fill(lockCol);
             var lockIcon = UiKit.Text(lockCol, "🔒 잠김", 24, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
             UiKit.SizeHint(lockIcon, preferredHeight: 36);
@@ -632,32 +705,1194 @@ namespace JackpotRun.EditorTools
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
-        // ── Run/Dex 자리표시 화면(S7b가 내용을 채운다) ────────────────────────────────
-        private static PlaceholderBuildResult BuildPlaceholderScreen(Transform canvasRoot, string name, string message)
+        // ══════════════════════════════════════════════════════════════════════════════
+        // RunScreen — S7b. HUD/릴/노트/조작부는 화면 자신의 자식, 페이즈 패널/팝업(RunOverlayResult)은
+        // 전역 OverlayLayer 산하(런타임에 RunView.OnDisable이 명시적으로 닫는다 — RunView.cs 주석 참조).
+        // ══════════════════════════════════════════════════════════════════════════════
+        // 페이즈 패널/팝업(RunOverlayResult)은 WireRunView가 별도로 연결한다 — 여기서는 화면 자신의
+        // 자식(HUD/릴/노트/조작부)만 짓는다.
+        private static RunBuildResult BuildRunScreen(Transform canvasRoot)
         {
-            var result = new PlaceholderBuildResult();
-            var root = UiKit.Panel(canvasRoot, name, UiKit.Bg);
+            var result = new RunBuildResult();
+            var panelSprite = UiSpriteGen.Load("panel_r24");
+
+            var root = UiKit.Panel(canvasRoot, "RunScreen", UiKit.Bg);
             UiKit.Fill(root);
             result.root = root;
             result.group = root.gameObject.AddComponent<CanvasGroup>();
 
-            var col = UiKit.VGroup(root, 20, new RectOffset(0, 0, 0, 0), true, true);
-            UiKit.SetAnchors(col, Vector2.zero, Vector2.one, new Vector2(60f, 60f), new Vector2(-60f, -60f));
+            var col = UiKit.VGroup(root, 0, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.Fill(col);
+            // 행 높이 계약(S7a 검수 교훈): 모든 행에 preferredHeight+flexibleHeight=0을 명시하고, 딱 하나
+            // (StageInfo)만 flexibleHeight=1로 잔여 공간을 가져간다. Fable 육안 검수 지시(2026-07-31):
+            // Hud 210·Reel 520(주인공)·StageInfo flex1·NotesFeed 고정280·Controls 300.
 
-            var spacerTop = UiKit.Panel(col, "SpacerTop", new Color(0f, 0f, 0f, 0f));
-            UiKit.SizeHint(spacerTop, flexibleHeight: 1);
+            BuildRunHud(col, result);
+            BuildRunReel(col, result);
+            BuildRunStageInfo(col, result);
+            BuildRunNotesFeed(col, result);
+            BuildRunControls(col, result, panelSprite);
 
-            var label = UiKit.Text(col, message, 28, UiKit.TextSecondary, TextAnchor.MiddleCenter, true);
-            UiKit.SizeHint(label, preferredHeight: 80);
+            // 화면 플래시/배너는 RunScreen 자신의 "root" 직계 자식(HudView/ReelView가 소유) — root는
+            // LayoutGroup이 없어(레이아웃 제어를 받는 것은 그 자식 "col"뿐) 커스텀 앵커 오버레이를
+            // 자유롭게 얹을 수 있다. 전역 오버레이가 아니라 화면이 꺼지면 같이 사라져야 자연스러운
+            // 순수 시각 연출이라 로컬로 둔다.
+            result.flashOverlay = BuildScreenFlash(root);
+            (result.jackpotBannerGroup, result.jackpotBannerRect) = BuildDropBanner(root, "JackpotBanner", "🎰 JACKPOT!", UiKit.Accent);
+            (result.bossBannerGroup, result.bossBannerRect) = BuildDropBanner(root, "BossBanner", "", UiKit.Bad);
+            result.bossBannerText = result.bossBannerRect.GetComponentInChildren<Text>();
 
-            result.backButton = UiKit.Button(col, "메뉴로", new Vector2(0, 120), UiKit.Card, UiKit.TextPrimary, null,
-                UiSpriteGen.Load("panel_r24"));
-            UiKit.SizeHint(result.backButton, preferredHeight: 120);
+            result.view = root.gameObject.AddComponent<UI2.RunView>();
+            return result;
+        }
 
-            var spacerBottom = UiKit.Panel(col, "SpacerBottom", new Color(0f, 0f, 0f, 0f));
-            UiKit.SizeHint(spacerBottom, flexibleHeight: 1);
+        private static void BuildRunHud(RectTransform col, RunBuildResult result)
+        {
+            var hud = UiKit.Panel(col, "Hud", UiKit.PanelBg);
+            UiKit.SizeHint(hud, preferredHeight: 210, flexibleHeight: 0);
+            result.hudRoot = hud;
+            result.hudOutline = UiKit.AddGlowOutline(hud.gameObject, UiKit.Bad, 4f);
+
+            var hudCol = UiKit.VGroup(hud, 8, new RectOffset(24, 24, 16, 12), true, true);
+            UiKit.Fill(hudCol);
+
+            var topRow = UiKit.HGroup(hudCol, 12, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(topRow, preferredHeight: 44, flexibleHeight: 0);
+            result.stageText = UiKit.Text(topRow, "", 26, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(result.stageText, flexibleWidth: 1, flexibleHeight: 0);
+            result.cursesText = UiKit.Text(topRow, "", 20, UiKit.Bad, TextAnchor.MiddleRight, true);
+            UiKit.SizeHint(result.cursesText, preferredWidth: 180, flexibleHeight: 0);
+
+            var barBg = UiKit.Panel(hudCol, "ExpBarBg", UiKit.Hex("#2A3048"), UiSpriteGen.Load("bar_bg_r12"));
+            UiKit.SizeHint(barBg, preferredHeight: 36, flexibleHeight: 0);
+            result.expBarFill = UiKit.Panel(barBg, "ExpBarFill", UiKit.Good, UiSpriteGen.Load("bar_fill_r12"));
+            UiKit.SetAnchors(result.expBarFill, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
+            result.expBarFillImage = result.expBarFill.GetComponent<Image>();
+            result.expBarText = UiKit.Text(barBg, "", 19, UiKit.Bg, TextAnchor.MiddleCenter, true);
+            UiKit.Fill(result.expBarText.rectTransform);
+
+            var statsRow = UiKit.HGroup(hudCol, 16, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(statsRow, preferredHeight: 40, flexibleHeight: 0);
+            result.spinsText = UiKit.Text(statsRow, "", 20, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(result.spinsText, flexibleWidth: 1, flexibleHeight: 0);
+            result.coinsText = UiKit.Text(statsRow, "", 20, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(result.coinsText, flexibleWidth: 1, flexibleHeight: 0);
+            result.scoreText = UiKit.Text(statsRow, "", 20, UiKit.Blue, TextAnchor.MiddleRight, true);
+            UiKit.SizeHint(result.scoreText, flexibleWidth: 1, flexibleHeight: 0);
+
+            // 불운 게이지 🍀 5칸(UNLUCKY_MAX) — 고정 5개.
+            var gaugeRow = UiKit.HGroup(hudCol, 8, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(gaugeRow, preferredHeight: 28, flexibleHeight: 0);
+            UiKit.Text(gaugeRow, "🍀", 18, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            result.unluckyPips = new Image[5];
+            for (int i = 0; i < 5; i++)
+            {
+                var pip = UiKit.Panel(gaugeRow, "Pip_" + i, UiKit.Card, UiSpriteGen.Load("chip_r999"));
+                UiKit.SizeHint(pip, preferredWidth: 24, preferredHeight: 24, flexibleWidth: 0, flexibleHeight: 0);
+                result.unluckyPips[i] = pip.GetComponent<Image>();
+            }
+            var gaugeSpacer = UiKit.Panel(gaugeRow, "Spacer", new Color(0, 0, 0, 0));
+            UiKit.SizeHint(gaugeSpacer, flexibleWidth: 1, flexibleHeight: 0);
+        }
+
+        // 상단 드롭형 배너(보스 진입/잭팟 등 공용) — 부모의 맨 위에 겹쳐 놓이는 오버레이라 부모가
+        // VerticalLayoutGroup이어도 레이아웃에 관여하지 않도록 앵커를 top-stretch로 고정한다.
+        private static (CanvasGroup group, RectTransform rect) BuildDropBanner(Transform parent, string name, string text, Color textColor)
+        {
+            var panel = UiKit.Panel(parent, name, UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
+            panel.anchorMin = new Vector2(0.5f, 1f);
+            panel.anchorMax = new Vector2(0.5f, 1f);
+            panel.pivot = new Vector2(0.5f, 1f);
+            panel.sizeDelta = new Vector2(760f, 96f);
+            panel.anchoredPosition = new Vector2(0f, 0f);
+            var group = panel.gameObject.AddComponent<CanvasGroup>();
+            group.alpha = 0f; // 빌드 시점에 명시적으로 0 — BuildToast와 동일 규칙(Awake 재설정에만 기대지 않는다).
+            group.blocksRaycasts = false;
+            group.interactable = false;
+
+            var label = UiKit.Text(panel, text, 30, textColor, TextAnchor.MiddleCenter, true);
+            UiKit.Fill(label.rectTransform);
+            return (group, panel);
+        }
+
+        // 화면 전체를 덮는 흰색 플래시(set4/잭팟 공용) — 라이캐스트를 막지 않도록 Image.raycastTarget=false.
+        private static CanvasGroup BuildScreenFlash(Transform parent)
+        {
+            var panel = UiKit.Panel(parent, "ScreenFlash", Color.white);
+            UiKit.Fill(panel);
+            panel.GetComponent<Image>().raycastTarget = false;
+            var group = panel.gameObject.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            group.blocksRaycasts = false;
+            group.interactable = false;
+            return group;
+        }
+
+        private static void BuildRunReel(RectTransform col, RunBuildResult result)
+        {
+            // Fable 육안 검수 지시(2026-07-31): 릴이 화면의 존재감이 없다 — 섹션을 520으로 키운다. reelRow는
+            // HGroup(childForceExpandHeight=false·childAlignment=MiddleLeft)이라 셀이 자기 preferredHeight
+            // (BuildReelCellTemplate)만큼만 차지하고 섹션 안에서 수직 중앙 정렬된다 — 셀 자체는 5칸 기준
+            // 폭에 맞춘 정사각형을 유지(높이를 520까지 늘리지 않음).
+            var section = UiKit.Panel(col, "ReelSection", new Color(0, 0, 0, 0));
+            UiKit.SizeHint(section, preferredHeight: 520, flexibleHeight: 0);
+            result.reelSectionRoot = section;
+            result.reelRow = UiKit.HGroup(section, 12, new RectOffset(24, 24, 10, 10), true, true);
+            UiKit.Fill(result.reelRow);
+
+            result.cellTemplate = BuildReelCellTemplate(section);
+
+            // 심볼 스프라이트 14종을 빌드 시점에 구워 ReelView.symbolSprites로 넘긴다(런타임은 Editor 전용
+            // UiSpriteGen을 참조할 수 없다 — ReelView.cs 헤더 주석 "빌더가 와이어링" 참조).
+            var syms = JackpotRun.Engine.Symbols.All;
+            var sprites = new (string id, Sprite sprite)[syms.Length];
+            for (int i = 0; i < syms.Length; i++)
+                sprites[i] = (syms[i].id, UiSpriteGen.Load("sym_" + syms[i].id));
+            result.symbolSprites = sprites;
+        }
+
+        // 릴 셀 템플릿 — 자식 경로 계약(ReelView.cs): "Icon"(Image)/"Emoji"(Text)/"Tag"(Text) + Outline(글로우).
+        private static RectTransform BuildReelCellTemplate(Transform parent)
+        {
+            // preferredHeight 216 ≈ 5칸 기준 폭(1080 - 좌우패딩48 - 스페이싱48)/5 ≈ 197에 여유를 더한
+            // 근사 정사각형 크기(6칸일 때는 폭이 더 좁아져 완전한 정사각은 아니다 — AspectRatioFitter 없이
+            // 고정값으로 근사).
+            var cell = UiKit.Panel(parent, "CellTemplate", UiKit.Card, UiSpriteGen.Load("cell_inset"));
+            UiKit.SizeHint(cell, flexibleWidth: 1, preferredHeight: 216, flexibleHeight: 0);
+            UiKit.AddGlowOutline(cell.gameObject, UiKit.Accent, 3f);
+
+            var icon = UiKit.Image(cell, null, Color.white);
+            icon.name = "Icon";
+            UiKit.Fill(icon.rectTransform);
+
+            // Fable 육안 검수 지시(2026-07-31): 이모지 오버레이가 항상 보이도록 48pt 이상·흰색 유지 +
+            // 배경 타일 색과 무관하게 읽히도록 검은 아웃라인을 추가한다(Icon은 순수 배경 타일 용도).
+            var emoji = UiKit.Text(cell, "", 64, Color.white, TextAnchor.MiddleCenter);
+            emoji.name = "Emoji";
+            UiKit.Fill(emoji.rectTransform);
+            var emojiOutline = emoji.gameObject.AddComponent<Outline>();
+            emojiOutline.effectColor = new Color(0f, 0f, 0f, 0.85f);
+            emojiOutline.effectDistance = new Vector2(1.5f, -1.5f);
+
+            var tag = UiKit.Text(cell, "", 16, UiKit.Accent, TextAnchor.UpperRight);
+            tag.name = "Tag";
+            UiKit.SetAnchors(tag.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-56, -28), new Vector2(-6, -4));
+
+            cell.gameObject.SetActive(false);
+            return cell;
+        }
+
+        // "릴과 노트 사이 스테이지 정보 영역" — 잔여 공간(flex 1)을 전부 가져가는 유일한 행(Fable 지시).
+        // 스핀 획득 요약(EXP/점수/코인)을 크게 중앙 표시한다 — 이모지 대신 한글 라벨만 사용
+        // (RunView/HudView와 동일한 이유: astral 이모지가 레거시 Text에서 렌더링되지 않는 문제 회피).
+        private static void BuildRunStageInfo(RectTransform col, RunBuildResult result)
+        {
+            var panel = UiKit.Panel(col, "StageInfo", new Color(0f, 0f, 0f, 0f));
+            UiKit.SizeHint(panel, flexibleHeight: 1, minHeight: 60);
+            var inner = UiKit.VGroup(panel, 0, new RectOffset(24, 24, 8, 8), true, true);
+            UiKit.Fill(inner);
+            inner.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+
+            result.resultLineText = UiKit.Text(inner, "", 30, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(result.resultLineText, flexibleHeight: 1);
+        }
+
+        // Fable 육안 검수 지시(2026-07-31): 최근 6줄 고정 표시(280, flex 아님), 20pt, 좌우 패딩 24,
+        // 최신 줄이 위로, 각 줄에 은은한 배경(카드색 알파 40%). 단일 Text 블록 대신 행 템플릿으로 재구성.
+        private static void BuildRunNotesFeed(RectTransform col, RunBuildResult result)
+        {
+            var panel = UiKit.Panel(col, "NotesFeed", UiKit.Hex("#11162A"));
+            UiKit.SizeHint(panel, preferredHeight: 280, flexibleHeight: 0);
+            result.notesRoot = panel;
+            var inner = UiKit.VGroup(panel, 0, new RectOffset(0, 0, 10, 10), true, true);
+            UiKit.Fill(inner);
+
+            var scroll = UiKit.Scroll(inner, out var rowsContent, vertical: true);
+            UiKit.SizeHint(scroll, flexibleHeight: 1);
+            SetupStackContent(rowsContent, 24, 0, 6);
+
+            result.notesRowsContent = rowsContent;
+            result.notesRowTemplate = BuildNotesRowTemplate(rowsContent);
+        }
+
+        // 자식 경로 계약(NotesFeed.cs): "Label"(Text).
+        private static RectTransform BuildNotesRowTemplate(Transform parent)
+        {
+            var bg = UiKit.Card;
+            bg.a = 0.4f;
+            var row = UiKit.Panel(parent, "NoteRowTemplate", bg);
+            UiKit.SizeHint(row, preferredHeight: 44, flexibleHeight: 0);
+            var label = UiKit.Text(row, "", 20, UiKit.TextPrimary, TextAnchor.MiddleLeft);
+            label.name = "Label";
+            UiKit.SetAnchors(label.rectTransform, Vector2.zero, Vector2.one, new Vector2(14, 2), new Vector2(-14, -2));
+            row.gameObject.SetActive(false);
+            return row;
+        }
+
+        private static void BuildRunControls(RectTransform col, RunBuildResult result, Sprite panelSprite)
+        {
+            var controlsRoot = UiKit.Panel(col, "Controls", new Color(0, 0, 0, 0));
+            UiKit.SizeHint(controlsRoot, preferredHeight: 300, flexibleHeight: 0);
+            result.controlsGroup = controlsRoot.gameObject.AddComponent<CanvasGroup>();
+
+            var controls = UiKit.VGroup(controlsRoot, 10, new RectOffset(20, 20, 10, 20), true, true);
+            UiKit.Fill(controls);
+
+            // 특수모드 4버튼(순서: 집중/올인/기도/막판 — RunView.ModeOrder와 일치해야 함). 비용은 상수라
+            // 빌드 시점에 라벨을 굽는다(사용가능 조건은 엔진 거부 → 토스트로 안내, 여기서 사전 비활성화 안 함).
+            var modeRow = UiKit.HGroup(controls, 8, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(modeRow, preferredHeight: 68, flexibleHeight: 0);
+            string[] modeLabels =
+            {
+                $"🎯집중({Formulas.CMD_COST_FOCUS})", $"🎲올인({Formulas.CMD_COST_ALLIN})",
+                $"🙏기도({Formulas.CMD_COST_PRAY})", $"⏰막판({Formulas.CMD_COST_LAST})",
+            };
+            result.modeButtons = new Button[modeLabels.Length];
+            for (int i = 0; i < modeLabels.Length; i++)
+            {
+                var btn = UiKit.Button(modeRow, modeLabels[i], new Vector2(0, 68), UiKit.Card, UiKit.TextPrimary, null, panelSprite);
+                UiKit.SizeHint(btn, flexibleWidth: 1, preferredHeight: 68, flexibleHeight: 0);
+                result.modeButtons[i] = btn;
+            }
+
+            result.spinButton = UiKit.Button(controls, "🎰 스핀", new Vector2(0, 108), UiKit.Accent, UiKit.Bg, null, panelSprite);
+            UiKit.SizeHint(result.spinButton, preferredHeight: 108, flexibleHeight: 0);
+
+            var toolRow = UiKit.HGroup(controls, 10, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(toolRow, preferredHeight: 80, flexibleHeight: 0);
+
+            result.bagButton = UiKit.Button(toolRow, "🎒", new Vector2(0, 80), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, panelSprite);
+            UiKit.SizeHint(result.bagButton, preferredWidth: 170, preferredHeight: 80, flexibleWidth: 0, flexibleHeight: 0);
+            result.bagButtonLabel = result.bagButton.GetComponentInChildren<Text>();
+
+            result.deviceRow = UiKit.HGroup(toolRow, 10, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(result.deviceRow, flexibleWidth: 1, preferredHeight: 80, flexibleHeight: 0);
+            result.deviceButtonTemplate = BuildLabeledButtonTemplate(result.deviceRow, panelSprite);
+        }
+
+        // 라벨 1개짜리 버튼 템플릿(장치열/PostSpin 만회/ManipPick 칸선택 등 공용) — 자식 경로 계약: "Label"(Text).
+        private static RectTransform BuildLabeledButtonTemplate(Transform parent, Sprite panelSprite)
+        {
+            var go = new GameObject("ButtonTemplate", typeof(RectTransform), typeof(Image), typeof(Button), typeof(PressFx));
+            var rt = (RectTransform)go.transform;
+            rt.SetParent(parent, false);
+            var img = go.GetComponent<Image>();
+            img.color = UiKit.Blue;
+            if (panelSprite != null) { img.sprite = panelSprite; img.type = Image.Type.Sliced; }
+            var btn = go.GetComponent<Button>();
+            btn.targetGraphic = img;
+            UiKit.SizeHint(btn, flexibleWidth: 1, preferredHeight: 80, flexibleHeight: 0);
+
+            var label = UiKit.Text(rt, "", 19, UiKit.Bg, TextAnchor.MiddleCenter, true);
+            label.name = "Label";
+            UiKit.Fill(label.rectTransform);
+
+            go.SetActive(false);
+            return rt;
+        }
+
+        private static void WireRunView(RunBuildResult r, RunOverlayResult overlay, AppRoot appRoot)
+        {
+            var so = new SerializedObject(r.view);
+            so.FindProperty("appRoot").objectReferenceValue = appRoot;
+            so.FindProperty("hudView").objectReferenceValue = WireHudView(r);
+            so.FindProperty("reelView").objectReferenceValue = WireReelView(r);
+            so.FindProperty("resultLineText").objectReferenceValue = r.resultLineText;
+            so.FindProperty("notesFeed").objectReferenceValue = WireNotesFeed(r);
+            so.FindProperty("controlsGroup").objectReferenceValue = r.controlsGroup;
+            SetObjectArray(so, "modeButtons", r.modeButtons);
+            so.FindProperty("spinButton").objectReferenceValue = r.spinButton;
+            so.FindProperty("bagButton").objectReferenceValue = r.bagButton;
+            so.FindProperty("bagButtonLabel").objectReferenceValue = r.bagButtonLabel;
+            so.FindProperty("deviceRow").objectReferenceValue = r.deviceRow;
+            so.FindProperty("deviceButtonTemplate").objectReferenceValue = r.deviceButtonTemplate;
+            so.FindProperty("nodePanel").objectReferenceValue = overlay.nodePanel;
+            so.FindProperty("perkOfferPanel").objectReferenceValue = overlay.perkOfferPanel;
+            so.FindProperty("shopPanel").objectReferenceValue = overlay.shopPanel;
+            so.FindProperty("postSpinPanel").objectReferenceValue = overlay.postSpinPanel;
+            so.FindProperty("gameOverPanel").objectReferenceValue = overlay.gameOverPanel;
+            so.FindProperty("bagPopup").objectReferenceValue = overlay.bagPopup;
+            so.FindProperty("manipPickPopup").objectReferenceValue = overlay.manipPickPopup;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static UI2.HudView WireHudView(RunBuildResult r)
+        {
+            var view = r.hudRoot.gameObject.AddComponent<UI2.HudView>();
+            var so = new SerializedObject(view);
+            so.FindProperty("stageText").objectReferenceValue = r.stageText;
+            so.FindProperty("cursesText").objectReferenceValue = r.cursesText;
+            so.FindProperty("expBarFill").objectReferenceValue = r.expBarFill;
+            so.FindProperty("expBarFillImage").objectReferenceValue = r.expBarFillImage;
+            so.FindProperty("expBarText").objectReferenceValue = r.expBarText;
+            so.FindProperty("spinsText").objectReferenceValue = r.spinsText;
+            so.FindProperty("coinsText").objectReferenceValue = r.coinsText;
+            so.FindProperty("scoreText").objectReferenceValue = r.scoreText;
+            so.FindProperty("hudOutline").objectReferenceValue = r.hudOutline;
+            SetObjectArray(so, "unluckyPips", r.unluckyPips);
+            so.FindProperty("bossBannerGroup").objectReferenceValue = r.bossBannerGroup;
+            so.FindProperty("bossBannerRect").objectReferenceValue = r.bossBannerRect;
+            so.FindProperty("bossBannerText").objectReferenceValue = r.bossBannerText;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        private static UI2.ReelView WireReelView(RunBuildResult r)
+        {
+            var view = r.reelSectionRoot.gameObject.AddComponent<UI2.ReelView>();
+            var so = new SerializedObject(view);
+            so.FindProperty("reelRow").objectReferenceValue = r.reelRow;
+            so.FindProperty("cellTemplate").objectReferenceValue = r.cellTemplate;
+            var symProp = so.FindProperty("symbolSprites");
+            symProp.arraySize = r.symbolSprites.Length;
+            for (int i = 0; i < r.symbolSprites.Length; i++)
+            {
+                var el = symProp.GetArrayElementAtIndex(i);
+                el.FindPropertyRelative("id").stringValue = r.symbolSprites[i].id;
+                el.FindPropertyRelative("sprite").objectReferenceValue = r.symbolSprites[i].sprite;
+            }
+            so.FindProperty("flashOverlay").objectReferenceValue = r.flashOverlay;
+            so.FindProperty("jackpotBannerGroup").objectReferenceValue = r.jackpotBannerGroup;
+            so.FindProperty("jackpotBannerRect").objectReferenceValue = r.jackpotBannerRect;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        private static UI2.NotesFeed WireNotesFeed(RunBuildResult r)
+        {
+            var view = r.notesRoot.gameObject.AddComponent<UI2.NotesFeed>();
+            var so = new SerializedObject(view);
+            so.FindProperty("rowsContent").objectReferenceValue = r.notesRowsContent;
+            so.FindProperty("rowTemplate").objectReferenceValue = r.notesRowTemplate;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // ── 아이콘/이모지 폴백 공용 헬퍼 ─────────────────────────────────────────────────
+        // 스프라이트가 없을 때 이모지로 폴백하는 카드/행이 여럿(PerkOfferPanel/ShopPanel/BagPopup/DexView)
+        // 있어 "IconSlot"(래퍼) 하나만 부모 레이아웃 그룹의 셀로 참여시키고 그 안에 Icon/IconEmoji를
+        // Fill로 완전히 겹친다 — 형제로 나란히 두면 부모가 HGroup/VGroup일 때 칸이 어긋난다(PickView의
+        // "Body 직계 자식 + 수동 겹침" 방식은 세로 스택 1건에는 맞았지만 여러 모양의 가로 행에는
+        // 매번 다른 오프셋 계산이 필요해 이 헬퍼로 일반화했다). 자식 경로 계약: "IconSlot/Icon"·
+        // "IconSlot/IconEmoji".
+        private static void BuildIconSlot(Transform parent, float size, int emojiSize)
+        {
+            var slot = UiKit.Panel(parent, "IconSlot", new Color(0, 0, 0, 0));
+            UiKit.SizeHint(slot, preferredWidth: size, preferredHeight: size, flexibleWidth: 0, flexibleHeight: 0);
+
+            var icon = UiKit.Image(slot, null, Color.white);
+            icon.name = "Icon";
+            UiKit.Fill(icon.rectTransform);
+
+            var emoji = UiKit.Text(slot, "", emojiSize, Color.white, TextAnchor.MiddleCenter);
+            emoji.name = "IconEmoji";
+            UiKit.Fill(emoji.rectTransform);
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════
+        // Run 페이즈 패널/팝업 — ENGINE_PORT_DESIGN.md S7 Run/Panels/*.cs. 전부 전역 OverlayLayer 산하
+        // (RunView.OnDisable이 명시적으로 닫는다 — RunView.cs 주석 참조). 시작 상태는 비활성.
+        // ══════════════════════════════════════════════════════════════════════════════
+        private static RunOverlayResult BuildRunOverlayPanels(Transform overlay)
+        {
+            return new RunOverlayResult
+            {
+                nodePanel = BuildNodePanel(overlay),
+                perkOfferPanel = BuildPerkOfferPanel(overlay),
+                shopPanel = BuildShopPanel(overlay),
+                postSpinPanel = BuildPostSpinPanel(overlay),
+                gameOverPanel = BuildGameOverPanel(overlay),
+                bagPopup = BuildBagPopup(overlay),
+                manipPickPopup = BuildManipPickPopup(overlay),
+            };
+        }
+
+        // ── NodePanel ────────────────────────────────────────────────────────────────
+        private static UI2.NodePanel BuildNodePanel(Transform overlay)
+        {
+            var scrim = UiKit.Panel(overlay, "NodePanel", new Color(0f, 0f, 0f, 0.66f));
+            UiKit.Fill(scrim);
+            scrim.gameObject.SetActive(false);
+
+            var bannerPanel = UiKit.Panel(scrim, "Banner", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
+            bannerPanel.anchorMin = bannerPanel.anchorMax = new Vector2(0.5f, 1f);
+            bannerPanel.pivot = new Vector2(0.5f, 1f);
+            bannerPanel.sizeDelta = new Vector2(860f, 230f);
+            bannerPanel.anchoredPosition = new Vector2(0f, -140f);
+            var bannerGroup = bannerPanel.gameObject.AddComponent<CanvasGroup>();
+            bannerGroup.blocksRaycasts = false;
+            bannerGroup.interactable = false;
+
+            var bannerCol = UiKit.VGroup(bannerPanel, 4, new RectOffset(24, 24, 16, 16), true, true);
+            UiKit.Fill(bannerCol);
+            var gradeText = UiKit.Text(bannerCol, "", 32, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(gradeText, preferredHeight: 48, flexibleHeight: 0);
+            var scoreText = UiKit.Text(bannerCol, "+0점", 28, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(scoreText, preferredHeight: 42, flexibleHeight: 0);
+            var subText = UiKit.Text(bannerCol, "", 17, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(subText, flexibleHeight: 1);
+
+            var cardRect = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
+            cardRect.anchorMin = cardRect.anchorMax = new Vector2(0.5f, 0.5f);
+            cardRect.pivot = new Vector2(0.5f, 0.5f);
+            cardRect.sizeDelta = new Vector2(940f, 1300f);
+            var cardCol = UiKit.VGroup(cardRect, 0, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.Fill(cardCol);
+
+            var title = UiKit.Text(cardCol, "다음 노드를 선택하세요", 30, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(title, preferredHeight: 64, flexibleHeight: 0);
+
+            var scroll = UiKit.Scroll(cardCol, out var cardsContent, vertical: true);
+            UiKit.SizeHint(scroll, flexibleHeight: 1);
+            SetupStackContent(cardsContent, 28, 12, 16);
+            var cardTemplate = BuildNodeCardTemplate(cardsContent);
+
+            var view = scrim.gameObject.AddComponent<UI2.NodePanel>();
+            var so = new SerializedObject(view);
+            so.FindProperty("bannerGroup").objectReferenceValue = bannerGroup;
+            so.FindProperty("bannerRect").objectReferenceValue = bannerPanel;
+            so.FindProperty("bannerGradeText").objectReferenceValue = gradeText;
+            so.FindProperty("bannerScoreText").objectReferenceValue = scoreText;
+            so.FindProperty("bannerSubText").objectReferenceValue = subText;
+            so.FindProperty("cardRect").objectReferenceValue = cardRect;
+            so.FindProperty("cardsContent").objectReferenceValue = cardsContent;
+            so.FindProperty("cardTemplate").objectReferenceValue = cardTemplate;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // 자식 경로 계약(NodePanel.cs): "Head"(Text)/"Body"(Text).
+        private static RectTransform BuildNodeCardTemplate(Transform parent)
+        {
+            var card = UiKit.Panel(parent, "NodeCardTemplate", UiKit.Card, UiSpriteGen.Load("card_grad"));
+            UiKit.SizeHint(card, preferredHeight: 210, flexibleHeight: 0);
+            var btn = card.gameObject.AddComponent<Button>();
+            btn.targetGraphic = card.GetComponent<Image>();
+            card.gameObject.AddComponent<PressFx>();
+
+            // "Content"(VGroup)은 Find 경로 계약의 일부다 — Head/Body가 card의 직계 자식이 아니라
+            // Content의 자식이라 NodePanel.cs가 "Content/Head"·"Content/Body"로 찾는다(Transform.Find는
+            // "/" 없이는 직계 자식만 검색 — 이름 계약 주의).
+            var inner = UiKit.VGroup(card, 6, new RectOffset(22, 22, 16, 16), true, true);
+            inner.name = "Content";
+            UiKit.Fill(inner);
+            var head = UiKit.Text(inner, "", 27, UiKit.Accent, TextAnchor.MiddleLeft, true);
+            head.name = "Head";
+            UiKit.SizeHint(head, preferredHeight: 40, flexibleHeight: 0);
+            var body = UiKit.Text(inner, "", 19, UiKit.TextPrimary, TextAnchor.UpperLeft);
+            body.name = "Body";
+            UiKit.SizeHint(body, flexibleHeight: 1);
+
+            card.gameObject.SetActive(false);
+            return card;
+        }
+
+        // ── PerkOfferPanel ───────────────────────────────────────────────────────────
+        private static UI2.PerkOfferPanel BuildPerkOfferPanel(Transform overlay)
+        {
+            var scrim = UiKit.Panel(overlay, "PerkOfferPanel", new Color(0f, 0f, 0f, 0.66f));
+            UiKit.Fill(scrim);
+            scrim.gameObject.SetActive(false);
+
+            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
+            card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
+            card.pivot = new Vector2(0.5f, 0.5f);
+            card.sizeDelta = new Vector2(980f, 1560f);
+            var col = UiKit.VGroup(card, 8, new RectOffset(0, 0, 20, 20), true, true);
+            UiKit.Fill(col);
+
+            var titleText = UiKit.Text(col, "", 30, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(titleText, preferredHeight: 48, flexibleHeight: 0);
+            var bannerText = UiKit.Text(col, "", 19, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(bannerText, preferredHeight: 30, flexibleHeight: 0);
+
+            var scroll = UiKit.Scroll(col, out var cardsContent, vertical: true);
+            UiKit.SizeHint(scroll, flexibleHeight: 1);
+            SetupStackContent(cardsContent, 28, 16, 14);
+            var cardTemplate = BuildPerkCardTemplate(cardsContent);
+
+            var retakeButton = UiKit.Button(col, "", new Vector2(0, 78), UiKit.Blue, UiKit.Bg, null, UiSpriteGen.Load("panel_r24"));
+            UiKit.SizeHint(retakeButton, preferredHeight: 78, flexibleHeight: 0);
+            var retakeLabel = retakeButton.GetComponentInChildren<Text>();
+
+            var view = scrim.gameObject.AddComponent<UI2.PerkOfferPanel>();
+            var so = new SerializedObject(view);
+            so.FindProperty("titleText").objectReferenceValue = titleText;
+            so.FindProperty("bannerText").objectReferenceValue = bannerText;
+            so.FindProperty("cardsContent").objectReferenceValue = cardsContent;
+            so.FindProperty("cardTemplate").objectReferenceValue = cardTemplate;
+            so.FindProperty("retakeButton").objectReferenceValue = retakeButton;
+            so.FindProperty("retakeButtonLabel").objectReferenceValue = retakeLabel;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // 자식 경로 계약(PerkOfferPanel.cs) — Transform.Find는 "/" 없이는 직계 자식만 찾으므로 중간
+        // 레이아웃 컨테이너에도 전부 이름을 박아 전체 경로로 찾는다:
+        //   "Content/TopRow/IconSlot/Icon"·"Content/TopRow/IconSlot/IconEmoji"
+        //   "Content/TopRow/NameCol/Name"·".../Tier"·".../Badges"
+        //   "Content/Desc", "Content/ButtonRow/PickButton"·"Content/ButtonRow/HoldButton"
+        // 카드 루트에 Outline(시너지 보라 테두리).
+        private static RectTransform BuildPerkCardTemplate(Transform parent)
+        {
+            var card = UiKit.Panel(parent, "PerkCardTemplate", UiKit.Card, UiSpriteGen.Load("card_grad"));
+            UiKit.SizeHint(card, preferredHeight: 340, flexibleHeight: 0);
+            UiKit.AddGlowOutline(card.gameObject, UiKit.Purple, 3f);
+
+            var col = UiKit.VGroup(card, 8, new RectOffset(20, 20, 16, 16), true, true);
+            col.name = "Content";
+            UiKit.Fill(col);
+
+            var topRow = UiKit.HGroup(col, 14, new RectOffset(0, 0, 0, 0), true, true);
+            topRow.name = "TopRow";
+            UiKit.SizeHint(topRow, preferredHeight: 92, flexibleHeight: 0);
+            BuildIconSlot(topRow, 80, 46);
+
+            var nameCol = UiKit.VGroup(topRow, 2, new RectOffset(0, 0, 0, 0), true, true);
+            nameCol.name = "NameCol";
+            UiKit.SizeHint(nameCol, flexibleWidth: 1, flexibleHeight: 0);
+            var name = UiKit.Text(nameCol, "", 25, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            name.name = "Name";
+            UiKit.SizeHint(name, preferredHeight: 34, flexibleHeight: 0);
+            var tier = UiKit.Text(nameCol, "", 16, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            tier.name = "Tier";
+            UiKit.SizeHint(tier, preferredHeight: 22, flexibleHeight: 0);
+            var badges = UiKit.Text(nameCol, "", 16, UiKit.Purple, TextAnchor.MiddleLeft, true);
+            badges.name = "Badges";
+            UiKit.SizeHint(badges, preferredHeight: 22, flexibleHeight: 0);
+
+            var desc = UiKit.Text(col, "", 19, UiKit.TextPrimary, TextAnchor.UpperLeft);
+            desc.name = "Desc";
+            UiKit.SizeHint(desc, flexibleHeight: 1);
+
+            var btnRow = UiKit.HGroup(col, 10, new RectOffset(0, 0, 0, 0), true, true);
+            btnRow.name = "ButtonRow";
+            UiKit.SizeHint(btnRow, preferredHeight: 66, flexibleHeight: 0);
+            var pickBtn = UiKit.Button(btnRow, "선택", new Vector2(0, 66), UiKit.Accent, UiKit.Bg, null, UiSpriteGen.Load("panel_r24"));
+            pickBtn.name = "PickButton";
+            UiKit.SizeHint(pickBtn, flexibleWidth: 1, preferredHeight: 66, flexibleHeight: 0);
+            var holdBtn = UiKit.Button(btnRow, "🗂️보류", new Vector2(0, 66), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
+            holdBtn.name = "HoldButton";
+            UiKit.SizeHint(holdBtn, flexibleWidth: 1, preferredHeight: 66, flexibleHeight: 0);
+
+            card.gameObject.SetActive(false);
+            return card;
+        }
+
+        // ── ShopPanel ────────────────────────────────────────────────────────────────
+        private static UI2.ShopPanel BuildShopPanel(Transform overlay)
+        {
+            var scrim = UiKit.Panel(overlay, "ShopPanel", new Color(0f, 0f, 0f, 0.66f));
+            UiKit.Fill(scrim);
+            scrim.gameObject.SetActive(false);
+
+            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
+            card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
+            card.pivot = new Vector2(0.5f, 0.5f);
+            card.sizeDelta = new Vector2(980f, 1600f);
+            var col = UiKit.VGroup(card, 10, new RectOffset(0, 0, 20, 20), true, true);
+            UiKit.Fill(col);
+
+            var titleText = UiKit.Text(col, "", 28, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(titleText, preferredHeight: 54, flexibleHeight: 0);
+
+            var scroll = UiKit.Scroll(col, out var rowsContent, vertical: true);
+            UiKit.SizeHint(scroll, flexibleHeight: 1);
+            SetupStackContent(rowsContent, 24, 8, 12);
+            var emptyText = UiKit.Text(rowsContent, "오퍼가 없습니다.", 20, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(emptyText, preferredHeight: 60, flexibleHeight: 0);
+            var rowTemplate = BuildShopRowTemplate(rowsContent);
+
+            var btnRow = UiKit.HGroup(col, 14, new RectOffset(24, 24, 4, 4), true, true);
+            UiKit.SizeHint(btnRow, preferredHeight: 90, flexibleHeight: 0);
+            var rerollButton = UiKit.Button(btnRow, "", new Vector2(0, 90), UiKit.Blue, UiKit.Bg, null, UiSpriteGen.Load("panel_r24"));
+            UiKit.SizeHint(rerollButton, flexibleWidth: 1, preferredHeight: 90, flexibleHeight: 0);
+            var rerollLabel = rerollButton.GetComponentInChildren<Text>();
+            var leaveButton = UiKit.Button(btnRow, "나가기", new Vector2(0, 90), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
+            UiKit.SizeHint(leaveButton, flexibleWidth: 1, preferredHeight: 90, flexibleHeight: 0);
+
+            var view = scrim.gameObject.AddComponent<UI2.ShopPanel>();
+            var so = new SerializedObject(view);
+            so.FindProperty("titleText").objectReferenceValue = titleText;
+            so.FindProperty("rowsContent").objectReferenceValue = rowsContent;
+            so.FindProperty("rowTemplate").objectReferenceValue = rowTemplate;
+            so.FindProperty("emptyText").objectReferenceValue = emptyText;
+            so.FindProperty("rerollButton").objectReferenceValue = rerollButton;
+            so.FindProperty("rerollButtonLabel").objectReferenceValue = rerollLabel;
+            so.FindProperty("leaveButton").objectReferenceValue = leaveButton;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // 자식 경로 계약(ShopPanel.cs): IconSlot/Icon·IconSlot/IconEmoji, "Name"/"Desc"(Text),
+        // "PriceButton"(Button)+"PriceButton/PriceLabel"(Text).
+        private static RectTransform BuildShopRowTemplate(Transform parent)
+        {
+            var row = UiKit.Panel(parent, "ShopRowTemplate", UiKit.Card, UiSpriteGen.Load("card_r16"));
+            UiKit.SizeHint(row, preferredHeight: 140, flexibleHeight: 0);
+            // "Content"/"InfoCol" 이름 계약(ShopPanel.cs) — Transform.Find는 직계 자식만 찾으므로 중간
+            // 컨테이너에도 이름이 필요하다(NodePanel/PerkOfferPanel과 동일 이유).
+            var inner = UiKit.HGroup(row, 14, new RectOffset(16, 16, 10, 10), true, true);
+            inner.name = "Content";
+            UiKit.Fill(inner);
+
+            BuildIconSlot(inner, 88, 48);
+
+            var infoCol = UiKit.VGroup(inner, 2, new RectOffset(0, 0, 0, 0), true, true);
+            infoCol.name = "InfoCol";
+            UiKit.SizeHint(infoCol, flexibleWidth: 1, flexibleHeight: 0);
+            var name = UiKit.Text(infoCol, "", 22, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            name.name = "Name";
+            UiKit.SizeHint(name, preferredHeight: 30, flexibleHeight: 0);
+            var desc = UiKit.Text(infoCol, "", 16, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            desc.name = "Desc";
+            UiKit.SizeHint(desc, flexibleHeight: 1);
+
+            var priceGo = new GameObject("PriceButton", typeof(RectTransform), typeof(Image), typeof(Button), typeof(PressFx));
+            var priceRt = (RectTransform)priceGo.transform;
+            priceRt.SetParent(inner, false);
+            var priceImg = priceGo.GetComponent<Image>();
+            priceImg.sprite = UiSpriteGen.Load("chip_r999");
+            priceImg.type = Image.Type.Sliced;
+            priceImg.color = UiKit.Accent;
+            priceGo.GetComponent<Button>().targetGraphic = priceImg;
+            UiKit.SizeHint(priceGo.GetComponent<Button>(), preferredWidth: 150, preferredHeight: 84, flexibleWidth: 0, flexibleHeight: 0);
+            var priceLabel = UiKit.Text(priceRt, "", 22, UiKit.Bg, TextAnchor.MiddleCenter, true);
+            priceLabel.name = "PriceLabel";
+            UiKit.Fill(priceLabel.rectTransform);
+
+            row.gameObject.SetActive(false);
+            return row;
+        }
+
+        // ── PostSpinPanel ────────────────────────────────────────────────────────────
+        private static UI2.PostSpinPanel BuildPostSpinPanel(Transform overlay)
+        {
+            var scrim = UiKit.Panel(overlay, "PostSpinPanel", new Color(0f, 0f, 0f, 0.66f));
+            UiKit.Fill(scrim);
+            scrim.gameObject.SetActive(false);
+            var dimGroup = scrim.gameObject.AddComponent<CanvasGroup>();
+
+            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
+            card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
+            card.pivot = new Vector2(0.5f, 0.5f);
+            card.sizeDelta = new Vector2(900f, 900f);
+            var col = UiKit.VGroup(card, 18, new RectOffset(28, 28, 26, 26), true, true);
+            UiKit.Fill(col);
+
+            var head = UiKit.Text(col, "💥 클리어 실패", 32, UiKit.Bad, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(head, preferredHeight: 46, flexibleHeight: 0);
+            var subText = UiKit.Text(col, "", 19, UiKit.TextPrimary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(subText, preferredHeight: 56, flexibleHeight: 0);
+
+            var scroll = UiKit.Scroll(col, out var manipButtonsContent, vertical: true);
+            UiKit.SizeHint(scroll, flexibleHeight: 1);
+            SetupStackContent(manipButtonsContent, 0, 0, 14);
+            var manipTemplate = BuildLabeledButtonTemplateNamed(manipButtonsContent, UiSpriteGen.Load("panel_r24"), "ManipButtonTemplate", 92);
+
+            var giveUpButton = UiKit.Button(col, "포기", new Vector2(0, 84), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
+            UiKit.SizeHint(giveUpButton, preferredHeight: 84, flexibleHeight: 0);
+
+            var view = scrim.gameObject.AddComponent<UI2.PostSpinPanel>();
+            var so = new SerializedObject(view);
+            so.FindProperty("dimGroup").objectReferenceValue = dimGroup;
+            so.FindProperty("subText").objectReferenceValue = subText;
+            so.FindProperty("manipButtonsContent").objectReferenceValue = manipButtonsContent;
+            so.FindProperty("manipButtonTemplate").objectReferenceValue = manipTemplate;
+            so.FindProperty("giveUpButton").objectReferenceValue = giveUpButton;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // ── GameOverPanel ────────────────────────────────────────────────────────────
+        private static UI2.GameOverPanel BuildGameOverPanel(Transform overlay)
+        {
+            var scrim = UiKit.Panel(overlay, "GameOverPanel", new Color(0f, 0f, 0f, 0.66f));
+            UiKit.Fill(scrim);
+            scrim.gameObject.SetActive(false);
+            var dimGroup = scrim.gameObject.AddComponent<CanvasGroup>();
+
+            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
+            card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
+            card.pivot = new Vector2(0.5f, 0.5f);
+            card.sizeDelta = new Vector2(980f, 1560f);
+            var outerCol = UiKit.VGroup(card, 0, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.Fill(outerCol);
+
+            var scroll = UiKit.Scroll(outerCol, out var content, vertical: true);
+            UiKit.SizeHint(scroll, flexibleHeight: 1);
+            SetupStackContent(content, 32, 24, 12);
+
+            var titleScoreText = UiKit.Text(content, "", 26, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(titleScoreText, preferredHeight: 36, flexibleHeight: 0);
+            var finalScoreText = UiKit.Text(content, "", 30, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(finalScoreText, preferredHeight: 42, flexibleHeight: 0);
+            var stageReachedText = UiKit.Text(content, "", 22, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(stageReachedText, preferredHeight: 32, flexibleHeight: 0);
+            var recordsText = UiKit.Text(content, "", 19, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(recordsText, preferredHeight: 30, flexibleHeight: 0);
+
+            var achHeaderRow = UiKit.Panel(content, "AchHeader", new Color(0, 0, 0, 0));
+            UiKit.SizeHint(achHeaderRow, preferredHeight: 34, flexibleHeight: 0);
+            var achHeaderText = UiKit.Text(achHeaderRow, "", 22, UiKit.Good, TextAnchor.MiddleLeft, true);
+            UiKit.Fill(achHeaderText.rectTransform);
+
+            var achContent = UiKit.VGroup(content, 8, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(achContent, preferredHeight: 0, flexibleHeight: 0, minHeight: 0);
+            var achContentCsf = achContent.gameObject.AddComponent<ContentSizeFitter>();
+            achContentCsf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            var achRowTemplate = BuildAchRowTemplate(achContent);
+
+            var achTotalText = UiKit.Text(content, "", 19, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(achTotalText, preferredHeight: 30, flexibleHeight: 0);
+
+            var menuButton = UiKit.Button(outerCol, "메뉴로", new Vector2(0, 96), UiKit.Accent, UiKit.Bg, null, UiSpriteGen.Load("panel_r24"));
+            UiKit.SizeHint(menuButton, preferredHeight: 96, flexibleHeight: 0);
+
+            var view = scrim.gameObject.AddComponent<UI2.GameOverPanel>();
+            var so = new SerializedObject(view);
+            so.FindProperty("dimGroup").objectReferenceValue = dimGroup;
+            so.FindProperty("cardRect").objectReferenceValue = card;
+            so.FindProperty("titleScoreText").objectReferenceValue = titleScoreText;
+            so.FindProperty("finalScoreText").objectReferenceValue = finalScoreText;
+            so.FindProperty("stageReachedText").objectReferenceValue = stageReachedText;
+            so.FindProperty("recordsText").objectReferenceValue = recordsText;
+            so.FindProperty("achHeaderRow").objectReferenceValue = achHeaderRow;
+            so.FindProperty("achHeaderText").objectReferenceValue = achHeaderText;
+            so.FindProperty("achContent").objectReferenceValue = achContent;
+            so.FindProperty("achRowTemplate").objectReferenceValue = achRowTemplate;
+            so.FindProperty("achTotalText").objectReferenceValue = achTotalText;
+            so.FindProperty("menuButton").objectReferenceValue = menuButton;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // 자식 경로 계약(GameOverPanel.cs): "Label"(Text) — 단순 한 줄 업적 행.
+        private static RectTransform BuildAchRowTemplate(Transform parent)
+        {
+            var row = UiKit.Panel(parent, "AchRowTemplate", UiKit.Card, UiSpriteGen.Load("card_r16"));
+            UiKit.SizeHint(row, preferredHeight: 56, flexibleHeight: 0);
+            var label = UiKit.Text(row, "", 18, UiKit.TextPrimary, TextAnchor.MiddleLeft);
+            label.name = "Label";
+            var le = UiKit.SizeHint(label, flexibleWidth: 1, flexibleHeight: 1);
+            UiKit.SetAnchors(label.rectTransform, Vector2.zero, Vector2.one, new Vector2(16, 4), new Vector2(-16, -4));
+            row.gameObject.SetActive(false);
+            return row;
+        }
+
+        // ── BagPopup ─────────────────────────────────────────────────────────────────
+        private static UI2.BagPopup BuildBagPopup(Transform overlay)
+        {
+            var scrim = UiKit.Panel(overlay, "BagPopup", new Color(0f, 0f, 0f, 0.66f));
+            UiKit.Fill(scrim);
+            scrim.gameObject.SetActive(false);
+            var scrimButton = scrim.gameObject.AddComponent<Button>();
+            scrimButton.transition = Selectable.Transition.None;
+
+            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
+            card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
+            card.pivot = new Vector2(0.5f, 0.5f);
+            card.sizeDelta = new Vector2(900f, 1200f);
+            var cardBlocker = card.gameObject.AddComponent<Button>();
+            cardBlocker.transition = Selectable.Transition.None;
+            var outerCol = UiKit.VGroup(card, 10, new RectOffset(0, 0, 20, 20), true, true);
+            UiKit.Fill(outerCol);
+
+            var titleText = UiKit.Text(outerCol, "", 26, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(titleText, preferredHeight: 52, flexibleHeight: 0);
+
+            var scroll = UiKit.Scroll(outerCol, out var rowsContent, vertical: true);
+            UiKit.SizeHint(scroll, flexibleHeight: 1);
+            SetupStackContent(rowsContent, 24, 8, 12);
+            var emptyText = UiKit.Text(rowsContent, "가방이 비어 있습니다.", 20, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(emptyText, preferredHeight: 60, flexibleHeight: 0);
+            var rowTemplate = BuildBagRowTemplate(rowsContent);
+
+            var closeButton = UiKit.Button(outerCol, "닫기", new Vector2(0, 80), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
+            UiKit.SizeHint(closeButton, preferredHeight: 80, flexibleHeight: 0);
+
+            var view = scrim.gameObject.AddComponent<UI2.BagPopup>();
+            var so = new SerializedObject(view);
+            so.FindProperty("scrimButton").objectReferenceValue = scrimButton;
+            so.FindProperty("cardRect").objectReferenceValue = card;
+            so.FindProperty("titleText").objectReferenceValue = titleText;
+            so.FindProperty("rowsContent").objectReferenceValue = rowsContent;
+            so.FindProperty("rowTemplate").objectReferenceValue = rowTemplate;
+            so.FindProperty("emptyText").objectReferenceValue = emptyText;
+            so.FindProperty("closeButton").objectReferenceValue = closeButton;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // 자식 경로 계약(BagPopup.cs): IconSlot/Icon·IconSlot/IconEmoji, "Name"/"Desc"(Text), "UseButton"(Button).
+        private static RectTransform BuildBagRowTemplate(Transform parent)
+        {
+            var row = UiKit.Panel(parent, "BagRowTemplate", UiKit.Card, UiSpriteGen.Load("card_r16"));
+            UiKit.SizeHint(row, preferredHeight: 130, flexibleHeight: 0);
+            // "Content"/"InfoCol" 이름 계약(BagPopup.cs) — ShopRowTemplate과 동일 이유.
+            var inner = UiKit.HGroup(row, 12, new RectOffset(14, 14, 8, 8), true, true);
+            inner.name = "Content";
+            UiKit.Fill(inner);
+
+            BuildIconSlot(inner, 72, 42);
+
+            var infoCol = UiKit.VGroup(inner, 2, new RectOffset(0, 0, 0, 0), true, true);
+            infoCol.name = "InfoCol";
+            UiKit.SizeHint(infoCol, flexibleWidth: 1, flexibleHeight: 0);
+            var name = UiKit.Text(infoCol, "", 22, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            name.name = "Name";
+            UiKit.SizeHint(name, preferredHeight: 30, flexibleHeight: 0);
+            var desc = UiKit.Text(infoCol, "", 16, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            desc.name = "Desc";
+            UiKit.SizeHint(desc, flexibleHeight: 1);
+
+            var useBtn = UiKit.Button(inner, "사용", new Vector2(120, 76), UiKit.Accent, UiKit.Bg, null, UiSpriteGen.Load("panel_r24"));
+            useBtn.name = "UseButton";
+            UiKit.SizeHint(useBtn, preferredWidth: 120, preferredHeight: 76, flexibleWidth: 0, flexibleHeight: 0);
+
+            row.gameObject.SetActive(false);
+            return row;
+        }
+
+        // ── ManipPickPopup ───────────────────────────────────────────────────────────
+        private static UI2.ManipPickPopup BuildManipPickPopup(Transform overlay)
+        {
+            var scrim = UiKit.Panel(overlay, "ManipPickPopup", new Color(0f, 0f, 0f, 0.66f));
+            UiKit.Fill(scrim);
+            scrim.gameObject.SetActive(false);
+            var scrimButton = scrim.gameObject.AddComponent<Button>();
+            scrimButton.transition = Selectable.Transition.None;
+
+            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
+            card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
+            card.pivot = new Vector2(0.5f, 0.5f);
+            card.sizeDelta = new Vector2(860f, 680f);
+            var cardBlocker = card.gameObject.AddComponent<Button>();
+            cardBlocker.transition = Selectable.Transition.None;
+            var col = UiKit.VGroup(card, 16, new RectOffset(28, 28, 26, 26), true, true);
+            UiKit.Fill(col);
+
+            var headText = UiKit.Text(col, "", 26, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(headText, preferredHeight: 40, flexibleHeight: 0);
+            var descText = UiKit.Text(col, "", 18, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(descText, preferredHeight: 76, flexibleHeight: 0);
+
+            var cellsContent = UiKit.HGroup(col, 10, new RectOffset(0, 0, 10, 10), true, true);
+            UiKit.SizeHint(cellsContent, preferredHeight: 100, flexibleHeight: 0);
+            var cellTemplate = BuildLabeledButtonTemplateNamed(cellsContent, UiSpriteGen.Load("panel_r24"), "CellButtonTemplate", 96);
+
+            var spacer = UiKit.Panel(col, "Spacer", new Color(0, 0, 0, 0));
+            UiKit.SizeHint(spacer, flexibleHeight: 1);
+
+            var cancelButton = UiKit.Button(col, "취소", new Vector2(0, 76), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
+            UiKit.SizeHint(cancelButton, preferredHeight: 76, flexibleHeight: 0);
+
+            var view = scrim.gameObject.AddComponent<UI2.ManipPickPopup>();
+            var so = new SerializedObject(view);
+            so.FindProperty("scrimButton").objectReferenceValue = scrimButton;
+            so.FindProperty("cardRect").objectReferenceValue = card;
+            so.FindProperty("headText").objectReferenceValue = headText;
+            so.FindProperty("descText").objectReferenceValue = descText;
+            so.FindProperty("cellsContent").objectReferenceValue = cellsContent;
+            so.FindProperty("cellButtonTemplate").objectReferenceValue = cellTemplate;
+            so.FindProperty("cancelButton").objectReferenceValue = cancelButton;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // 라벨 1개짜리 버튼 템플릿(공용) — 자식 경로 계약: "Label"(Text). name/height를 호출측이 지정한다.
+        private static RectTransform BuildLabeledButtonTemplateNamed(Transform parent, Sprite panelSprite, string name, float height)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button), typeof(PressFx));
+            var rt = (RectTransform)go.transform;
+            rt.SetParent(parent, false);
+            var img = go.GetComponent<Image>();
+            img.color = UiKit.Blue;
+            if (panelSprite != null) { img.sprite = panelSprite; img.type = Image.Type.Sliced; }
+            var btn = go.GetComponent<Button>();
+            btn.targetGraphic = img;
+            UiKit.SizeHint(btn, flexibleWidth: 1, preferredHeight: height, flexibleHeight: 0);
+
+            var label = UiKit.Text(rt, "", 22, UiKit.Bg, TextAnchor.MiddleCenter, true);
+            label.name = "Label";
+            UiKit.Fill(label.rectTransform);
+
+            go.SetActive(false);
+            return rt;
+        }
+
+        // 스크롤 Content 공용 설정(VerticalLayoutGroup+ContentSizeFitter) — 여러 패널의 카드/행 목록이
+        // 전부 이 조합이라 헬퍼로 묶었다(PerkOfferPanel/ShopPanel/BagPopup/GameOverPanel/NodePanel).
+        private static void SetupStackContent(RectTransform content, int paddingH, int paddingV, float spacing)
+        {
+            var vlg = content.gameObject.AddComponent<VerticalLayoutGroup>();
+            vlg.padding = new RectOffset(paddingH, paddingH, paddingV, paddingV);
+            vlg.spacing = spacing;
+            vlg.childControlWidth = true;
+            vlg.childControlHeight = true;
+            vlg.childForceExpandWidth = true;
+            vlg.childForceExpandHeight = false;
+            vlg.childAlignment = TextAnchor.UpperLeft;
+            var csf = content.gameObject.AddComponent<ContentSizeFitter>();
+            csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════
+        // DexScreen — S7b. 카테고리 탭(가로 스크롤 pill) + 3열 그리드 + 상세 팝업(DexDetailPopup, 전역
+        // OverlayLayer 산하). 이관 원본: Scripts/UI/DexScreen.cs·DetailPopup.cs.
+        // ══════════════════════════════════════════════════════════════════════════════
+        private static DexBuildResult BuildDexScreen(Transform canvasRoot, UI2.DexDetailPopup detailPopup)
+        {
+            var result = new DexBuildResult();
+            var panelSprite = UiSpriteGen.Load("panel_r24");
+
+            var root = UiKit.Panel(canvasRoot, "DexScreen", UiKit.Bg);
+            UiKit.Fill(root);
+            result.root = root;
+            result.group = root.gameObject.AddComponent<CanvasGroup>();
+            result.view = root.gameObject.AddComponent<UI2.DexView>();
+
+            var col = UiKit.VGroup(root, 0, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.Fill(col);
+
+            // 헤더 — 90
+            var header = UiKit.HGroup(col, 16, new RectOffset(24, 24, 16, 8), true, true);
+            UiKit.SizeHint(header, preferredHeight: 90, flexibleHeight: 0);
+            var title = UiKit.Text(header, "📖 잭팟런 도감", UiKit.TextStyle.H1, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(title, flexibleWidth: 1, flexibleHeight: 0);
+            result.backButton = UiKit.Button(header, "← 메뉴", new Vector2(160, 70), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, panelSprite);
+            UiKit.SizeHint(result.backButton, preferredWidth: 160, preferredHeight: 70, flexibleWidth: 0, flexibleHeight: 0);
+
+            // 통계 4타일 — 96
+            var statsRow = UiKit.HGroup(col, 12, new RectOffset(24, 24, 4, 12), true, true);
+            UiKit.SizeHint(statsRow, preferredHeight: 96, flexibleHeight: 0);
+            result.statBestScoreText = BuildStatTile(statsRow, "🏆 최고점수");
+            result.statBestStageText = BuildStatTile(statsRow, "🧗 최고 스테이지");
+            result.statRunsText = BuildStatTile(statsRow, "🔁 런");
+            result.statTotalScoreText = BuildStatTile(statsRow, "📈 통산 점수");
+
+            // 카테고리 탭 — 96, JackpotCatalog.CategoryOrder 8종 고정.
+            var tabScroll = UiKit.Scroll(col, out var tabsContent, vertical: false);
+            UiKit.SizeHint(tabScroll, preferredHeight: 96, flexibleHeight: 0);
+            var tabsHlg = tabsContent.gameObject.AddComponent<HorizontalLayoutGroup>();
+            tabsHlg.spacing = 10;
+            tabsHlg.padding = new RectOffset(20, 20, 8, 8);
+            tabsHlg.childControlWidth = true;
+            tabsHlg.childControlHeight = true;
+            tabsHlg.childForceExpandWidth = false;
+            tabsHlg.childForceExpandHeight = false;
+            tabsHlg.childAlignment = TextAnchor.MiddleLeft;
+            var tabsCsf = tabsContent.gameObject.AddComponent<ContentSizeFitter>();
+            tabsCsf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            var order = JackpotCatalog.CategoryOrder;
+            result.tabImages = new Image[order.Length];
+            for (int i = 0; i < order.Length; i++)
+            {
+                string cat = order[i];
+                var tabGo = new GameObject("Tab_" + cat, typeof(RectTransform), typeof(Image), typeof(Button), typeof(PressFx));
+                var tabRt = (RectTransform)tabGo.transform;
+                tabRt.SetParent(tabsContent, false);
+                var tabImg = tabGo.GetComponent<Image>();
+                tabImg.sprite = panelSprite;
+                tabImg.type = Image.Type.Sliced;
+                tabImg.color = UiKit.PanelBg;
+                result.tabImages[i] = tabImg;
+                var tabBtn = tabGo.GetComponent<Button>();
+                tabBtn.targetGraphic = tabImg;
+                UiKit.SizeHint(tabBtn, preferredWidth: 168, preferredHeight: 96, flexibleWidth: 0, flexibleHeight: 0);
+
+                var tabLabel = UiKit.Text(tabRt, JackpotCatalog.CategoryTitle(cat), 19, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+                UiKit.Fill(tabLabel.rectTransform);
+
+                UnityEventTools.AddStringPersistentListener(tabBtn.onClick, result.view.SetCategory, cat);
+            }
+
+            // 카드 그리드(3열) — 잔여 전부.
+            var gridScroll = UiKit.Scroll(col, out var gridContent, vertical: true);
+            UiKit.SizeHint(gridScroll, flexibleHeight: 1);
+            UiKit.Grid(gridContent, new Vector2(328, 420), new Vector2(16, 16), 3);
+            gridContent.gameObject.GetComponent<GridLayoutGroup>().padding = new RectOffset(20, 20, 20, 20);
+            result.gridContent = gridContent;
+            result.cardTemplate = BuildDexCardTemplate(gridContent);
 
             return result;
+        }
+
+        private static Text BuildStatTile(RectTransform row, string label)
+        {
+            var cell = UiKit.Panel(row, "Stat", UiKit.PanelBg);
+            UiKit.SizeHint(cell, flexibleWidth: 1, preferredHeight: 96, flexibleHeight: 0);
+            var col = UiKit.VGroup(cell, 2, new RectOffset(8, 8, 10, 10), true, true);
+            UiKit.Fill(col);
+            var l = UiKit.Text(col, label, 15, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(l, preferredHeight: 22, flexibleHeight: 0);
+            var v = UiKit.Text(col, "-", 25, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(v, flexibleHeight: 1);
+            return v;
+        }
+
+        // 자식 경로 계약(DexView.cs): IconSlot/Icon·IconSlot/IconEmoji, "Name"/"Desc"/"Sub"(Text),
+        // "Lock"(GameObject)+"Lock/Hint"(Text).
+        private static RectTransform BuildDexCardTemplate(Transform parent)
+        {
+            var card = UiKit.Panel(parent, "DexCardTemplate", UiKit.Card, UiSpriteGen.Load("card_grad"));
+            var cardBtn = card.gameObject.AddComponent<Button>();
+            cardBtn.targetGraphic = card.GetComponent<Image>();
+            card.gameObject.AddComponent<PressFx>();
+
+            // "Content" 이름 계약(DexView.cs) — Transform.Find는 직계 자식만 찾으므로 Icon/Name/Desc/Sub는
+            // "Content/..."로 찾는다(NodePanel/PerkOfferPanel/ShopPanel과 동일 이유). "Lock"은 card의
+            // 직계 자식(오버레이)이라 이름 그대로 찾을 수 있지만, 그 안의 Hint는 lockCol(아래)의 자식이라
+            // 마찬가지로 "Content/Hint"(lockCol을 "Content"로 명명)로 찾는다.
+            var col = UiKit.VGroup(card, 6, new RectOffset(14, 14, 14, 12), true, true);
+            col.name = "Content";
+            UiKit.Fill(col);
+
+            BuildIconSlot(col, 220, 96); // Icon/IconEmoji가 IconSlot 자식이지만 IconSlot 자체는 col의 셀.
+            var iconSlot = col.Find("IconSlot");
+            var iconSlotLe = iconSlot.GetComponent<LayoutElement>();
+            iconSlotLe.preferredWidth = -1; // 세로 스택이라 폭은 채우고 높이만 고정.
+            iconSlotLe.flexibleWidth = 1;
+            iconSlotLe.preferredHeight = 220;
+            iconSlotLe.flexibleHeight = 0;
+
+            var name = UiKit.Text(col, "", 22, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            name.name = "Name";
+            UiKit.SizeHint(name, preferredHeight: 30, flexibleHeight: 0);
+
+            var desc = UiKit.Text(col, "", 16, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            desc.name = "Desc";
+            UiKit.SizeHint(desc, flexibleHeight: 1);
+
+            var sub = UiKit.Text(col, "", 15, UiKit.Accent, TextAnchor.UpperLeft);
+            sub.name = "Sub";
+            UiKit.SizeHint(sub, preferredHeight: 22, flexibleHeight: 0);
+
+            var lockOverlay = UiKit.Panel(card, "Lock", UiKit.LockScrim);
+            UiKit.Fill(lockOverlay);
+            var lockCol = UiKit.VGroup(lockOverlay, 6, new RectOffset(14, 14, 14, 14), true, true);
+            lockCol.name = "Content";
+            UiKit.Fill(lockCol);
+            var lockIcon = UiKit.Text(lockCol, "🔒 잠김", 22, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(lockIcon, preferredHeight: 32, flexibleHeight: 0);
+            var lockHint = UiKit.Text(lockCol, "", 15, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            lockHint.name = "Hint";
+            UiKit.SizeHint(lockHint, flexibleHeight: 1);
+            lockOverlay.gameObject.SetActive(false);
+
+            card.gameObject.SetActive(false);
+            return card;
+        }
+
+        private static void WireDexView(DexBuildResult r, UI2.DexDetailPopup detailPopup, AppRoot appRoot)
+        {
+            var so = new SerializedObject(r.view);
+            so.FindProperty("appRoot").objectReferenceValue = appRoot;
+            so.FindProperty("statBestScoreText").objectReferenceValue = r.statBestScoreText;
+            so.FindProperty("statBestStageText").objectReferenceValue = r.statBestStageText;
+            so.FindProperty("statRunsText").objectReferenceValue = r.statRunsText;
+            so.FindProperty("statTotalScoreText").objectReferenceValue = r.statTotalScoreText;
+            SetObjectArray(so, "tabImages", r.tabImages);
+            so.FindProperty("gridContent").objectReferenceValue = r.gridContent;
+            so.FindProperty("cardTemplate").objectReferenceValue = r.cardTemplate;
+            so.FindProperty("detailPopup").objectReferenceValue = detailPopup;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        // ── DexDetailPopup(전역 OverlayLayer 산하) ──────────────────────────────────────
+        private static UI2.DexDetailPopup BuildDexDetailPopup(Transform overlay)
+        {
+            var scrim = UiKit.Panel(overlay, "DexDetailPopup", new Color(0f, 0f, 0f, 0.66f));
+            UiKit.Fill(scrim);
+            scrim.gameObject.SetActive(false);
+            var scrimButton = scrim.gameObject.AddComponent<Button>();
+            scrimButton.transition = Selectable.Transition.None;
+
+            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
+            card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
+            card.pivot = new Vector2(0.5f, 0.5f);
+            card.sizeDelta = new Vector2(900f, 1600f);
+            var cardBlocker = card.gameObject.AddComponent<Button>();
+            cardBlocker.transition = Selectable.Transition.None;
+            var cardCol = UiKit.VGroup(card, 0, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.Fill(cardCol);
+
+            var scroll = UiKit.Scroll(cardCol, out var content, vertical: true);
+            UiKit.SizeHint(scroll, flexibleHeight: 1);
+            SetupStackContent(content, 32, 24, 12);
+
+            // 아트(512) — 스프라이트 없으면 대형 이모지로 폴백.
+            var iconRow = UiKit.Panel(content, "IconRow", new Color(0, 0, 0, 0));
+            UiKit.SizeHint(iconRow, preferredHeight: 512, flexibleHeight: 0);
+            var iconImage = UiKit.Image(iconRow, null, Color.white);
+            iconImage.name = "Icon";
+            iconImage.rectTransform.anchorMin = iconImage.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+            iconImage.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+            iconImage.rectTransform.sizeDelta = new Vector2(512f, 512f);
+            var iconEmojiText = UiKit.Text(iconRow, "", 220, Color.white, TextAnchor.MiddleCenter);
+            iconEmojiText.name = "IconEmoji";
+            UiKit.Fill(iconEmojiText.rectTransform);
+
+            var titleText = UiKit.Text(content, "", 38, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(titleText, preferredHeight: 52, flexibleHeight: 0);
+            var metaText = UiKit.Text(content, "", 21, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(metaText, preferredHeight: 30, flexibleHeight: 0);
+            var descText = UiKit.Text(content, "", 23, UiKit.TextPrimary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(descText, preferredHeight: 90, flexibleHeight: 0);
+            var unlockText = UiKit.Text(content, "", 19, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(unlockText, preferredHeight: 50, flexibleHeight: 0);
+
+            var pickSection = UiKit.VGroup(content, 10, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(pickSection, preferredHeight: 0, flexibleHeight: 0);
+            var pickCsf = pickSection.gameObject.AddComponent<ContentSizeFitter>();
+            pickCsf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            var pickRoleEffText = UiKit.Text(pickSection, "", 21, UiKit.TextPrimary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(pickRoleEffText, preferredHeight: 60, flexibleHeight: 0);
+            var pickBuildTagsText = UiKit.Text(pickSection, "", 19, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(pickBuildTagsText, preferredHeight: 50, flexibleHeight: 0);
+            var pickMetersText = UiKit.Text(pickSection, "", 21, UiKit.Accent, TextAnchor.UpperLeft, true);
+            UiKit.SizeHint(pickMetersText, preferredHeight: 32, flexibleHeight: 0);
+
+            var colsRow = UiKit.HGroup(pickSection, 20, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(colsRow, preferredHeight: 220, flexibleHeight: 0);
+            var prosText = BuildDetailListCell(colsRow, "장점", UiKit.Good);
+            var consText = BuildDetailListCell(colsRow, "주의", UiKit.Bad);
+
+            var closeButton = UiKit.Button(cardCol, "닫기", new Vector2(0, 84), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
+            UiKit.SizeHint(closeButton, preferredHeight: 84, flexibleHeight: 0);
+
+            var view = scrim.gameObject.AddComponent<UI2.DexDetailPopup>();
+            var so = new SerializedObject(view);
+            so.FindProperty("scrimButton").objectReferenceValue = scrimButton;
+            so.FindProperty("cardRect").objectReferenceValue = card;
+            so.FindProperty("iconImage").objectReferenceValue = iconImage;
+            so.FindProperty("iconEmojiText").objectReferenceValue = iconEmojiText;
+            so.FindProperty("titleText").objectReferenceValue = titleText;
+            so.FindProperty("metaText").objectReferenceValue = metaText;
+            so.FindProperty("descText").objectReferenceValue = descText;
+            so.FindProperty("unlockText").objectReferenceValue = unlockText;
+            so.FindProperty("pickRoleEffText").objectReferenceValue = pickRoleEffText;
+            so.FindProperty("pickBuildTagsText").objectReferenceValue = pickBuildTagsText;
+            so.FindProperty("pickMetersText").objectReferenceValue = pickMetersText;
+            so.FindProperty("pickSection").objectReferenceValue = pickSection;
+            so.FindProperty("prosText").objectReferenceValue = prosText;
+            so.FindProperty("consText").objectReferenceValue = consText;
+            so.FindProperty("closeButton").objectReferenceValue = closeButton;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        private static Text BuildDetailListCell(RectTransform row, string title, Color color)
+        {
+            var cell = UiKit.VGroup(row, 4, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(cell, flexibleWidth: 1, flexibleHeight: 0);
+            var t = UiKit.Text(cell, title, 20, color, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(t, preferredHeight: 28, flexibleHeight: 0);
+            var body = UiKit.Text(cell, "", 18, UiKit.TextPrimary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(body, flexibleHeight: 1);
+            return body;
         }
 
         // ── ScreenRouter 와이어링 ────────────────────────────────────────────────────

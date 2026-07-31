@@ -211,6 +211,111 @@ Editor/UiSpriteGen.cs            # 절차 스프라이트 PNG 생성 → Assets/
 - RunEvent 계약(RunController.cs 헤더) 준수 — STAGE_CLEARED result null 가드 포함.
 - 검증: MCP로 씬 빌드 실행 → 플레이 → 각 화면 스크린샷 → Fable 육안 검수 루프.
 
+## S7c — 카메라 + 파티클 이펙트 (2026-07-31 확정)
+
+현 씬은 카메라 0개 + ScreenSpaceOverlay다. Overlay 캔버스 아래의 ParticleSystem은 **렌더되지 않는다**.
+파티클을 쓰려면 카메라가 필수다.
+
+### 렌더링 전환 (SceneBuilder)
+- `UICamera` 생성: Orthographic, size 5, depth 0, clearFlags SolidColor(#0B0E1A), tag "MainCamera",
+  position (0,0,-100), cullingMask Everything, allowHDR/MSAA 기본.
+- `JackpotRunCanvas`: renderMode = **ScreenSpaceCamera**, worldCamera = UICamera, planeDistance = 100.
+  sortingOrder 100 유지. → 캔버스 로컬 1unit = 1px(레퍼런스 1080×1920 기준)이라 파티클 크기도 px 단위로 잡는다.
+- 파티클은 캔버스 하위(연출 지점)에 배치하고 `ParticleSystemRenderer.sortingOrder`로 UI 위/아래를 정한다:
+  배경 앰비언트 = canvas.sortingOrder-1(=99), 일반 연출 = 150, 화면 전체 연출(잭팟/클리어) = 250.
+  `sortingLayerName`은 기본("Default") 유지, `renderMode = Billboard`, `alignment = View`.
+
+### 파티클 에셋 생성 (`Editor/FxPrefabGen.cs`) — 절차 생성, 외부 패키지 금지
+- 텍스처: 소프트 원형 도트(`Art/FX/dot_soft.png`, 64×64, 방사 알파 그라데이션), 별(`star_soft.png`, 4각 스파클), 사각 조각(`confetti.png`, 8×12 단색).
+- 머티리얼: `Shader.Find("Particles/Standard Unlit")` → 없으면 `"Legacy Shaders/Particles/Additive"` 폴백.
+  **생성한 셰이더를 GraphicsSettings의 Always Included Shaders에 추가**(빌드에서 스트립 방지).
+  가산합성(Additive) 머티리얼 `fx_add.mat`, 알파블렌드 `fx_alpha.mat`.
+- 프리팹 11종 → `Resources/JackpotRun/FX/<id>.prefab` (런타임 Resources.Load):
+
+| id | 트리거 | 사양 |
+|---|---|---|
+| `fx_spin_stop` | 릴 셀 정지마다 | 스파크 8개, 0.25s, 셀 크기 방사, 심볼색(런타임 startColor 주입), size 10~18 |
+| `fx_set_hit` | 세트 3/4 성립 | 링 확산(shape Circle radius 60, burst 14) + 반짝, 0.4s, 골드 |
+| `fx_jackpot` | 전칸 일치 | 컨페티 80개(중력 400, 회전, confetti 텍스처, 1.4s) + 중앙 방사 버스트 30개(가산, 골드/화이트) |
+| `fx_exp_gain` | EXP 바 채움 | 바 끝점에서 흐르는 트레일 12개/초, 0.4s, 시안(#34D3C0) |
+| `fx_coin` | 코인 획득 | 코인색 도트 3~8개가 HUD 코인 라벨로 날아감(런타임 목표점 지정, 0.5s) |
+| `fx_clear` | 스테이지 클리어 | 별 낙하 40개(상단 라인 emitter, 1.2s) + 배너 뒤 광채 펄스 |
+| `fx_boss` | 보스 스테이지 진입 | 붉은 잔불 상승 루프(HUD 테두리, 20개/초, 0.6 알파) — 스테이지 동안 유지 |
+| `fx_skull` | 해골 페널티 | 검은 연기 퍼프 6개, 0.5s, 알파블렌드, 상승 |
+| `fx_perk_pick` | 퍼크 선택 | 카드 중심에서 티어색 스파클 24개 폭발, 0.6s |
+| `fx_gameover` | 게임오버 패널 | 재 낙하 30개/초 루프, 어두운 회색, 알파 0.4 |
+| `fx_menu_ambient` | 메뉴 화면 상시 | 골드 먼지 상승 6개/초 루프, 알파 0.25, size 6~12 |
+
+- 프리팹 루트에 `ParticleSystem` + `ParticleSystemRenderer`(머티리얼·sortingOrder 지정) + RectTransform 불필요(Transform).
+  `playOnAwake=false`, `stopAction=None`(풀 재사용), 루프형만 `loop=true`.
+
+### 런타임 API (`Scripts/UI2/Fx/FxKit.cs`)
+```csharp
+public enum FxId { SpinStop, SetHit, Jackpot, ExpGain, Coin, Clear, Boss, Skull, PerkPick, GameOver, MenuAmbient }
+public sealed class FxKit : MonoBehaviour {           // AppRoot가 보유, 캔버스 하위 "FxLayer"에 스폰
+    public static FxKit I { get; }
+    public ParticleSystem Play(FxId id, RectTransform anchor, Color? tint = null);   // anchor 중심에 1회 재생
+    public ParticleSystem PlayAt(FxId id, Vector2 canvasLocalPos, Color? tint = null);
+    public ParticleSystem PlayFlyTo(FxId id, RectTransform from, RectTransform to, int count); // 코인 등
+    public ParticleSystem PlayLoop(FxId id, RectTransform anchor, Color? tint = null); // 핸들 반환 — 호출측이 Stop
+    public void StopLoop(ParticleSystem handle);
+}
+```
+- 인스턴스 풀(프리팹별 최대 8), `Resources.Load<GameObject>("JackpotRun/FX/" + id)` 지연 로드, 미존재 시 무시(null 반환·예외 금지).
+- 좌표 변환: `RectTransformUtility.CalculateRelativeRectTransformBounds` 대신 `anchor.TransformPoint(anchor.rect.center)` → FxLayer 로컬로 `InverseTransformPoint`.
+
+### 연출 훅 (기존 뷰에 호출 추가 — 로직 변경 금지)
+- `ReelView`: 셀 정지마다 `SpinStop`(심볼색), set3/4 시 `SetHit`, 잭팟 시 `Jackpot`, 해골 칸 `Skull`.
+- `HudView`: EXP 채움 중 `ExpGain`, 코인 증가 시 `Coin`(릴→코인 라벨 flyTo), 보스 스테이지 `Boss` 루프(스테이지 종료 시 Stop).
+- `NodePanel`(클리어 배너): `Clear`. `PerkOfferPanel`: 카드 선택 시 `PerkPick`(티어색).
+- `GameOverPanel`: 표시 중 `GameOver` 루프. `MenuView`: 활성 동안 `MenuAmbient` 루프.
+
+### 주의
+- 파티클 시간은 `Time.unscaledDeltaTime` 불필요(타임스케일 조작 없음) — 기본 사용.
+- 모바일 성능: 동시 파티클 총량 상한 ~300, 프리팹 maxParticles 개별 지정.
+- 파티클이 UI 클릭을 막지 않도록 FxLayer에 `CanvasGroup{blocksRaycasts=false, interactable=false}`.
+
+## S8 — 씬 분리: Intro / Play (2026-07-31 확정)
+
+단일 씬(JackpotRun.unity)을 **Intro(로그인·메뉴·조합선택·도감) + Play(런 플레이)** 로 나눈다.
+런 씬은 파티클·연출이 무거워지므로 분리하고, 인트로는 가볍게 유지한다.
+
+### 씬 구성
+| 씬 | 빌드 인덱스 | 내용 |
+|---|---|---|
+| `Assets/JackpotRun/Scenes/Intro.unity` | 0 | UICamera · IntroCanvas · **LoginView** · MenuView · PickView · DexView · FxLayer · Toast |
+| `Assets/JackpotRun/Scenes/Play.unity` | 1 | UICamera · PlayCanvas · RunView(HUD/Reel/Notes/Controls) · OverlayLayer(패널 7종) · FxLayer · Toast |
+- 기존 `JackpotRun.unity`와 `Scenes/SampleScene.unity`는 삭제(빌드 목록도 두 씬만).
+
+### 영속 계층 (씬을 넘나드는 것)
+- **`AppRoot`가 DontDestroyOnLoad 싱글턴이 된다.** 씬 뷰 참조를 갖지 않는다(직렬화 참조 금지 — 씬 전환 시 dangling).
+  보유: `Profile`(PlayerProfile) · `ProfileStore` 저장 · `Session`(GameSession) · `PendingLaunch{charKey,macKey,devKey}` ·
+  씬 전환 API · **전환 페이드용 캔버스**(sortingOrder 500, DontDestroyOnLoad, 0.2s 암전→복귀).
+- 생성: `[RuntimeInitializeOnLoadMethod(BeforeSceneLoad)]`로 없으면 만든다(어느 씬에서 Play를 눌러도 동작).
+- 각 씬은 `IntroSceneRoot` / `PlaySceneRoot` MonoBehaviour가 자기 씬의 뷰를 [SerializeField]로 들고,
+  `Awake`에서 `AppRoot.Instance`에 자기를 등록한다(역방향 참조만 — AppRoot는 인터페이스로만 안다).
+
+### 전환 흐름
+```
+Intro(Login?) → Menu → Pick → [시작] → AppRoot.StartRun(c,m,d)
+   = PendingLaunch 저장 → 페이드아웃 → LoadScene("Play")
+Play: PlaySceneRoot.Awake → AppRoot.ConsumePendingLaunch() → GameSession 생성 → RunView.Bind(session) → 페이드인
+런 종료(GAME_OVER→[메뉴로]) → AppRoot.EndRun() = 프로필 저장 → 페이드아웃 → LoadScene("Intro") → Menu 표시
+```
+- Play 씬을 직접 열고 Play를 눌렀을 때(에디터 개발 편의): PendingLaunch가 없으면 기본 조합(novice/basic/"")으로 시작하고 경고 로그.
+
+### LoginView (신규, 인증 백엔드는 후속)
+- 닉네임 입력(legacy `InputField`, 2~12자) + [시작하기] + [게스트로 시작].
+- 저장은 `PlayerPrefs("jackpotrun_nick")` — **엔진(PlayerProfile) 건드리지 않는다.**
+- 이미 닉네임이 있으면 Intro 진입 시 Login을 건너뛰고 Menu로. Menu에 "@닉네임" 표기 + [닉네임 변경] 소형 버튼.
+- Firebase 연동 시 이 화면이 실제 로그인으로 교체된다(주석으로 명시).
+
+### SceneBuilder 개편
+- `UiSceneBuilder`: `BuildAll()`(메뉴 `JackpotRun/Build UI Scenes`) → `BuildIntroScene()` + `BuildPlayScene()`,
+  각각 개별 메뉴 항목도 제공. 비대화형 `BuildAllUnattended()` 유지(MCP용).
+- 공통 골격(카메라·캔버스·FxLayer·Toast) 생성은 헬퍼로 공유. 빌드 세팅은 Intro(0)·Play(1) 두 개로 설정.
+- S7c의 카메라/ScreenSpaceCamera 전환 규칙은 두 씬 모두에 적용.
+
 ## 구현 공통 규칙
 
 - 스펙 문서와 Kotlin이 다르면 **Kotlin이 정답** — 발견 시 보고(스펙 문서 정정은 Fable 몫).

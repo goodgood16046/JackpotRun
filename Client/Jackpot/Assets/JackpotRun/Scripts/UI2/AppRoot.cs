@@ -12,9 +12,9 @@ namespace JackpotRun.UI2
     // 아무것도 하지 않는다(JackpotRunApp.Bootstrap 가드, 이 파일과 짝을 이루는 유일한 기존 파일
     // 수정 지점).
     //
-    // [이번 슬라이스 범위] RunView/DexView는 S7b — 여기서는 자리표시 화면(빈 루트)으로 전환만 하고
-    // GameSession은 정상적으로 생성·보유한다(RunScreen(구)과 동일하게 GameSession.Do(...)를 호출할
-    // 실제 뷰가 S7b에서 이 세션을 이어받는다).
+    // RunView/DexView(S7b)도 router가 화면 4종과 함께 wiring한다 — StartRun이 GameSession을 만들고
+    // Run 화면으로 전환하면 RunView.OnEnable이 appRoot.Session을 읽어 이어받는다(RunScreen(구)과 동일하게
+    // GameSession.Do(...)를 호출).
     public sealed class AppRoot : MonoBehaviour
     {
         public static AppRoot Instance { get; private set; }
@@ -22,13 +22,17 @@ namespace JackpotRun.UI2
         [SerializeField] private ScreenRouter router;
         [SerializeField] private MenuView menuView;
         [SerializeField] private PickView pickView;
+        [SerializeField] private RunView runView;
+        [SerializeField] private DexView dexView;
 
         public ScreenRouter Router => router;
         public MenuView Menu => menuView;
         public PickView Pick => pickView;
+        public RunView Run => runView;
+        public DexView Dex => dexView;
         public PlayerProfile Profile { get; private set; }
 
-        /// <summary>진행 중인 게임 런 — StartRun에서 새로 생성된다. S7b RunView가 이어받아 쓴다.</summary>
+        /// <summary>진행 중인 게임 런 — StartRun에서 새로 생성된다. RunView.OnEnable이 이어받아 쓴다.</summary>
         public GameSession Session { get; private set; }
 
         private void Awake()
@@ -64,7 +68,6 @@ namespace JackpotRun.UI2
             router.Show(ScreenRouter.ScreenId.Pick);
         }
 
-        /// <summary>DexView는 S7b — 이번 슬라이스는 자리표시 화면으로만 전환한다.</summary>
         public void ShowDex()
         {
             if (router == null) return;
@@ -72,17 +75,18 @@ namespace JackpotRun.UI2
         }
 
         /// <summary>PickView "시작 예약" → 실제 런 시작(기존 JackpotRunApp.ShowRun 이관). devId는
-        /// ""(장치 없이)도 허용. RunView(S7b)가 없는 이번 슬라이스는 세션 생성 + 자리표시 화면
-        /// 전환까지만 수행한다 — GameSession 자체는 완전히 살아있어 다음 슬라이스가 바로 이어받는다.</summary>
+        /// ""(장치 없이)도 허용. GameSession을 만들고 Run 화면으로 전환하면 RunView.OnEnable이 이
+        /// 세션을 곧바로 이어받는다.</summary>
         public void StartRun(string charId, string machineId, string deviceId)
         {
             Session = new GameSession(charId, machineId, deviceId ?? string.Empty);
             if (router != null) router.Show(ScreenRouter.ScreenId.Run);
         }
 
-        /// <summary>런 종료(게임오버 → 메뉴 복귀 등, S7b RunView가 호출) — 세션을 비우고 프로필을
-        /// 디스크에서 다시 읽는다(GameSession.Do가 GAME_OVER 시 이미 저장을 마쳤으므로 최신
-        /// 업적/베스트기록을 메뉴·픽 화면에 즉시 반영하기 위함).</summary>
+        /// <summary>런 종료(게임오버 → 메뉴 복귀 등, GameOverPanel의 "메뉴로" 버튼이 호출) — 세션을
+        /// 비우고 프로필을 디스크에서 다시 읽는다(GameSession.Do가 GAME_OVER 시 이미 저장을 마쳤으므로
+        /// 최신 업적/베스트기록을 메뉴·픽 화면에 즉시 반영하기 위함). Run 화면이 비활성화되면
+        /// RunView.OnDisable이 자신이 연 페이즈 패널/팝업을 정리한다.</summary>
         public void EndRun()
         {
             Session = null;
