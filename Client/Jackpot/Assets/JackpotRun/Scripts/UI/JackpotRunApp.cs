@@ -27,6 +27,7 @@ namespace JackpotRun.UI
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
         {
+            if (FindObjectOfType<JackpotRun.UI2.AppRoot>() != null) return; // S7: 씬 기반 AppRoot가 있으면 구 코드생성 부트스트랩은 아무것도 하지 않는다
             if (FindObjectOfType<JackpotRunApp>() != null) return;
             var go = new GameObject("JackpotRunApp");
             Object.DontDestroyOnLoad(go);

@@ -144,6 +144,73 @@ RunEvent는 UI가 연출로 번역할 **구조화 이벤트**(스핀 결과 릴,
 - RunEvent 계약 주의(RunController.cs 헤더): STAGE_CLEARED의 spin.result null 가드, REJECTED 토스트.
 - 검증: csc 스모크 컴파일 + 에디터 리프레시 + 플레이모드 로그 무예외(기존 방식). dotnet 테스트 대상 아님.
 
+## S7 — UI 전면 개편: 씬 기반 uGUI + 아트 활용 + 연출 (2026-07-31 확정)
+
+기존 코드생성 UI(S6)는 검증용 골격이었다 — 사용자 판정: 이미지 활용 부족·연출 부재·룩 미달.
+**씬 기반으로 전면 재구축한다.** 엔진·GameSession·RunEvent 계약은 불변(뷰 계층만 교체).
+
+### 원칙
+- **씬이 진실**: `Assets/JackpotRun/Scenes/JackpotRun.unity` — Canvas·화면·팝업이 실제 씬 오브젝트.
+  에디터에서 수정 가능해야 한다. 단, 씬은 손으로 만들지 않고 **SceneBuilder 에디터 스크립트**가
+  결정론적으로 생성한다(메뉴 JackpotRun/Build UI Scene — 재실행 = 재생성, 파괴적이므로 확인 다이얼로그).
+- 뷰 컨트롤러는 MonoBehaviour + [SerializeField] 참조(빌더가 와이어링). 런타임 코드생성 금지.
+- 기존 `JackpotRunApp` 부트스트랩은 씬에 `AppRoot`가 있으면 아무것도 하지 않는다(폴백 유지).
+- 외부 패키지 금지 — 트윈은 자체 코루틴 헬퍼(`UiTween`), 스프라이트는 절차 생성 PNG 에셋.
+- SampleScene은 빌드 목록에서 제외, JackpotRun.unity가 유일한 빌드 씬.
+
+### 파일 구성
+```
+Scripts/UI2/                     # 새 뷰 계층 (기존 Scripts/UI는 S7 완료 후 제거 예정)
+├─ Kit/UiTween.cs               # Float/Move/Scale/Fade/Shake/CountUp + ease(OutBack/OutCubic/OutQuad)
+├─ Kit/UiKit.cs                 # 팔레트·텍스트 스타일·티어색·공통 생성 헬퍼(뷰가 참조)
+├─ Kit/PressFx.cs               # 버튼 프레스 스케일(0.96)·비활성 알파
+├─ AppRoot.cs                   # 엔트리: 프로필 로드, ScreenRouter 보유, GameSession 수명주기(기존 로직 이관)
+├─ ScreenRouter.cs              # 화면 전환 — CanvasGroup 페이드(0.18s) + 활성화 토글, Overlay/Toast 관리
+├─ MenuView.cs / PickView.cs / DexView.cs
+├─ Run/RunView.cs               # HUD·릴·노트·버튼열 오케스트레이션 (RunEvent 스트림 소비)
+├─ Run/ReelView.cs              # SymbolCell 5~6개 — 스핀 연출 담당
+├─ Run/HudView.cs, NotesFeed.cs
+├─ Run/Panels/NodePanel.cs, PerkOfferPanel.cs, ShopPanel.cs, PostSpinPanel.cs, GameOverPanel.cs, BagPopup.cs, ManipPickPopup.cs
+└─ ToastManager.cs
+Editor/UiSceneBuilder.cs         # 씬+프리팹 생성기 (아래 사양)
+Editor/UiSpriteGen.cs            # 절차 스프라이트 PNG 생성 → Assets/JackpotRun/Art/UI/
+```
+
+### 절차 생성 아트 (UiSpriteGen — 빌더가 1회 실행, 결과는 커밋되는 에셋)
+- 9-slice 라운드 사각형: `panel_r24`, `card_r16`, `chip_r999`(pill), `outline_r16`(테두리만, 선택 글로우용)
+- 수직 그라데이션 카드 배경 `card_grad`(상단 밝게 +8%), 릴 셀 홈 `cell_inset`(내부 그림자 느낌 2px 어둡게)
+- EXP 바: `bar_bg_r12` / `bar_fill_r12`
+- 심볼 타일 14종: `sym_<id>.png` — 심볼 고유색 라운드 타일(색상표: cherry #E5484D · book #4C8DFF · star #F5C518 · gem #7C5CFF · crown #FFB300 · skull #9BA3B4(암배경 #2A0F14) · coin #E8B93C · flame #FF6B35 · magnet #5B8CFF · bomb #3A4051 · dice #E8EAF2 · seed #4CAF50 · wild #00C2A8 · key #C9A227) + 중앙 이모지는 뷰에서 Text 오버레이. 생성 크기 256, Sprite/FullRect, 9-slice border 32(타일류만).
+
+### 화면 사양 (1080×1920 세로 고정)
+- **공통**: 배경 #0B0E1A, 패널 #151A2E, 카드 #1B2138+grad, 강조 #FFD23F, 폰트 Pretendard(기존 로더).
+  화면 전환 페이드, 모든 버튼 PressFx, 스크롤은 Elastic.
+- **MenuView**: 타이틀 로고 텍스트(72pt, 골드 그라데이션 대신 골드+그림자), 대표 캐릭터 아트 3장 캐러셀(좌우 슬라이드 4s 루프, char 스프라이트 512 표시), 버튼 [게임 시작]·[도감], 하단 프로필 요약 카드(최고점수·런·업적 n/482 — ProfileStore).
+- **PickView**: 실프로필 해금 연동(**데모 데이터 제거** — chars/machines: profile.IsCharUnlocked/IsMachineUnlocked, 장치: profile.OwnedDevices; 힌트는 pick.unlock). 카드 = 아트 대형(상단 정사각 ~300px, 잠금 시 그레이스케일 대신 어둡게+자물쇠 오버레이), 이름+난이도 배지, eff 1줄, 탭 전환 슬라이드(0.15s), 선택 시 outline 글로우 펄스 + 요약 패널 갱신은 기존 Evaluate 로직 이관. 시작 버튼 → AppRoot.StartRun.
+- **RunView 연출 (핵심)**:
+  - 스핀: 버튼 → 릴 셀들이 0.45s 동안 심볼 순환(0.05s 간격 랜덤 교체) 후 **왼쪽부터 0.08s 스태거로 정지**(OutBack 스케일 바운스). 정지 후 획득 라인 표시: EXP CountUp(0.3s), 코인/점수 델타 플로팅 텍스트(+N 떠오르며 페이드).
+  - 세트/잭팟: set3 = 해당 셀 글로우, set4 = 화면 플래시(흰 6% 알파 0.12s), 잭팟(전칸) = 플래시+셰이크(6px 0.3s)+"JACKPOT" 배너.
+  - EXP 바: 트윈 채움, 요구치 도달 순간 골드 펄스. 해골 페널티: 셀 흔들림+적색 틴트.
+  - 불운 게이지 🍀 5칸 표시(HUD), 가득 시 펄스.
+  - 스테이지 클리어: 상단에서 등급 배너 드롭(OutBack)+점수 CountUp → 1.0s 후 노드 패널 슬라이드업.
+  - 보스 스테이지: HUD 테두리 적색 틴트 + 진입 배너("보스: <이름>").
+  - 특수모드 버튼: 사용 불가 시 흐림, 사용 시 아이콘 강조. 장치 버튼은 catalog 스프라이트 아이콘 사용(64px).
+  - PostSpin: 어둡게+만회 버튼 등장, GameOver: 딤 0.3s → 패널 스케일인 → 신규 업적 스태거 리스트(0.05s 간격).
+- **PerkOfferPanel/ShopPanel**: 카드 3장 스태거 팝인(0.08s, OutBack), 아트 대형(200px), 티어 리본(실버/골드/프리즘 색), 시너지 주입 카드는 🧩 배지 + 보라 테두리, 보류 카드는 🗂️ 배지. 상점은 가격 pill + 코인 부족 시 흔들림 피드백.
+- **DexView**: 카테고리 탭(가로 스크롤 pill), 3열 그리드(아트 300px), 잠금 어둡게+자물쇠, 상세 팝업(아트 512 + 스탯) — 기존 로직 이관하되 실프로필 진행도(업적 달성 체크) 표시.
+
+### SceneBuilder 사양
+- 메뉴 `JackpotRun/Build UI Scene`: ① UiSpriteGen 실행(없는 것만) ② 씬 생성/덮어쓰기(확인 후)
+  ③ Canvas(1080×1920, match 0.5, sortingOrder 100)+EventSystem+AppRoot+ScreenRouter+화면 4종+Overlay 구성,
+  모든 [SerializeField] 와이어링 ④ Build Settings 씬 목록을 JackpotRun.unity 단독으로 설정 ⑤ 저장.
+- 반복 실행 안전(기존 씬 삭제 후 재생성). 생성물은 전부 커밋 대상.
+
+### 이관 규칙
+- 기존 Scripts/UI의 **로직**(정렬/필터/Evaluate 연동/RunEvent 분기/카탈로그 매핑)은 재사용·이관하되
+  레이아웃 코드는 버린다. Scripts/UI는 S7 검수 통과 후 일괄 삭제(별도 커밋).
+- RunEvent 계약(RunController.cs 헤더) 준수 — STAGE_CLEARED result null 가드 포함.
+- 검증: MCP로 씬 빌드 실행 → 플레이 → 각 화면 스크린샷 → Fable 육안 검수 루프.
+
 ## 구현 공통 규칙
 
 - 스펙 문서와 Kotlin이 다르면 **Kotlin이 정답** — 발견 시 보고(스펙 문서 정정은 Fable 몫).
