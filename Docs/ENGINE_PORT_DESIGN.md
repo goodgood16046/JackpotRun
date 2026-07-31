@@ -119,6 +119,31 @@ RunEvent는 UI가 연출로 번역할 **구조화 이벤트**(스핀 결과 릴,
 | **S5** | PlayerProfile·AchievementEngine(482)·해금 통합 + Unity 저장 어댑터(JsonUtility) | S3 |
 | **S6** | RunScreen UI(uGUI, 기존 UiFactory 활용) + PickScreen "시작 예약"→실제 런 시작 연결 | S4·S5 |
 
+## S6 — 게임 화면 UI (2026-07-31 확정)
+
+기존 UI 규칙(코드 생성 uGUI·UiFactory·레거시 Text·1080×1920 다크 테마) 그대로. 파일:
+
+- `Scripts/Game/GameSession.cs` (namespace JackpotRun.Game) — 수명주기 접착: ProfileStore.Load →
+  `RunController(char, mac, dev, seed=현재틱, profile.Stats참조, dev2)` 생성 → 매 `Do(action)` 반환
+  이벤트를 StatTracker에 공급 → GAME_OVER 시 기록 갱신(bestScore/bestStage/runs/totalScore)·
+  AchievementEngine.Evaluate·ProfileStore.Save. **seed는 이 파일에서만 시각 기반 생성**(엔진은 순수 유지).
+- `Scripts/UI/RunScreen.cs` + `Scripts/UI/RunPanels.cs` — 게임 화면. 구성:
+  상단 HUD(스테이지·요구 EXP 진행바·남은 스핀·코인·점수·저주 수), 릴 5~6칸(심볼 이모지 타일 +
+  획득 EXP/점수 라인), 스핀 노트 피드(outcomeNotes 최근 6줄), 하단 버튼열(스핀 + 특수모드
+  올인/집중/기도/막판 — 사용가능 조건은 엔진 거부에 맡기고 거부 사유 토스트), 가방(아이템 사용),
+  장치 명령 버튼(장착 장치의 kind별 — MANIP은 칸 선택 팝업).
+  Phase 패널: NodeSelect(3택 카드) · PerkOffer(3카드 — 스프라이트+이름+desc, offerHeldIncluded/
+  offerSynergyPerkId/offerTierBumped 배지) · Shop(오퍼 목록+가격+리롤6+나가기) · PostSpin(만회 버튼:
+  GREROL/장치 or 포기) · GameOver(최종 점수·등급·기록 갱신 표시·새 업적 목록·[메뉴로]).
+- 수정: `JackpotRunApp.cs`(ShowRun(char,mac,dev) 추가·GameSession 보유), `PickScreen.cs`("시작 예약"
+  버튼 → `app.ShowRun(선택 조합)` — 데모 메시지 대체), `MainMenuScreen.cs`(프로필 요약 줄: 최고점수·
+  런 수·업적 n/482 — ProfileStore 로드).
+- **catalog 스프라이트 키 매핑**: 엔진 퍼크 id는 무접두("study"), catalog id는 접두("aug_study").
+  헬퍼 `CatalogIdOf(PCat, id)` — AUGMENT→"aug_"·RELIC→"rel_"·CURSE→"cur_"·ITEM→"item_"·장치는 dev_ 그대로.
+  `JackpotCatalog.Get(catalogId)` → `LoadSprite`. 스프라이트 없으면 이모지 폴백(기존 규약).
+- RunEvent 계약 주의(RunController.cs 헤더): STAGE_CLEARED의 spin.result null 가드, REJECTED 토스트.
+- 검증: csc 스모크 컴파일 + 에디터 리프레시 + 플레이모드 로그 무예외(기존 방식). dotnet 테스트 대상 아님.
+
 ## 구현 공통 규칙
 
 - 스펙 문서와 Kotlin이 다르면 **Kotlin이 정답** — 발견 시 보고(스펙 문서 정정은 Fable 몫).

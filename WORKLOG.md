@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-31 - 엔진 이식 완결 (S5b 프로필·트래킹 + S6 게임 화면) — 테스트 17,819개
+
+- **S4 회귀 보강**: +6,200 어서션 — INSTANT 아이템 15종 상태변화 실측, 확률표(티어/10%등급업/12%프리즘 — 비순환 층화 설계), 리치 자동플레이(전 액션 실행 확인). 신규 버그 0.
+- **S5b (Sonnet → Opus 검수 → 반영)**: `Engine/Profile/` PlayerProfile(스탯 156키 단일 Dictionary) · StatTracker(Kotlin track/bumpAch 19개 호출 지점 전수 이식 — Opus 대조 18/19 정확, 결손 1건 즉시 수정) · AchievementEngine(composeStat 파생키·THEME_BUILDS 25종·lic→장치 해금) · ProfileDto + `Game/ProfileStore.cs`(JsonUtility·원자적 저장). seen_* 그랜드파더 게이트 이식(RISK 노드 미기록 기벽 보존).
+- **Opus S5b 검수 반영**: H1 dev_pin 스크래치(업적 3종 봉인 해제) · M1 파생키 게이트(prodigy) · M2 즉시클리어 itemsUsed 원본 동작 · M3 세이브 원자성(File.Replace) · M4 devicesOwned 지연 · L1~L4. bld_* 25종 직접 검증 등 +88 어서션.
+- **S6 게임 화면**: `UI/RunScreen.cs`·`RunPanels.cs`(HUD·릴·노트 피드·특수모드 4종·가방·장치 버튼·MANIP 칸선택 팝업, Phase 패널 5종 — 노드3택/퍼크오퍼(보류·재추첨·시너지 배지)/상점/만회/게임오버) + `Game/GameSession.cs`(프로필→런→트래킹→업적판정→저장 수명주기). PickScreen "시작 예약" → 실제 런 시작 연결, 메인 메뉴에 프로필 요약.
+- 최종: **dotnet 17,819 테스트 통과 + 전 스크립트 csc 컴파일 0오류**. 남은 항목: 에디터 플레이모드 실검증, PickScreen 해금 표시의 프로필 연동(현재 데모 데이터), 표시모드 명령(S6 후속), Firebase 연동, 앱 아이콘/스플래시/실기기 빌드.
+
 ## 2026-07-31 - 엔진 C# 이식 3단계 (S4 상점·노드·아이템·장치·RunController) — 테스트 11,504개
 
 - **S4 (Sonnet → Opus 검수 → Fable 반영)**: `Engine/Run/` Shop(perkGate→gatedPool→pickPerksByTier→offerPerks 확률 파이프라인, 5% 세트시너지 주입 포함 — RNG 소비 순서 call-for-call 일치) · NodeEvents(노드 8종+EVENT 10종 랜덤표) · ItemUse(INSTANT 23케이스+즉시클리어 캡+retake_form) · DeviceActions(MANIP 9단계 net-adjust·보조슬롯 0.6약화·gambler 무료재굴림) · RunController(typed action façade, §7 명령 전수 매핑).

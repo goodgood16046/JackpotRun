@@ -14,6 +14,9 @@ namespace JackpotRun.UI
 
         public JackpotRun.Data.PlayerState Player { get; private set; }
 
+        /// <summary>진행 중인 게임 런(S6) — ShowRun에서 새로 생성되고 화면이 살아있는 동안 유지된다.</summary>
+        public JackpotRun.Game.GameSession Session { get; private set; }
+
         /// <summary>화면들이 최상위 오버레이(팝업 등)를 붙일 때 쓰는 캔버스 루트.</summary>
         public RectTransform CanvasRoot => _canvasRt;
 
@@ -82,6 +85,15 @@ namespace JackpotRun.UI
             ClearScreen();
             _screenRoot = NewScreenRoot("DexScreen");
             DexScreen.Build(_screenRoot, this);
+        }
+
+        /// <summary>PickScreen "시작 예약" → 실제 런 시작. devKey는 ""(장치 없이)도 허용.</summary>
+        public void ShowRun(string charKey, string macKey, string devKey)
+        {
+            ClearScreen();
+            Session = new JackpotRun.Game.GameSession(charKey, macKey, devKey);
+            _screenRoot = NewScreenRoot("RunScreen");
+            RunScreen.Build(_screenRoot, this);
         }
 
         private RectTransform NewScreenRoot(string name)

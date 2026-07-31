@@ -331,7 +331,7 @@ namespace JackpotRun.Engine
             {
                 type = "PERK_OFFER", node = node, perkOfferIds = run.PerkOfferIds,
                 offerTier = picks[0].tier, offerBossPrism = bossClear, offerTierBumped = tierBumped,
-                offerSynergyPerkId = synPerkId,
+                offerSynergyPerkId = synPerkId, offerRetake = true,
             });
         }
     }

@@ -625,12 +625,7 @@ namespace JackpotRun.UI
             private void OnStartClicked()
             {
                 if (string.IsNullOrEmpty(_selChar) || string.IsNullOrEmpty(_selMac)) return;
-                var c = MetaOf("char", _selChar);
-                var m = MetaOf("mac", _selMac);
-                var d = !string.IsNullOrEmpty(_selDev) ? MetaOf("dev", _selDev) : null;
-                string devTxt = d != null ? $" + {d.emoji}{d.name}" : " + 🚫장치없이";
-                string combo = $"{c.emoji}{c.name} + {m.emoji}{m.name}{devTxt}";
-                _sumMsgText.text = $"✅ {combo} — 로컬 데모: 예약은 백엔드 연동 후 지원";
+                _app.ShowRun(_selChar, _selMac, _selDev ?? "");
             }
 
             // ── 카드 ──────────────────────────────────────────

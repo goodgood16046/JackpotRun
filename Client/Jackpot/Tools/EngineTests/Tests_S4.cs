@@ -40,6 +40,15 @@ namespace JackpotRun.EngineTests
         {
             return new RunState(seed) { CharId = charId, MachineId = machineId, Device = deviceId, Phase = RunPhase.Spin };
         }
+
+        // instantQuota(run)/qOf(stage,mods)와 동일한 손계산 — novice(quotaMul×0.92)·퍽/저주/phaseItems
+        // 없음·기본 머신(quotaMul 기여 없음) 전제(순환검증 방지: buildMods를 다시 호출하지 않고 novice의
+        // 계수를 직접 곱한다). run.CharId가 "novice"가 아니면 이 헬퍼를 쓰지 말 것.
+        public static long HandQuota(RunState run)
+        {
+            if (run.CharId != "novice") throw new InvalidOperationException("HandQuota는 novice 전용 손계산이다");
+            return (long)(Formulas.Quota(run.Stage) * 0.92);
+        }
     }
 
     // ── ① 상점 오퍼 생성 — 고정 시드 재현성 + gatedPool BASE 폴백 ──────────────────────────────────
@@ -536,6 +545,466 @@ namespace JackpotRun.EngineTests
         }
     }
 
+    // ── Opus 회귀 보강 ① broken_prism 2회 연속 사용 → run.PhasePerks.Count==1(덮어쓰기, Add 아님) ──────
+    // ItemUse.cs의 "Kotlin L1496 run.copy(phasePerks = pick) — CSV 단일 필드 대입이라 기존 임시 퍽을
+    // 덮어쓴다" 주석대로 Clear()+Add()로 구현됐는지 직접 확인한다.
+    internal static class Tests_S4_BrokenPrismOverwrite
+    {
+        public static void Run(TestCtx t)
+        {
+            var stat = S4TestHelpers.GenerousStat();
+            var run = S4TestHelpers.NewRun(4004L);
+            run.Items.Add("broken_prism");
+            run.Items.Add("broken_prism");
+
+            var ev1 = ItemUse.Use(run, "broken_prism", stat);
+            t.Eq("ITEM_USED", ev1[0].type, "[broken-prism] 1회차 사용 성공");
+            t.Eq(1, run.PhasePerks.Count, "[broken-prism] 1회차 후 PhasePerks 정확히 1개");
+            var firstPick = run.PhasePerks[0];
+            t.True(!string.IsNullOrEmpty(firstPick), "[broken-prism] 1회차 주입 id 비어있지 않음");
+
+            var ev2 = ItemUse.Use(run, "broken_prism", stat);
+            t.Eq("ITEM_USED", ev2[0].type, "[broken-prism] 2회차 사용 성공");
+            t.Eq(1, run.PhasePerks.Count,
+                "[broken-prism] 2회 연속 사용해도 여전히 1개(Add 누적이었다면 2가 됐을 것 — 덮어쓰기 확인)");
+            t.Eq(0, run.Items.Count, "[broken-prism] 가방 2개 모두 소모됨");
+
+            var safe = new HashSet<string>
+            {
+                "overdrive", "supernova", "wild_world", "joker", "seed_garden",
+                "great_harvest", "jackpot", "mega_jackpot", "gamblers_dice", "key_master", "time_warp",
+            };
+            t.True(safe.Contains(run.PhasePerks[0]), "[broken-prism] 최종 주입 퍽이 안전 프리즘 목록 소속");
+        }
+    }
+
+    // ── Opus 회귀 보강 ② Retake 풀 소진 경로 — 코인·RETAKE 마커 롤백 + RETAKE_EMPTY ─────────────────
+    // NodeEvents.Retake의 "Kotlin L1364-1369: spent 사본은 offerPerks가 null이면 upsert되지 않고
+    // 버려진다 → 코인·RETAKE 마커 원복" 주석대로 구현됐는지 확인한다. GatedPoolBaseFallback 테스트와
+    // 동일한 패턴(잠긴 stat + held로 폴백 풀까지 고갈)으로 pickPerksByTier가 빈 리스트를 반환하게 만든다.
+    internal static class Tests_S4_RetakeExhaustion
+    {
+        public static void Run(TestCtx t)
+        {
+            var lockedStat = new Dictionary<string, long> { ["dummy_unrelated_key"] = 1 }; // BASE_PERK_IDS만 폴백
+            var run = S4TestHelpers.NewRun(5005L);
+            run.Phase = RunPhase.EventAugment;
+            run.Device = "dev_retake";
+            run.Coins = 50;
+            // gatedPool 폴백 풀(BasePerkIds 중 증강 10종) 전부를 이미 보유시켜 avail을 완전히 고갈시킨다.
+            foreach (var id in Schools.BasePerkIds)
+            {
+                var p = Perks.ById(id);
+                if (p != null && p.cat == PCat.AUGMENT) run.Perks.Add(id);
+            }
+
+            long coinsBefore = run.Coins;
+            var ev = NodeEvents.Retake(run, lockedStat);
+
+            t.Eq("RETAKE_EMPTY", ev[0].type, "[retake-empty] 풀 소진 → RETAKE_EMPTY");
+            t.Eq(NodeKind.Augment, ev[0].node, "[retake-empty] node 필드");
+            t.Eq(coinsBefore, run.Coins, "[retake-empty] 코인 롤백(차감 취소)");
+            t.True(!run.UsedCmds.Contains("RETAKE"), "[retake-empty] RETAKE 마커 롤백(재추첨 기회 유지)");
+            t.Eq(RunPhase.EventAugment, run.Phase, "[retake-empty] Phase 그대로(EVENT_AUGMENT 유지)");
+
+            // 롤백 확인 후 — 코인이 그대로이므로 재시도(예: 다시 Retake)가 여전히 INSUFFICIENT_COINS가
+            // 아니라 같은 RETAKE_EMPTY로 재현되는지도 확인(코인 롤백이 진짜인지 이중 검증).
+            var ev2 = NodeEvents.Retake(run, lockedStat);
+            t.Eq("RETAKE_EMPTY", ev2[0].type, "[retake-empty] 재시도도 동일하게 RETAKE_EMPTY(코인 정말 롤백됐음 확인)");
+            t.Eq(coinsBefore, run.Coins, "[retake-empty] 재시도 후에도 코인 불변");
+        }
+    }
+
+    // ── Opus 회귀 보강 ③ INSTANT 아이템 효과 실측 대표 8종+ ────────────────────────────────────────
+    internal static class Tests_S4_InstantItemEffects
+    {
+        public static void Run(TestCtx t)
+        {
+            var stat = S4TestHelpers.GenerousStat();
+            SimpleAdditive(t, stat);
+            ConditionalAndClearing(t, stat);
+            RngBased(t, stat);
+            RetakeFormFull(t, stat);
+        }
+
+        private static RunState FreshSpinRun(long seed)
+        {
+            var run = S4TestHelpers.NewRun(seed);
+            run.Phase = RunPhase.Spin;
+            return run;
+        }
+
+        private static IReadOnlyList<RunEvent> UseOne(RunState run, string itemId, IReadOnlyDictionary<string, long> stat)
+        {
+            run.Items.Add(itemId);
+            return ItemUse.Use(run, itemId, stat);
+        }
+
+        private static void SimpleAdditive(TestCtx t, IReadOnlyDictionary<string, long> stat)
+        {
+            var r1 = FreshSpinRun(9001); long c1 = r1.Coins; var e1 = UseOne(r1, "old_coin", stat);
+            t.Eq("ITEM_USED", e1[0].type, "[instant:old_coin] 사용 성공");
+            t.Eq(c1 + 6, r1.Coins, "[instant:old_coin] 코인 +6");
+
+            var r2 = FreshSpinRun(9002); long c2 = r2.Coins; UseOne(r2, "mini_coupon", stat);
+            t.Eq(c2 + 9, r2.Coins, "[instant:mini_coupon] 코인 +9");
+
+            var r3 = FreshSpinRun(9003); long c3 = r3.Coins; UseOne(r3, "price_hack", stat);
+            t.Eq(c3 + 18, r3.Coins, "[instant:price_hack] 코인 +18");
+
+            var r4 = FreshSpinRun(9004); long s4 = r4.Score; UseOne(r4, "score_sticker", stat);
+            t.Eq(s4 + 150, r4.Score, "[instant:score_sticker] 점수 +150");
+
+            var r5 = FreshSpinRun(9005); int b5 = r5.StageBonusSpins; UseOne(r5, "first_aid", stat);
+            t.Eq(b5 + 1, r5.StageBonusSpins, "[instant:first_aid] 스핀 +1");
+
+            var r6 = FreshSpinRun(9006); int b6 = r6.StageBonusSpins; UseOne(r6, "double_aid", stat);
+            t.Eq(b6 + 2, r6.StageBonusSpins, "[instant:double_aid] 스핀 +2");
+
+            var r7 = FreshSpinRun(9007); t.True(!r7.Survive, "[instant:insurance_cert] 사용 전 Survive=false");
+            UseOne(r7, "insurance_cert", stat);
+            t.True(r7.Survive, "[instant:insurance_cert] Survive=true");
+
+            var r8 = FreshSpinRun(9008); long c8 = r8.Coins; UseOne(r8, "debt_note", stat);
+            t.Eq(c8 + 30, r8.Coins, "[instant:debt_note] 코인 +30");
+            t.Eq(4, r8.DebtStages, "[instant:debt_note] DebtStages=4");
+
+            var r9 = FreshSpinRun(9009); var e9 = UseOne(r9, "dev_battery", stat);
+            t.Eq("ITEM_USED", e9[0].type, "[instant:dev_battery] 사용 성공");
+            t.True(r9.ArmItems.Contains("dev_coin"), "[instant:dev_battery] armItems에 dev_coin 편성(레버 재사용)");
+        }
+
+        private static void ConditionalAndClearing(TestCtx t, IReadOnlyDictionary<string, long> stat)
+        {
+            // score_calc: score += score*30/100
+            var r1 = FreshSpinRun(9101); r1.Score = 1000; UseOne(r1, "score_calc", stat);
+            t.Eq(1000 + 1000 * 30 / 100, r1.Score, "[instant:score_calc] 점수 +30%");
+
+            // grad_copy: StageExp += quota*80/100, Score = Score*9/10
+            var r2 = FreshSpinRun(9102); r2.Score = 1000;
+            long quota2 = S4TestHelpers.HandQuota(r2);
+            UseOne(r2, "grad_copy", stat);
+            t.Eq(quota2 * 80 / 100, r2.StageExp, "[instant:grad_copy] 게이지 +요구치80%");
+            t.Eq(1000L * 9 / 10, r2.Score, "[instant:grad_copy] 점수 ×0.9(10% 페널티)");
+
+            // grad_ring 범위 밖(부족분>20) → 무효과, 클리어 안 됨.
+            var r3 = FreshSpinRun(9103);
+            long quota3 = S4TestHelpers.HandQuota(r3);
+            r3.StageExp = quota3 - 50; // 부족분 50 > 20
+            var e3 = UseOne(r3, "grad_ring", stat);
+            t.Eq(1, e3.Count, "[instant:grad_ring범위밖] 이벤트 1개(클리어 안 됨)");
+            t.Eq("ITEM_USED", e3[0].type, "[instant:grad_ring범위밖] 타입");
+            t.Eq(quota3 - 50, r3.StageExp, "[instant:grad_ring범위밖] 부족분>20 → 게이지 불변(무효과)");
+            t.Eq(1, r3.Stage, "[instant:grad_ring범위밖] 스테이지 불변(클리어 안 됨)");
+
+            // grad_ring 범위 안(부족분<=20) → 즉시 클리어(StageFlow.ClearStage 경유, 2번째 이벤트).
+            var r4 = FreshSpinRun(9104);
+            long quota4 = S4TestHelpers.HandQuota(r4);
+            r4.StageExp = quota4 - 10; // 부족분 10, 범위 안
+            var e4 = UseOne(r4, "grad_ring", stat);
+            t.Eq(2, e4.Count, "[instant:grad_ring범위안] 이벤트 2개(ITEM_USED + STAGE_CLEARED)");
+            t.Eq("ITEM_USED", e4[0].type, "[instant:grad_ring범위안] 첫 이벤트");
+            t.Eq("STAGE_CLEARED", e4[1].type, "[instant:grad_ring범위안] 두번째 이벤트(즉시클리어)");
+            t.Eq(2, r4.Stage, "[instant:grad_ring범위안] 클리어로 Stage+1");
+            t.Eq(0L, r4.StageExp, "[instant:grad_ring범위안] 클리어 리셋으로 StageExp=0");
+
+            // gold_grad_bell 범위 안(부족분<=50) → 즉시 클리어.
+            var r5 = FreshSpinRun(9105);
+            long quota5 = S4TestHelpers.HandQuota(r5);
+            r5.StageExp = quota5 - 40; // 부족분 40, gold_grad_bell 범위(<=50) 안
+            var e5 = UseOne(r5, "gold_grad_bell", stat);
+            t.Eq(2, e5.Count, "[instant:gold_grad_bell] 이벤트 2개(즉시클리어)");
+            t.Eq("STAGE_CLEARED", e5[1].type, "[instant:gold_grad_bell] 두번째 이벤트");
+            t.Eq(2, r5.Stage, "[instant:gold_grad_bell] 클리어로 Stage+1");
+        }
+
+        private static void RngBased(TestCtx t, IReadOnlyDictionary<string, long> stat)
+        {
+            // black_lottery: 50% 골드유물 / 50% 저주. 신규 런 + 관대한 stat → 둘 중 하나는 항상 지급.
+            var r1 = FreshSpinRun(9201); var e1 = UseOne(r1, "black_lottery", stat);
+            t.Eq("ITEM_USED", e1[0].type, "[instant:black_lottery] 사용 성공");
+            bool gotRelic = r1.Perks.Count == 1 && Perks.ById(r1.Perks[0]).cat == PCat.RELIC && Perks.ById(r1.Perks[0]).tier == Tier.GOLD;
+            bool gotCurse = r1.Curses.Count == 1;
+            t.True(gotRelic || gotCurse, "[instant:black_lottery] 골드유물 또는 저주 중 하나가 실제로 지급됨");
+            t.True(!(gotRelic && gotCurse), "[instant:black_lottery] 두 갈래 중 하나만(동시 지급 아님)");
+
+            // devil_contract: 유물+저주 지급 성패와 무관하게 코인은 항상 +25.
+            var r2 = FreshSpinRun(9202); long c2 = r2.Coins; var e2 = UseOne(r2, "devil_contract", stat);
+            t.Eq("ITEM_USED", e2[0].type, "[instant:devil_contract] 사용 성공");
+            t.Eq(c2 + 25, r2.Coins, "[instant:devil_contract] 코인 +25(항상)");
+            t.True(r2.Perks.Count <= 1, "[instant:devil_contract] 유물 0~1개");
+            t.True(r2.Curses.Count <= 1, "[instant:devil_contract] 저주 0~1개");
+            t.True(r2.Perks.Count == 1, "[instant:devil_contract] 신규런+관대한stat → 유물은 사실상 항상 지급");
+            t.True(r2.Curses.Count == 1, "[instant:devil_contract] 신규런 → 저주도 사실상 항상 지급(16종 중 미보유 다수)");
+
+            // timeline_ticket: 다음 스핀 결과를 lockedNext로 확정 — 5칸·전부 유효 심볼.
+            var r3 = FreshSpinRun(9203); t.Eq(0, r3.LockedNext.Count, "[instant:timeline_ticket] 사용 전 LockedNext 비어있음");
+            var e3 = UseOne(r3, "timeline_ticket", stat);
+            t.Eq("ITEM_USED", e3[0].type, "[instant:timeline_ticket] 사용 성공");
+            t.Eq(Formulas.REEL, r3.LockedNext.Count, "[instant:timeline_ticket] LockedNext 5칸 확정");
+            t.True(r3.LockedNext.All(id => Symbols.ById(id) != null), "[instant:timeline_ticket] 전부 유효 심볼id");
+
+            // broken_prism 단발 확인(덮어쓰기 자체는 Tests_S4_BrokenPrismOverwrite에서 별도 검증).
+            var r4 = FreshSpinRun(9204); var e4 = UseOne(r4, "broken_prism", stat);
+            t.Eq("ITEM_USED", e4[0].type, "[instant:broken_prism] 사용 성공");
+            t.Eq(1, r4.PhasePerks.Count, "[instant:broken_prism] PhasePerks 1개 편성");
+        }
+
+        // retake_form — 직전 스핀 전체 재굴림, net-adjust 대수적 일관성.
+        private static void RetakeFormFull(TestCtx t, IReadOnlyDictionary<string, long> stat)
+        {
+            var run = FreshSpinRun(9301);
+            run.LastCells.AddRange(new[] { "cherry", "book", "star", "gem", "crown" });
+            run.LastSpinNo = 0;
+            run.SpinIndex = 1;
+            long oldStageExp = 15, oldScore = 4, oldCoins = 12;
+            long oldLastGain = 15, oldLastScoreGain = 4;
+            int oldLastCoinGain = 0;
+            run.StageExp = oldStageExp; run.Score = oldScore; run.Coins = oldCoins;
+            run.LastGain = oldLastGain; run.LastScoreGain = oldLastScoreGain; run.LastCoinGain = oldLastCoinGain;
+            run.Items.Add("retake_form");
+
+            var ev = ItemUse.Use(run, "retake_form", stat);
+            t.Eq("ITEM_USED", ev[0].type, "[instant:retake_form] 사용 성공");
+            t.True(ev[0].spin != null, "[instant:retake_form] SpinOutcome 페이로드 존재");
+            t.Eq(0, run.Items.Count, "[instant:retake_form] 가방에서 소모됨");
+            t.True(run.UsedItemThisRun, "[instant:retake_form] UsedItemThisRun=true");
+
+            var res = ev[0].spin.result;
+            long expNewExp = Math.Max(oldStageExp - oldLastGain, 0) + res.exp;
+            long expNewScore = Math.Max(oldScore - oldLastScoreGain + res.score, 0);
+            long expNewCoins = Math.Max(oldCoins - oldLastCoinGain + res.coins, 0);
+            t.Eq(expNewExp, run.StageExp, "[instant:retake_form] net-adjust StageExp");
+            t.Eq(expNewScore, run.Score, "[instant:retake_form] net-adjust Score");
+            t.Eq(expNewCoins, run.Coins, "[instant:retake_form] net-adjust Coins");
+            t.Eq(res.exp, run.LastGain, "[instant:retake_form] LastGain 갱신됨");
+        }
+    }
+
+    // ── Opus 회귀 보강 ④ HoldAugment → 다음 증강 노드에서 offerHeldIncluded==true·0번 칸 보류 id ─────
+    internal static class Tests_S4_HoldAugmentCarryover
+    {
+        public static void Run(TestCtx t)
+        {
+            var stat = S4TestHelpers.GenerousStat();
+            var run = S4TestHelpers.NewRun(6006L);
+            run.Phase = RunPhase.NodeSelect;
+            run.Stage = 4; // 5의 배수 아님(보스클리어 프리즘 강제 아님) — 일반 진행
+            run.NodeOptions.Add(NodeKind.Augment);
+            run.Device = "dev_holdfile";
+
+            var ev1 = NodeEvents.ChooseNode(run, 0, stat);
+            t.Eq("PERK_OFFER", ev1[0].type, "[hold] 최초 오퍼 생성");
+            t.True(!ev1[0].offerHeldIncluded, "[hold] 최초 오퍼는 보류 미포함");
+
+            string holdId = run.PerkOfferIds[0];
+            var ev2 = NodeEvents.HoldAugment(run, 0);
+            t.Eq("PERK_HELD", ev2[0].type, "[hold] 보류 성공");
+            t.Eq(holdId, ev2[0].perkId, "[hold] 보류 이벤트 perkId=0번 칸 id");
+            t.Eq(holdId, run.HeldAug, "[hold] run.HeldAug에 저장됨");
+            t.Eq(0, run.PerkOfferIds.Count, "[hold] 보류 후 PerkOfferIds 소거");
+            t.Eq(RunPhase.Spin, run.Phase, "[hold] Phase → Spin");
+
+            // 다음 증강 노드 재진입.
+            run.Phase = RunPhase.NodeSelect;
+            run.NodeOptions.Add(NodeKind.Augment);
+            var ev3 = NodeEvents.ChooseNode(run, 0, stat);
+            t.Eq("PERK_OFFER", ev3[0].type, "[hold] 두번째 오퍼 생성");
+            t.True(ev3[0].offerHeldIncluded, "[hold] 두번째 오퍼는 offerHeldIncluded=true");
+            t.Eq(holdId, ev3[0].perkOfferIds[0], "[hold] 0번 칸이 보류해둔 퍽 id");
+            t.Eq(holdId, run.PerkOfferIds[0], "[hold] run.PerkOfferIds[0]도 동일");
+            t.Eq("", run.HeldAug, "[hold] 보류 슬롯 소비되어 비워짐");
+        }
+    }
+
+    // ── Opus 회귀 보강 ⑤ dev_coin 보조슬롯 1.18·dev_oracle PEEK·dev_bell ARMED 각 1건 ────────────────
+    internal static class Tests_S4_DeviceEdgeCases
+    {
+        public static void Run(TestCtx t)
+        {
+            DevCoinSecondary(t);
+            DevOraclePeek(t);
+            DevBellArmed(t);
+        }
+
+        private static void DevCoinSecondary(TestCtx t)
+        {
+            var run = S4TestHelpers.NewRun(7001L);
+            run.Device = ""; // 메인 미장착
+            run.Device2 = "dev_coin";
+            run.Coins = 20;
+            double oldPending = run.PendingNextExpMul;
+            t.Eq(1.0, oldPending, "[dev_coin-sec] 사용 전 PendingNextExpMul=1.0");
+
+            var ev = DeviceActions.Handle(run, "dev_coin", null);
+            t.Eq("DEVICE_ARMED", ev[0].type, "[dev_coin-sec] 성공");
+            t.True(ev[0].secondary, "[dev_coin-sec] secondary=true");
+            t.Eq(15, run.Coins, "[dev_coin-sec] 코인 -5");
+            // secondaryMul(1.3) = 1.0 + (1.3-1.0)*SECONDARY_MUL(0.6) = 1.18.
+            double expected = 1.0 + (Devices.ById("dev_coin").fx["expMul"] - 1.0) * Formulas.SECONDARY_MUL;
+            t.EqTol(1.18, expected, "[dev_coin-sec] 손계산 자체가 1.18(회귀 방지용 상수 확인)");
+            t.EqTol(expected, run.PendingNextExpMul, "[dev_coin-sec] PendingNextExpMul 실측 = 1.18 손계산");
+            t.Eq(0, run.ArmItems.Count, "[dev_coin-sec] 보조는 armItems 미사용(메인 경로와 다름)");
+            t.True(run.UsedCmds.Contains("dev_coin"), "[dev_coin-sec] 스테이지당 1회 마커 기록");
+        }
+
+        private static void DevOraclePeek(TestCtx t)
+        {
+            var run = S4TestHelpers.NewRun(7002L);
+            run.Device = "dev_oracle";
+
+            var ev = DeviceActions.Handle(run, "dev_oracle", null);
+            t.Eq("DEVICE_PEEK", ev[0].type, "[dev_oracle] 성공");
+            t.Eq(Formulas.REEL, ev[0].peekCells.Count, "[dev_oracle] 5칸 미리보기");
+            t.True(ev[0].peekCells.All(id => Symbols.ById(id) != null), "[dev_oracle] 전부 유효 심볼id");
+            t.True(run.LockedNext.SequenceEqual(ev[0].peekCells), "[dev_oracle] run.LockedNext에 그대로 반영");
+            t.True(run.UsedCmds.Contains("dev_oracle"), "[dev_oracle] 스테이지당 1회 마커");
+            t.True(run.UsedCmds.Contains("RUNORACLE"), "[dev_oracle] RUNORACLE 마커(런 끝까지 보존용)도 함께 기록");
+
+            // 스테이지당 1회 재확인.
+            var ev2 = DeviceActions.Handle(run, "dev_oracle", null);
+            t.Eq("REJECTED", ev2[0].type, "[dev_oracle] 같은 스테이지 재사용 거부");
+            t.Eq("DEVICE_ALREADY_USED", ev2[0].reason, "[dev_oracle] 거부 사유");
+        }
+
+        private static void DevBellArmed(TestCtx t)
+        {
+            var run = S4TestHelpers.NewRun(7003L);
+            run.Device = "dev_bell";
+            run.Stage = 1;
+            long quota = S4TestHelpers.HandQuota(run);
+            run.StageExp = quota - 10; // 부족분 10 <= 25 → 장전 가능
+
+            var ev = DeviceActions.Handle(run, "dev_bell", null);
+            t.Eq("DEVICE_ARMED", ev[0].type, "[dev_bell] 부족분<=25 → 장전 성공");
+            t.True(run.ArmItems.Contains("dev_bell"), "[dev_bell] armItems에 편성");
+            t.True(run.UsedCmds.Contains("dev_bell"), "[dev_bell] 스테이지당 1회 마커");
+
+            var run2 = S4TestHelpers.NewRun(7004L);
+            run2.Device = "dev_bell";
+            long quota2 = S4TestHelpers.HandQuota(run2);
+            run2.StageExp = quota2 - 100; // 부족분 100 > 25 → 거부
+            var ev2 = DeviceActions.Handle(run2, "dev_bell", null);
+            t.Eq("REJECTED", ev2[0].type, "[dev_bell] 부족분>25 → 거부");
+            t.Eq("DEV_BELL_DEFICIT_TOO_HIGH", ev2[0].reason, "[dev_bell] 거부 사유");
+            t.Eq(0, run2.ArmItems.Count, "[dev_bell] 거부 시 armItems 불변");
+        }
+    }
+
+    // ── Opus 회귀 보강 ⑥ 확률 실측 3종: 티어 확률표·10% 티어업·EVENT_PRISM_RATE(12%) ────────────────
+    internal static class Tests_S4_ProbabilityTables
+    {
+        public static void Run(TestCtx t)
+        {
+            TierWeightsTable(t);
+            TierUpTenPercent(t);
+            EventPrismRate(t);
+        }
+
+        // Shop의 private TierWeights(stage) — 직접 호출 불가하므로 PickAugments(n=1)의 결과 티어 분포로
+        // 간접 실측한다(매 시행 독립 시드로 rng 오염 없이 티어 1회 롤 + 그 티어에서 1개 픽).
+        private static void TierWeightsTable(TestCtx t)
+        {
+            SampleBracket(t, "stage<=3(78/22/0)", stage: 2, trials: 6000, expSilver: 0.78, expGold: 0.22, expPrism: 0.0);
+            SampleBracket(t, "stage>9(22/53/25)", stage: 15, trials: 6000, expSilver: 0.22, expGold: 0.53, expPrism: 0.25);
+        }
+
+        private static void SampleBracket(TestCtx t, string label, int stage, int trials, double expSilver, double expGold, double expPrism)
+        {
+            var stat = S4TestHelpers.GenerousStat();
+            int silver = 0, gold = 0, prism = 0;
+            for (long seed = 0; seed < trials; seed++)
+            {
+                var rng = new Rng(800_000L + stage * 100_000L + seed);
+                var picks = Shop.PickAugments(rng, stage, new HashSet<string>(), 1, stat);
+                if (picks.Count == 0) continue; // 폴백까지 소진되는 극단적 경우 방지(관대한 stat이라 사실상 없음)
+                switch (picks[0].tier)
+                {
+                    case Tier.SILVER: silver++; break;
+                    case Tier.GOLD: gold++; break;
+                    default: prism++; break;
+                }
+            }
+            int total = silver + gold + prism;
+            double rSilver = silver / (double)total, rGold = gold / (double)total, rPrism = prism / (double)total;
+            t.Report($"[tier-table:{label}] 실측 분포", $"S={rSilver:P2} G={rGold:P2} P={rPrism:P2} (n={total})");
+            t.True(Math.Abs(rSilver - expSilver) <= 0.02, $"[tier-table:{label}] SILVER 비율 ±2%p 이내(실측 {rSilver:P2}, 기대 {expSilver:P2})");
+            t.True(Math.Abs(rGold - expGold) <= 0.02, $"[tier-table:{label}] GOLD 비율 ±2%p 이내(실측 {rGold:P2}, 기대 {expGold:P2})");
+            t.True(Math.Abs(rPrism - expPrism) <= 0.02, $"[tier-table:{label}] PRISM 비율 ±2%p 이내(실측 {rPrism:P2}, 기대 {expPrism:P2})");
+        }
+
+        // NodeEvents.OfferPerks의 "10% 행운! 등급업" — RunEvent.offerTierBumped로 관측 가능.
+        // stage=2(clearedStage=1) → baseTier=SILVER 고정이라 TierUp(SILVER)=GOLD, 항상 실제로 등급이
+        // 바뀌므로(원본 로직상 up==baseTier인 경우가 없는 조합) offerTierBumped 관측률이 곧 10% 롤 자체다.
+        private static void TierUpTenPercent(TestCtx t)
+        {
+            var stat = S4TestHelpers.GenerousStat();
+            const int trials = 6000;
+            int bumped = 0;
+            for (long seed = 900_000; seed < 900_000 + trials; seed++)
+            {
+                var run = S4TestHelpers.NewRun(seed);
+                run.Phase = RunPhase.NodeSelect;
+                run.Stage = 2; // clearedStage=1 → baseTier=SILVER
+                run.NodeOptions.Add(NodeKind.Augment);
+                var ev = NodeEvents.ChooseNode(run, 0, stat);
+                t.Eq("PERK_OFFER", ev[0].type, $"[tierup seed={seed}] 오퍼 생성 성공");
+                if (ev[0].offerTierBumped) bumped++;
+            }
+            double rate = bumped / (double)trials;
+            t.Report("[tierup] 10% 등급업 실측", $"{bumped}/{trials} = {rate:P2}");
+            t.True(Math.Abs(rate - 0.10) <= 0.02, $"[tierup] 등급업 발생률 10%±2%p 이내(실측 {rate:P2})");
+        }
+
+        // EVENT_PRISM_RATE(private const, 0.12) — freshShopOffer의 "허용" 여부는 직접 노출되지 않으므로,
+        // FreshOffer가 소비하는 *첫* RNG 값(allowPrism = rng.NextDouble() < 0.12)을 별도 프로브 Rng로
+        // 재현해 시드별로 "임계값 0.12 미만/이상"을 미리 분류한 뒤, 실제 오퍼에 프리즘 증강이 노출되는
+        // 비율이 두 그룹 사이에서 뚜렷이(수십 배) 갈리는지로 검증한다. 프로브는 run.Rng와 별개의
+        // new Rng(seed) 인스턴스이므로 run의 실제 RNG 소비에는 영향이 없다 — 둘 다 "새로 만들어 아무것도
+        // 소비 안 한" 상태에서 시작하므로 seed가 같으면 첫 NextDouble() 값도 반드시 같다(Rng.cs 계약).
+        // "false" 그룹은 gatePrism의 anti-dead-end 폴백(4칸 전부 프리즘일 때만, 확률 ≈0.25^4≈0.4%)에서만
+        // 노출되므로 매우 낮고, "true" 그룹은 그보다 수십 배 높아야 한다 — 실제 임계값이 0.12에서
+        // ±2%p를 벗어나면(예: 0.06이나 0.20) 그룹 경계가 새어 이 대비가 크게 무너진다(설계 문서 주석에
+        // 손계산 근거 명시).
+        private static void EventPrismRate(TestCtx t)
+        {
+            var stat = S4TestHelpers.GenerousStat();
+            const int trials = 20000;
+            const int stage = 15; // stage>9 고정구간(프리즘 가중치 25%, 매 draw 독립)
+            int predTrueCount = 0, predTrueShown = 0;
+            int predFalseCount = 0, predFalseShown = 0;
+
+            for (long seed = 2_000_000; seed < 2_000_000 + trials; seed++)
+            {
+                double probe = new Rng(seed).NextDouble();
+                bool predictedAllow = probe < 0.12;
+
+                var run = S4TestHelpers.NewRun(seed);
+                run.Stage = stage;
+                var offer = Shop.FreshOffer(run, stat);
+                bool shown = offer.Any(e => e.kind == 'A' && Perks.ById(e.id).tier == Tier.PRISM);
+
+                if (predictedAllow) { predTrueCount++; if (shown) predTrueShown++; }
+                else { predFalseCount++; if (shown) predFalseShown++; }
+            }
+
+            double rateTrue = predTrueCount > 0 ? predTrueShown / (double)predTrueCount : 0.0;
+            double rateFalse = predFalseCount > 0 ? predFalseShown / (double)predFalseCount : 0.0;
+            double overallPredictedTrueFraction = predTrueCount / (double)trials;
+
+            t.Report("[prism-rate] predicted<0.12 그룹 비율(RNG 균등성 sanity)", $"{predTrueCount}/{trials} = {overallPredictedTrueFraction:P2}");
+            t.Report("[prism-rate] predicted-true 그룹 프리즘 노출률", $"{predTrueShown}/{predTrueCount} = {rateTrue:P2}");
+            t.Report("[prism-rate] predicted-false 그룹 프리즘 노출률", $"{predFalseShown}/{predFalseCount} = {rateFalse:P2}");
+
+            t.True(Math.Abs(overallPredictedTrueFraction - 0.12) <= 0.02,
+                $"[prism-rate] 0.12 미만 시드 비율 10~14% 대역(RNG 균등성 확인, 실측 {overallPredictedTrueFraction:P2})");
+            t.True(rateFalse <= 0.05, $"[prism-rate] predicted-false 그룹은 거의 노출 안 됨(실측 {rateFalse:P2}, 이론상 ≈0.4%)");
+            t.True(rateTrue >= rateFalse * 5.0 && rateTrue > 0.15,
+                $"[prism-rate] predicted-true 그룹이 뚜렷이 더 높음(실측 true={rateTrue:P2} false={rateFalse:P2}) " +
+                "— EVENT_PRISM_RATE가 0.12에서 크게(±2%p 상당) 벗어나면 이 대비가 무너진다");
+        }
+    }
+
     // ── ⑥·⑦ RunController 자동 플레이 — 2시드 sanity + 100시드 시뮬레이션(상점 포함) ────────────────
     internal static class Tests_S4_RunControllerAutoplay
     {
@@ -595,6 +1064,81 @@ namespace JackpotRun.EngineTests
             return (rc.State.Phase == RunPhase.GameOver, rc.State.Stage, log);
         }
 
+        // Opus 회귀 보강 ⑦ — UseItem/DeviceCmd/RerollShop이 실제로 실행되는 휴리스틱 정책(예외 0 유지
+        // 확인용). AutoPlay(단순 정책)와 별개로 유지 — TwoSeedSanity는 좁은 sanity가 목적이라 그대로 둔다.
+        // 정책용 난수는 policyRng(System.Random, run.Rng와 무관한 별도 스트림)로 뽑아 엔진 RNG 소비
+        // 순서에 전혀 영향을 주지 않는다. actionCounts로 각 액션이 최소 1회 이상 실제 실행됐는지 보고한다.
+        private static (bool reachedGameOver, int stage, Dictionary<string, int> actionCounts) AutoPlayRich(RunController rc, int guardMax, long policySeed)
+        {
+            var policyRng = new Random(unchecked((int)(policySeed ^ (policySeed >> 32))));
+            var actionCounts = new Dictionary<string, int>
+            {
+                ["Spin"] = 0, ["UseItem"] = 0, ["DeviceCmd"] = 0, ["Continue"] = 0,
+                ["ChooseNode"] = 0, ["PickOffer"] = 0, ["RerollShop"] = 0, ["BuyOffer"] = 0, ["LeaveShop"] = 0,
+            };
+            int guard = 0;
+            int shopStep = 0; // 0=리롤 시도 → 1=구매 시도 → 2=나가기 → 0(반복)
+            while (rc.State.Phase != RunPhase.GameOver && guard < guardMax)
+            {
+                guard++;
+                var phase = rc.State.Phase;
+                bool expectSuccess = true;
+                string actionName;
+                IReadOnlyList<RunEvent> events;
+                switch (phase)
+                {
+                    case RunPhase.Spin:
+                        if (rc.State.Items.Count > 0 && policyRng.Next(5) == 0)
+                        {
+                            actionName = "UseItem"; expectSuccess = false;
+                            events = rc.Do(new UseItem(rc.State.Items[0]));
+                        }
+                        else if (!string.IsNullOrEmpty(rc.State.Device) && policyRng.Next(5) == 0)
+                        {
+                            actionName = "DeviceCmd"; expectSuccess = false;
+                            int? arg = DeviceActions.DeviceNeedsArg(rc.State.Device) ? 1 : (int?)null;
+                            events = rc.Do(new DeviceCmd(rc.State.Device, arg));
+                        }
+                        else
+                        {
+                            actionName = "Spin";
+                            events = rc.Do(new Spin(SpinMode.N));
+                        }
+                        break;
+                    case RunPhase.PostSpin:
+                        actionName = "Continue";
+                        events = rc.Do(new Continue());
+                        break;
+                    case RunPhase.NodeSelect:
+                        actionName = "ChooseNode";
+                        events = rc.Do(new ChooseNode(0));
+                        break;
+                    case RunPhase.EventAugment:
+                    case RunPhase.EventRelic:
+                        actionName = "PickOffer";
+                        events = rc.Do(new PickOffer(0));
+                        break;
+                    case RunPhase.EventShop:
+                        expectSuccess = false; // 코인부족/가방가득 등 정상 거부 가능
+                        if (shopStep == 0) { actionName = "RerollShop"; events = rc.Do(new RerollShop()); shopStep = 1; }
+                        else if (shopStep == 1) { actionName = "BuyOffer"; events = rc.Do(new BuyOffer(0)); shopStep = 2; }
+                        else { actionName = "LeaveShop"; events = rc.Do(new LeaveShop()); shopStep = 0; }
+                        break;
+                    default:
+                        throw new InvalidOperationException("AutoPlayRich: 처리 불가 Phase=" + phase);
+                }
+                actionCounts[actionName] = actionCounts.TryGetValue(actionName, out var c) ? c + 1 : 1;
+                foreach (var e in events)
+                {
+                    if (!KnownEventTypes.Contains(e.type))
+                        throw new InvalidOperationException("AutoPlayRich: 알 수 없는 RunEvent.type=" + e.type);
+                    if (expectSuccess && e.type == "REJECTED")
+                        throw new InvalidOperationException($"AutoPlayRich: phase={phase}·action={actionName}에서 예상치 못한 거부(reason={e.reason})");
+                }
+            }
+            return (rc.State.Phase == RunPhase.GameOver, rc.State.Stage, actionCounts);
+        }
+
         public static void Run(TestCtx t)
         {
             TwoSeedSanity(t);
@@ -628,20 +1172,28 @@ namespace JackpotRun.EngineTests
             }
         }
 
+        // Opus 회귀 보강 ⑦ — device 종류를 seed%4로 순환 배정(무장치/dev_coin/dev_oracle/dev_reroll)해
+        // ARMED/PEEK/MANIP 세 갈래 DeviceCmd 경로를 전부 실제 풀런 안에서 지나가게 하고, AutoPlayRich
+        // 휴리스틱으로 UseItem/DeviceCmd/RerollShop도 섞는다. 예외 0 유지가 핵심 확인 대상.
         private static void HundredSeedSimulation(TestCtx t)
         {
             var stat = S4TestHelpers.GenerousStat();
             int exceptions = 0;
             var stagesReached = new List<int>();
+            var totalActionCounts = new Dictionary<string, int>();
+            string[] deviceCycle = { "", "dev_coin", "dev_oracle", "dev_reroll" };
 
             for (long seed = 1; seed <= 100; seed++)
             {
                 try
                 {
-                    var rc = new RunController("novice", "basic", "", seed, stat);
-                    var (ok, stage, _) = AutoPlay(rc, 50_000);
+                    string deviceId = deviceCycle[seed % deviceCycle.Length];
+                    var rc = new RunController("novice", "basic", deviceId, seed, stat);
+                    var (ok, stage, actionCounts) = AutoPlayRich(rc, 50_000, policySeed: seed);
                     t.True(ok, $"[sim100 seed={seed}] guard(50000) 내 게임오버 도달");
                     stagesReached.Add(stage);
+                    foreach (var kv in actionCounts)
+                        totalActionCounts[kv.Key] = totalActionCounts.TryGetValue(kv.Key, out var c) ? c + kv.Value : kv.Value;
                 }
                 catch (Exception ex)
                 {
@@ -650,7 +1202,17 @@ namespace JackpotRun.EngineTests
                 }
             }
 
-            t.Eq(0, exceptions, "[sim100] RunController 풀런(상점 포함) 시드 100개 — 예외 0건");
+            t.Eq(0, exceptions, "[sim100] RunController 풀런(상점·아이템·장치 명령 포함) 시드 100개 — 예외 0건");
+
+            // 액션 커버리지 — 각 액션 경로가 최소 1회 이상 실제로 실행됐는지(휴리스틱이 죽은 코드가
+            // 아니었는지) 확인. UseItem/DeviceCmd는 확률적(1/5)이라 100런 합산이면 사실상 항상 여러 번
+            // 발동한다.
+            foreach (var action in new[] { "Spin", "ChooseNode", "PickOffer", "RerollShop", "BuyOffer", "LeaveShop", "UseItem", "DeviceCmd" })
+            {
+                int cnt = totalActionCounts.TryGetValue(action, out var c) ? c : 0;
+                t.Report("[sim100] 액션 실행 횟수", $"{action}={cnt}");
+                t.True(cnt > 0, $"[sim100] {action} 액션이 100런 동안 최소 1회 이상 실제 실행됨");
+            }
 
             if (stagesReached.Count > 0)
             {

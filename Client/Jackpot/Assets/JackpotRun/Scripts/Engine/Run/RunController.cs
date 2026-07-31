@@ -125,6 +125,8 @@ namespace JackpotRun.Engine
         public string offerSynergyPerkId;
         // 🗂️ 보류파일 포함 오퍼 — true면 perkOfferIds[0]이 보류해 둔 증강(원본 배너 "🗂️ 보류 후보 포함!").
         public bool offerHeldIncluded;
+        // 🔁 dev_retake 재추첨으로 생성된 오퍼 — 최초 노드 오퍼(false)와 구분(스탯 트래킹 deviceUses 귀속용).
+        public bool offerRetake;
         public string perkId;
 
         // 상점(SHOP_*).
