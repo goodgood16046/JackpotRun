@@ -1,5 +1,4 @@
 using UnityEditor;
-using UnityEditor.Events;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -10,115 +9,207 @@ using JackpotRun.UI2;
 
 namespace JackpotRun.EditorTools
 {
-    // 씬+화면 생성기 — ENGINE_PORT_DESIGN.md S7 "SceneBuilder 사양". 메뉴 "JackpotRun/Build UI Scene":
-    //   ① UiSpriteGen 실행(없는 것만) ② 씬 생성/덮어쓰기(확인 후) ③ Canvas+EventSystem+AppRoot+
-    //      ScreenRouter+화면 4종+Overlay 구성, 모든 [SerializeField] 와이어링 ④ Build Settings 씬 목록을
-    //      JackpotRun.unity 단독으로 설정 ⑤ 저장.
+    // 씬+화면 생성기 — ENGINE_PORT_DESIGN.md S8 "SceneBuilder 개편": BuildAll()(메뉴
+    // "JackpotRun/Build UI Scenes") → BuildIntroScene() + BuildPlayScene(), 각각 개별 메뉴 항목도
+    // 제공. 비대화형 BuildAllUnattended()는 MCP/CI용으로 공개 유지. 공통 골격(카메라·캔버스·FxLayer·
+    // Toast)은 헬퍼로 공유하고, 두 씬 모두 S7c 카메라/ScreenSpaceCamera 전환 규칙을 적용한다.
+    //
     // 반복 실행 안전 — 매번 완전히 새 인메모리 씬을 만들어 같은 경로에 덮어쓰므로(기존 씬을 열어
     // 이어붙이지 않음) 몇 번을 다시 실행해도 결과가 결정론적이다.
-    //
-    // MenuView/PickView/RunView/DexView 전부 실제 컴포넌트와 완전히 와이어링한다(S7a+S7b). 페이즈
-    // 패널/팝업(NodePanel 등)과 DexDetailPopup은 전역 OverlayLayer 산하에 짓고 RunView/DexView가
-    // [SerializeField]로 참조한다.
     public static class UiSceneBuilder
     {
         private const string ScenesFolder = "Assets/JackpotRun/Scenes";
-        private const string ScenePath = ScenesFolder + "/JackpotRun.unity";
+        private const string IntroScenePath = ScenesFolder + "/Intro.unity";
+        private const string PlayScenePath = ScenesFolder + "/Play.unity";
 
         // MenuView.SlotWidth와 반드시 일치해야 한다(캐러셀 슬라이드 폭 계약).
         private const float CarouselSlotWidth = 560f;
         private static readonly string[] CarouselCharIds = { "novice", "gambler", "crowncol" };
 
-        [MenuItem("JackpotRun/Build UI Scene")]
+        // S7c: UICamera orthographicSize — 캔버스가 ScreenSpaceCamera 모드이고 CanvasScaler가 실제
+        // 픽셀 단위를 결정하므로 카메라 orthographicSize 절대값 자체는 화면에 영향이 없다(파티클은
+        // 플레인 GameObject라 이 카메라의 시야 안에만 있으면 된다).
+        private const float CameraOrthoSize = 5f;
+        private const float CameraPlaneDistance = 100f;
+        private const int CanvasSortingOrder = 100;
+
+        [MenuItem("JackpotRun/Build UI Scenes")]
         public static void Build()
         {
             if (!EditorUtility.DisplayDialog(
                 "JackpotRun UI 씬 빌드",
-                $"{ScenePath} 를 (다시) 생성합니다. 기존 씬 내용은 완전히 대체됩니다. 계속할까요?",
+                $"{IntroScenePath}, {PlayScenePath} 를 (다시) 생성합니다. 기존 씬 내용은 완전히 대체됩니다. 계속할까요?",
                 "생성", "취소"))
             {
                 return;
             }
-            BuildUnattended();
+            BuildAllUnattended();
         }
 
-        /// <summary>확인 다이얼로그 없이 빌드 — MCP/CI 등 비대화형 경로용.</summary>
-        public static void BuildUnattended()
+        [MenuItem("JackpotRun/Build Intro Scene")]
+        public static void BuildIntroSceneMenuItem()
+        {
+            if (!EditorUtility.DisplayDialog("JackpotRun Intro 씬 빌드",
+                $"{IntroScenePath} 를 (다시) 생성합니다. 계속할까요?", "생성", "취소")) return;
+            UiSpriteGen.GenerateAll(overwrite: false);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            BuildIntroScene();
+        }
+
+        [MenuItem("JackpotRun/Build Play Scene")]
+        public static void BuildPlaySceneMenuItem()
+        {
+            if (!EditorUtility.DisplayDialog("JackpotRun Play 씬 빌드",
+                $"{PlayScenePath} 를 (다시) 생성합니다. 계속할까요?", "생성", "취소")) return;
+            UiSpriteGen.GenerateAll(overwrite: false);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            BuildPlayScene();
+        }
+
+        /// <summary>확인 다이얼로그 없이 Intro+Play 씬을 전부 빌드 — MCP/CI 등 비대화형 경로용
+        /// (설계 S8 "BuildAllUnattended() 유지").</summary>
+        public static void BuildAllUnattended()
         {
             UiSpriteGen.GenerateAll(overwrite: false);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
+            BuildIntroScene();
+            BuildPlayScene();
+
+            EditorBuildSettings.scenes = new[]
+            {
+                new EditorBuildSettingsScene(IntroScenePath, true),
+                new EditorBuildSettingsScene(PlayScenePath, true),
+            };
+            AssetDatabase.SaveAssets();
+
+            Debug.Log("[JackpotRun] Intro/Play UI 씬 빌드 완료");
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════
+        // Intro 씬 — Login/Menu/Pick/Dex, 빌드 인덱스 0
+        // ══════════════════════════════════════════════════════════════════════════════
+        public static void BuildIntroScene()
+        {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
             BuildEventSystem();
-            var canvasRoot = BuildCanvas();
+            var cam = BuildUiCamera();
+            var canvasRoot = BuildCanvas("IntroCanvas", cam);
 
+            var login = BuildLoginScreen(canvasRoot);
             var menu = BuildMenuScreen(canvasRoot);
             var pick = BuildPickScreen(canvasRoot);
 
-            // OverlayLayer는 RunScreen/DexScreen보다 먼저 Transform을 확보해야 그 자식으로 페이즈
-            // 패널/팝업을 지을 수 있다 — 화면 위에 그려지도록 하는 형제 순서(menu,pick,run,dex,overlay,
-            // toast)는 아래에서 run/dex를 만든 뒤 overlay.SetAsLastSibling()으로 되돌린다.
+            // OverlayLayer는 DexDetailPopup보다 먼저 Transform을 확보해야 그 자식으로 지을 수 있다 —
+            // 화면 위에 그려지도록 하는 형제 순서는 아래에서 dex를 만든 뒤 SetAsLastSibling으로 되돌린다.
             var overlay = BuildOverlayLayer(canvasRoot);
-            var runOverlay = BuildRunOverlayPanels(overlay);
             var dexDetail = BuildDexDetailPopup(overlay);
-
-            var run = BuildRunScreen(canvasRoot);
             var dex = BuildDexScreen(canvasRoot, dexDetail);
-
             ((RectTransform)overlay).SetAsLastSibling();
-            var toast = BuildToast(canvasRoot);
 
-            var appRootGo = new GameObject("AppRoot");
-            var router = appRootGo.AddComponent<ScreenRouter>();
-            var appRoot = appRootGo.AddComponent<AppRoot>();
+            var toast = BuildToast(canvasRoot);
+            BuildFxLayer(canvasRoot);
+
+            var rootGo = new GameObject("IntroSceneRoot");
+            var router = rootGo.AddComponent<ScreenRouter>();
+            var introRoot = rootGo.AddComponent<IntroSceneRoot>();
 
             WireScreens(router, overlay, toast,
+                (ScreenRouter.ScreenId.Login, login.root, login.group),
                 (ScreenRouter.ScreenId.Menu, menu.root, menu.group),
                 (ScreenRouter.ScreenId.Pick, pick.root, pick.group),
-                (ScreenRouter.ScreenId.Run, run.root, run.group),
                 (ScreenRouter.ScreenId.Dex, dex.root, dex.group));
 
-            var appRootSo = new SerializedObject(appRoot);
-            appRootSo.FindProperty("router").objectReferenceValue = router;
-            appRootSo.FindProperty("menuView").objectReferenceValue = menu.view;
-            appRootSo.FindProperty("pickView").objectReferenceValue = pick.view;
-            appRootSo.FindProperty("runView").objectReferenceValue = run.view;
-            appRootSo.FindProperty("dexView").objectReferenceValue = dex.view;
-            appRootSo.ApplyModifiedPropertiesWithoutUndo();
+            var introSo = new SerializedObject(introRoot);
+            introSo.FindProperty("router").objectReferenceValue = router;
+            introSo.FindProperty("loginView").objectReferenceValue = login.view;
+            introSo.FindProperty("menuView").objectReferenceValue = menu.view;
+            introSo.FindProperty("pickView").objectReferenceValue = pick.view;
+            introSo.FindProperty("dexView").objectReferenceValue = dex.view;
+            introSo.ApplyModifiedPropertiesWithoutUndo();
 
-            WireMenuView(menu, appRoot);
-            WirePickView(pick, appRoot);
-            WireRunView(run, runOverlay, appRoot);
-            WireDexView(dex, dexDetail, appRoot);
+            WireMenuView(menu);
+            WirePickView(pick);
+            WireDexView(dex, dexDetail);
 
-            // 화면 간 내비게이션은 AppRoot의 공개 메서드에 UnityEvent 퍼시스턴트 리스너로 직접 연결한다
-            // (씬에 구워지므로 뷰가 별도로 이 참조를 들고 있을 필요가 없다). RunView는 appRoot를
-            // [SerializeField]로 직접 들고 있어(WireRunView) GameOverPanel의 "메뉴로" 등은 런타임 코드가
-            // appRoot.EndRun()을 직접 호출한다 — 별도 퍼시스턴트 리스너가 필요 없다.
-            UnityEventTools.AddPersistentListener(menu.startButton.onClick, appRoot.ShowPick);
-            UnityEventTools.AddPersistentListener(menu.dexButton.onClick, appRoot.ShowDex);
-            UnityEventTools.AddPersistentListener(pick.backButton.onClick, appRoot.ShowMenu);
-            UnityEventTools.AddPersistentListener(dex.backButton.onClick, appRoot.ShowMenu);
+            // 순수 내비게이션 버튼(AppRoot는 DontDestroyOnLoad라 에디터 시점엔 존재하지 않으므로
+            // UnityEventTools.AddPersistentListener로 직접 가리킬 수 없다 — NavButton.cs 헤더 참조).
+            AddNavButton(menu.startButton, NavButton.Target.Pick);
+            AddNavButton(menu.dexButton, NavButton.Target.Dex);
+            AddNavButton(pick.backButton, NavButton.Target.Menu);
+            AddNavButton(dex.backButton, NavButton.Target.Menu);
 
+            SaveScene(scene, IntroScenePath);
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════
+        // Play 씬 — 런 플레이 단독, 빌드 인덱스 1
+        // ══════════════════════════════════════════════════════════════════════════════
+        public static void BuildPlayScene()
+        {
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+            BuildEventSystem();
+            var cam = BuildUiCamera();
+            var canvasRoot = BuildCanvas("PlayCanvas", cam);
+
+            var overlay = BuildOverlayLayer(canvasRoot);
+            var runOverlay = BuildRunOverlayPanels(overlay);
+
+            var run = BuildRunScreen(canvasRoot);
+            ((RectTransform)overlay).SetAsLastSibling();
+
+            var toast = BuildToast(canvasRoot);
+            BuildFxLayer(canvasRoot);
+
+            WireRunView(run, runOverlay);
+
+            var rootGo = new GameObject("PlaySceneRoot");
+            var playRoot = rootGo.AddComponent<PlaySceneRoot>();
+            var playSo = new SerializedObject(playRoot);
+            playSo.FindProperty("runView").objectReferenceValue = run.view;
+            playSo.FindProperty("overlayLayer").objectReferenceValue = overlay;
+            playSo.FindProperty("toast").objectReferenceValue = toast;
+            playSo.ApplyModifiedPropertiesWithoutUndo();
+
+            SaveScene(scene, PlayScenePath);
+        }
+
+        private static void SaveScene(UnityEngine.SceneManagement.Scene scene, string path)
+        {
             if (!AssetDatabase.IsValidFolder(ScenesFolder))
                 AssetDatabase.CreateFolder("Assets/JackpotRun", "Scenes");
 
-            bool saved = EditorSceneManager.SaveScene(scene, ScenePath);
+            bool saved = EditorSceneManager.SaveScene(scene, path);
             if (!saved)
             {
-                Debug.LogError("[JackpotRun] 씬 저장 실패: " + ScenePath);
+                Debug.LogError("[JackpotRun] 씬 저장 실패: " + path);
                 return;
             }
-
-            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
             AssetDatabase.SaveAssets();
+        }
 
-            Debug.Log("[JackpotRun] UI 씬 빌드 완료 — " + ScenePath);
+        private static void AddNavButton(Button button, NavButton.Target target)
+        {
+            if (button == null) return;
+            var nav = button.gameObject.AddComponent<NavButton>();
+            var so = new SerializedObject(nav);
+            so.FindProperty("target").enumValueIndex = (int)target;
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         // ── 결과 전달용 컨테이너(생성 직후 값을 여러 곳으로 넘기기 위함, 씬에는 남지 않는다) ──────
+        private sealed class LoginBuildResult
+        {
+            public RectTransform root;
+            public CanvasGroup group;
+            public LoginView view;
+        }
+
         private sealed class MenuBuildResult
         {
             public RectTransform root;
@@ -127,6 +218,8 @@ namespace JackpotRun.EditorTools
             public Button startButton;
             public Button dexButton;
             public Text profileSummaryText;
+            public Text nickText;
+            public Button changeNickButton;
             public RectTransform carouselTrack;
         }
 
@@ -160,7 +253,7 @@ namespace JackpotRun.EditorTools
             public Button startButton;
         }
 
-        // ── S7b 결과 컨테이너(RunScreen/DexScreen 및 그 오버레이 패널) ────────────────────
+        // ── S7b/S8 결과 컨테이너(RunScreen 및 그 오버레이 패널) ────────────────────────
         private sealed class RunBuildResult
         {
             public RectTransform root;
@@ -185,7 +278,7 @@ namespace JackpotRun.EditorTools
             public CanvasGroup jackpotBannerGroup;
             public RectTransform jackpotBannerRect;
 
-            public Text resultLineText; // 릴과 노트 사이 "스테이지 정보 영역"(flex 1) — 획득 요약 큰 텍스트
+            public Text resultLineText; // 릴과 노트 사이 "스테이지 정보 영역" — 획득 요약 큰 텍스트
 
             public RectTransform notesRoot;
             public RectTransform notesRowsContent;
@@ -223,18 +316,41 @@ namespace JackpotRun.EditorTools
             public RectTransform cardTemplate;
         }
 
-        // ── 씬 골격 ──────────────────────────────────────────────────────────────────
+        // ── 씬 공통 골격 ─────────────────────────────────────────────────────────────
         private static void BuildEventSystem()
         {
             new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
         }
 
-        private static RectTransform BuildCanvas()
+        // S7c "렌더링 전환": Orthographic, size 5, depth 0, clearFlags SolidColor(#0B0E1A),
+        // tag "MainCamera", position (0,0,-100), cullingMask Everything.
+        private static Camera BuildUiCamera()
         {
-            var canvasGo = new GameObject("JackpotRunCanvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+            var go = new GameObject("UICamera", typeof(Camera));
+            var cam = go.GetComponent<Camera>();
+            cam.orthographic = true;
+            cam.orthographicSize = CameraOrthoSize;
+            cam.depth = 0f;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = UiKit.Bg;
+            cam.cullingMask = ~0; // Everything
+            cam.nearClipPlane = 0.3f;
+            cam.farClipPlane = 1000f;
+            go.tag = "MainCamera";
+            go.transform.position = new Vector3(0f, 0f, -100f);
+            return cam;
+        }
+
+        // S7c "JackpotRunCanvas": renderMode = ScreenSpaceCamera, worldCamera = UICamera,
+        // planeDistance = 100, sortingOrder 100 유지 → 캔버스 로컬 1unit = 1px.
+        private static RectTransform BuildCanvas(string name, Camera uiCamera)
+        {
+            var canvasGo = new GameObject(name, typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             var canvas = canvasGo.GetComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 100;
+            canvas.renderMode = RenderMode.ScreenSpaceCamera;
+            canvas.worldCamera = uiCamera;
+            canvas.planeDistance = CameraPlaneDistance;
+            canvas.sortingOrder = CanvasSortingOrder;
 
             var scaler = canvasGo.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -247,10 +363,19 @@ namespace JackpotRun.EditorTools
 
         private static RectTransform BuildOverlayLayer(Transform canvasRoot)
         {
-            // S7b가 NodePanel/ShopPanel 등 팝업을 붙일 자리 — 이번 슬라이스는 빈 레이어만 만든다.
             var overlay = UiKit.Panel(canvasRoot, "OverlayLayer", new Color(0f, 0f, 0f, 0f));
             UiKit.Fill(overlay);
             return overlay;
+        }
+
+        // S7c "FxLayer" — 캔버스 하위, CanvasGroup{blocksRaycasts=false, interactable=false}(FxKit.Awake가
+        // 스스로 보장) + FxKit 컴포넌트. 캔버스가 ScreenSpaceCamera라 이 레이어의 로컬 좌표계가 곧
+        // 1080×1920 레퍼런스 픽셀 좌표계다(FxKit.ToLocal 계약과 일치).
+        private static FxKit BuildFxLayer(Transform canvasRoot)
+        {
+            var layer = UiKit.Panel(canvasRoot, "FxLayer", new Color(0f, 0f, 0f, 0f));
+            UiKit.Fill(layer);
+            return layer.gameObject.AddComponent<FxKit>();
         }
 
         private static ToastManager BuildToast(Transform canvasRoot)
@@ -280,6 +405,91 @@ namespace JackpotRun.EditorTools
             return toast;
         }
 
+        // ── LoginView 화면(S8 신규) ──────────────────────────────────────────────────
+        private static LoginBuildResult BuildLoginScreen(Transform canvasRoot)
+        {
+            var result = new LoginBuildResult();
+            var panelSprite = UiSpriteGen.Load("panel_r24");
+
+            var root = UiKit.Panel(canvasRoot, "LoginScreen", UiKit.Bg);
+            UiKit.Fill(root);
+            result.root = root;
+            result.group = root.gameObject.AddComponent<CanvasGroup>();
+            result.view = root.gameObject.AddComponent<LoginView>();
+
+            var col = UiKit.VGroup(root, 24, new RectOffset(80, 80, 0, 0), true, true);
+            UiKit.SetAnchors(col, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(80f, -430f), new Vector2(-80f, 430f));
+            col.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+
+            // S8 항목⑤: 🎰(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            var title = UiKit.Text(col, "잭팟런", UiKit.TextStyle.Title, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(title, preferredHeight: 120, flexibleHeight: 0);
+
+            var subtitle = UiKit.Text(col, "닉네임을 입력하고 시작하세요", 24, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(subtitle, preferredHeight: 40, flexibleHeight: 0);
+
+            var input = BuildInputField(col, "닉네임 (2~12자)");
+            UiKit.SizeHint(input, preferredHeight: 88, flexibleHeight: 0);
+
+            var startButton = UiKit.Button(col, "시작하기", new Vector2(0, 108), UiKit.Accent, UiKit.Bg, null, panelSprite);
+            UiKit.SizeHint(startButton, preferredHeight: 108, flexibleHeight: 0);
+
+            var guestButton = UiKit.Button(col, "게스트로 시작", new Vector2(0, 84), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, panelSprite);
+            UiKit.SizeHint(guestButton, preferredHeight: 84, flexibleHeight: 0);
+
+            var so = new SerializedObject(result.view);
+            so.FindProperty("nicknameInput").objectReferenceValue = input;
+            so.FindProperty("startButton").objectReferenceValue = startButton;
+            so.FindProperty("guestButton").objectReferenceValue = guestButton;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            return result;
+        }
+
+        // 레거시 InputField(닉네임) — Text + Placeholder(Text) 자식 구성.
+        private static InputField BuildInputField(Transform parent, string placeholder)
+        {
+            var panelSprite = UiSpriteGen.Load("panel_r24");
+            var go = new GameObject("InputField", typeof(RectTransform), typeof(Image), typeof(InputField));
+            var rt = (RectTransform)go.transform;
+            rt.SetParent(parent, false);
+            var bgImg = go.GetComponent<Image>();
+            bgImg.color = UiKit.Card;
+            if (panelSprite != null) { bgImg.sprite = panelSprite; bgImg.type = Image.Type.Sliced; }
+
+            var textGo = new GameObject("Text", typeof(RectTransform), typeof(Text));
+            var textRt = (RectTransform)textGo.transform;
+            textRt.SetParent(rt, false);
+            UiKit.SetAnchors(textRt, Vector2.zero, Vector2.one, new Vector2(24f, 8f), new Vector2(-24f, -8f));
+            var text = textGo.GetComponent<Text>();
+            text.font = UiKit.Kor();
+            text.fontSize = 26;
+            text.color = UiKit.TextPrimary;
+            text.alignment = TextAnchor.MiddleLeft;
+            text.supportRichText = false;
+
+            var placeholderGo = new GameObject("Placeholder", typeof(RectTransform), typeof(Text));
+            var placeholderRt = (RectTransform)placeholderGo.transform;
+            placeholderRt.SetParent(rt, false);
+            UiKit.SetAnchors(placeholderRt, Vector2.zero, Vector2.one, new Vector2(24f, 8f), new Vector2(-24f, -8f));
+            var placeholderText = placeholderGo.GetComponent<Text>();
+            placeholderText.font = UiKit.Kor();
+            placeholderText.fontSize = 26;
+            placeholderText.color = UiKit.TextSecondary;
+            placeholderText.alignment = TextAnchor.MiddleLeft;
+            placeholderText.text = placeholder;
+            placeholderText.fontStyle = FontStyle.Italic;
+
+            var input = go.GetComponent<InputField>();
+            input.targetGraphic = bgImg;
+            input.textComponent = text;
+            input.placeholder = placeholderText;
+            input.characterLimit = 12;
+            input.lineType = InputField.LineType.SingleLine;
+
+            return input;
+        }
+
         // ── MenuView 화면 ────────────────────────────────────────────────────────────
         private static MenuBuildResult BuildMenuScreen(Transform canvasRoot)
         {
@@ -293,7 +503,8 @@ namespace JackpotRun.EditorTools
             result.group = root.gameObject.AddComponent<CanvasGroup>();
             result.view = root.gameObject.AddComponent<MenuView>();
 
-            var title = UiKit.Text(root, "🎰 잭팟런", UiKit.TextStyle.Title, TextAnchor.MiddleCenter);
+            // S8 항목⑤: 🎰(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            var title = UiKit.Text(root, "잭팟런", UiKit.TextStyle.Title, TextAnchor.MiddleCenter);
             title.rectTransform.anchorMin = new Vector2(0.5f, 1f);
             title.rectTransform.anchorMax = new Vector2(0.5f, 1f);
             title.rectTransform.pivot = new Vector2(0.5f, 1f);
@@ -303,13 +514,21 @@ namespace JackpotRun.EditorTools
             result.carouselTrack = BuildCarousel(root, titleTopMargin + titleHeight + 24f);
 
             float bottomTop = titleTopMargin + titleHeight + 24f + CarouselSlotWidth + 40f;
-            var bottom = UiKit.VGroup(root, 28, new RectOffset(0, 0, 0, 0), true, true);
+            var bottom = UiKit.VGroup(root, 20, new RectOffset(0, 0, 0, 0), true, true);
             UiKit.SetAnchors(bottom, Vector2.zero, Vector2.one, new Vector2(60f, 60f), new Vector2(-60f, -bottomTop));
+
+            // S8: "@닉네임" 표기 + [닉네임 변경] 소형 버튼.
+            var panelSprite = UiSpriteGen.Load("panel_r24");
+            var nickRow = UiKit.HGroup(bottom, 12, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(nickRow, preferredHeight: 48, flexibleHeight: 0);
+            result.nickText = UiKit.Text(nickRow, "", 20, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(result.nickText, flexibleWidth: 1, flexibleHeight: 0);
+            result.changeNickButton = UiKit.Button(nickRow, "닉네임 변경", new Vector2(170, 44), UiKit.Card, UiKit.TextPrimary, null, panelSprite);
+            UiKit.SizeHint(result.changeNickButton, preferredWidth: 170, preferredHeight: 44, flexibleWidth: 0, flexibleHeight: 0);
 
             result.profileSummaryText = UiKit.Text(bottom, "", 24, UiKit.Good, TextAnchor.MiddleCenter);
             UiKit.SizeHint(result.profileSummaryText, preferredHeight: 40);
 
-            var panelSprite = UiSpriteGen.Load("panel_r24");
             result.startButton = UiKit.Button(bottom, "게임 시작", new Vector2(0, 140), UiKit.Good, UiKit.Bg, null, panelSprite);
             UiKit.SizeHint(result.startButton, preferredHeight: 140);
 
@@ -363,12 +582,13 @@ namespace JackpotRun.EditorTools
             return track;
         }
 
-        private static void WireMenuView(MenuBuildResult r, AppRoot appRoot)
+        private static void WireMenuView(MenuBuildResult r)
         {
             var so = new SerializedObject(r.view);
-            so.FindProperty("appRoot").objectReferenceValue = appRoot;
             so.FindProperty("profileSummaryText").objectReferenceValue = r.profileSummaryText;
             so.FindProperty("carouselTrack").objectReferenceValue = r.carouselTrack;
+            so.FindProperty("nickText").objectReferenceValue = r.nickText;
+            so.FindProperty("changeNickButton").objectReferenceValue = r.changeNickButton;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
@@ -420,7 +640,8 @@ namespace JackpotRun.EditorTools
             // 채우는 큰 터치영역이 맞으므로 forceExpandHeight=true 유지, 내부 제목+라벨은 중앙 정렬로 보정)
             var tabsRow = UiKit.HGroup(col, 12, new RectOffset(24, 24, 8, 8), true, true);
             UiKit.SizeHint(tabsRow, preferredHeight: 130, flexibleHeight: 0);
-            string[] tabTitles = { "🎭 캐릭터", "🎰 슬롯머신", "🔧 장치" };
+            // S8 항목⑤: astral 이모지(🎭🎰🔧)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            string[] tabTitles = { "캐릭터", "슬롯머신", "장치" };
             result.tabButtons = new Button[3];
             result.tabButtonImages = new Image[3];
             result.tabLabelTexts = new Text[3];
@@ -577,7 +798,8 @@ namespace JackpotRun.EditorTools
 
             // 스프라이트가 없을 때(예: "장치 없이" 카드)의 이모지 폴백 — Body 스태킹에 끼지 않도록
             // 카드 루트 직계 자식으로 두고 Icon 슬롯 자리(패딩 18 + 높이 300)를 수동으로 겹친다.
-            var iconEmoji = UiKit.Text(card, "🚫", 96, UiKit.TextPrimary, TextAnchor.MiddleCenter);
+            // S8 항목⑤: 🚫(astral)는 렌더링되지 않는다 — BMP 기호(⊘, "없음")로 대체.
+            var iconEmoji = UiKit.Text(card, "⊘", 96, UiKit.TextPrimary, TextAnchor.MiddleCenter);
             iconEmoji.name = "IconEmoji";
             iconEmoji.rectTransform.anchorMin = new Vector2(0f, 1f);
             iconEmoji.rectTransform.anchorMax = new Vector2(1f, 1f);
@@ -592,7 +814,8 @@ namespace JackpotRun.EditorTools
             var lockCol = UiKit.VGroup(lockOverlay, 6, new RectOffset(16, 16, 16, 16), true, true);
             lockCol.name = "LockCol"; // PickView가 "LockCol/Hint" 경로로 바인딩 — 이름 계약
             UiKit.Fill(lockCol);
-            var lockIcon = UiKit.Text(lockCol, "🔒 잠김", 24, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            // S8 항목⑤: 🔒(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            var lockIcon = UiKit.Text(lockCol, "[잠김]", 24, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
             UiKit.SizeHint(lockIcon, preferredHeight: 36);
             var lockHint = UiKit.Text(lockCol, "", 16, UiKit.TextSecondary, TextAnchor.UpperLeft);
             lockHint.name = "Hint";
@@ -676,10 +899,9 @@ namespace JackpotRun.EditorTools
             return body;
         }
 
-        private static void WirePickView(PickBuildResult r, AppRoot appRoot)
+        private static void WirePickView(PickBuildResult r)
         {
             var so = new SerializedObject(r.view);
-            so.FindProperty("appRoot").objectReferenceValue = appRoot;
             SetObjectArray(so, "recoButtons", r.recoButtons);
             SetObjectArray(so, "tabButtons", r.tabButtons);
             SetObjectArray(so, "tabButtonImages", r.tabButtonImages);
@@ -706,11 +928,9 @@ namespace JackpotRun.EditorTools
         }
 
         // ══════════════════════════════════════════════════════════════════════════════
-        // RunScreen — S7b. HUD/릴/노트/조작부는 화면 자신의 자식, 페이즈 패널/팝업(RunOverlayResult)은
-        // 전역 OverlayLayer 산하(런타임에 RunView.OnDisable이 명시적으로 닫는다 — RunView.cs 주석 참조).
+        // RunScreen — Play 씬 단독 화면. HUD/릴/노트/조작부는 화면 자신의 자식, 페이즈 패널/팝업
+        // (RunOverlayResult)은 전역 OverlayLayer 산하(런타임에 RunView.OnDisable이 명시적으로 닫는다).
         // ══════════════════════════════════════════════════════════════════════════════
-        // 페이즈 패널/팝업(RunOverlayResult)은 WireRunView가 별도로 연결한다 — 여기서는 화면 자신의
-        // 자식(HUD/릴/노트/조작부)만 짓는다.
         private static RunBuildResult BuildRunScreen(Transform canvasRoot)
         {
             var result = new RunBuildResult();
@@ -723,12 +943,15 @@ namespace JackpotRun.EditorTools
 
             var col = UiKit.VGroup(root, 0, new RectOffset(0, 0, 0, 0), true, true);
             UiKit.Fill(col);
-            // 행 높이 계약(S7a 검수 교훈): 모든 행에 preferredHeight+flexibleHeight=0을 명시하고, 딱 하나
-            // (StageInfo)만 flexibleHeight=1로 잔여 공간을 가져간다. Fable 육안 검수 지시(2026-07-31):
-            // Hud 210·Reel 520(주인공)·StageInfo flex1·NotesFeed 고정280·Controls 300.
+            // 행 높이 계약(S8 항목⑥, Fable 육안 검수 지시 갱신): Hud 210 · 릴 위/아래 균형 스페이서
+            // (flex 1 각각) · ReelSection 260(정사각 셀 196 + 상하 여백 32×2) · StageInfo 고정 120 ·
+            // NotesFeed 고정 280 · Controls 300. 남는 공간(전체 1920 - 고정합 1170 = 750)은
+            // StageInfo가 아니라 릴 위/아래 스페이서 2개가 절반씩(375) 나눠 가진다.
 
             BuildRunHud(col, result);
+            AddFlexSpacer(col);
             BuildRunReel(col, result);
+            AddFlexSpacer(col);
             BuildRunStageInfo(col, result);
             BuildRunNotesFeed(col, result);
             BuildRunControls(col, result, panelSprite);
@@ -738,12 +961,21 @@ namespace JackpotRun.EditorTools
             // 자유롭게 얹을 수 있다. 전역 오버레이가 아니라 화면이 꺼지면 같이 사라져야 자연스러운
             // 순수 시각 연출이라 로컬로 둔다.
             result.flashOverlay = BuildScreenFlash(root);
-            (result.jackpotBannerGroup, result.jackpotBannerRect) = BuildDropBanner(root, "JackpotBanner", "🎰 JACKPOT!", UiKit.Accent);
+            // S8 항목⑤: 🎰(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            (result.jackpotBannerGroup, result.jackpotBannerRect) = BuildDropBanner(root, "JackpotBanner", "JACKPOT!", UiKit.Accent);
             (result.bossBannerGroup, result.bossBannerRect) = BuildDropBanner(root, "BossBanner", "", UiKit.Bad);
             result.bossBannerText = result.bossBannerRect.GetComponentInChildren<Text>();
 
             result.view = root.gameObject.AddComponent<UI2.RunView>();
             return result;
+        }
+
+        // 릴 위/아래에 균등 배분되는 잔여-공간 스페이서(S8 항목⑥ "남는 공간은 StageInfo가 아니라
+        // 릴 위/아래 균형 있게").
+        private static void AddFlexSpacer(RectTransform col)
+        {
+            var spacer = UiKit.Panel(col, "Spacer", new Color(0f, 0f, 0f, 0f));
+            UiKit.SizeHint(spacer, preferredHeight: 0, flexibleHeight: 1);
         }
 
         private static void BuildRunHud(RectTransform col, RunBuildResult result)
@@ -780,10 +1012,11 @@ namespace JackpotRun.EditorTools
             result.scoreText = UiKit.Text(statsRow, "", 20, UiKit.Blue, TextAnchor.MiddleRight, true);
             UiKit.SizeHint(result.scoreText, flexibleWidth: 1, flexibleHeight: 0);
 
-            // 불운 게이지 🍀 5칸(UNLUCKY_MAX) — 고정 5개.
+            // 불운 게이지 5칸(UNLUCKY_MAX) — 고정 5개. S8 항목⑤: 🍀(astral)는 렌더링되지 않는다 —
+            // 한글 라벨("행운")로 대체.
             var gaugeRow = UiKit.HGroup(hudCol, 8, new RectOffset(0, 0, 0, 0), true, true);
             UiKit.SizeHint(gaugeRow, preferredHeight: 28, flexibleHeight: 0);
-            UiKit.Text(gaugeRow, "🍀", 18, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            UiKit.Text(gaugeRow, "행운", 18, UiKit.TextSecondary, TextAnchor.MiddleLeft);
             result.unluckyPips = new Image[5];
             for (int i = 0; i < 5; i++)
             {
@@ -828,16 +1061,20 @@ namespace JackpotRun.EditorTools
             return group;
         }
 
+        // S8 항목⑥: 셀을 정사각으로 — 폭 = (1080 - 패딩48 - 스페이싱48)/5 ≈ 196.8, ReelSection을
+        // 셀 높이(196) + 상하 여백(32×2)에 맞춰 260으로 축소.
         private static void BuildRunReel(RectTransform col, RunBuildResult result)
         {
-            // Fable 육안 검수 지시(2026-07-31): 릴이 화면의 존재감이 없다 — 섹션을 520으로 키운다. reelRow는
-            // HGroup(childForceExpandHeight=false·childAlignment=MiddleLeft)이라 셀이 자기 preferredHeight
-            // (BuildReelCellTemplate)만큼만 차지하고 섹션 안에서 수직 중앙 정렬된다 — 셀 자체는 5칸 기준
-            // 폭에 맞춘 정사각형을 유지(높이를 520까지 늘리지 않음).
             var section = UiKit.Panel(col, "ReelSection", new Color(0, 0, 0, 0));
-            UiKit.SizeHint(section, preferredHeight: 520, flexibleHeight: 0);
+            UiKit.SizeHint(section, preferredHeight: 260, flexibleHeight: 0);
             result.reelSectionRoot = section;
-            result.reelRow = UiKit.HGroup(section, 12, new RectOffset(24, 24, 10, 10), true, true);
+            result.reelRow = UiKit.HGroup(section, 12, new RectOffset(24, 24, 32, 32), true, true);
+            // childControlHeight=true(생성 인자)만으로는 childForceExpandHeight도 true가 되어 셀이
+            // 부모 높이 전체로 늘어나 버린다(HGroup 헬퍼는 controlChildH와 forceExpandHeight를 같은
+            // 값으로 묶는다) — 정사각 셀을 위해 이 한 줄로 forceExpand만 끄고 controlHeight(=
+            // preferredHeight 반영)는 유지한다. BuildPickScreen의 header/recoRow/sortRow와 동일한
+            // 이미 검증된 패턴.
+            result.reelRow.gameObject.GetComponent<HorizontalLayoutGroup>().childForceExpandHeight = false;
             UiKit.Fill(result.reelRow);
 
             result.cellTemplate = BuildReelCellTemplate(section);
@@ -851,30 +1088,20 @@ namespace JackpotRun.EditorTools
             result.symbolSprites = sprites;
         }
 
-        // 릴 셀 템플릿 — 자식 경로 계약(ReelView.cs): "Icon"(Image)/"Emoji"(Text)/"Tag"(Text) + Outline(글로우).
+        // 릴 셀 템플릿 — S8 항목⑤: 이모지 Text 오버레이("Emoji")를 완전히 제거했다(심볼은 UiSpriteGen이
+        // 그린 도형 스프라이트만으로 표현). 자식 경로 계약(ReelView.cs): "Icon"(Image)/"Tag"(Text) + Outline(글로우).
         private static RectTransform BuildReelCellTemplate(Transform parent)
         {
-            // preferredHeight 216 ≈ 5칸 기준 폭(1080 - 좌우패딩48 - 스페이싱48)/5 ≈ 197에 여유를 더한
-            // 근사 정사각형 크기(6칸일 때는 폭이 더 좁아져 완전한 정사각은 아니다 — AspectRatioFitter 없이
-            // 고정값으로 근사).
+            const float cellSize = 196f; // (1080 - 패딩48 - 스페이싱48)/5 ≈ 196.8의 근사 정사각.
             var cell = UiKit.Panel(parent, "CellTemplate", UiKit.Card, UiSpriteGen.Load("cell_inset"));
-            UiKit.SizeHint(cell, flexibleWidth: 1, preferredHeight: 216, flexibleHeight: 0);
+            UiKit.SizeHint(cell, flexibleWidth: 1, preferredHeight: cellSize, flexibleHeight: 0);
             UiKit.AddGlowOutline(cell.gameObject, UiKit.Accent, 3f);
 
             var icon = UiKit.Image(cell, null, Color.white);
             icon.name = "Icon";
             UiKit.Fill(icon.rectTransform);
 
-            // Fable 육안 검수 지시(2026-07-31): 이모지 오버레이가 항상 보이도록 48pt 이상·흰색 유지 +
-            // 배경 타일 색과 무관하게 읽히도록 검은 아웃라인을 추가한다(Icon은 순수 배경 타일 용도).
-            var emoji = UiKit.Text(cell, "", 64, Color.white, TextAnchor.MiddleCenter);
-            emoji.name = "Emoji";
-            UiKit.Fill(emoji.rectTransform);
-            var emojiOutline = emoji.gameObject.AddComponent<Outline>();
-            emojiOutline.effectColor = new Color(0f, 0f, 0f, 0.85f);
-            emojiOutline.effectDistance = new Vector2(1.5f, -1.5f);
-
-            var tag = UiKit.Text(cell, "", 16, UiKit.Accent, TextAnchor.UpperRight);
+            var tag = UiKit.Text(cell, "", 16, UiKit.Accent, TextAnchor.UpperRight, true);
             tag.name = "Tag";
             UiKit.SetAnchors(tag.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-56, -28), new Vector2(-6, -4));
 
@@ -882,13 +1109,12 @@ namespace JackpotRun.EditorTools
             return cell;
         }
 
-        // "릴과 노트 사이 스테이지 정보 영역" — 잔여 공간(flex 1)을 전부 가져가는 유일한 행(Fable 지시).
-        // 스핀 획득 요약(EXP/점수/코인)을 크게 중앙 표시한다 — 이모지 대신 한글 라벨만 사용
-        // (RunView/HudView와 동일한 이유: astral 이모지가 레거시 Text에서 렌더링되지 않는 문제 회피).
+        // S8 항목⑥: 고정 120(기존 flexibleHeight:1에서 축소 — 잔여 공간은 이제 릴 위/아래 스페이서가
+        // 가져간다). 스핀 획득 요약(EXP/점수/코인)을 중앙 표시 — 이모지 대신 한글 라벨만 사용.
         private static void BuildRunStageInfo(RectTransform col, RunBuildResult result)
         {
             var panel = UiKit.Panel(col, "StageInfo", new Color(0f, 0f, 0f, 0f));
-            UiKit.SizeHint(panel, flexibleHeight: 1, minHeight: 60);
+            UiKit.SizeHint(panel, preferredHeight: 120, flexibleHeight: 0);
             var inner = UiKit.VGroup(panel, 0, new RectOffset(24, 24, 8, 8), true, true);
             UiKit.Fill(inner);
             inner.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
@@ -940,12 +1166,13 @@ namespace JackpotRun.EditorTools
 
             // 특수모드 4버튼(순서: 집중/올인/기도/막판 — RunView.ModeOrder와 일치해야 함). 비용은 상수라
             // 빌드 시점에 라벨을 굽는다(사용가능 조건은 엔진 거부 → 토스트로 안내, 여기서 사전 비활성화 안 함).
+            // S8 항목⑤: astral 이모지(🎯🎲🙏⏰)는 렌더링되지 않는다 — 한글 라벨만 사용.
             var modeRow = UiKit.HGroup(controls, 8, new RectOffset(0, 0, 0, 0), true, true);
             UiKit.SizeHint(modeRow, preferredHeight: 68, flexibleHeight: 0);
             string[] modeLabels =
             {
-                $"🎯집중({Formulas.CMD_COST_FOCUS})", $"🎲올인({Formulas.CMD_COST_ALLIN})",
-                $"🙏기도({Formulas.CMD_COST_PRAY})", $"⏰막판({Formulas.CMD_COST_LAST})",
+                $"집중({Formulas.CMD_COST_FOCUS})", $"올인({Formulas.CMD_COST_ALLIN})",
+                $"기도({Formulas.CMD_COST_PRAY})", $"막판({Formulas.CMD_COST_LAST})",
             };
             result.modeButtons = new Button[modeLabels.Length];
             for (int i = 0; i < modeLabels.Length; i++)
@@ -955,13 +1182,16 @@ namespace JackpotRun.EditorTools
                 result.modeButtons[i] = btn;
             }
 
-            result.spinButton = UiKit.Button(controls, "🎰 스핀", new Vector2(0, 108), UiKit.Accent, UiKit.Bg, null, panelSprite);
+            // S8 항목⑤: 🎰(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            result.spinButton = UiKit.Button(controls, "스핀", new Vector2(0, 108), UiKit.Accent, UiKit.Bg, null, panelSprite);
             UiKit.SizeHint(result.spinButton, preferredHeight: 108, flexibleHeight: 0);
 
             var toolRow = UiKit.HGroup(controls, 10, new RectOffset(0, 0, 0, 0), true, true);
             UiKit.SizeHint(toolRow, preferredHeight: 80, flexibleHeight: 0);
 
-            result.bagButton = UiKit.Button(toolRow, "🎒", new Vector2(0, 80), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, panelSprite);
+            // S8 항목⑤: 🎒(astral)는 렌더링되지 않는다 — 초기 라벨은 "가방"(런타임에 RunView가
+            // "가방 N/M"으로 즉시 갱신한다).
+            result.bagButton = UiKit.Button(toolRow, "가방", new Vector2(0, 80), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, panelSprite);
             UiKit.SizeHint(result.bagButton, preferredWidth: 170, preferredHeight: 80, flexibleWidth: 0, flexibleHeight: 0);
             result.bagButtonLabel = result.bagButton.GetComponentInChildren<Text>();
 
@@ -991,10 +1221,9 @@ namespace JackpotRun.EditorTools
             return rt;
         }
 
-        private static void WireRunView(RunBuildResult r, RunOverlayResult overlay, AppRoot appRoot)
+        private static void WireRunView(RunBuildResult r, RunOverlayResult overlay)
         {
             var so = new SerializedObject(r.view);
-            so.FindProperty("appRoot").objectReferenceValue = appRoot;
             so.FindProperty("hudView").objectReferenceValue = WireHudView(r);
             so.FindProperty("reelView").objectReferenceValue = WireReelView(r);
             so.FindProperty("resultLineText").objectReferenceValue = r.resultLineText;
@@ -1271,7 +1500,8 @@ namespace JackpotRun.EditorTools
             var pickBtn = UiKit.Button(btnRow, "선택", new Vector2(0, 66), UiKit.Accent, UiKit.Bg, null, UiSpriteGen.Load("panel_r24"));
             pickBtn.name = "PickButton";
             UiKit.SizeHint(pickBtn, flexibleWidth: 1, preferredHeight: 66, flexibleHeight: 0);
-            var holdBtn = UiKit.Button(btnRow, "🗂️보류", new Vector2(0, 66), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
+            // S8 항목⑤: 🗂️(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            var holdBtn = UiKit.Button(btnRow, "보류", new Vector2(0, 66), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
             holdBtn.name = "HoldButton";
             UiKit.SizeHint(holdBtn, flexibleWidth: 1, preferredHeight: 66, flexibleHeight: 0);
 
@@ -1380,7 +1610,8 @@ namespace JackpotRun.EditorTools
             var col = UiKit.VGroup(card, 18, new RectOffset(28, 28, 26, 26), true, true);
             UiKit.Fill(col);
 
-            var head = UiKit.Text(col, "💥 클리어 실패", 32, UiKit.Bad, TextAnchor.MiddleCenter, true);
+            // S8 항목⑤: 💥(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            var head = UiKit.Text(col, "클리어 실패", 32, UiKit.Bad, TextAnchor.MiddleCenter, true);
             UiKit.SizeHint(head, preferredHeight: 46, flexibleHeight: 0);
             var subText = UiKit.Text(col, "", 19, UiKit.TextPrimary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(subText, preferredHeight: 56, flexibleHeight: 0);
@@ -1638,7 +1869,7 @@ namespace JackpotRun.EditorTools
         }
 
         // ══════════════════════════════════════════════════════════════════════════════
-        // DexScreen — S7b. 카테고리 탭(가로 스크롤 pill) + 3열 그리드 + 상세 팝업(DexDetailPopup, 전역
+        // DexScreen — 카테고리 탭(가로 스크롤 pill) + 3열 그리드 + 상세 팝업(DexDetailPopup, 전역
         // OverlayLayer 산하). 이관 원본: Scripts/UI/DexScreen.cs·DetailPopup.cs.
         // ══════════════════════════════════════════════════════════════════════════════
         private static DexBuildResult BuildDexScreen(Transform canvasRoot, UI2.DexDetailPopup detailPopup)
@@ -1655,23 +1886,24 @@ namespace JackpotRun.EditorTools
             var col = UiKit.VGroup(root, 0, new RectOffset(0, 0, 0, 0), true, true);
             UiKit.Fill(col);
 
-            // 헤더 — 90
+            // 헤더 — 90. S8 항목⑤: 📖(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
             var header = UiKit.HGroup(col, 16, new RectOffset(24, 24, 16, 8), true, true);
             UiKit.SizeHint(header, preferredHeight: 90, flexibleHeight: 0);
-            var title = UiKit.Text(header, "📖 잭팟런 도감", UiKit.TextStyle.H1, TextAnchor.MiddleLeft);
+            var title = UiKit.Text(header, "잭팟런 도감", UiKit.TextStyle.H1, TextAnchor.MiddleLeft);
             UiKit.SizeHint(title, flexibleWidth: 1, flexibleHeight: 0);
             result.backButton = UiKit.Button(header, "← 메뉴", new Vector2(160, 70), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, panelSprite);
             UiKit.SizeHint(result.backButton, preferredWidth: 160, preferredHeight: 70, flexibleWidth: 0, flexibleHeight: 0);
 
-            // 통계 4타일 — 96
+            // 통계 4타일 — 96. S8 항목⑤: astral 이모지(🏆🧗🔁📈)는 렌더링되지 않는다 — 한글 라벨만 사용.
             var statsRow = UiKit.HGroup(col, 12, new RectOffset(24, 24, 4, 12), true, true);
             UiKit.SizeHint(statsRow, preferredHeight: 96, flexibleHeight: 0);
-            result.statBestScoreText = BuildStatTile(statsRow, "🏆 최고점수");
-            result.statBestStageText = BuildStatTile(statsRow, "🧗 최고 스테이지");
-            result.statRunsText = BuildStatTile(statsRow, "🔁 런");
-            result.statTotalScoreText = BuildStatTile(statsRow, "📈 통산 점수");
+            result.statBestScoreText = BuildStatTile(statsRow, "최고점수");
+            result.statBestStageText = BuildStatTile(statsRow, "최고 스테이지");
+            result.statRunsText = BuildStatTile(statsRow, "런");
+            result.statTotalScoreText = BuildStatTile(statsRow, "통산 점수");
 
-            // 카테고리 탭 — 96, JackpotCatalog.CategoryOrder 8종 고정.
+            // 카테고리 탭 — 96, JackpotCatalog.CategoryOrder 8종 고정(제목은 JackpotCatalog.CategoryTitle,
+            // S8에서 이모지 제거됨).
             var tabScroll = UiKit.Scroll(col, out var tabsContent, vertical: false);
             UiKit.SizeHint(tabScroll, preferredHeight: 96, flexibleHeight: 0);
             var tabsHlg = tabsContent.gameObject.AddComponent<HorizontalLayoutGroup>();
@@ -1705,7 +1937,7 @@ namespace JackpotRun.EditorTools
                 var tabLabel = UiKit.Text(tabRt, JackpotCatalog.CategoryTitle(cat), 19, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
                 UiKit.Fill(tabLabel.rectTransform);
 
-                UnityEventTools.AddStringPersistentListener(tabBtn.onClick, result.view.SetCategory, cat);
+                UnityEditor.Events.UnityEventTools.AddStringPersistentListener(tabBtn.onClick, result.view.SetCategory, cat);
             }
 
             // 카드 그리드(3열) — 잔여 전부.
@@ -1774,7 +2006,8 @@ namespace JackpotRun.EditorTools
             var lockCol = UiKit.VGroup(lockOverlay, 6, new RectOffset(14, 14, 14, 14), true, true);
             lockCol.name = "Content";
             UiKit.Fill(lockCol);
-            var lockIcon = UiKit.Text(lockCol, "🔒 잠김", 22, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            // S8 항목⑤: 🔒(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            var lockIcon = UiKit.Text(lockCol, "[잠김]", 22, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
             UiKit.SizeHint(lockIcon, preferredHeight: 32, flexibleHeight: 0);
             var lockHint = UiKit.Text(lockCol, "", 15, UiKit.TextSecondary, TextAnchor.UpperLeft);
             lockHint.name = "Hint";
@@ -1785,10 +2018,9 @@ namespace JackpotRun.EditorTools
             return card;
         }
 
-        private static void WireDexView(DexBuildResult r, UI2.DexDetailPopup detailPopup, AppRoot appRoot)
+        private static void WireDexView(DexBuildResult r, UI2.DexDetailPopup detailPopup)
         {
             var so = new SerializedObject(r.view);
-            so.FindProperty("appRoot").objectReferenceValue = appRoot;
             so.FindProperty("statBestScoreText").objectReferenceValue = r.statBestScoreText;
             so.FindProperty("statBestStageText").objectReferenceValue = r.statBestStageText;
             so.FindProperty("statRunsText").objectReferenceValue = r.statRunsText;
@@ -1822,7 +2054,8 @@ namespace JackpotRun.EditorTools
             UiKit.SizeHint(scroll, flexibleHeight: 1);
             SetupStackContent(content, 32, 24, 12);
 
-            // 아트(512) — 스프라이트 없으면 대형 이모지로 폴백.
+            // 아트(512) — 스프라이트 없으면 대형 이모지로 폴백(카탈로그 데이터의 emoji 필드 — 카탈로그
+            // 카드는 전부 실제 아트가 있어 이 경로를 거의 타지 않는다).
             var iconRow = UiKit.Panel(content, "IconRow", new Color(0, 0, 0, 0));
             UiKit.SizeHint(iconRow, preferredHeight: 512, flexibleHeight: 0);
             var iconImage = UiKit.Image(iconRow, null, Color.white);

@@ -38,6 +38,7 @@ namespace JackpotRun.UI2
         private Coroutine _expRoutine;
         private Coroutine _bossBannerRoutine;
         private Coroutine _gaugePulseRoutine;
+        private ParticleSystem _bossFx; // S7c 연출 훅: 보스 스테이지 동안 유지되는 fx_boss 루프 핸들
 
         private void Awake()
         {
@@ -69,7 +70,8 @@ namespace JackpotRun.UI2
         private void RefreshStageCurses(RunState run)
         {
             if (stageText != null) stageText.text = $"스테이지 {run.Stage}";
-            if (cursesText != null) cursesText.text = $"🌑저주 {run.Curses.Count}";
+            // S8 항목⑤: 🌑(astral)는 레거시 Text에서 렌더링되지 않는다 — 한글 라벨만 사용.
+            if (cursesText != null) cursesText.text = $"저주 {run.Curses.Count}";
         }
 
         private void RefreshSpinsCoinsScore(RunState run, (long quota, int spins) preview)
@@ -97,10 +99,20 @@ namespace JackpotRun.UI2
         private System.Collections.IEnumerator AnimateExpRoutine(long fromExp, long toExp, long quota)
         {
             bool crossedQuota = quota > 0 && fromExp < quota && toExp >= quota;
+            // S7c 연출 훅: "EXP 채움 중 ExpGain" — 바 끝점(expBarFill)에서 1회 재생.
+            if (toExp > fromExp) FxKit.I?.Play(FxId.ExpGain, expBarFill);
             yield return UiTween.CountUpRoutine(fromExp, toExp, ExpGainDuration, v => SetExpBarImmediate(v, quota),
                 UiTween.Ease.OutCubic);
             if (crossedQuota) PlayQuotaPulse();
             _expRoutine = null;
+        }
+
+        /// <summary>S7c 연출 훅: "코인 증가 시 Coin(릴→코인 라벨 flyTo)" — RunView가 스핀 결과의
+        /// coinsGained를 이미 알고 있어 여기로 직접 넘긴다(로직 변경 없음, 호출 추가).</summary>
+        public void PlayCoinFx(RectTransform from, int coinsGained)
+        {
+            if (coinsGained <= 0 || coinsText == null) return;
+            FxKit.I?.PlayFlyTo(FxId.Coin, from, coinsText.rectTransform, Mathf.Clamp(coinsGained, 1, 8));
         }
 
         private void PlayQuotaPulse()
@@ -159,6 +171,15 @@ namespace JackpotRun.UI2
             {
                 _shownBossId = bossId;
                 if (boss != null) PlayBossBanner(boss);
+
+                // S7c 연출 훅: "보스 스테이지 Boss 루프(스테이지 종료 시 Stop)" — HUD 영역(자기 자신의
+                // RectTransform, hudRoot에 붙어 있다) 기준으로 재생.
+                if (boss != null && _bossFx == null) _bossFx = FxKit.I?.PlayLoop(FxId.Boss, (RectTransform)transform);
+                else if (boss == null && _bossFx != null)
+                {
+                    FxKit.I?.StopLoop(_bossFx);
+                    _bossFx = null;
+                }
             }
         }
 
@@ -188,6 +209,11 @@ namespace JackpotRun.UI2
             _shownBossId = null;
             if (bossBannerGroup != null) bossBannerGroup.alpha = 0f;
             if (hudOutline != null) hudOutline.enabled = false;
+            if (_bossFx != null)
+            {
+                FxKit.I?.StopLoop(_bossFx);
+                _bossFx = null;
+            }
         }
     }
 }

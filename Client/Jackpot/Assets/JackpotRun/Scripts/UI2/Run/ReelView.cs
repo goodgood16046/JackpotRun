@@ -19,6 +19,16 @@ namespace JackpotRun.UI2
     //   set3=해당 셀 글로우, set4=화면 플래시(흰 6% 0.12s), 잭팟(전칸)=플래시+셰이크(6px 0.3s)+배너.
     //   해골 페널티: 셀 흔들림+적색 틴트(설계 문구상 EXP 바 항목과 나란히 적혀 있지만 "셀"이라 릴 소관).
     // 바운스 지속시간·해골 흔들림 진폭 등 설계에 수치가 없는 값은 이 파일 안에서 상수로 못박고 주석 표기.
+    //
+    // S8 항목⑤(심볼 표시 근본 수정): 레거시 uGUI Text는 astral(서로게이트 페어) 이모지를 렌더링하지
+    // 못한다(🍒📘💎🪙👑🔥🧲💣🎲🌱🌀🗝 등 전부 미표시) — 심볼은 UiSpriteGen이 굽는 도형 스프라이트
+    // (sym_<id>.png)만으로 표현하고, 이 파일의 "Emoji" 텍스트 오버레이는 완전히 제거했다(셀 자식
+    // 경로 계약도 "Icon"(Image)/"Tag"(Text) + Outline으로 축소). Cell.tag(SpinResolver.cs, 엔진 산출
+    // 문자열)도 astral 이모지라 TranslateTag로 BMP 안전 기호로 치환해 표시한다(엔진 파일은 수정하지
+    // 않는다 — UI 레이어 표시 치환만).
+    //
+    // S7c 연출 훅: 셀 정지마다 FxId.SpinStop(심볼색), set3/4 성립 시 FxId.SetHit, 잭팟 시 FxId.Jackpot,
+    // 해골 칸 FxId.Skull. FxKit.I가 null이면(프리팹 미로드 등) 전부 조용히 무시한다.
     public sealed class ReelView : MonoBehaviour
     {
         private const float SpinDuration = 0.45f;   // 설계 명시
@@ -36,6 +46,25 @@ namespace JackpotRun.UI2
         private const float SkullShakeDuration = 0.25f;
         private const float SkullTintDuration = 0.3f;
 
+        // UiSpriteGen.SymbolColors(Editor 전용)와 동일한 값을 런타임에서 쓰기 위한 복제 — 소스가
+        // 다르면(에디터/런타임) 갈라지므로 심볼 색을 바꿀 때 두 표를 함께 갱신할 것(UiSpriteGen.cs 헤더 참조).
+        private static readonly Dictionary<string, Color> SymbolTintById = new Dictionary<string, Color>
+        {
+            { "cherry", HexColor("#E5484D") }, { "book", HexColor("#4C8DFF") }, { "star", HexColor("#F5C518") },
+            { "gem", HexColor("#7C5CFF") }, { "crown", HexColor("#FFB300") }, { "skull", HexColor("#9BA3B4") },
+            { "coin", HexColor("#E8B93C") }, { "flame", HexColor("#FF6B35") }, { "magnet", HexColor("#5B8CFF") },
+            { "bomb", HexColor("#3A4051") }, { "dice", HexColor("#E8EAF2") }, { "seed", HexColor("#4CAF50") },
+            { "wild", HexColor("#00C2A8") }, { "key", HexColor("#C9A227") },
+        };
+
+        // Cell.tag(SpinResolver.cs)가 내보내는 astral 이모지를 BMP 안전 기호로 치환(엔진 파일은 미수정
+        // — 표시 레이어에서만 변환). 목록: 성장 "🌱→"/와일드주입 "🌀"/제거 "🧽"/왕관강제 "👑"/폭탄폭발
+        // "💥"/자석흡착 "🧲"(SpinResolver.cs 그렙 결과 전수).
+        private static readonly Dictionary<string, string> TagTranslate = new Dictionary<string, string>
+        {
+            { "🌱→", "↑" }, { "🌀", "W" }, { "🧽", "X" }, { "👑", "♛" }, { "💥", "*" }, { "🧲", "M" },
+        };
+
         [Serializable]
         private struct SymbolSprite
         {
@@ -44,7 +73,7 @@ namespace JackpotRun.UI2
         }
 
         [SerializeField] private RectTransform reelRow;
-        [SerializeField] private RectTransform cellTemplate; // 자식 경로 계약: "Icon"(Image)/"Emoji"(Text)/"Tag"(Text), Outline
+        [SerializeField] private RectTransform cellTemplate; // 자식 경로 계약: "Icon"(Image)/"Tag"(Text), Outline
         [SerializeField] private SymbolSprite[] symbolSprites = Array.Empty<SymbolSprite>();
         [SerializeField] private CanvasGroup flashOverlay; // 화면 전체를 덮는 흰색 플래시(set4/잭팟 공용)
         [SerializeField] private CanvasGroup jackpotBannerGroup;
@@ -56,7 +85,6 @@ namespace JackpotRun.UI2
         {
             public RectTransform rt;
             public Image icon;
-            public Text emoji;
             public Text tag;
             public Outline glow;
             public string lastSymId; // 마지막으로 SetCellSymbol에 전달된 심볼 id — 세트 글로우 매칭용
@@ -113,12 +141,12 @@ namespace JackpotRun.UI2
                 yield return null;
             }
 
-            // ── 왼쪽부터 0.08s 스태거 정지(OutBack 스케일 바운스) ───────────────────────
+            // ── 왼쪽부터 0.08s 스태거 정지(OutBack 스케일 바운스 + FxId.SpinStop) ───────────
             for (int i = 0; i < _cells.Count && i < result.cells.Count; i++)
             {
                 var cell = result.cells[i];
                 SetCellSymbol(_cells[i], cell.sym, cell.tag);
-                StartCoroutine(RevealBounce(_cells[i].rt));
+                StartCoroutine(RevealBounce(_cells[i]));
                 if (i < _cells.Count - 1) yield return new WaitForSeconds(StaggerDelay);
             }
             yield return new WaitForSeconds(RevealBounceDuration);
@@ -129,11 +157,14 @@ namespace JackpotRun.UI2
             yield return PostRevealFx(result);
         }
 
-        private IEnumerator RevealBounce(RectTransform rt)
+        private IEnumerator RevealBounce(CellView cv)
         {
-            if (rt == null) yield break;
-            rt.localScale = Vector3.one * 0.82f;
-            yield return UiTween.ScaleRoutine(rt, rt.localScale, Vector3.one, RevealBounceDuration, UiTween.Ease.OutBack);
+            if (cv?.rt == null) yield break;
+            cv.rt.localScale = Vector3.one * 0.82f;
+            yield return UiTween.ScaleRoutine(cv.rt, cv.rt.localScale, Vector3.one, RevealBounceDuration, UiTween.Ease.OutBack);
+            if (cv.rt == null) yield break;
+            Color tint = SymbolTintById.TryGetValue(cv.lastSymId ?? "", out var c) ? c : Color.white;
+            FxKit.I?.Play(FxId.SpinStop, cv.rt, tint);
         }
 
         private IEnumerator PostRevealFx(SpinResult result)
@@ -147,6 +178,7 @@ namespace JackpotRun.UI2
 
             if (jackpot)
             {
+                FxKit.I?.Play(FxId.Jackpot, reelRow);
                 yield return FlashAndShake(JackpotShakeAmplitude, JackpotShakeDuration, alpha: 0.18f);
                 yield return JackpotBanner();
             }
@@ -167,6 +199,7 @@ namespace JackpotRun.UI2
                 if (cv.glow == null || cv.lastSymId != symId) continue;
                 cv.glow.enabled = true;
                 StartCoroutine(PulseOutline(cv.glow));
+                FxKit.I?.Play(FxId.SetHit, cv.rt);
             }
         }
 
@@ -225,6 +258,7 @@ namespace JackpotRun.UI2
             {
                 if (cells[i]?.sym == null || cells[i].sym.id != "skull") continue;
                 StartCoroutine(SkullCellFx(_cells[i]));
+                FxKit.I?.Play(FxId.Skull, _cells[i].rt);
             }
         }
 
@@ -264,7 +298,6 @@ namespace JackpotRun.UI2
                 {
                     rt = inst,
                     icon = inst.Find("Icon")?.GetComponent<Image>(),
-                    emoji = inst.Find("Emoji")?.GetComponent<Text>(),
                     tag = inst.Find("Tag")?.GetComponent<Text>(),
                     glow = inst.GetComponent<Outline>(),
                 };
@@ -283,8 +316,13 @@ namespace JackpotRun.UI2
                 cv.icon.color = Color.white;
                 cv.icon.enabled = cv.icon.sprite != null;
             }
-            if (cv.emoji != null) cv.emoji.text = sym.emoji;
-            if (cv.tag != null) cv.tag.text = tag ?? "";
+            if (cv.tag != null) cv.tag.text = TranslateTag(tag);
+        }
+
+        private static string TranslateTag(string tag)
+        {
+            if (string.IsNullOrEmpty(tag)) return "";
+            return TagTranslate.TryGetValue(tag, out var safe) ? safe : tag;
         }
 
         private static SymInfo RandomSymbol()
@@ -292,5 +330,7 @@ namespace JackpotRun.UI2
             var syms = Symbols.All;
             return syms[UnityEngine.Random.Range(0, syms.Length)];
         }
+
+        private static Color HexColor(string hex) => ColorUtility.TryParseHtmlString(hex, out var c) ? c : Color.white;
     }
 }

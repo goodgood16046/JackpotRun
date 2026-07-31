@@ -18,7 +18,9 @@ namespace JackpotRun.UI2
     {
         private static readonly SpinMode[] ModeOrder = { SpinMode.Focus, SpinMode.Allin, SpinMode.Pray, SpinMode.Last };
 
-        [SerializeField] private AppRoot appRoot;
+        // AppRoot는 DontDestroyOnLoad 싱글턴(S8)이라 씬에 없다 — SceneBuilder가 와이어링할 수 없으므로
+        // 정적 인스턴스를 계산 프로퍼티로 읽는다(호출부는 그대로 "appRoot.XXX").
+        private AppRoot appRoot => AppRoot.Instance;
         [SerializeField] private HudView hudView;
         [SerializeField] private ReelView reelView;
         [SerializeField] private Text resultLineText; // 릴-노트 사이 "스테이지 정보 영역" 획득 요약(Fable 지시)
@@ -73,9 +75,18 @@ namespace JackpotRun.UI2
                 bagButton.onClick.AddListener(() => bagPopup?.Show(_session.State, itemId => Send(new UseItem(itemId))));
         }
 
+        /// <summary>S8 "전환 흐름": PlaySceneRoot.Awake → AppRoot.RegisterPlay → GameSession 생성 →
+        /// RunView.Bind(session). Awake 단계에서 호출되므로 뒤이어 실행되는 OnEnable이 이 값을 그대로
+        /// 이어받는다(Unity 씬 로드 순서: 모든 Awake 완료 → 모든 OnEnable).</summary>
+        public void Bind(GameSession session)
+        {
+            _session = session;
+        }
+
         private void OnEnable()
         {
-            _session = appRoot != null ? appRoot.Session : null;
+            // Bind가 먼저 호출되지 않았다면(Play 씬 단독 실행 등 예외 경로) AppRoot.Session을 폴백으로 읽는다.
+            if (_session == null) _session = appRoot != null ? appRoot.Session : null;
             if (_session == null) return; // 초기 씬 로드 중 화면이 잠깐 활성화되는 경우 등 방어
 
             _busy = false;
@@ -138,6 +149,8 @@ namespace JackpotRun.UI2
                 {
                     hudView.RefreshAfterSpin(_session.State, _session.PreviewQuotaSpins(), expBefore);
                     SetResultLine(gained, res.score, res.coins);
+                    // S7c 연출 훅: "코인 증가 시 Coin(릴→코인 라벨 flyTo)".
+                    hudView.PlayCoinFx((RectTransform)reelView.transform, res.coins);
                 });
             }
             else
@@ -216,7 +229,8 @@ namespace JackpotRun.UI2
         // ── 가방 라벨 / 장치열 ───────────────────────────────────────────────────────
         private void RefreshBagLabel()
         {
-            if (bagButtonLabel != null) bagButtonLabel.text = $"🎒{_session.State.Items.Count}/{ItemUse.ItemSlots}";
+            // S8 항목⑤: 🎒(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            if (bagButtonLabel != null) bagButtonLabel.text = $"가방 {_session.State.Items.Count}/{ItemUse.ItemSlots}";
         }
 
         private void RefreshDeviceRow()
@@ -238,7 +252,7 @@ namespace JackpotRun.UI2
                 var btn = Instantiate(deviceButtonTemplate, deviceRow);
                 btn.gameObject.SetActive(true);
                 btn.name = "Device_GamblerReroll";
-                SetDeviceButtonVisual(btn, "🎲재굴림", UiKit.Good, UiKit.Bg, true, () => Send(new GamblerReroll()));
+                SetDeviceButtonVisual(btn, "재굴림", UiKit.Good, UiKit.Bg, true, () => Send(new GamblerReroll()));
             }
         }
 
@@ -300,7 +314,7 @@ namespace JackpotRun.UI2
                 switch (e.type)
                 {
                     case "REJECTED":
-                        appRoot?.Router?.Toast?.Show(RejectReasonText(e.reason));
+                        appRoot?.Toast?.Show(RejectReasonText(e.reason));
                         break;
 
                     case "SPIN_RESULT":
@@ -339,16 +353,16 @@ namespace JackpotRun.UI2
                         break;
 
                     case "ITEM_USED":
-                        notesFeed?.Append($"🎒 {ItemLabel(e.itemId)} 사용");
+                        notesFeed?.Append($"가방: {ItemLabel(e.itemId)} 사용");
                         if (e.spin != null && e.spin.result != null) { spinToAnimate = e.spin; AppendSpinNotes(e.spin); }
                         break;
 
                     case "DEVICE_ARMED":
-                        notesFeed?.Append($"🔧 {DeviceLabel(e.deviceId)} 예약{(e.secondary ? "(보조)" : "")}");
+                        notesFeed?.Append($"장치: {DeviceLabel(e.deviceId)} 예약{(e.secondary ? "(보조)" : "")}");
                         break;
 
                     case "DEVICE_PEEK":
-                        notesFeed?.Append($"🔮 다음 스핀 확정: {PeekCellsText(e.peekCells)}");
+                        notesFeed?.Append($"다음 스핀 확정: {PeekCellsText(e.peekCells)}");
                         break;
 
                     case "PERK_GRANTED":
@@ -356,7 +370,7 @@ namespace JackpotRun.UI2
                         break;
 
                     case "PERK_HELD":
-                        notesFeed?.Append($"🗂️ 보류: {PerkLabel(e.perkId)}");
+                        notesFeed?.Append($"보류: {PerkLabel(e.perkId)}");
                         break;
 
                     case "PERK_OFFER":
@@ -366,7 +380,7 @@ namespace JackpotRun.UI2
                     case "RETAKE_EMPTY":
                         // _lastOfferEvent는 갱신하지 않는다 — 기존 오퍼(run.PerkOfferIds)가 그대로 유지되고
                         // 이 이벤트엔 배지 필드(offerTier 등)가 없어 덮어쓰면 정보가 유실된다.
-                        notesFeed?.Append("🔁 재추첨 — 후보 없음(코인 환불)");
+                        notesFeed?.Append("재추첨 — 후보 없음(코인 환불)");
                         break;
 
                     case "NODE_RESOLVED":
@@ -374,19 +388,19 @@ namespace JackpotRun.UI2
                         break;
 
                     case "SHOP_PURCHASED":
-                        notesFeed?.Append($"🛒 구매: {ShopEntryLabel(e.shopBought)}");
+                        notesFeed?.Append($"구매: {ShopEntryLabel(e.shopBought)}");
                         break;
 
                     case "SHOP_REROLLED":
-                        notesFeed?.Append("🔁 상점 리롤");
+                        notesFeed?.Append("상점 리롤");
                         break;
 
                     case "SHOP_LEFT":
-                        notesFeed?.Append("🚪 상점을 나갑니다");
+                        notesFeed?.Append("상점을 나갑니다");
                         break;
 
                     case "RUN_STARTED":
-                        notesFeed?.Append($"🎬 런 시작 · 🪙{NumberFormat.Comma(e.coinsDelta)}");
+                        notesFeed?.Append($"런 시작 · 코인 {NumberFormat.Comma(e.coinsDelta)}");
                         break;
 
                     default:
@@ -425,8 +439,8 @@ namespace JackpotRun.UI2
         private static string ClearSummaryText(ClearOutcome c)
         {
             string debtNote = c.inDebt ? " (빚 상환 중·무보상)" : "";
-            return $"🎉 스테이지 {c.clearedStage} 클리어 · {c.grade} · 점수+{NumberFormat.Comma(c.gainedScore)} · " +
-                   $"코인+{NumberFormat.Comma(c.clearCoin)}{debtNote}{(c.nextNodeForcedPrism ? " · 🌈다음 프리즘 확정" : "")}";
+            return $"스테이지 {c.clearedStage} 클리어 · {c.grade} · 점수+{NumberFormat.Comma(c.gainedScore)} · " +
+                   $"코인+{NumberFormat.Comma(c.clearCoin)}{debtNote}{(c.nextNodeForcedPrism ? " · 다음 프리즘 확정" : "")}";
         }
 
         private static string PeekCellsText(IReadOnlyList<string> ids)
@@ -446,15 +460,15 @@ namespace JackpotRun.UI2
             switch (e.node)
             {
                 case NodeKind.Rest:
-                    return $"☕ 휴식 · 🪙+{NumberFormat.Comma(e.coinsDelta)}";
+                    return $"☕ 휴식 · 코인+{NumberFormat.Comma(e.coinsDelta)}";
                 case NodeKind.Gamble:
                     return e.gambleWon
-                        ? $"🎲 도박 성공! 🪙+{NumberFormat.Comma(e.coinsDelta)}"
-                        : $"🎲 도박 실패… 🪙{NumberFormat.Comma(e.coinsDelta)}";
+                        ? $"도박 성공! 코인+{NumberFormat.Comma(e.coinsDelta)}"
+                        : $"도박 실패… 코인{NumberFormat.Comma(e.coinsDelta)}";
                 case NodeKind.Curse:
-                    return $"🌑 저주 획득: {PerkLabel(e.curseGrantedId)} · 🪙+{NumberFormat.Comma(e.coinsDelta)}";
+                    return $"저주 획득: {PerkLabel(e.curseGrantedId)} · 코인+{NumberFormat.Comma(e.coinsDelta)}";
                 case NodeKind.Risk:
-                    return $"⚠️ 위험! {PerkLabel(e.augmentGrantedId)} + 저주 {PerkLabel(e.curseGrantedId)}";
+                    return $"⚠ 위험! {PerkLabel(e.augmentGrantedId)} + 저주 {PerkLabel(e.curseGrantedId)}";
                 case NodeKind.Event:
                     return EventTableText(e);
                 default:
@@ -465,12 +479,12 @@ namespace JackpotRun.UI2
         private static string EventTableText(RunEvent e)
         {
             var parts = new List<string> { "❓ 이벤트" };
-            if (e.coinsDelta != 0) parts.Add($"🪙{(e.coinsDelta > 0 ? "+" : "")}{NumberFormat.Comma(e.coinsDelta)}");
+            if (e.coinsDelta != 0) parts.Add($"코인{(e.coinsDelta > 0 ? "+" : "")}{NumberFormat.Comma(e.coinsDelta)}");
             if (e.scoreDelta != 0) parts.Add($"⭐{(e.scoreDelta > 0 ? "+" : "")}{NumberFormat.Comma(e.scoreDelta)}");
             if (e.bonusSpinsDelta != 0) parts.Add($"스핀+{e.bonusSpinsDelta}");
-            if (!string.IsNullOrEmpty(e.itemGrantedId)) parts.Add($"🎁{ItemLabel(e.itemGrantedId)}");
-            if (!string.IsNullOrEmpty(e.relicGrantedId)) parts.Add($"🛡️{PerkLabel(e.relicGrantedId)}");
-            if (!string.IsNullOrEmpty(e.augmentGrantedId)) parts.Add($"✨{PerkLabel(e.augmentGrantedId)}");
+            if (!string.IsNullOrEmpty(e.itemGrantedId)) parts.Add(ItemLabel(e.itemGrantedId));
+            if (!string.IsNullOrEmpty(e.relicGrantedId)) parts.Add(PerkLabel(e.relicGrantedId));
+            if (!string.IsNullOrEmpty(e.augmentGrantedId)) parts.Add(PerkLabel(e.augmentGrantedId));
             if (!string.IsNullOrEmpty(e.curseRemovedId)) parts.Add($"정화: {PerkLabel(e.curseRemovedId)} 제거");
             return string.Join(" · ", parts);
         }
@@ -517,8 +531,8 @@ namespace JackpotRun.UI2
 
         private static string RejectReasonText(string reason)
         {
-            if (string.IsNullOrEmpty(reason)) return "⚠️ 처리할 수 없습니다";
-            return RejectReasons.TryGetValue(reason, out var text) ? $"⚠️ {text}" : $"⚠️ {reason}";
+            if (string.IsNullOrEmpty(reason)) return "⚠ 처리할 수 없습니다";
+            return RejectReasons.TryGetValue(reason, out var text) ? $"⚠ {text}" : $"⚠ {reason}";
         }
     }
 }

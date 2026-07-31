@@ -6,6 +6,9 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/JackpotRun/Scenes/JackpotRun.unity
-    guid: 0170c4c837a3af744bff7285c0f6892c
+    path: Assets/JackpotRun/Scenes/Intro.unity
+    guid: ab3ba43acb7687243ab3d6458349562b
+  - enabled: 1
+    path: Assets/JackpotRun/Scenes/Play.unity
+    guid: 4eb9676b40bba5c41a136d2f6ca44099
   m_configObjects: {}

@@ -17,9 +17,11 @@ namespace JackpotRun.UI2
         private const float CardStagger = 0.08f; // 설계 명시
         private const float CardPopDuration = 0.28f; // 설계 미명시 — OutBack 팝인 길이 기본값
 
+        // S8 항목⑤: 메달 이모지(🥈🥇🌈)는 astral이라 렌더링되지 않는다 — 카드의 Tier 텍스트 줄이
+        // 이미 등급명을 표시하므로 접두어는 제거했다(빈 문자열).
         private static readonly Dictionary<Tier, string> TierMedal = new Dictionary<Tier, string>
         {
-            { Tier.SILVER, "🥈" }, { Tier.GOLD, "🥇" }, { Tier.PRISM, "🌈" },
+            { Tier.SILVER, "" }, { Tier.GOLD, "" }, { Tier.PRISM, "" },
         };
 
         [SerializeField] private Text titleText;
@@ -39,16 +41,17 @@ namespace JackpotRun.UI2
             bool firstShow = !gameObject.activeSelf;
             gameObject.SetActive(true);
 
+            // S8 항목⑤: astral 이모지 제거 — 한글 라벨만 사용.
             bool isAugment = run.Phase == RunPhase.EventAugment;
-            if (titleText != null) titleText.text = isAugment ? "✨ 증강 선택" : "🛡️ 유물 선택";
+            if (titleText != null) titleText.text = isAugment ? "증강 선택" : "유물 선택";
 
             var banners = new List<string>();
             if (offerEvent != null)
             {
-                if (offerEvent.offerBossPrism) banners.Add("🌈 보스 클리어! 프리즘 확정");
-                if (offerEvent.offerTierBumped) banners.Add("🍀 행운! 등급업");
-                if (offerEvent.offerHeldIncluded) banners.Add("🗂️ 보류 후보 포함");
-                if (offerEvent.offerRetake) banners.Add("🔁 재추첨 결과");
+                if (offerEvent.offerBossPrism) banners.Add("보스 클리어! 프리즘 확정");
+                if (offerEvent.offerTierBumped) banners.Add("행운! 등급업");
+                if (offerEvent.offerHeldIncluded) banners.Add("보류 후보 포함");
+                if (offerEvent.offerRetake) banners.Add("재추첨 결과");
             }
             if (bannerText != null)
             {
@@ -63,7 +66,7 @@ namespace JackpotRun.UI2
                 retakeButton.gameObject.SetActive(canRetake);
                 retakeButton.onClick.RemoveAllListeners();
                 if (canRetake) retakeButton.onClick.AddListener(() => onRetake());
-                if (retakeButtonLabel != null) retakeButtonLabel.text = $"🔁 재추첨 ({Formulas.RETAKE_COIN_COST}🪙)";
+                if (retakeButtonLabel != null) retakeButtonLabel.text = $"재추첨 ({Formulas.RETAKE_COIN_COST}코인)";
             }
 
             var cards = BuildCards(run, offerEvent, onPick, canHold ? onHold : null);
@@ -133,7 +136,7 @@ namespace JackpotRun.UI2
                 var badgesText = card.Find("Content/TopRow/NameCol/Badges")?.GetComponent<Text>();
                 if (badgesText != null)
                 {
-                    string badges = (heldBadge ? "🗂️보류 " : "") + (synergyBadge ? "🧩시너지" : "");
+                    string badges = (heldBadge ? "[보류] " : "") + (synergyBadge ? "[시너지]" : "");
                     badgesText.text = badges;
                     badgesText.gameObject.SetActive(!string.IsNullOrEmpty(badges));
                 }
@@ -148,7 +151,14 @@ namespace JackpotRun.UI2
                 if (pickBtn != null)
                 {
                     pickBtn.onClick.RemoveAllListeners();
-                    pickBtn.onClick.AddListener(() => onPick(idx));
+                    var cardRt = card;
+                    var tierColor = UiKit.TierColor(perk.tier.ToString());
+                    pickBtn.onClick.AddListener(() =>
+                    {
+                        // S7c 연출 훅: "PerkOfferPanel: 카드 선택 시 PerkPick(티어색)."
+                        FxKit.I?.Play(FxId.PerkPick, cardRt, tierColor);
+                        onPick(idx);
+                    });
                 }
 
                 var holdBtn = card.Find("Content/ButtonRow/HoldButton")?.GetComponent<Button>();

@@ -31,6 +31,8 @@ namespace JackpotRun.UI2
         [SerializeField] private Text achTotalText;
         [SerializeField] private Button menuButton;
 
+        private ParticleSystem _gameOverFx; // S7c 연출 훅: 표시 중 fx_gameover 루프
+
         private void Awake()
         {
             if (achRowTemplate != null) achRowTemplate.gameObject.SetActive(false);
@@ -56,7 +58,8 @@ namespace JackpotRun.UI2
             var newAch = session.LastNewAchievements;
             bool hasNew = newAch != null && newAch.Count > 0;
             if (achHeaderRow != null) achHeaderRow.gameObject.SetActive(hasNew);
-            if (achHeaderText != null) achHeaderText.text = hasNew ? $"🏅 신규 업적 {newAch.Count}개" : "";
+            // S8 항목⑤: 🏅(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            if (achHeaderText != null) achHeaderText.text = hasNew ? $"신규 업적 {newAch.Count}개" : "";
             if (achTotalText != null) achTotalText.text = $"업적 {profile.AchievedIds.Count}/{Achievements.Count}";
 
             if (menuButton != null)
@@ -64,6 +67,9 @@ namespace JackpotRun.UI2
                 menuButton.onClick.RemoveAllListeners();
                 menuButton.onClick.AddListener(() => onMenu());
             }
+
+            // S7c 연출 훅: "GameOverPanel: 표시 중 GameOver 루프." — 이미 재생 중이면 다시 시작하지 않는다.
+            if (_gameOverFx == null && cardRect != null) _gameOverFx = FxKit.I?.PlayLoop(FxId.GameOver, cardRect);
 
             var rows = BuildAchRows(newAch);
             if (firstShow) StartCoroutine(EnterRoutine(rows));
@@ -79,6 +85,11 @@ namespace JackpotRun.UI2
         {
             StopAllCoroutines();
             gameObject.SetActive(false);
+            if (_gameOverFx != null)
+            {
+                FxKit.I?.StopLoop(_gameOverFx);
+                _gameOverFx = null;
+            }
         }
 
         private IEnumerator EnterRoutine(List<RectTransform> achRows)

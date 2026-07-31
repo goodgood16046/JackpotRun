@@ -18,7 +18,9 @@ namespace JackpotRun.UI2
     // 파일 하단에 같이 둔다.
     public sealed class DexView : MonoBehaviour
     {
-        [SerializeField] private AppRoot appRoot;
+        // AppRoot는 DontDestroyOnLoad 싱글턴(S8)이라 씬에 없다 — SceneBuilder가 와이어링할 수 없으므로
+        // 정적 인스턴스를 계산 프로퍼티로 읽는다(호출부는 그대로 "appRoot.XXX").
+        private AppRoot appRoot => AppRoot.Instance;
 
         [Header("통계 4타일 — 순서: 최고점수/최고스테이지/런/통산점수")]
         [SerializeField] private Text statBestScoreText;
@@ -218,7 +220,7 @@ namespace JackpotRun.UI2
             if (e.price >= 0) metaParts.Add($"가격 {NumberFormat.Comma(e.price)}");
             if (e.coinCost >= 0) metaParts.Add($"코인 {NumberFormat.Comma(e.coinCost)}");
             if (e.scoreMod >= 0f) metaParts.Add($"점수보정 ×{NumberFormat.Fmt(e.scoreMod)}");
-            if (!unlocked) metaParts.Add("🔒 미해금");
+            if (!unlocked) metaParts.Add("[미해금]");
             if (metaText != null) metaText.text = string.Join(" · ", metaParts);
 
             if (descText != null) descText.text = e.descKo ?? "";
@@ -278,9 +280,9 @@ namespace JackpotRun.UI2
         {
             switch (tier)
             {
-                case "SILVER": return "🥈 실버";
-                case "GOLD": return "🥇 골드";
-                case "PRISM": return "🌈 프리즘";
+                case "SILVER": return "실버";
+                case "GOLD": return "골드";
+                case "PRISM": return "프리즘";
                 default: return tier;
             }
         }

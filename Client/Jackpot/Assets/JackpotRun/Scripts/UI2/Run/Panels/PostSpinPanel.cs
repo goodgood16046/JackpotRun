@@ -92,7 +92,7 @@ namespace JackpotRun.UI2
                     btn.name = "Manip_Gambler";
                     result.Add(btn);
                     var label = btn.Find("Label")?.GetComponent<Text>();
-                    if (label != null) label.text = "🎲 도박꾼 무료 재굴림";
+                    if (label != null) label.text = "도박꾼 무료 재굴림";
                     var button = btn.GetComponent<Button>();
                     if (button != null)
                     {

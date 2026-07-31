@@ -21,9 +21,9 @@ namespace JackpotRun.UI2
 
         public enum ScreenId
         {
+            Login,
             Menu,
             Pick,
-            Run,
             Dex,
         }
 

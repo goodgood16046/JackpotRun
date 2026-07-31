@@ -37,10 +37,11 @@ namespace JackpotRun.UI2
             bool firstShow = !gameObject.activeSelf;
             gameObject.SetActive(true);
 
-            if (titleText != null) titleText.text = $"🛒 상점 · 🪙{NumberFormat.Comma(run.Coins)}";
+            // S8 항목⑤: astral 이모지(🛒🔁🪙 등)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            if (titleText != null) titleText.text = $"상점 · 코인 {NumberFormat.Comma(run.Coins)}";
             if (emptyText != null) emptyText.gameObject.SetActive(run.ShopOffer.Count == 0);
 
-            if (rerollButtonLabel != null) rerollButtonLabel.text = $"🔁 리롤 ({Shop.RerollCost}🪙)";
+            if (rerollButtonLabel != null) rerollButtonLabel.text = $"리롤 ({Shop.RerollCost}코인)";
             if (rerollButton != null)
             {
                 rerollButton.onClick.RemoveAllListeners();
@@ -124,7 +125,7 @@ namespace JackpotRun.UI2
                 var priceButton = row.Find("Content/PriceButton")?.GetComponent<Button>();
                 var priceImage = priceButton != null ? priceButton.GetComponent<Image>() : null;
                 var priceLabel = row.Find("Content/PriceButton/PriceLabel")?.GetComponent<Text>();
-                if (priceLabel != null) priceLabel.text = $"{NumberFormat.Comma(entry.price)}🪙";
+                if (priceLabel != null) priceLabel.text = NumberFormat.Comma(entry.price);
                 if (priceImage != null) priceImage.color = affordable ? UiKit.Accent : UiKit.Card;
                 if (priceLabel != null) priceLabel.color = affordable ? UiKit.Bg : UiKit.TextSecondary;
                 if (priceButton != null)
@@ -153,6 +154,6 @@ namespace JackpotRun.UI2
             }
         }
 
-        private static string KindLabel(char kind) => kind == 'A' ? "✨" : kind == 'R' ? "🛡️" : "🎁";
+        private static string KindLabel(char kind) => kind == 'A' ? "[증강]" : kind == 'R' ? "[유물]" : "[아이템]";
     }
 }

@@ -25,7 +25,9 @@ namespace JackpotRun.UI2
         private static readonly string[] RecoKinds = { "beginner", "high", "challenge", "random" };
         private const float TabFadeDuration = 0.15f;
 
-        [SerializeField] private AppRoot appRoot;
+        // AppRoot는 DontDestroyOnLoad 싱글턴(S8)이라 씬에 없다 — SceneBuilder가 와이어링할 수 없으므로
+        // 정적 인스턴스를 계산 프로퍼티로 읽는다(호출부는 그대로 "appRoot.XXX").
+        private AppRoot appRoot => AppRoot.Instance;
 
         [Header("추천 4버튼 — 순서 고정: 입문/고점/도전/랜덤 (RecoKinds)")]
         [SerializeField] private Button[] recoButtons = Array.Empty<Button>();
@@ -448,7 +450,7 @@ namespace JackpotRun.UI2
             RenderSection();
             UpdateSummary();
 
-            var toast = appRoot != null && appRoot.Router != null ? appRoot.Router.Toast : null;
+            var toast = appRoot != null ? appRoot.Toast : null;
             toast?.Show(RecoLabel(kind) + " 조합을 적용했습니다.");
         }
 
@@ -472,7 +474,7 @@ namespace JackpotRun.UI2
 
             string charPart = c != null ? $"{c.emoji}{c.name}" : "캐릭터?";
             string macPart = m != null ? $"{m.emoji}{m.name}" : "머신?";
-            string devPart = d != null ? $"{d.emoji}{d.name}" : "🚫장치없이";
+            string devPart = d != null ? $"{d.emoji}{d.name}" : "⊘장치없이";
             if (comboText != null) comboText.text = $"{charPart} + {macPart} + {devPart}";
 
             bool ready = c != null && m != null;

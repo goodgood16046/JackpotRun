@@ -70,6 +70,8 @@ namespace JackpotRun.UI2
             {
                 PopulateBanner(clear);
                 if (bannerRect != null) bannerRect.anchoredPosition = new Vector2(0f, BannerStartY);
+                // S7c 연출 훅: "NodePanel(클리어 배너): Clear."
+                FxKit.I?.Play(FxId.Clear, bannerRect);
                 yield return UiTween.FadeRoutine(bannerGroup, 0f, 1f, BannerFadeDuration);
                 if (bannerRect != null)
                     yield return UiTween.MoveRoutine(bannerRect, bannerRect.anchoredPosition,
@@ -92,9 +94,10 @@ namespace JackpotRun.UI2
             if (bannerScoreText != null) bannerScoreText.text = "+0점";
             if (bannerSubText != null)
             {
+                // S8 항목⑤: 🎉/🌈(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
                 string debt = clear.inDebt ? " (빚 상환 중·무보상)" : "";
-                string prism = clear.nextNodeForcedPrism ? " · 🌈다음 프리즘 확정" : "";
-                bannerSubText.text = $"🎉 스테이지 {clear.clearedStage} 클리어 · 코인+{NumberFormat.Comma(clear.clearCoin)}{debt}{prism}";
+                string prism = clear.nextNodeForcedPrism ? " · 다음 프리즘 확정" : "";
+                bannerSubText.text = $"스테이지 {clear.clearedStage} 클리어 · 코인+{NumberFormat.Comma(clear.clearCoin)}{debt}{prism}";
             }
         }
 
@@ -131,18 +134,19 @@ namespace JackpotRun.UI2
             }
         }
 
+        // S8 항목⑤: astral 이모지(✨🛡️🛒🎲🌑 등)는 레거시 Text에서 렌더링되지 않는다 — BMP 기호로 대체.
         private static (string emoji, string title, string desc) NodeKindInfo(NodeKind k)
         {
             switch (k)
             {
-                case NodeKind.Augment: return ("✨", "증강", "증강 3종 중 1개를 선택합니다.");
-                case NodeKind.Relic: return ("🛡️", "유물", "유물 3종 중 1개를 선택합니다.");
-                case NodeKind.Shop: return ("🛒", "상점", "코인으로 증강·유물·아이템을 구매합니다.");
+                case NodeKind.Augment: return ("★", "증강", "증강 3종 중 1개를 선택합니다.");
+                case NodeKind.Relic: return ("◆", "유물", "유물 3종 중 1개를 선택합니다.");
+                case NodeKind.Shop: return ("▲", "상점", "코인으로 증강·유물·아이템을 구매합니다.");
                 case NodeKind.Rest: return ("☕", "휴식", "코인 +8을 즉시 받습니다.");
-                case NodeKind.Gamble: return ("🎲", "도박", "보유 코인 전부를 걸고 50% 확률로 2배 또는 전부를 잃습니다.");
+                case NodeKind.Gamble: return ("♠", "도박", "보유 코인 전부를 걸고 50% 확률로 2배 또는 전부를 잃습니다.");
                 case NodeKind.Event: return ("❓", "이벤트", "무작위 보상 이벤트가 발생합니다.");
-                case NodeKind.Curse: return ("🌑", "저주", "저주 1개를 받는 대신 코인 +15를 받습니다.");
-                case NodeKind.Risk: return ("⚠️", "위험", "프리즘/골드 증강과 저주를 동시에 받습니다.");
+                case NodeKind.Curse: return ("●", "저주", "저주 1개를 받는 대신 코인 +15를 받습니다.");
+                case NodeKind.Risk: return ("⚠", "위험", "프리즘/골드 증강과 저주를 동시에 받습니다.");
                 default: return ("❔", k.ToString(), "");
             }
         }
