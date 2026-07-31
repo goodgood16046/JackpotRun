@@ -943,15 +943,14 @@ namespace JackpotRun.EditorTools
 
             var col = UiKit.VGroup(root, 0, new RectOffset(0, 0, 0, 0), true, true);
             UiKit.Fill(col);
-            // 행 높이 계약(S8 항목⑥, Fable 육안 검수 지시 갱신): Hud 210 · 릴 위/아래 균형 스페이서
-            // (flex 1 각각) · ReelSection 260(정사각 셀 196 + 상하 여백 32×2) · StageInfo 고정 120 ·
-            // NotesFeed 고정 280 · Controls 300. 남는 공간(전체 1920 - 고정합 1170 = 750)은
-            // StageInfo가 아니라 릴 위/아래 스페이서 2개가 절반씩(375) 나눠 가진다.
+            // 행 높이 계약(S9 육안 검수 반영): 릴을 화면 상단부에 붙이고 죽은 여백을 없앤다.
+            // Hud 210 · 릴 위 여백 60(고정) · ReelSection 260 · StageInfo 120 · NotesFeed(flex 1,
+            // 잔여 전부 — 스핀 노트가 쌓일수록 채워진다) · Controls 300.
+            // 이전 구성은 릴 위/아래 flex 스페이서 2개가 750px를 반씩 먹어 화면 절반이 빈 채로 보였다.
 
             BuildRunHud(col, result);
-            AddFlexSpacer(col);
+            AddFixedSpacer(col, 60f);
             BuildRunReel(col, result);
-            AddFlexSpacer(col);
             BuildRunStageInfo(col, result);
             BuildRunNotesFeed(col, result);
             BuildRunControls(col, result, panelSprite);
@@ -970,12 +969,11 @@ namespace JackpotRun.EditorTools
             return result;
         }
 
-        // 릴 위/아래에 균등 배분되는 잔여-공간 스페이서(S8 항목⑥ "남는 공간은 StageInfo가 아니라
-        // 릴 위/아래 균형 있게").
-        private static void AddFlexSpacer(RectTransform col)
+        // HUD와 릴 사이의 고정 여백(S9) — flex 스페이서는 잔여 공간을 다 먹어 화면이 비어 보였다.
+        private static void AddFixedSpacer(RectTransform col, float height)
         {
             var spacer = UiKit.Panel(col, "Spacer", new Color(0f, 0f, 0f, 0f));
-            UiKit.SizeHint(spacer, preferredHeight: 0, flexibleHeight: 1);
+            UiKit.SizeHint(spacer, preferredHeight: height, flexibleHeight: 0);
         }
 
         private static void BuildRunHud(RectTransform col, RunBuildResult result)
@@ -1127,8 +1125,10 @@ namespace JackpotRun.EditorTools
         // 최신 줄이 위로, 각 줄에 은은한 배경(카드색 알파 40%). 단일 Text 블록 대신 행 템플릿으로 재구성.
         private static void BuildRunNotesFeed(RectTransform col, RunBuildResult result)
         {
-            var panel = UiKit.Panel(col, "NotesFeed", UiKit.Hex("#11162A"));
-            UiKit.SizeHint(panel, preferredHeight: 280, flexibleHeight: 0);
+            // S9: 잔여 공간을 노트 피드가 흡수하되(고정 280이면 죽은 여백이 남는다), 패널 배경은
+            // 투명하게 둔다 — 줄마다 자체 배경이 있어서, 빈 영역이 "빈 상자"로 보이지 않는다.
+            var panel = UiKit.Panel(col, "NotesFeed", new Color(0f, 0f, 0f, 0f));
+            UiKit.SizeHint(panel, preferredHeight: 280, flexibleHeight: 1);
             result.notesRoot = panel;
             var inner = UiKit.VGroup(panel, 0, new RectOffset(0, 0, 10, 10), true, true);
             UiKit.Fill(inner);
