@@ -365,6 +365,10 @@ namespace JackpotRun.EditorTools
         {
             var overlay = UiKit.Panel(canvasRoot, "OverlayLayer", new Color(0f, 0f, 0f, 0f));
             UiKit.Fill(overlay);
+            // 투명 컨테이너지만 Image의 raycastTarget 기본값이 true라, 마지막 형제로서 화면 전체의
+            // 클릭을 전부 삼켜버린다(버튼이 눌리지 않던 원인). 자식 팝업은 각자 raycastTarget을 갖는다.
+            var img = overlay.GetComponent<Image>();
+            if (img != null) img.raycastTarget = false;
             return overlay;
         }
 
@@ -375,6 +379,8 @@ namespace JackpotRun.EditorTools
         {
             var layer = UiKit.Panel(canvasRoot, "FxLayer", new Color(0f, 0f, 0f, 0f));
             UiKit.Fill(layer);
+            var fxImg = layer.GetComponent<Image>();
+            if (fxImg != null) fxImg.raycastTarget = false; // CanvasGroup과 별개로 이중 안전장치
             return layer.gameObject.AddComponent<FxKit>();
         }
 

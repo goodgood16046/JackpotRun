@@ -316,6 +316,54 @@ Play: PlaySceneRoot.Awake → AppRoot.ConsumePendingLaunch() → GameSession 생
 - 공통 골격(카메라·캔버스·FxLayer·Toast) 생성은 헬퍼로 공유. 빌드 세팅은 Intro(0)·Play(1) 두 개로 설정.
 - S7c의 카메라/ScreenSpaceCamera 전환 규칙은 두 씬 모두에 적용.
 
+## S10 — Intro 화면을 웹 페이지와 동일한 룩으로 (2026-07-31 확정)
+
+기준 원본: `public/jackpotpick/pick.css`(220줄) + `public/jackpotpick/index.html` + `app.js` 렌더 구조.
+**웹 화면을 그대로 옮긴다** — 색·간격·폰트 크기·구성요소 배치를 CSS 값 그대로 매핑.
+
+### 팔레트 (pick.css `:root` 그대로 — UiKit 상수 교체)
+`bg0 #0b0d15` · `bg1 #11131f` · `panel #171a27` · `panel2 #1c2030` · `bd #2a3048` · `bd2 #394365`
+`txt #e9ebf5` · `dim #8b93a7` · `dim2 #69718a` · `gold #ffd23f` · `amber #f59e0b` · `pink #ff7adb`
+`teal #34d3c0` · `blue #5b8cff` · `purple #a974ff` · `red #ff6b6b` · `green #4ade80`
+
+### 카드 구조 — **현재 Unity(대형 아트 상단)를 웹 구조로 교체**
+웹 `.jcard`: 좌측 4px 난이도색 스트라이프 · 배경 세로 그라데이션(panel2→panel) · 테두리 2px `bd` · 라운드 15
+- `.jc-top`(가로): **아이콘 52×52 라운드 11**(좌) + 이름 15.5px 800 / 역할 11.5px dim(우)
+- `.badge b-diff`: 이름 옆 인라인, 난이도색 배경 + 어두운 글자, 10.5px 800, 라운드 7
+- `.jc-eff`: 효과 박스 — 배경 rgba(255,255,255,.035), 테두리 bd, 라운드 9, 패딩 7/9, 12.5px `#cdd3e6`
+- `.jc-tags`: 태그 칩 10.5px 700 라운드 6 — hot(빨강)/good(민트)/high(핑크)/기본(회색) 4종 배색 CSS 그대로
+- `.jc-pc`: 장점 `＋`(green) 2줄 · 주의 `－`(#ff9b9b) 1줄, 11.7px
+- `.jc-foot`: "추천 빌드: **X**"(gold), 11px
+- 선택: 테두리 gold + 배경 밝게 + `.jc-check` 우상단 골드 pill "선택됨 ✓"
+- 잠금: 불투명도 .62 + 채도 감소 + `.jc-lock` 우상단 "🔒 잠김"(BMP 대체: "잠김") + `.jc-unlock` 점선 골드 박스
+- 그리드: 최소 228px 자동 채움 → 1080 세로 기준 **2열**, 간격 10
+
+### 상단 구성 (index.html 순서 그대로)
+1. `.head`: 타이틀(굵게, `.sub`만 골드) + `.lead` 설명 13.5px dim + `.who` "@닉 — …" 골드 14px
+2. `.tabs`: 3탭 — 각 탭에 `.tnum`(11px dim2, 완료 시 "✓" green) + 제목 13.5px 800 + `.tpick`(11px gold, 선택값). active = 보라 그라데이션 배경 + amber 테두리
+3. `.recos`: pill 버튼 4개(라운드 999, 12.5px 800) — beginner=teal 테두리, high=pink, challenge=red, random=기본
+4. `.toolbar`: `.chips`(pill 12px, on=골드 배경/어두운 글자) + `.sortrow`(라벨 + 드롭다운 느낌 버튼 4개)
+5. `.sechead`: "🎭 캐릭터" 대신 텍스트 16px + `.cnt` "해금 n/m" 12px dim
+6. 카드 그리드
+7. `.summary` 하단 고정 시트: 상단 구분선 bd2, 배경 그라데이션 + 그림자
+   - `.sum-combo`: 조합 13.5px 800 + `.bl` 빌드토큰 11.5px gold
+   - `.sum-grade`: 등급 배지(현재색 테두리 + 같은 색 글자) 12px 900
+   - `.sd-meters`: 3칸 그리드 — 각 칸 panel 배경/bd 테두리/라운드 11, `.mk` 11px dim + `.mv` 별 14px(고점·안정 gold, 난이도 red)
+   - `.sd-blurb`: 골드 톤 박스(배경 rgba(255,210,63,.06), 테두리 #f59e0b33, 라운드 11) 13px
+   - `.sd-cols`: 장점/주의 2열, 각 항목 앞에 ▲(green)/▼(#ff9b9b)
+   - `.sd-builds`: 빌드 토큰 칩(골드 글자 + 골드 6% 배경)
+   - `.go`: 전체 폭 골드 그라데이션 버튼 14.5px 900, 비활성 시 불투명도 .42
+
+### MenuView / DexView
+- Menu도 같은 팔레트·타이포로 통일(현재 큰 캐러셀은 유지하되 카드/버튼 스타일을 웹 톤으로).
+- Dex는 `public/jackpotdex/style.css` 기준: `.card` 가로 배치(아이콘 좌 + 이름/설명 우), 그리드 3열, `.mini` 진행바, 잠금 카드 `❓ ???` 마스킹.
+
+### 구현 규칙
+- 새 스프라이트가 필요하면 `UiSpriteGen`에 추가(라운드 반경별 9-slice: r7/r9/r11/r13/r15/r999). **재생성 시 overwrite:true 주의**(S9 교훈).
+- 아이콘 52px는 catalog 스프라이트 그대로(현재 대형 아트를 축소해 사용).
+- 폰트 크기는 CSS px를 1080 기준 그대로 쓰되, 가독성 위해 **×1.6 스케일**(웹은 360~420px 폭 기준, Unity 캔버스는 1080) — 예: 15.5px → 25pt, 12.5px → 20pt, 11px → 18pt.
+- 클릭 차단 재발 방지: 투명 컨테이너 패널은 반드시 `Image.raycastTarget=false`.
+
 ## 구현 공통 규칙
 
 - 스펙 문서와 Kotlin이 다르면 **Kotlin이 정답** — 발견 시 보고(스펙 문서 정정은 Fable 몫).
