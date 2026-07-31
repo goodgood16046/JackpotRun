@@ -1,92 +1,54 @@
-# JackpotRun Web
+# 잭팟런 (Jackpot Run)
 
-카카오 오픈채팅 봇(모카봇)의 **잭팟런(Jackpot Run) 웹**을 별도 Firebase 프로젝트로 분리한 독립 프로젝트.
-`mokabot-8ed4d` 에서 떼어내 자체 프로젝트 **`jackpotrun-web`** 로 운영한다.
+슬롯을 돌려 스테이지를 오르는 **로그라이트 슬롯 게임**. 웹 클라이언트와 Unity 모바일 앱으로 구성된다.
 
-- 선택 화면: <https://jackpotrun-web.web.app/jackpotpick/?t=…&w=…>
-- 도감/진행도: <https://jackpotrun-web.web.app/jackpotdex/?t=…>
+## 게임 소개
+
+매 스테이지 요구 EXP를 슬롯 스핀으로 채워 올라가고, 5층마다 보스를 만난다.
+클리어할 때마다 증강·유물·상점 노드에서 빌드를 키우고, 저주와 위험을 관리하며 최고 점수에 도전한다.
+
+- **캐릭터 16종 × 슬롯머신 16종 × 장치 16종** — 시작 조합에 따라 플레이 스타일이 갈린다 (시너지 등급 S~C)
+- **증강 80 · 유물 61 · 저주 16 · 아이템 73** — 세트 효과 33종과 조합하는 빌드 구성
+- **특수 스핀** — 집중 / 올인 / 기도 / 막판, 그리고 능동 장치(재굴림·고정·복사·교체·예언 등)
+- **업적 482종**, 장치 면허, 전공 연구(계정 성장), 테마 빌드 도감 25종
+- 스테이지 진행·상점 경제·확률 테이블 기반의 정밀한 밸런스
 
 ## 구성
 
 ```
-JackpotRunWeb/
-├─ .firebaserc            # default 프로젝트 = jackpotrun-web
-├─ firebase.json          # hosting(public/) + no-cache 헤더 + database 규칙
-├─ database.rules.json    # jackpotdex / jackpotcmd / jackpotcatalog / jackpothall 규칙
-├─ public/                # 배포 대상(정적)
-│  ├─ jackpotpick/        # 시작 조합 선택 (index.html, app.js, meta.js, pick.css)
-│  └─ jackpotdex/         # 도감/진행도 (index.html, app.js, style.css, img/*.png ×290)
-├─ tools/                 # 배포 대상 아님(빌드 전용)
-│  ├─ gen_images.ps1      # 도감 이미지 재생성 (pollinations.ai)
-│  └─ prompts.json        # 이미지 프롬프트 매니페스트
-└─ unity-assets/          # 배포 대상 아님 — Unity 이관용 추출본(2026-07-29)
-   ├─ manifest.json/.csv  # 294건 메타데이터(이름·효과·등급·해금조건·큐레이션)
-   ├─ prompts.json        # 이미지 생성 프롬프트 사본
-   ├─ regen_missing.ps1   # 아트 없는 장치 4종 생성(미실행)
-   └─ Sprites/<카테고리>/  # 290장을 8개 카테고리로 분류
+JackpotRun/
+├─ Client/Jackpot/    # Unity 모바일 앱 (2022.3 LTS, Android 타깃)
+│  ├─ Assets/JackpotRun/Scripts/Engine/   # 게임 엔진 — 순수 C# (UnityEngine 비의존)
+│  ├─ Assets/JackpotRun/Scripts/UI,Game/  # uGUI 화면 + 세션/저장 계층
+│  └─ Tools/EngineTests/                  # dotnet 헤드리스 테스트 (17,000+ 어서션)
+├─ public/            # 웹 클라이언트 (Firebase Hosting) — 시작 조합 선택 + 도감/진행도
+├─ Docs/              # 설계 문서 (엔진 이식 설계, 사양 추출)
+├─ kotlin-reference/  # 구버전(v2) 엔진 스냅샷 — 밸런스 사양 정답지 (읽기 전용)
+└─ unity-assets/      # 아트·카탈로그 원본 데이터 (294건 메타 + 스프라이트 290장)
 ```
 
-## 아키텍처 (중요)
+## Unity 앱
 
-이 웹은 **자체 게임 로직이 없는 얇은 클라이언트**다. 실제 잭팟런 게임은 카카오 봇(Kotlin
-`SlotV2Service`/`SlotV2Engine`)에서 돌아가고, 봇이 **이 프로젝트의 RTDB로 데이터를 push** 한다.
+- 실행: `Client/Jackpot`을 Unity 2022.3.39f1로 열고 ▶ Play — 씬 세팅 없이 메뉴가 자동 생성된다.
+- 흐름: 메인 메뉴 → 시작 조합 선택(시너지 분석) → 런 플레이 → 도감/업적. 프로필은 로컬 저장.
+- 엔진은 UnityEngine 비의존 순수 C#이라 에디터 없이 검증 가능:
+  ```bash
+  dotnet run --project Client/Jackpot/Tools/EngineTests
+  ```
+- Android 베이스라인(패키지명·세로 고정·IL2CPP/ARM64)은 에디터 스크립트가 자동 적용한다.
 
-- 봇 → 웹: `jackpotdex/<t>`(진행/해금/랭킹), `jackpotcatalog`(공유 카탈로그), `jackpothall/seasons/<key>`(명예의전당)
-- 웹 → 봇: `jackpotcmd/<w>` 에 `{char, machine, device, cid, ts}`(다음 런 선택 예약) → 봇이 런 시작 시 소비
+## 웹
 
-즉 **봇이 이 프로젝트로 쓰지 않으면 웹은 빈 화면**이다. 봇 측 writer 는
-`app/src/main/kotlin/com/ashersoft/kakaobot/game/SlotV2WebService.kt` — 이 파일이
-잭팟 전용 RTDB base(`jackpotrun-web-default-rtdb`)와 `WEB_BASE`(`https://jackpotrun-web.web.app`)를 가리켜야 한다.
+- 시작 조합 선택(`public/jackpotpick/`)과 도감/진행도(`public/jackpotdex/`) 화면.
+- 배포: `firebase deploy --only hosting,database --project jackpotrun-web`
+- 데모(백엔드 없이 UI 확인): `/jackpotpick/?demo=1`
 
-### Firebase
-- 프로젝트: `jackpotrun-web` (프로젝트 번호 52817920989)
-- RTDB: `https://jackpotrun-web-default-rtdb.asia-southeast1.firebasedatabase.app` (asia-southeast1)
-- Auth/Firestore/Storage 미사용. 규칙은 잭팟 4노드만 open(read/write), 토큰 길이 6~40 검증.
+## 데이터
 
-## 배포
+- `unity-assets/manifest.json` — 콘텐츠 294건(이름·효과·등급·가격·해금 조건)의 단일 소스.
+  `id`가 스프라이트 파일명과 1:1 대응.
+- 수치·공식의 정답지는 `kotlin-reference/`(구현 스냅샷)와 `Docs/EngineSpec/`(추출 사양서).
 
-```powershell
-# 프로젝트 루트(JackpotRunWeb)에서
-firebase deploy --only hosting,database --project jackpotrun-web
-# 정적만: firebase deploy --only hosting --project jackpotrun-web
-# 규칙만: firebase deploy --only database --project jackpotrun-web
-```
+## 표기 규칙
 
-`public/` 만 배포된다(`tools/` 는 hosting 대상 아님). `firebase.json` 의 no-cache 헤더로
-`/jackpotpick`·`/jackpotdex` 는 CDN 캐시 없이 즉시 반영된다.
-
-## 도감 이미지 재생성
-
-```powershell
-# 새 아이템/이미지 추가 시 prompts.json 갱신 후
-powershell -File tools/gen_images.ps1
-```
-이미 존재하고 2KB 초과인 파일은 skip. 결과는 `public/jackpotdex/img/<id>.png`.
-
-## Unity 이관용 추출본 (`unity-assets/`)
-
-봇/웹에서 쓰는 이미지 290장을 카테고리별로 분류하고, `SlotV2Engine.kt` · `jackpotdex/app.js` ·
-`jackpotpick/meta.js` 에서 뽑은 게임 데이터 294건을 결합한 패키지. **배포 대상이 아니다**
-(`firebase.json` 의 hosting public 은 `public/` 뿐).
-
-- 이미지는 전부 256×256 PNG, 불투명 배경(누끼 아님). 확대 시 뭉개지므로 고해상도가 필요하면
-  `prompts.json` 의 프롬프트로 재생성한다.
-- `manifest.json` 의 `id` 가 스프라이트 파일명과 1:1 → Unity 에서 로딩 키로 그대로 사용 가능.
-- 장치 4종(`dev_holdfile`·`dev_major`·`dev_retake`·`dev_syllabus`)은 원래부터 아트가 없다.
-  `unity-assets/regen_missing.ps1` 로 생성할 수 있다(외부 요청 발생).
-- `Sprites/` 의 PNG 는 `public/jackpotdex/img/` 와 내용이 같다. git 은 동일 blob 을 한 번만
-  저장하므로 저장소 용량은 거의 늘지 않는다.
-
-## 원격 저장소
-
-- `origin` = <https://github.com/goodgood16046/JackpotRun.git> (Public)
-- `local` = `C:\dev\git-remotes\JackpotRunWeb.git` (로컬 베어, 백업용 — 선택)
-
-```powershell
-git clone https://github.com/goodgood16046/JackpotRun.git
-```
-
-⚠️ Public 저장소이므로 토큰·비밀키를 커밋하지 말 것.
-
-## 데모(백엔드 없이 UI 확인)
-- 선택: `/jackpotpick/?demo=1` — Firebase 초기화 없이 하드코딩 데이터로 렌더.
+숫자의 소수는 항상 2자리까지, 끝의 0은 제거한다 (`1.50` → `1.5`, `2.00` → `2`).
