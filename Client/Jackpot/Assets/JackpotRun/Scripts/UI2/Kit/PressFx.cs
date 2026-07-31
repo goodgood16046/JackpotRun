@@ -17,7 +17,10 @@ namespace JackpotRun.UI2
         private const float PressedScale = 0.96f;
         private const float PressDuration = 0.08f;
         private const float ReleaseDuration = 0.12f;
-        private const float DisabledAlpha = 0.45f;
+        // pick.css .go:disabled{opacity:.42}(색은 그대로, 알파만) — Fable 육안 검수 수정(2026-07-31):
+        // 이 알파가 버튼 비활성 페이드의 유일한 감쇠 지점이다(UiKit.Button.colors.disabledColor는
+        // 이제 완전 불투명 — 이중 감쇠로 어두운 배경 위 골드가 탁한 갈색으로 보이던 문제 수정).
+        private const float DisabledAlpha = 0.42f;
         private const float AlphaLerpPerSecond = 6f;
 
         // 비워두면 Awake에서 같은 GameObject의 Selectable(Button 등)을 찾는다. interactable==false일

@@ -721,11 +721,14 @@ namespace JackpotRun.EditorTools
             result.sectionCountText = UiKit.Text(sechead, "", 19, UiKit.TextSecondary, TextAnchor.MiddleRight);
             UiKit.SizeHint(result.sectionCountText, preferredWidth: 240, flexibleWidth: 0, flexibleHeight: 0);
 
-            // 6) 카드 그리드(세로 스크롤 + 템플릿) — 잔여 전부(flexibleHeight=1), 이 행만 flexible
+            // 6) 카드 그리드(세로 스크롤 + 템플릿) — 잔여 전부(flexibleHeight=1), 이 행만 flexible.
+            // 셀 320(Fable 육안 검수 수정 지시: 460은 과함 — 카드 실제 콘텐츠 예산 ≈300~316에 맞춤).
             var gridScroll = UiKit.Scroll(col, out var gridContent, vertical: true);
             UiKit.SizeHint(gridScroll, preferredHeight: 0, flexibleHeight: 1);
-            UiKit.Grid(gridContent, new Vector2(500, 460), new Vector2(16, 16), 2);
-            gridContent.gameObject.GetComponent<GridLayoutGroup>().padding = new RectOffset(20, 12, 8, 20);
+            UiKit.Grid(gridContent, new Vector2(500, 320), new Vector2(16, 16), 2);
+            // 하단 패딩에 요약시트 높이(560)만큼 여유를 더해, 마지막 줄 카드가 요약시트에 가려지지
+            // 않고 끝까지 스크롤해 볼 수 있게 한다(Fable 육안 검수 수정 지시 D).
+            gridContent.gameObject.GetComponent<GridLayoutGroup>().padding = new RectOffset(20, 12, 8, 20 + 560);
             result.gridContent = gridContent;
             result.gridCanvasGroup = gridContent.gameObject.AddComponent<CanvasGroup>();
             result.cardTemplate = BuildCardTemplate(gridContent);
@@ -836,7 +839,7 @@ namespace JackpotRun.EditorTools
             var r7 = UiSpriteGen.Load("rrect_r7");
             var r9 = UiSpriteGen.Load("rrect_r9");
             var r11 = UiSpriteGen.Load("rrect_r11");
-            var pill999 = UiSpriteGen.Load("chip_r999");
+            var r13 = UiSpriteGen.Load("rrect_r13");
             var cardGrad15 = UiSpriteGen.Load("card_grad_r15");
 
             var card = UiKit.Panel(parent, "CardTemplate", UiKit.Panel2, cardGrad15);
@@ -852,18 +855,26 @@ namespace JackpotRun.EditorTools
             stripe.name = "Stripe";
             UiKit.SetAnchors(stripe, new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(6f, 0f));
 
-            var body = UiKit.VGroup(card, 14, new RectOffset(25, 19, 19, 18), true, true);
+            // Fable 육안 검수 수정(2026-07-31): 카드 전체 예산을 320 셀에 맞춰 재budget(패딩/스페이싱
+            // 축소 + Top 92 고정 + Eff/Tags/ProsCons/Foot 축소). 잠금 시(UnlockBox=90)도 동일 총합이
+            // 되도록 맞춰(ProsCons60+Foot20+gap10=90) 카드가 상태에 따라 커지지 않는다.
+            var body = UiKit.VGroup(card, 10, new RectOffset(25, 19, 14, 12), true, true);
             body.name = "Body";
             UiKit.Fill(body);
 
-            // ── Top: 아이콘83×83(좌) + 이름/배지/역할(우) — align-items:center 재현은 BuildTabButton과
-            // 동일 기법(행 자체를 controlChildH=true로 83 고정, 내부 Info VGroup을 MiddleLeft로 재정렬).
-            var top = UiKit.HGroup(body, 18, new RectOffset(0, 0, 0, 0), true, true);
+            // ── Top: 아이콘83×83(좌) + 이름/배지/역할(우). align-items:center 재현 — BuildTabButton과
+            // 달리 Top은 controlChildH=**false**로 자식을 강제로 늘리지 않는다(Image인 IconSlot을
+            // forceExpandHeight로 늘리면 세로로 찌그러진다 — Text만 다루는 BuildTabButton과의 차이).
+            // 대신 IconSlot/Info 둘 다 실제 RectTransform.sizeDelta를 83으로 직접 고정하고, Top의
+            // childAlignment(HGroup 기본 MiddleLeft)로 그 83짜리 두 블록을 행 높이(92) 안에서 세로
+            // 중앙 정렬한다.
+            var top = UiKit.HGroup(body, 18, new RectOffset(0, 0, 0, 0), true, false);
             top.name = "Top";
-            UiKit.SizeHint(top, preferredHeight: 83, flexibleHeight: 0);
+            UiKit.SizeHint(top, preferredHeight: 92, flexibleHeight: 0);
 
             var iconSlot = UiKit.Panel(top, "IconSlot", UiKit.Hex("#0E1019"), r11);
             UiKit.SizeHint(iconSlot, preferredWidth: 83, preferredHeight: 83, flexibleWidth: 0, flexibleHeight: 0);
+            iconSlot.sizeDelta = new Vector2(83f, 83f); // controlChildH=false라 LayoutElement만으론 부족 — 실측 크기 직접 고정.
             var icon = UiKit.Image(iconSlot, null, Color.white);
             icon.name = "Icon";
             UiKit.Fill(icon.rectTransform);
@@ -874,6 +885,7 @@ namespace JackpotRun.EditorTools
             var info = UiKit.VGroup(top, 3, new RectOffset(0, 0, 0, 0), true, false);
             info.name = "Info";
             UiKit.SizeHint(info, flexibleWidth: 1);
+            info.sizeDelta = new Vector2(info.sizeDelta.x, 83f); // 아이콘과 같은 높이로 고정 — 내부 정렬 기준선 통일.
             info.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleLeft;
 
             var nameRow = UiKit.HGroup(info, 8, new RectOffset(0, 0, 0, 0), true, true);
@@ -891,32 +903,33 @@ namespace JackpotRun.EditorTools
 
             // ── Eff: 효과 박스(.jc-eff) ──
             var eff = UiKit.Panel(body, "Eff", new Color(1f, 1f, 1f, 0.035f), r9);
-            UiKit.SizeHint(eff, preferredHeight: 70, flexibleHeight: 0);
+            UiKit.SizeHint(eff, preferredHeight: 52, flexibleHeight: 0);
             var effText = UiKit.Text(eff, "", 20, UiKit.Hex("#CDD3E6"), TextAnchor.UpperLeft);
             effText.name = "Text";
-            UiKit.SetAnchors(effText.rectTransform, Vector2.zero, Vector2.one, new Vector2(14f, 11f), new Vector2(-14f, -11f));
+            UiKit.SetAnchors(effText.rectTransform, Vector2.zero, Vector2.one, new Vector2(14f, 8f), new Vector2(-14f, -8f));
 
             // ── Tags: 태그 칩(.jc-tags) 최대 4개 고정 슬롯 — Unity uGUI에 flex-wrap이 없어 한 줄
             // 비줄바꿈으로 재해석(대부분 엔트리가 1~3개라 실질 영향 적음, S10 보고 대상).
             var tags = UiKit.HGroup(body, 8, new RectOffset(0, 0, 0, 0), false, true);
             tags.name = "Tags";
-            UiKit.SizeHint(tags, preferredHeight: 30, flexibleHeight: 0);
+            UiKit.SizeHint(tags, preferredHeight: 26, flexibleHeight: 0);
             for (int i = 0; i < 4; i++)
                 BuildAutoPill(tags, "Tag" + i, r7, 17, new RectOffset(11, 11, 3, 3), true);
 
             // ── 장점(최대2)/주의(최대1) 리치텍스트(.jc-pc) + 추천빌드(.jc-foot) — 잠금 시 숨기고
-            // UnlockBox로 대체(app.js "unlocked ? bodyExtra : lockHint"와 동일 분기).
+            // UnlockBox로 대체(app.js "unlocked ? bodyExtra : lockHint"와 동일 분기, PickView가 토글).
             var prosCons = UiKit.Text(body, "", 19, UiKit.TextPrimary, TextAnchor.UpperLeft);
             prosCons.name = "ProsCons";
             prosCons.supportRichText = true;
-            UiKit.SizeHint(prosCons, preferredHeight: 80, flexibleHeight: 0);
+            UiKit.SizeHint(prosCons, preferredHeight: 60, flexibleHeight: 0);
 
             var foot = UiKit.Text(body, "", 18, UiKit.TextSecondary, TextAnchor.UpperLeft);
             foot.name = "Foot";
             foot.supportRichText = true;
-            UiKit.SizeHint(foot, preferredHeight: 26, flexibleHeight: 0);
+            UiKit.SizeHint(foot, preferredHeight: 20, flexibleHeight: 0);
 
-            // ── UnlockBox(.jc-unlock, 점선 테두리는 Image 단색 한계로 생략 — S10 재해석 항목) ──
+            // ── UnlockBox(.jc-unlock, 점선 테두리는 Image 단색 한계로 생략 — S10 재해석 항목) — 잠금 시
+            // ProsCons+Foot(합 90, gap 포함) 자리를 그대로 대신 차지해 카드 총 높이가 변하지 않는다.
             var unlockBox = UiKit.Panel(body, "UnlockBox", new Color(1f, 0.824f, 0.247f, 0.08f), r9);
             unlockBox.name = "UnlockBox";
             UiKit.SizeHint(unlockBox, preferredHeight: 90, flexibleHeight: 0);
@@ -926,12 +939,21 @@ namespace JackpotRun.EditorTools
             UiKit.SetAnchors(unlockText.rectTransform, Vector2.zero, Vector2.one, new Vector2(14f, 10f), new Vector2(-14f, -10f));
 
             // ── Corner: 잠금/선택 배지(app.js corner = !unlocked ? lock : selected ? check : "" —
-            // 상호배타라 노드 하나를 재사용, 배경·글자색은 PickView가 상태별로 다시 칠한다) ──
-            var (cornerRoot, cornerBg, cornerLabel) = BuildAutoPill(card, "Corner", pill999, 18, new RectOffset(14, 14, 5, 5), true);
-            cornerRoot.anchorMin = cornerRoot.anchorMax = new Vector2(1f, 1f);
-            cornerRoot.pivot = new Vector2(1f, 1f);
-            cornerRoot.anchoredPosition = new Vector2(-14f, -14f);
-            cornerRoot.gameObject.SetActive(false);
+            // 상호배타라 노드 하나를 재사용, 배경·글자색은 PickView가 상태별로 다시 칠한다).
+            // Fable 육안 검수 2차 수정(2026-07-31): chip_r999(9-slice border 128)를 이 작은 배지에
+            // 쓰면서 ContentSizeFitter 자기-사이징과 경합해 지름 300px짜리 원으로 폭주하는 버그가
+            // 있었다 — LayoutGroup/ContentSizeFitter를 아예 쓰지 않고 고정 크기(130×40, 작은 반경
+            // r13)로 직접 명시한다. 텍스트는 Fill로 겹쳐 중앙 정렬(내용이 "잠김"/"선택됨 ✓" 둘뿐이라
+            // 자기-사이징이 필요 없다).
+            var corner = UiKit.Panel(card, "Corner", UiKit.PanelBg, r13);
+            corner.anchorMin = corner.anchorMax = new Vector2(1f, 1f);
+            corner.pivot = new Vector2(1f, 1f);
+            corner.sizeDelta = new Vector2(130f, 40f);
+            corner.anchoredPosition = new Vector2(-12f, -12f);
+            var cornerLabel = UiKit.Text(corner, "", 18, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            cornerLabel.name = "Label";
+            UiKit.Fill(cornerLabel.rectTransform);
+            corner.gameObject.SetActive(false);
 
             card.gameObject.SetActive(false);
             return card;

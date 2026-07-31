@@ -258,7 +258,11 @@ namespace JackpotRun.UI2
             colors.normalColor = Color.white;
             colors.highlightedColor = new Color(1f, 1f, 1f, 0.92f);
             colors.pressedColor = new Color(0.82f, 0.82f, 0.82f, 1f);
-            colors.disabledColor = new Color(1f, 1f, 1f, 0.6f); // PressFx가 알파를 추가로 낮추므로 과하게 어둡지 않게
+            // Fable 육안 검수 수정(2026-07-31): 예전엔 여기서 알파 0.6을 곱하고 PressFx가 또 한 번
+            // 알파를 낮춰(0.6×0.45≈0.27) 어두운 배경 위 골드 버튼이 탁한 갈색으로 보였다(pick.css
+            // .go:disabled는 opacity:.42 하나만 적용 — 색은 그대로 골드). 이중 감쇠를 없애기 위해
+            // 여기서는 완전 불투명을 유지하고, 비활성 페이드는 PressFx의 CanvasGroup 알파 하나로만.
+            colors.disabledColor = Color.white;
             btn.colors = colors;
 
             int fontSize = Mathf.Clamp(Mathf.RoundToInt(size.y * 0.4f), 18, 40);
