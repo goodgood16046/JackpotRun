@@ -522,7 +522,13 @@ namespace JackpotRun.UI2
 
             string pickedId = isNoneDevice ? "" : id;
             if (selected && outline != null && tab == _justPickedTab && pickedId == _justPickedId)
+            {
                 StartCoroutine(PulseOutline(outline));
+                // S13 §E — 카드 선택 시 fx_card_pick(버스트, 링 확산). 코너 배지와 같은 골드로 통일
+                // (카드별 개별 등급색(badgeColor)은 난이도/유형 표시용이라 "선택됨"의 시각 언어인
+                // 코너 골드와 맞춘다 — PCat 티어색과는 별개, 보고 대상).
+                FxKit.I?.Play(FxId.CardPick, card, UiKit.Gold);
+            }
         }
 
         // 선택 시 outline 글로우 펄스 — ENGINE_PORT_DESIGN.md S7 "화면 사양" PickView 지시.

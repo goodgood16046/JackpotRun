@@ -28,6 +28,9 @@ namespace JackpotRun.UI2
         [SerializeField] private Text statPlaysValue;  // hud-stats "플레이"
         [SerializeField] private Text summaryText;      // "업적 n/482 · 장치 n/16 해금"
         [SerializeField] private Button rankButton;     // 랭킹(화면 미구현 — 토스트 안내)
+        [SerializeField] private RectTransform mainButtonRect; // S13 §E — fx_ui_aura 앵커("▶ 게임 시작" 버튼)
+
+        private ParticleSystem _mainButtonAura;
 
         private void Awake()
         {
@@ -37,6 +40,13 @@ namespace JackpotRun.UI2
         private void OnEnable()
         {
             Refresh();
+            _mainButtonAura = FxKit.I?.PlayLoop(FxId.UiAura, mainButtonRect);
+        }
+
+        private void OnDisable()
+        {
+            FxKit.I?.StopLoop(_mainButtonAura);
+            _mainButtonAura = null;
         }
 
         private void OnRankClicked()

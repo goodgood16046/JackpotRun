@@ -20,6 +20,12 @@ namespace JackpotRun.UI2
         PerkPick,
         GameOver,
         MenuAmbient,
+
+        // S13 §E — UI 발광 파티클 4종(ENGINE_PORT_DESIGN.md S13 §E 표).
+        UiAura,
+        TitleSpark,
+        BtnPress,
+        CardPick,
     }
 
     // 런타임 파티클 재생 API — ENGINE_PORT_DESIGN.md S7c "런타임 API(Scripts/UI2/Fx/FxKit.cs)".
@@ -268,6 +274,10 @@ namespace JackpotRun.UI2
                 case FxId.PerkPick: return "fx_perk_pick";
                 case FxId.GameOver: return "fx_gameover";
                 case FxId.MenuAmbient: return "fx_menu_ambient";
+                case FxId.UiAura: return "fx_ui_aura";
+                case FxId.TitleSpark: return "fx_title_spark";
+                case FxId.BtnPress: return "fx_btn_press";
+                case FxId.CardPick: return "fx_card_pick";
                 default: return null;
             }
         }

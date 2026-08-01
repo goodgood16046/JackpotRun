@@ -13,7 +13,7 @@ namespace JackpotRun.EditorTools
     //   1) 텍스처 3종 → Assets/JackpotRun/Art/FX/*.png (dot_soft/star_soft/confetti)
     //   2) 머티리얼 2종 → Assets/JackpotRun/Art/FX/fx_add.mat · fx_alpha.mat
     //      (Shader.Find("Particles/Standard Unlit") 우선, 없으면 레거시 폴백 — 아래 FindParticleShader)
-    //   3) 파티클 프리팹 11종 → Assets/JackpotRun/Resources/JackpotRun/FX/<id>.prefab
+    //   3) 파티클 프리팹 15종(S13 §E에서 UI 발광 4종 추가) → Assets/JackpotRun/Resources/JackpotRun/FX/<id>.prefab
     //      (런타임 FxKit.cs가 Resources.Load<GameObject>로 지연 로드)
     //
     // ── "머티리얼 2종"과 텍스처 3종의 관계(구현 노트) ────────────────────────────────
@@ -88,6 +88,12 @@ namespace JackpotRun.EditorTools
                 SavePrefab(Build_PerkPick(), overwrite);
                 SavePrefab(Build_GameOver(), overwrite);
                 SavePrefab(Build_MenuAmbient(), overwrite);
+
+                // S13 §E — UI 발광 파티클 4종(ENGINE_PORT_DESIGN.md S13 §E 표, 새 파일명).
+                SavePrefab(Build_UiAura(), overwrite);
+                SavePrefab(Build_TitleSpark(), overwrite);
+                SavePrefab(Build_BtnPress(), overwrite);
+                SavePrefab(Build_CardPick(), overwrite);
             }
             finally
             {
@@ -95,8 +101,8 @@ namespace JackpotRun.EditorTools
             }
         }
 
-        // ── 프리팹 11종 ──────────────────────────────────────────────────────────────
-        // 트리거/사양 주석은 ENGINE_PORT_DESIGN.md S7c 표를 그대로 옮긴 것.
+        // ── 프리팹 11종(S7c) + UI 발광 4종(S13 §E) ──────────────────────────────────────
+        // 트리거/사양 주석은 ENGINE_PORT_DESIGN.md S7c/S13 §E 표를 그대로 옮긴 것.
 
         // fx_spin_stop — 릴 셀 정지마다. 스파크 8개, 0.25s, 셀 크기 방사, 심볼색(런타임 startColor 주입), size 10~18.
         private static GameObject Build_SpinStop()
@@ -496,6 +502,139 @@ namespace JackpotRun.EditorTools
             vol.y = new ParticleSystem.MinMaxCurve(15f, 30f); // 상승
 
             FadeInOut(ps);
+            return go;
+        }
+
+        // ── S13 §E: UI 발광 파티클 4종(표 사양 그대로, 새 파일명) ───────────────────────
+
+        // fx_ui_aura — 버튼/카드 뒤 은은한 발광. 루프, 6개/초, 크기 40~90, 알파 .12, 매우 느린 상승,
+        // 가산합성. 앵커(버튼/카드 RectTransform) 뒤에 깔리는 용도라 앵커 영역 전체에서 방출되도록
+        // 원형 방출 반경을 넓게 잡는다(설계에 반경 수치 없음 — 버튼/카드 크기 근사, 구현 결정치).
+        private static GameObject Build_UiAura()
+        {
+            var go = NewRoot("fx_ui_aura", _matAdd, OrderAmbient);
+            var ps = go.GetComponent<ParticleSystem>();
+
+            var main = ps.main;
+            main.duration = 1f;
+            main.loop = true;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(2.5f, 3.5f); // "매우 느린 상승" — 오래 머문다
+            main.startSpeed = 0f;
+            main.startSize = new ParticleSystem.MinMaxCurve(40f, 90f); // 설계 명시값
+            main.startColor = new Color(1f, 1f, 1f, 0.12f); // 설계 명시 알파 .12(런타임 tint로 색만 덮어써도 알파는 유지)
+            main.maxParticles = 24;
+
+            var emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTime = 6f; // "6개/초"
+
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Circle;
+            shape.radius = 110f; // 버튼/카드 뒤 전체를 덮는 근사 반경(설계 미명시 — 구현 결정치)
+            shape.radiusThickness = 1f;
+
+            // x/z도 y와 같은 TwoConstants 모드로 명시(0~0으로 사실상 무영향) — Unity는 velocityOverLifetime의
+            // x/y/z 커브가 서로 다른 모드로 섞이면 "Particle Velocity curves must all be in the same mode"
+            // 경고를 낸다(y만 설정하면 x/z가 기본 Constant(0) 모드로 남아 발생).
+            var vol = ps.velocityOverLifetime;
+            vol.enabled = true;
+            vol.space = ParticleSystemSimulationSpace.Local;
+            vol.x = new ParticleSystem.MinMaxCurve(0f, 0f);
+            vol.y = new ParticleSystem.MinMaxCurve(4f, 10f); // "매우 느린 상승"
+            vol.z = new ParticleSystem.MinMaxCurve(0f, 0f);
+
+            FadeInOut(ps);
+            return go;
+        }
+
+        // fx_title_spark — 타이틀 릴 주변 반짝임. 루프, 4개/초, 별 텍스처, 크기 8~18, 알파 .5, 위로 천천히.
+        private static GameObject Build_TitleSpark()
+        {
+            var mat = CloneWithTexture(_matAdd, _texStar, "title_spark");
+            var go = NewRoot("fx_title_spark", mat, OrderAmbient);
+            var ps = go.GetComponent<ParticleSystem>();
+
+            var main = ps.main;
+            main.duration = 1f;
+            main.loop = true;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(1.4f, 2.2f);
+            main.startSpeed = 0f;
+            main.startSize = new ParticleSystem.MinMaxCurve(8f, 18f); // 설계 명시값
+            main.startColor = new Color(1f, 1f, 1f, 0.5f); // 설계 명시 알파 .5
+            main.maxParticles = 20;
+
+            var emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTime = 4f; // "4개/초"
+
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Rectangle; // 릴 타일 3개가 늘어선 가로 영역 전체
+            shape.scale = new Vector3(420f, 220f, 1f); // 릴 3타일(118×3+gap) 폭 근사(설계 미명시 — 구현 결정치)
+
+            var vol = ps.velocityOverLifetime; // x/z를 y와 같은 모드로 명시(위 fx_ui_aura 주석 참조)
+            vol.enabled = true;
+            vol.space = ParticleSystemSimulationSpace.Local;
+            vol.x = new ParticleSystem.MinMaxCurve(0f, 0f);
+            vol.y = new ParticleSystem.MinMaxCurve(8f, 18f); // "위로 천천히"
+            vol.z = new ParticleSystem.MinMaxCurve(0f, 0f);
+
+            FadeInOut(ps);
+            return go;
+        }
+
+        // fx_btn_press — 버튼 누를 때. 버스트 10, 0.35s, 방사, 골드.
+        private static GameObject Build_BtnPress()
+        {
+            var go = NewRoot("fx_btn_press", _matAdd, OrderNormal);
+            var ps = go.GetComponent<ParticleSystem>();
+
+            var main = ps.main;
+            main.duration = 0.35f; // 설계 명시값
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.25f, 0.35f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(140f, 260f);
+            main.startSize = new ParticleSystem.MinMaxCurve(8f, 14f);
+            main.startColor = UiKit.TierGold; // 설계 명시 "골드"
+            main.maxParticles = 14;
+
+            SetBurst(ps, 0f, 10); // 설계 명시값
+
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Circle; // "방사"
+            shape.radius = 40f; // 버튼 절반 크기 근사(설계 미명시 — 구현 결정치)
+            shape.radiusThickness = 0f;
+
+            SizeShrink(ps, 1f, 0.2f);
+            FadeOut(ps);
+            return go;
+        }
+
+        // fx_card_pick — 카드 선택 시. 버스트 18, 0.5s, 티어색, 링 확산.
+        private static GameObject Build_CardPick()
+        {
+            var go = NewRoot("fx_card_pick", _matAdd, OrderNormal);
+            var ps = go.GetComponent<ParticleSystem>();
+
+            var main = ps.main;
+            main.duration = 0.5f; // 설계 명시값
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.35f, 0.5f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(180f, 340f);
+            main.startSize = new ParticleSystem.MinMaxCurve(10f, 18f);
+            main.startColor = Color.white; // 런타임 tint(티어색)로 덮어쓰는 것을 전제로 한 기본값(설계 "티어색")
+            main.maxParticles = 24;
+
+            SetBurst(ps, 0f, 18); // 설계 명시값
+
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Circle; // "링 확산" — 가장자리에서만 방출
+            shape.radius = 70f; // 카드 폭 절반 근사(설계 미명시 — 구현 결정치)
+            shape.radiusThickness = 0f;
+
+            SizeShrink(ps, 1f, 0.15f);
+            FadeOut(ps);
             return go;
         }
 

@@ -35,9 +35,15 @@ namespace JackpotRun.UI2
         [SerializeField] private Sprite[] symbolSprites; // 14종(빌더가 UiSpriteGen.Load("sym_"+id)로 구움)
         [SerializeField] private Text bestText;
         [SerializeField] private Button startButton;
+        [SerializeField] private RectTransform reelsRow; // S13 §E — fx_title_spark 앵커(릴 타일 3개를 담는 행)
 
         private Coroutine _symbolLoop;
         private Coroutine[] _bobLoops;
+
+        // S13 §E — 릴 주변 반짝임 루프 + 시작 버튼 뒤 은은한 발광. FxKit.I가 없으면(프리팹 미생성 등)
+        // Play*가 조용히 null을 반환하므로 handle도 null로 남아 StopLoop가 안전하게 무시한다.
+        private ParticleSystem _sparkLoop;
+        private ParticleSystem _startAuraLoop;
 
         private void Awake()
         {
@@ -58,6 +64,9 @@ namespace JackpotRun.UI2
                 for (int i = 0; i < reelTiles.Length; i++)
                     _bobLoops[i] = StartCoroutine(BobLoop(i));
             }
+
+            _sparkLoop = FxKit.I?.PlayLoop(FxId.TitleSpark, reelsRow);
+            _startAuraLoop = FxKit.I?.PlayLoop(FxId.UiAura, startButton != null ? (RectTransform)startButton.transform : null);
         }
 
         private void OnDisable()
@@ -73,6 +82,11 @@ namespace JackpotRun.UI2
                     if (c != null) StopCoroutine(c);
                 _bobLoops = null;
             }
+
+            FxKit.I?.StopLoop(_sparkLoop);
+            _sparkLoop = null;
+            FxKit.I?.StopLoop(_startAuraLoop);
+            _startAuraLoop = null;
         }
 
         // 웹 exitIntro(): "닉네임 없으면 Login, 있으면 Menu" — 이 판정을 씬 진입 시점(IntroSceneRoot)

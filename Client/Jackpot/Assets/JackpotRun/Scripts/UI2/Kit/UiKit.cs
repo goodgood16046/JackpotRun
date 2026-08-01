@@ -61,6 +61,12 @@ namespace JackpotRun.UI2
         public const float R22 = 22f; // --r-2xl
         public const float RPill = 999f; // --r-pill(스프라이트는 캔버스 절반인 128을 굽는다)
 
+        // S13 §D — RunView 릴 셀의 정사각 한 변(px). Editor(UiSceneBuilder.BuildReelCellTemplate)와
+        // 런타임(ReelView, Strip/Slot 노치 거리·오버슈트 계산)이 같은 값을 공유해야 무한 스크롤
+        // 재활용 시 어긋나지 않는다 — 두 곳이 각자 상수를 들고 있으면 한쪽만 바뀔 위험이 있어 여기
+        // 하나로 통일했다((1080 - 패딩48 - 스페이싱48)/5 ≈ 196.8의 근사 정사각, S7 이관 값 그대로).
+        public const float ReelCellSize = 196f;
+
         // 등급 3종 — Tier enum(JackpotRun.Engine)과 대응하지만 여기서는 카탈로그 pick.tier 문자열
         // ("SILVER"/"GOLD"/"PRISM")을 그대로 받는다(뷰가 카탈로그 데이터를 직접 다루므로). 별도
         // "정답" 색상표가 없어 심볼 팔레트(gem=보석 #7C5CFF 등)와 톤을 맞춰 새로 정했다 — 사용자
@@ -198,6 +204,38 @@ namespace JackpotRun.UI2
             return le;
         }
 
+        // ── S13 §A: 9-slice 늘어남 정리 ──────────────────────────────────────────────────
+        // chip_r999(border 128)를 대상보다 작은 pill/칩/배지에 그대로 쓰면 9-slice 모서리 영역이
+        // 서로 겹쳐 "늘어난 타원"이 된다(실측 위반: Toast 800×84, PriceButton 150×84, 불운 Pip
+        // 24×24, 필터/빌드 칩 등 — ENGINE_PORT_DESIGN.md S13 §A). border 합(반경×2)이 대상 높이를
+        // 넘지 않는 후보 중 가장 큰 반경을 골라 항상 안전하게 만든다.
+        // 후보는 설계 §A가 명시한 6종(UiSpriteGen이 굽는 w_r9/12/16/18/22 + w_pill_btn)뿐이라
+        // 22~63px 구간(border 44~127)엔 대응 파일이 없다 — 그 구간 높이는 w_r22로 수렴한다
+        // ("완벽한 반원"이 아니라 "찌그러지지 않는 최대치"가 목표, S13 설계 그대로).
+        private static readonly (string file, float radius)[] PillCandidates =
+        {
+            ("w_r9", R9), ("w_r12", R12), ("w_r16", R16), ("w_r18", R18), ("w_r22", R22), ("w_pill_btn", 64f),
+        };
+
+        /// <summary>targetHeight(9-slice가 실제로 적용될 대상의 세로 길이, px)에 맞는 가장 큰 반경의
+        /// pill 스프라이트를 돌려준다. 전부 초과하면(targetHeight&lt;18) 가장 작은 후보로 폴백한다.
+        /// Editor 빌드 타임 전용(UiSceneBuilder가 씬을 지을 때만 호출) — AssetDatabase로 직접 로드하므로
+        /// 플레이어 빌드에서 호출하면 null을 반환한다(현재 모든 호출부가 Editor 코드 — S13 §A 실측).</summary>
+        public static Sprite PillSprite(float targetHeight)
+        {
+#if UNITY_EDITOR
+            string best = PillCandidates[0].file;
+            for (int i = 0; i < PillCandidates.Length; i++)
+            {
+                if (PillCandidates[i].radius * 2f > targetHeight) break; // 반경 오름차순 — 이후는 전부 더 크다.
+                best = PillCandidates[i].file;
+            }
+            return UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>($"Assets/JackpotRun/Art/UI/{best}.png");
+#else
+            return null;
+#endif
+        }
+
         // ── 생성 헬퍼 ──────────────────────────────────────────────────────────────────
         /// <summary>단색(+선택적 9-slice 스프라이트) 패널. sprite!=null이면 Image.Type.Sliced로 설정.</summary>
         public static RectTransform Panel(Transform parent, string name, Color color, Sprite sprite = null)
@@ -241,6 +279,11 @@ namespace JackpotRun.UI2
             return Text(parent, content, size, color, anchor, bold);
         }
 
+        /// <summary>S13 §B: 카탈로그/심볼 아트 슬롯 — preserveAspect를 항상 true로 고정한다(정사각
+        /// 256px 원본이 비정사각 슬롯에서 늘어나는 것을 막는다). 이전엔 sprite!=null일 때만 켰는데,
+        /// 이 헬퍼의 모든 호출부가 빌드 시점엔 sprite=null로 만들고 런타임에 값을 채우는 패턴
+        /// (아이콘 슬롯은 전부 "빌더가 틀만 짓고 뷰가 채운다")이라 preserveAspect가 항상 꺼진 채로
+        /// 굳어 있었다 — 아이콘 슬롯이 정사각이라 눈에 띄는 왜곡은 없었지만 잠재적 위반이었다.</summary>
         public static Image Image(Transform parent, Sprite sprite, Color tint)
         {
             var go = new GameObject("Image", typeof(RectTransform), typeof(Image));
@@ -249,7 +292,7 @@ namespace JackpotRun.UI2
             var img = go.GetComponent<Image>();
             img.sprite = sprite;
             img.color = tint;
-            img.preserveAspect = sprite != null;
+            img.preserveAspect = true;
             return img;
         }
 
@@ -280,6 +323,12 @@ namespace JackpotRun.UI2
             // 여기서는 완전 불투명을 유지하고, 비활성 페이드는 PressFx의 CanvasGroup 알파 하나로만.
             colors.disabledColor = Color.white;
             btn.colors = colors;
+
+            // S13 §E — PressFx의 fx_btn_press는 "골드 버튼만"(설계 표). 골드 버튼은 전부 배경색으로
+            // Accent(=Gold, #ffd23f)를 넘긴다(TitleView/LoginView/MenuView/PickView/RunView 등 8곳
+            // 실측 — 별도 플래그 없이 bg 색 비교만으로 정확히 골드 버튼만 걸러진다).
+            var pressFx = go.GetComponent<PressFx>();
+            if (pressFx != null) pressFx.SetGold(bg == Accent);
 
             int fontSize = Mathf.Clamp(Mathf.RoundToInt(size.y * 0.4f), 18, 40);
             var txt = Text(rt, label, fontSize, fg, TextAnchor.MiddleCenter, true);

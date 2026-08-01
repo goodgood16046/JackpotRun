@@ -151,6 +151,7 @@ namespace JackpotRun.EditorTools
             AddNavButton(pick.backButton, NavButton.Target.Menu);
             AddNavButton(dex.backButton, NavButton.Target.Menu);
 
+            CheckLayoutOverlaps(canvasRoot); // S13 §C 회귀 방지 자가 점검
             SaveScene(scene, IntroScenePath);
         }
 
@@ -184,8 +185,116 @@ namespace JackpotRun.EditorTools
             playSo.FindProperty("toast").objectReferenceValue = toast;
             playSo.ApplyModifiedPropertiesWithoutUndo();
 
+            CheckLayoutOverlaps(canvasRoot); // S13 §C 회귀 방지 자가 점검
             SaveScene(scene, PlayScenePath);
         }
+
+#if UNITY_EDITOR
+        // 자가 점검이 안전하게 임시 활성화해도 되는 컴포넌트만 허용하는 화이트리스트 — Node/Perk/Shop
+        // 패널처럼 커스텀 MonoBehaviour(OnEnable에서 AppRoot.Instance 등 실행 중 게임 상태를 가정)를
+        // 가진 오버레이는 절대 건드리지 않는다(Editor 스크립트 시점엔 그런 상태가 없어 예외 위험).
+        // 카드/칩/버튼 템플릿류는 순수 uGUI 구성요소 + PressFx뿐이라 항상 이 목록 안에 들어온다.
+        private static readonly System.Type[] SafeToggleComponentTypes =
+        {
+            typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(RawImage), typeof(Text),
+            typeof(Button), typeof(Outline), typeof(Shadow), typeof(CanvasGroup), typeof(RectMask2D), typeof(Mask),
+            typeof(LayoutElement), typeof(VerticalLayoutGroup), typeof(HorizontalLayoutGroup), typeof(GridLayoutGroup),
+            typeof(ContentSizeFitter), typeof(ScrollRect), typeof(Scrollbar), typeof(PressFx), typeof(InputField),
+        };
+
+        private static bool IsSafeToTemporarilyActivate(GameObject go)
+        {
+            foreach (var comp in go.GetComponentsInChildren<Component>(true))
+            {
+                if (comp == null) continue; // 누락된 스크립트 참조
+                if (System.Array.IndexOf(SafeToggleComponentTypes, comp.GetType()) < 0) return false;
+            }
+            return true;
+        }
+
+        // S13 §C 회귀 방지 — "빌더 마지막에 레이아웃 그룹 자식 rect 겹침 발견 시 경고 로그"(설계 지시
+        // 그대로). Role/Eff처럼 controlChildHeight=false인 그룹의 자식이 실제 sizeDelta 보정을
+        // 빠뜨려 서로 겹치는 사례를 다음에도 잡기 위한 휴리스틱 — 빌드를 막지는 않는다(오탐 가능성
+        // 있는 자가 점검이라 최종 판단은 Fable 육안 검수).
+        //
+        // ⚠️ 구현 함정(실측으로 발견): CardTemplate 등은 그리드/레이아웃 부모가 "비활성 자식은 크기를
+        // 배정하지 않는다"는 Unity 규칙 때문에 기본값(100×100)에 방치된 채로 남는다 — 그 상태 그대로
+        // 내부(Top/Eff 등)를 재보면 진짜 겹침이 전혀 없어도 실제 런타임 크기(예: 500×320)가 아니라서
+        // 온갖 "겹침"이 대량으로 오탐된다. 그래서 점검 직전 "화이트리스트에 든" 비활성 자식만 잠깐
+        // 켜서 부모(GridLayoutGroup 등)가 진짜 크기를 배정하게 한 뒤 재고, 끝나면 원상복구한다.
+        private static void CheckLayoutOverlaps(RectTransform canvasRoot)
+        {
+            if (canvasRoot == null) return;
+
+            var toggledOn = new System.Collections.Generic.List<GameObject>();
+            var groupsInitial = canvasRoot.GetComponentsInChildren<LayoutGroup>(true);
+            foreach (var group in groupsInitial)
+            {
+                var parent = (RectTransform)group.transform;
+                for (int i = 0; i < parent.childCount; i++)
+                {
+                    var child = parent.GetChild(i);
+                    if (child.gameObject.activeSelf || !IsSafeToTemporarilyActivate(child.gameObject)) continue;
+                    child.gameObject.SetActive(true);
+                    toggledOn.Add(child.gameObject);
+                }
+            }
+
+            // 여러 단 중첩된 그룹/ContentSizeFitter가 서로의 크기에 의존하므로 한 프레임으로는 수렴하지
+            // 않을 수 있다 — 몇 차례 반복해 안정시킨다(정확한 반복 횟수는 설계 미명시, 실측으로 충분함 확인).
+            for (int pass = 0; pass < 4; pass++) Canvas.ForceUpdateCanvases();
+
+            int warnings = 0;
+            var groups = canvasRoot.GetComponentsInChildren<LayoutGroup>(true);
+            foreach (var group in groups)
+            {
+                var parent = (RectTransform)group.transform;
+                var children = new System.Collections.Generic.List<RectTransform>();
+                for (int i = 0; i < parent.childCount; i++)
+                {
+                    var child = parent.GetChild(i) as RectTransform;
+                    if (child != null && child.gameObject.activeSelf) children.Add(child);
+                }
+
+                for (int i = 0; i < children.Count; i++)
+                {
+                    var ri = WorldRect(children[i]);
+                    for (int j = i + 1; j < children.Count; j++)
+                    {
+                        if (!ri.Overlaps(WorldRect(children[j]))) continue;
+                        Debug.LogWarning($"[JackpotRun] S13 §C 자가 점검 — 레이아웃 겹침 의심: " +
+                            $"{PathOf(parent)} 안의 '{children[i].name}' ↔ '{children[j].name}'");
+                        warnings++;
+                    }
+                }
+            }
+
+            for (int i = toggledOn.Count - 1; i >= 0; i--)
+                if (toggledOn[i] != null) toggledOn[i].SetActive(false);
+
+            if (warnings == 0) Debug.Log("[JackpotRun] S13 §C 레이아웃 겹침 자가 점검: 0건.");
+        }
+
+        private static Rect WorldRect(RectTransform rt)
+        {
+            var corners = new Vector3[4];
+            rt.GetWorldCorners(corners); // [0]=좌하단 [2]=우상단(회전 없음 전제 — 이 프로젝트엔 회전 UI 없음)
+            float xMin = Mathf.Min(corners[0].x, corners[2].x);
+            float xMax = Mathf.Max(corners[0].x, corners[2].x);
+            float yMin = Mathf.Min(corners[0].y, corners[2].y);
+            float yMax = Mathf.Max(corners[0].y, corners[2].y);
+            return new Rect(xMin, yMin, xMax - xMin, yMax - yMin);
+        }
+
+        private static string PathOf(Transform t)
+        {
+            if (t == null) return "";
+            string path = t.name;
+            var p = t.parent;
+            for (int depth = 0; p != null && depth < 4; depth++, p = p.parent) path = p.name + "/" + path;
+            return path;
+        }
+#endif
 
         private static void SaveScene(UnityEngine.SceneManagement.Scene scene, string path)
         {
@@ -223,6 +332,7 @@ namespace JackpotRun.EditorTools
             public Sprite[] symbolSprites;
             public Text bestText;
             public Button startButton;
+            public RectTransform reelsRow; // S13 §E — fx_title_spark 앵커
         }
 
         private sealed class LoginBuildResult
@@ -461,7 +571,9 @@ namespace JackpotRun.EditorTools
 
         private static ToastManager BuildToast(Transform canvasRoot)
         {
-            var toastRoot = UiKit.Panel(canvasRoot, "Toast", UiKit.PanelBg, UiSpriteGen.Load("chip_r999"));
+            // S13 §A 실측 위반 1/7: 800×84에 chip_r999(border 128)를 쓰면 상하 128px 경계가 84px
+            // 높이보다 커서 타원으로 늘어난다 — UiKit.PillSprite(84)로 교체.
+            var toastRoot = UiKit.Panel(canvasRoot, "Toast", UiKit.PanelBg, UiKit.PillSprite(84f));
             var group = toastRoot.gameObject.AddComponent<CanvasGroup>();
             group.alpha = 0f;
             group.blocksRaycasts = false;
@@ -514,6 +626,7 @@ namespace JackpotRun.EditorTools
             var reelsRow = UiKit.HGroup(col, 19, new RectOffset(), false, false);
             UiKit.SizeHint(reelsRow, preferredHeight: 152, flexibleHeight: 0);
             reelsRow.gameObject.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+            result.reelsRow = reelsRow; // S13 §E — fx_title_spark 앵커(릴 타일 3개를 담는 행 전체)
 
             var reelSprite = UiSpriteGen.Load("w_reel");
             result.reelTiles = new RectTransform[3];
@@ -595,6 +708,7 @@ namespace JackpotRun.EditorTools
             SetObjectArray(so, "symbolSprites", r.symbolSprites);
             so.FindProperty("bestText").objectReferenceValue = r.bestText;
             so.FindProperty("startButton").objectReferenceValue = r.startButton;
+            so.FindProperty("reelsRow").objectReferenceValue = r.reelsRow;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
@@ -792,6 +906,8 @@ namespace JackpotRun.EditorTools
             so.FindProperty("statPlaysValue").objectReferenceValue = r.statPlaysValue;
             so.FindProperty("summaryText").objectReferenceValue = r.summaryText;
             so.FindProperty("rankButton").objectReferenceValue = r.rankButton;
+            so.FindProperty("mainButtonRect").objectReferenceValue =
+                r.startButton != null ? r.startButton.GetComponent<RectTransform>() : null;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
@@ -802,7 +918,8 @@ namespace JackpotRun.EditorTools
         {
             var result = new PickBuildResult();
             var panelSprite = UiSpriteGen.Load("panel_r24");
-            var pillSprite = UiSpriteGen.Load("chip_r999");
+            // S13 §A: recos 4버튼(높이 62)에 chip_r999(border 128)를 쓰면 늘어난다 — PillSprite(62)로 교체.
+            var pillSprite = UiKit.PillSprite(62f);
             var r13Sprite = UiSpriteGen.Load("rrect_r13");
 
             var root = UiKit.Panel(canvasRoot, "PickScreen", UiKit.Bg);
@@ -967,7 +1084,9 @@ namespace JackpotRun.EditorTools
         // 정한다(부모 chipsContent는 childControlWidth=false라 이 자기-크기결정과 충돌하지 않는다).
         private static RectTransform BuildChipTemplate(Transform parent)
         {
-            var chip = UiKit.Panel(parent, "ChipTemplate", UiKit.Card, UiSpriteGen.Load("chip_r999"));
+            // S13 §A: ContentSizeFitter 자기-사이징 높이 근사(폰트20 줄높이×1.2 + 상하 패딩10×2 ≈ 44) —
+            // chip_r999(border 128)는 이 높이에서 크게 늘어난다. PillSprite(44)로 교체.
+            var chip = UiKit.Panel(parent, "ChipTemplate", UiKit.Card, UiKit.PillSprite(44f));
             var chipImg = chip.GetComponent<Image>();
             var btn = chip.gameObject.AddComponent<Button>();
             btn.targetGraphic = chipImg;
@@ -1053,12 +1172,20 @@ namespace JackpotRun.EditorTools
             // ── Top: 아이콘83×83(좌) + 이름/배지/역할(우). align-items:center 재현 — BuildTabButton과
             // 달리 Top은 controlChildH=**false**로 자식을 강제로 늘리지 않는다(Image인 IconSlot을
             // forceExpandHeight로 늘리면 세로로 찌그러진다 — Text만 다루는 BuildTabButton과의 차이).
-            // 대신 IconSlot/Info 둘 다 실제 RectTransform.sizeDelta를 83으로 직접 고정하고, Top의
-            // childAlignment(HGroup 기본 MiddleLeft)로 그 83짜리 두 블록을 행 높이(92) 안에서 세로
-            // 중앙 정렬한다.
+            // 대신 IconSlot/Info 둘 다 실제 RectTransform.sizeDelta를 직접 고정하고, Top의
+            // childAlignment(HGroup 기본 MiddleLeft)로 그 두 블록을 행 높이 안에서 세로 중앙 정렬한다.
+            //
+            // S13 §C 겹침 수정: Info(controlChildH=false)의 자식 NameRow/Role도 같은 이유로 실측
+            // 사이즈를 직접 고정해야 했다 — LayoutElement(SizeHint)만으로는 "포지션 계산"(pos 누적)엔
+            // 반영되지만 "자기 자신의 렌더 크기"엔 반영되지 않는다(Unity LayoutGroup이 controlSize=false
+            // 축은 자식 RectTransform.sizeDelta를 건드리지 않는다 — 위 IconSlot/Info 주석과 동일 함정).
+            // 그 결과 NameRow/Role이 새 RectTransform 기본값(100×100)인 채로 남아 Info의 83px 안에서
+            // "34+24" 슬롯 계산과 무관하게 100px씩 그려지며 아래로 Eff 박스를 침범했다 — 이번에 실제
+            // 크기(34/24)를 고정하고, Info 높이도 실제 내용 합(34+spacing3+24=61)으로, Top 높이도
+            // 그 결과(binding 제약은 여전히 아이콘 83)에 맞춰 92→83으로 재계산했다.
             var top = UiKit.HGroup(body, 18, new RectOffset(0, 0, 0, 0), true, false);
             top.name = "Top";
-            UiKit.SizeHint(top, preferredHeight: 92, flexibleHeight: 0);
+            UiKit.SizeHint(top, preferredHeight: 83, flexibleHeight: 0);
 
             var iconSlot = UiKit.Panel(top, "IconSlot", UiKit.Hex("#0E1019"), r11);
             UiKit.SizeHint(iconSlot, preferredWidth: 83, preferredHeight: 83, flexibleWidth: 0, flexibleHeight: 0);
@@ -1073,12 +1200,13 @@ namespace JackpotRun.EditorTools
             var info = UiKit.VGroup(top, 3, new RectOffset(0, 0, 0, 0), true, false);
             info.name = "Info";
             UiKit.SizeHint(info, flexibleWidth: 1);
-            info.sizeDelta = new Vector2(info.sizeDelta.x, 83f); // 아이콘과 같은 높이로 고정 — 내부 정렬 기준선 통일.
+            info.sizeDelta = new Vector2(info.sizeDelta.x, 61f); // NameRow34+spacing3+Role24 = 61(실제 내용 합).
             info.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleLeft;
 
             var nameRow = UiKit.HGroup(info, 8, new RectOffset(0, 0, 0, 0), true, true);
             nameRow.name = "NameRow";
             UiKit.SizeHint(nameRow, preferredHeight: 34, flexibleHeight: 0);
+            nameRow.sizeDelta = new Vector2(nameRow.sizeDelta.x, 34f); // Info가 controlChildH=false라 실측 크기 직접 고정.
             var nameText = UiKit.Text(nameRow, "", 25, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
             nameText.name = "Name";
             UiKit.SizeHint(nameText, flexibleWidth: 1, flexibleHeight: 0);
@@ -1088,6 +1216,7 @@ namespace JackpotRun.EditorTools
             var role = UiKit.Text(info, "", 18, UiKit.TextSecondary, TextAnchor.MiddleLeft);
             role.name = "Role";
             UiKit.SizeHint(role, preferredHeight: 24, flexibleHeight: 0);
+            role.rectTransform.sizeDelta = new Vector2(role.rectTransform.sizeDelta.x, 24f); // 위와 동일한 이유.
 
             // ── Eff: 효과 박스(.jc-eff) ──
             var eff = UiKit.Panel(body, "Eff", new Color(1f, 1f, 1f, 0.035f), r9);
@@ -1154,7 +1283,9 @@ namespace JackpotRun.EditorTools
         {
             var r9 = UiSpriteGen.Load("rrect_r9");
             var r11 = UiSpriteGen.Load("rrect_r11");
-            var pill999 = UiSpriteGen.Load("chip_r999");
+            // S13 §A: 빌드 칩(BuildAutoPill 자기-사이징, 폰트17 줄높이×1.2 + 상하 패딩5×2 ≈ 30) —
+            // chip_r999(border 128)는 늘어난다. PillSprite(30)로 교체.
+            var pill999 = UiKit.PillSprite(30f);
 
             var panel = UiKit.Panel(parent, "Summary", UiKit.PanelBg, panelSprite);
             UiKit.SizeHint(panel, preferredHeight: 560, flexibleHeight: 0);
@@ -1363,9 +1494,11 @@ namespace JackpotRun.EditorTools
             UiKit.SizeHint(gaugeRow, preferredHeight: 28, flexibleHeight: 0);
             UiKit.Text(gaugeRow, "행운", 18, UiKit.TextSecondary, TextAnchor.MiddleLeft);
             result.unluckyPips = new Image[5];
+            // S13 §A 실측 위반: Pip_0~4(24×24)에 chip_r999(border 128)를 쓰면 늘어난다 — PillSprite(24)로 교체.
+            var pipSprite = UiKit.PillSprite(24f);
             for (int i = 0; i < 5; i++)
             {
-                var pip = UiKit.Panel(gaugeRow, "Pip_" + i, UiKit.Card, UiSpriteGen.Load("chip_r999"));
+                var pip = UiKit.Panel(gaugeRow, "Pip_" + i, UiKit.Card, pipSprite);
                 UiKit.SizeHint(pip, preferredWidth: 24, preferredHeight: 24, flexibleWidth: 0, flexibleHeight: 0);
                 result.unluckyPips[i] = pip.GetComponent<Image>();
             }
@@ -1433,22 +1566,57 @@ namespace JackpotRun.EditorTools
             result.symbolSprites = sprites;
         }
 
-        // 릴 셀 템플릿 — S8 항목⑤: 이모지 Text 오버레이("Emoji")를 완전히 제거했다(심볼은 UiSpriteGen이
-        // 그린 도형 스프라이트만으로 표현). 자식 경로 계약(ReelView.cs): "Icon"(Image)/"Tag"(Text) + Outline(글로우).
+        // 릴 셀 템플릿 — S13 §D 재설계: 세로 스트립(위2/중앙/아래2 5칸)이 RectMask2D 안에서 무한
+        // 스크롤하며 정지하는 구조로 교체(과거 "제자리에서 무작위 교체 후 툭 바뀜" 연출 폐기).
+        // 구조 그대로: Reel_i(셀, 정사각, RectMask2D + 배경 w_reel + 테두리) → Strip(세로 5칸,
+        // 각 칸 높이 = 셀 높이 UiKit.ReelCellSize) → Slot_k: Icon(Image, preserveAspect)+Tag(Text).
+        // 자식 경로 계약(ReelView.cs): "Strip"(RectTransform) → "Slot0".."Slot4"(각 "Icon"/"Tag") +
+        // Outline 2개(첫 번째=상시 2px 테두리, 두 번째=매치 글로우 — ReelView가 GetComponents<Outline>()[1]로
+        // 글로우만 골라 쓴다. AddGlowOutline 헬퍼는 GetComponent<Outline>() 재사용이라 2개를 만들 수
+        // 없어 여기서는 직접 AddComponent<Outline>()을 두 번 호출한다).
         private static RectTransform BuildReelCellTemplate(Transform parent)
         {
-            const float cellSize = 196f; // (1080 - 패딩48 - 스페이싱48)/5 ≈ 196.8의 근사 정사각.
-            var cell = UiKit.Panel(parent, "CellTemplate", UiKit.Card, UiSpriteGen.Load("cell_inset"));
+            float cellSize = UiKit.ReelCellSize;
+            var cell = UiKit.Panel(parent, "CellTemplate", Color.white, UiSpriteGen.Load("w_reel"));
             UiKit.SizeHint(cell, flexibleWidth: 1, preferredHeight: cellSize, flexibleHeight: 0);
-            UiKit.AddGlowOutline(cell.gameObject, UiKit.Accent, 3f);
+            cell.gameObject.AddComponent<RectMask2D>(); // Strip 무한 스크롤 클리핑(설계 구조 필수 요소)
 
-            var icon = UiKit.Image(cell, null, Color.white);
-            icon.name = "Icon";
-            UiKit.Fill(icon.rectTransform);
+            var border = cell.gameObject.AddComponent<Outline>(); // 상시 2px 테두리(설계 "테두리")
+            border.effectColor = UiKit.Bd2;
+            border.effectDistance = new Vector2(2f, -2f);
+            border.enabled = true;
 
-            var tag = UiKit.Text(cell, "", 16, UiKit.Accent, TextAnchor.UpperRight, true);
-            tag.name = "Tag";
-            UiKit.SetAnchors(tag.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-56, -28), new Vector2(-6, -4));
+            var glow = cell.gameObject.AddComponent<Outline>(); // 매치 글로우 — ReelView가 enabled 토글(기존 연출 유지)
+            glow.effectColor = UiKit.Accent;
+            glow.effectDistance = new Vector2(3f, -3f);
+            glow.enabled = false;
+
+            var strip = new GameObject("Strip", typeof(RectTransform)).GetComponent<RectTransform>();
+            strip.SetParent(cell, false);
+            strip.anchorMin = new Vector2(0f, 0.5f);
+            strip.anchorMax = new Vector2(1f, 0.5f);
+            strip.pivot = new Vector2(0.5f, 0.5f);
+            strip.sizeDelta = new Vector2(0f, cellSize * 5f); // 위2/중앙/아래2
+            strip.anchoredPosition = Vector2.zero;
+
+            for (int k = 0; k < 5; k++)
+            {
+                var slot = new GameObject("Slot" + k, typeof(RectTransform)).GetComponent<RectTransform>();
+                slot.SetParent(strip, false);
+                slot.anchorMin = new Vector2(0f, 0.5f);
+                slot.anchorMax = new Vector2(1f, 0.5f);
+                slot.pivot = new Vector2(0.5f, 0.5f);
+                slot.sizeDelta = new Vector2(0f, cellSize); // "각 칸 높이 = 셀 높이"(설계 그대로)
+                slot.anchoredPosition = new Vector2(0f, (2 - k) * cellSize); // k=0(맨위,+2칸)..k=4(맨아래,-2칸)
+
+                var icon = UiKit.Image(slot, null, Color.white); // preserveAspect=true(S13 §B, UiKit.Image 공통 수정)
+                icon.name = "Icon";
+                UiKit.Fill(icon.rectTransform);
+
+                var tag = UiKit.Text(slot, "", 16, UiKit.Accent, TextAnchor.UpperRight, true);
+                tag.name = "Tag";
+                UiKit.SetAnchors(tag.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-56, -28), new Vector2(-6, -4));
+            }
 
             cell.gameObject.SetActive(false);
             return cell;
@@ -1929,10 +2097,14 @@ namespace JackpotRun.EditorTools
             var priceRt = (RectTransform)priceGo.transform;
             priceRt.SetParent(inner, false);
             var priceImg = priceGo.GetComponent<Image>();
-            priceImg.sprite = UiSpriteGen.Load("chip_r999");
+            // S13 §A 실측 위반: PriceButton(150×84)에 chip_r999(border 128)를 쓰면 늘어난다 — PillSprite(84)로 교체.
+            priceImg.sprite = UiKit.PillSprite(84f);
             priceImg.type = Image.Type.Sliced;
             priceImg.color = UiKit.Accent;
             priceGo.GetComponent<Button>().targetGraphic = priceImg;
+            // 골드 배경(Accent)이라 UiKit.Button과 동일 기준으로 fx_btn_press 대상(S13 §E) — 이 버튼은
+            // UiKit.Button 헬퍼를 거치지 않는 수동 생성이라 골드 판정이 자동으로 안 걸린다.
+            priceGo.GetComponent<PressFx>().SetGold(true);
             UiKit.SizeHint(priceGo.GetComponent<Button>(), preferredWidth: 150, preferredHeight: 84, flexibleWidth: 0, flexibleHeight: 0);
             var priceLabel = UiKit.Text(priceRt, "", 22, UiKit.Bg, TextAnchor.MiddleCenter, true);
             priceLabel.name = "PriceLabel";

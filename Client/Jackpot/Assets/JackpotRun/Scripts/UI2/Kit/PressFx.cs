@@ -27,6 +27,11 @@ namespace JackpotRun.UI2
         // 때만 비활성 알파·프레스 무시가 적용된다 — Selectable이 전혀 없으면 항상 활성 취급.
         [SerializeField] private Selectable target;
 
+        // S13 §E — fx_btn_press는 "골드 버튼만"(설계 표). UiKit.Button이 배경색을 Accent와 비교해
+        // SetGold(...)로 채워준다(수동으로 PressFx를 붙이는 호출부는 기본값 false — 골드가 아니면
+        // 조용히 아무 것도 재생하지 않는다).
+        [SerializeField] private bool isGoldButton;
+
         private RectTransform _rt;
         private CanvasGroup _cg;
         private Vector3 _baseScale;
@@ -48,10 +53,14 @@ namespace JackpotRun.UI2
             _cg.alpha = Mathf.MoveTowards(_cg.alpha, targetAlpha, AlphaLerpPerSecond * Time.deltaTime);
         }
 
+        /// <summary>UiKit.Button이 배경색으로 골드 여부를 판정해 호출한다(빌드 시점 1회 고정).</summary>
+        public void SetGold(bool gold) => isGoldButton = gold;
+
         public void OnPointerDown(PointerEventData eventData)
         {
             if (target != null && !target.interactable) return;
             RestartScale(_baseScale * PressedScale, PressDuration, UiTween.Ease.OutQuad);
+            if (isGoldButton) FxKit.I?.Play(FxId.BtnPress, _rt);
         }
 
         public void OnPointerUp(PointerEventData eventData) => Release();
