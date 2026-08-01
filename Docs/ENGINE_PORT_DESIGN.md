@@ -364,6 +364,164 @@ Play: PlaySceneRoot.Awake → AppRoot.ConsumePendingLaunch() → GameSession 생
 - 폰트 크기는 CSS px를 1080 기준 그대로 쓰되, 가독성 위해 **×1.6 스케일**(웹은 360~420px 폭 기준, Unity 캔버스는 1080) — 예: 15.5px → 25pt, 12.5px → 20pt, 11px → 18pt.
 - 클릭 차단 재발 방지: 투명 컨테이너 패널은 반드시 `Image.raycastTarget=false`.
 
+## S12 — 웹 단독판 UI 전면 이식 (2026-08-01, Fable 설계)
+
+**시각 기준 원본 = `Docs/WebRef/slot/`** (style.css 1310줄 · ui.js 2102줄). S11(인트로만)을 흡수·확장한다.
+목표: 웹 단독판을 화면 단위로 최대한 동일하게 재현. 기존 S7~S10의 UI2 구조(씬 빌더 + 뷰 컴포넌트)는 유지하고
+**토큰·스프라이트·레이아웃 수치·애니메이션을 원본 CSS 값으로 교체**한다.
+
+### 0. 공통 토큰 (style.css :root — 전 화면 공통, UiKit에 상수화)
+| 토큰 | 값 | 토큰 | 값 |
+|---|---|---|---|
+| bg0 | #07080f | txt | #eef1fb |
+| bg1 | #0e1020 | txt2 | #c3cae3 |
+| bg2 | #141833 | dim | #8b93b5 |
+| panel | #161a2c | dim2 | #6a7299 |
+| panel2 | #1c2238 | gold | #ffd23f |
+| panel3 | #252c46 | gold2 | #ffb300 |
+| bd | #2c3454 | amber | #f59e0b |
+| bd2 | #3f4a76 | ink | #15131f |
+| pink #ff6ec7 · teal #2ee6c8 · blue #5b9bff · purple #b07bff · red #ff5d6c · green #4ade80 · silver #cdd6ea |
+
+라운드: `r-sm 9 · r-md 12 · r-lg 16 · r-xl 18 · r-2xl 22 · r-pill 999`
+**스케일: CSS px × 1.9** (웹 `#app` 최대폭 560 ↔ 캔버스 1080). 이후 모든 신규/개편 화면에 적용.
+`--gloss` = 상단 하이라이트 `linear-gradient(180deg, rgba(255,255,255,.14), transparent)` — 카드/칩/릴 상단 42~50%에 오버레이.
+
+### 1. 절차 생성 스프라이트 (UiSpriteGen — **전부 새 파일명**, overwrite:false 함정 주의)
+| 파일 | 용도 |
+|---|---|
+| `w_r9/r12/r16/r18/r22.png` | 9-slice 라운드 사각(각 반경, border = 반경) |
+| `w_pill.png` | pill(반경 999 → 128 border) |
+| `w_gloss.png` | 상단 흰색 14%→투명 세로 그라데이션(오버레이 전용) |
+| `w_reel.png` | 릴 셀 배경 165° 그라데이션 #2a3354→#1a2038(48%)→#10162a |
+| `w_gold_btn.png` | 골드 버튼 배경 세로 그라데 #ffe680→#f59e0b |
+| `w_ghost_btn.png` | 보조 버튼 세로 그라데 panel3→panel2 |
+| `w_panel_grad.png` | 패널 세로 그라데 panel2→panel |
+| `w_aurora.png` (1080×1920) | 배경 오로라: 방사 4겹(보라 22%/8% .28 · 핑크 82%/4% .22 · 민트 50%/102% .16 · 파랑 50%/40% .10) + 세로 bg1→bg0(60%) |
+| `w_vignette.png` | 비네트 `radial(120% 80% at 50% 0%, transparent 55%, rgba(0,0,0,.55))` |
+| `w_expfill.png` | EXP 바 채움 가로 그라데 #f59e0b→#ffd23f(70%)→#fff6c0 |
+
+### 2. 화면 매핑 (웹 ui.js ↔ Unity)
+| 웹 | Unity | 비고 |
+|---|---|---|
+| `renderIntro` | **TitleView**(신규) | Intro 씬 첫 화면 |
+| `renderLoginGate` | LoginView | 게이트 버튼 스타일 적용 |
+| `renderHome` | MenuView | 타이틀+통계 HUD+큰 버튼 3개 |
+| `renderSelect` | PickView | 이미 구현(S10) — 토큰만 교체 |
+| `renderPlay` | RunView | HUD·릴·gain·logbox·actionbar 재구성 |
+| `renderNode/Perk/Shop/StageClear/End` | 기존 패널들 | 시트 스타일 적용 |
+| `renderDex` | DexView | 토큰 교체 |
+
+### 3. TitleView (`.intro`, style.css 795-815 / ui.js 436-448)
+- 전체 화면 세로 중앙, gap 13(→25), padding 24(→46), 진입 페이드+6px 상승 0.28s
+- **릴 타일 3개**: 62×80(→118×152), gap 10(→19), 라운드 14(→27), `w_reel` 배경 + **2px gold 테두리** +
+  상단 42% gloss + 글로우(0 0 24px rgba(255,210,63,.4))
+  - **110ms마다 심볼 무작위 교체**(ui.js:447) — `sym_*.png` 14종 사용
+  - **1.6s 둥실**: Y 0→-7(→-13)→0, 글로우 .35↔.85, delay 0 / 0.2s / 0.4s
+- 타이틀 48(→91) w900 letterSpacing -1, 골드 그라데 텍스트 → **#ffdd5c 단색 + 골드 글로우 그림자**로 근사
+- sub 13.5(→26) txt2 · best 13(→25) gold w700 · **start 버튼**: pill, padding 15/36(→29/68), 17(→32) w900,
+  ink 글자, `w_gold_btn` 배경, 그림자, 진입 1회 `gpop` 바운스(0.5s, scale .4→1.18→1)
+- hint 11(→21) dim
+- 배경: `w_aurora` + `w_vignette`, 오로라는 16s 주기 scale 1.02↔1.08 + 미세 이동
+
+### 4. MenuView = `renderHome`
+- `.scr-title`: h1 27(→51) w900 — "잭팟런" 골드, sub 13(→25) txt2
+- `.hud` 카드: `w_panel_grad` + bd 테두리 + r-xl, 안에 칭호(15→29 gold w800) +
+  **`.hud-stats` 3칸**(최고 점수 / 최고 스테이지 / 플레이): 각 칸 `rgba(0,0,0,.25)` + bd + r-md + 상단 gloss,
+  k 10(→19) dim, v 15(→29) w800 흰색
+- 하단 요약 줄: "업적 n/482 · 장치 n/16 해금" 11.5(→22) dim
+- **버튼**: `.bigbtn` 전체폭(padding 16→30, 16.5→31 w900, ink, `w_gold_btn`, r-lg) "▶ 게임 시작" +
+  `.bigbtn.ghost` 2개(랭킹/도감 — `w_ghost_btn` + bd2 테두리 + txt 글자) 가로 1:1
+- 설명 문구 11(→21) dim 2줄
+
+### 5. RunView = `renderPlay`
+- **HUD 카드**(`.hud`): `w_panel_grad` + bd + r-xl, padding 12/13(→23/25)
+  - `.hud-top`: `STAGE N`(16→30 w900 흰색) + 보스 배지 + 우측 상태 칩(`.hud-build`)
+  - **`.expbar-wrap`**: 높이 24(→46), 배경 #0a0c18 + bd + pill, 채움 `w_expfill` + 골드 글로우,
+    중앙에 흰 글자(그림자 3겹) "현재/요구" — 채움은 0.5s ease 트윈
+  - **`.hud-stats` 3칸**: 스핀 / 점수 / 코인(코인 칸은 gold 테두리 + gold 글자 + 글로우)
+  - 불운 게이지 줄
+- **릴**(`.reels`): 가로 중앙, gap 8(→15), 셀은 **정사각**(max 94→179), r-xl, `w_reel` 배경 +
+  2px bd2 테두리 + 안쪽 그림자 + 상단 42% gloss. 심볼 스프라이트 중앙(50→95).
+  - 스핀 중: 심볼 0.14s 주기로 Y -6↔+6 + 알파 .5↔1 + 셀 밝기 1↔1.25
+  - 정지: `settle` 0.34s (Y -14 scale .7 → +2 scale 1.06 → 0/1) — **왼쪽부터 스태거**
+  - 매치: 골드 테두리 + 안팎 글로우 + 1.6s 1회 펄스(scale 1.02) + **광선 스윕**(2.2s 1회) +
+    반짝 입자 몇 개. 매치 수(2~5)에 따라 강도·속도 상향(m-2~m-5 표 그대로)
+- **`.gain`**: 최소 높이 128(→243), 중앙 정렬 — 큰 획득 텍스트 24(→46) w900 gold + `gpop` 등장,
+  `.notes` 칩들(11→21, rgba(255,255,255,.06) + bd + r8)
+- **`.logbox`**: 최근 8줄, 11.5(→22) txt2, 배경 rgba(0,0,0,.22) + bd + r12, 최대높이 86(→163) 스크롤
+- **`.actionbar`** 하단 고정: 배경 그라데 + 상단 bd2 선 + 그림자(blur는 생략),
+  `.ab-extra`(특수 명령 버튼들, `.abtn` r11) + `.ab-main`(**`.spinbtn`** 전체폭 padding 17(→32),
+  17.5(→33) w900 ink, `w_gold_btn`, **3s 주기 광선 스윕**, 눌림 시 Y+3 scale .99 / +
+  `.iconbtn` 62(→118) 폭 세로형(아이콘+라벨 10→19), 아이템 개수 뱃지(red pill))
+
+### 6. 시트/패널 (`.sheet`)
+하단에서 슬라이드업 0.24s, `w_panel_grad` + bd2 + 상단만 r-2xl, 배경 딤 rgba(0,0,0,.62),
+최대 높이 82% 스크롤. Node/Perk/Shop/StageClear/End 패널을 이 스타일로 통일.
+
+### 7. uGUI 재해석 규칙 (원본 CSS 기능 → Unity)
+| CSS | Unity |
+|---|---|
+| `linear-gradient` 배경 | 절차 생성 스프라이트(위 §1) |
+| 그라데이션 **텍스트** | 단색 근사 + Shadow/Outline (uGUI 불가) |
+| `box-shadow` 외부 글로우 | 글로우 스프라이트(반투명 확산) 뒤에 깔기 or Outline |
+| `inset` 그림자 | `w_reel`/`w_*` 텍스처에 직접 구움 |
+| `backdrop-filter: blur` | 생략(불투명 패널) |
+| `filter: saturate/brightness` | CanvasGroup 알파 또는 색 곱 |
+| `aspect-ratio: 1` | AspectRatioFitter |
+| `animation` | UiTween 코루틴(이징 대응: cubic-bezier → OutBack/OutCubic 근사) |
+
+### 8. 슬라이스
+- **S12a**: 토큰 교체 + 스프라이트 11종 + **TitleView** + **MenuView(=Home)** + 오로라 배경
+- **S12b**: **RunView 전면**(HUD/expbar/릴 연출/gain/logbox/actionbar)
+- **S12c**: 시트 스타일 통일(Node/Perk/Shop/Clear/End) + PickView·DexView 토큰 정리 + 구 `Scripts/UI` 삭제
+
+각 슬라이스: Sonnet 구현 → Fable MCP 스크린샷 검수 → **즉시 커밋**.
+
+## S11 — 인트로 타이틀 화면 (웹 단독판 그대로) (2026-08-01 확정, S12에 흡수)
+
+⚠️ **시각 기준 원본이 바뀌었다.** 지금까지 참고한 `public/jackpotpick/`은 조합 선택 페이지였고,
+사용자가 말한 "인트로 화면"은 **웹 단독판 타이틀 화면**이다 — 스냅샷: `Docs/WebRef/slot/`
+(`ui.js` 436-448 마크업 + `style.css` 795-815 `.intro*`). 앞으로 UI 기준은 이 스냅샷이다.
+
+### 팔레트 교체 (`Docs/WebRef/slot/style.css` :root)
+`bg0 #07080f` · `bg1 #0e1020` · `bg2 #141833` · `panel #161a2c` · `panel2 #1c2238` · `panel3 #252c46`
+`bd #2c3454` · `bd2 #3f4a76` · `txt #eef1fb` · `txt2 #c3cae3` · `dim #8b93b5` · `dim2 #6a7299`
+`gold #ffd23f` · `gold2 #ffb300` · `amber #f59e0b` · `pink #ff6ec7` · `teal #2ee6c8` · `blue #5b9bff`
+`purple #b07bff` · `red #ff5d6c` · `green #4ade80` · `silver #cdd6ea` · `ink #15131f`
+
+### 스케일 규칙
+웹 `#app` 최대폭 560px ↔ Unity 캔버스 1080 → **CSS px × 1.9**. (기존 Pick 화면의 ×1.6은 그대로 두고,
+S11 이후 신규/개편 화면은 ×1.9로 통일한다.)
+
+### IntroTitleView (신규 — Intro 씬의 첫 화면, Login보다 앞)
+`.intro` 전체 화면 세로 중앙 정렬, gap 13(→25), padding 24(→46), 진입 시 페이드+6px 상승 0.28s.
+1. **`.intro-reels`** — 타일 3개, 각 62×80(→**118×152**), gap 10(→19), 라운드 14(→27)
+   - 배경 세로 그라데이션 `#2a3354 → #10162a`, **테두리 2px `gold`**, 상단 42% 광택 오버레이
+   - 그림자: 안쪽 `0 3px 10px #0008` + 바깥 골드 글로우 `0 0 24px rgba(255,210,63,.4)`
+   - **심볼이 110ms마다 무작위 교체**(`ui.js:447` setInterval) — 심볼은 우리 `sym_*.png` 타일 14종 사용
+   - **둥실 애니메이션** `introReel 1.6s ease-in-out infinite`: Y 0 → -7(→-13) → 0, 글로우 0.35→0.85 펄스,
+     2번째 타일 delay 0.2s, 3번째 0.4s
+2. **`.intro-title`** — 48px(→**91**) weight 900, letter-spacing -1, 골드 그라데이션(#ffe87a→#ffb300).
+   uGUI는 그라데이션 텍스트 불가 → **`#ffdd5c` 단색 + 골드 글로우 그림자**(0 3px 28px rgba(255,210,63,.45))로 근사.
+   좌측에 슬롯머신 아이콘(이모지 렌더 불가 → `UiSpriteGen`에 슬롯머신 도형 스프라이트 추가, 64px)
+3. **`.intro-sub`** 13.5px(→26) `txt2`
+4. **`.intro-best`** 13px(→25) `gold` 700 — 런 기록이 있으면 "칭호 · 최고 N점 · N런", 없으면 고정 문구
+5. **`.intro-start`** — pill 버튼, padding 15/36(→29/68), 17px(→32) weight 900, 글자색 `ink`,
+   배경 그라데이션 `#ffe680→amber`, 골드 그림자. 진입 시 1회 bounce(`gpop` 0.5s, overshoot).
+   누르면 → 닉네임 없으면 Login, 있으면 Menu.
+6. **`.intro-hint`** 11px(→21) `dim`
+
+### 배경 (모든 Intro 화면 공통)
+`body::before` 오로라 — 4개 방사 그라데이션(보라 22%/8%, 핑크 82%/4%, 민트 50%/102%, 파랑 50%/40%) +
+세로 그라데이션. uGUI로는 **오로라 스프라이트 1장을 절차 생성**(1080×1920, 위 4색 방사 블렌드)해서
+화면 뒤에 깔고, 16s 주기로 아주 느리게 스케일 1.02↔1.08 + 미세 이동(`aurora` 애니메이션 근사).
+비네트(`body::after`)는 별도 스프라이트 또는 같은 텍스처에 합성.
+
+### 흐름 변경
+`Intro 씬: IntroTitle → (닉네임 없으면) Login → Menu → Pick → Play 씬`
+ScreenRouter `ScreenId`에 `Title` 추가, 진입 화면은 항상 Title.
+
 ## 구현 공통 규칙
 
 - 스펙 문서와 Kotlin이 다르면 **Kotlin이 정답** — 발견 시 보고(스펙 문서 정정은 Fable 몫).
