@@ -21,6 +21,7 @@ namespace JackpotRun.UI2
 
         public enum ScreenId
         {
+            Title, // S12: Intro 씬의 첫 화면(웹 단독판 renderIntro 이식, TitleView.cs)
             Login,
             Menu,
             Pick,

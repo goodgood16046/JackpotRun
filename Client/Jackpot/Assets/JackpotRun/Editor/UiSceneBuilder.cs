@@ -22,10 +22,6 @@ namespace JackpotRun.EditorTools
         private const string IntroScenePath = ScenesFolder + "/Intro.unity";
         private const string PlayScenePath = ScenesFolder + "/Play.unity";
 
-        // MenuView.SlotWidth와 반드시 일치해야 한다(캐러셀 슬라이드 폭 계약).
-        private const float CarouselSlotWidth = 560f;
-        private static readonly string[] CarouselCharIds = { "novice", "gambler", "crowncol" };
-
         // S7c: UICamera orthographicSize — 캔버스가 ScreenSpaceCamera 모드이고 CanvasScaler가 실제
         // 픽셀 단위를 결정하므로 카메라 orthographicSize 절대값 자체는 화면에 영향이 없다(파티클은
         // 플레인 GameObject라 이 카메라의 시야 안에만 있으면 된다).
@@ -90,7 +86,7 @@ namespace JackpotRun.EditorTools
         }
 
         // ══════════════════════════════════════════════════════════════════════════════
-        // Intro 씬 — Login/Menu/Pick/Dex, 빌드 인덱스 0
+        // Intro 씬 — Title/Login/Menu/Pick/Dex, 빌드 인덱스 0
         // ══════════════════════════════════════════════════════════════════════════════
         public static void BuildIntroScene()
         {
@@ -100,6 +96,12 @@ namespace JackpotRun.EditorTools
             var cam = BuildUiCamera();
             var canvasRoot = BuildCanvas("IntroCanvas", cam);
 
+            // S12 §5 "배경" — 캔버스 최하단(첫 형제 = 맨 뒤에 그려짐)에 오로라+비네트를 깔고 그 위에
+            // 화면들을 쌓는다. Title/Menu(S12a) 루트는 투명 컨테이너라 이 배경이 그대로 비쳐 보이고,
+            // Login/Pick/Dex(이번 슬라이스 범위 밖, S12b/c 예정)는 아직 기존 불투명 배경을 유지한다.
+            var auroraRect = BuildAuroraBackground(canvasRoot);
+
+            var title = BuildTitleScreen(canvasRoot);
             var login = BuildLoginScreen(canvasRoot);
             var menu = BuildMenuScreen(canvasRoot);
             var pick = BuildPickScreen(canvasRoot);
@@ -119,6 +121,7 @@ namespace JackpotRun.EditorTools
             var introRoot = rootGo.AddComponent<IntroSceneRoot>();
 
             WireScreens(router, overlay, toast,
+                (ScreenRouter.ScreenId.Title, title.root, title.group),
                 (ScreenRouter.ScreenId.Login, login.root, login.group),
                 (ScreenRouter.ScreenId.Menu, menu.root, menu.group),
                 (ScreenRouter.ScreenId.Pick, pick.root, pick.group),
@@ -126,18 +129,23 @@ namespace JackpotRun.EditorTools
 
             var introSo = new SerializedObject(introRoot);
             introSo.FindProperty("router").objectReferenceValue = router;
+            introSo.FindProperty("titleView").objectReferenceValue = title.view;
             introSo.FindProperty("loginView").objectReferenceValue = login.view;
             introSo.FindProperty("menuView").objectReferenceValue = menu.view;
             introSo.FindProperty("pickView").objectReferenceValue = pick.view;
             introSo.FindProperty("dexView").objectReferenceValue = dex.view;
+            introSo.FindProperty("auroraRect").objectReferenceValue = auroraRect;
             introSo.ApplyModifiedPropertiesWithoutUndo();
 
+            WireTitleView(title);
             WireMenuView(menu);
             WirePickView(pick);
             WireDexView(dex, dexDetail);
 
             // 순수 내비게이션 버튼(AppRoot는 DontDestroyOnLoad라 에디터 시점엔 존재하지 않으므로
             // UnityEventTools.AddPersistentListener로 직접 가리킬 수 없다 — NavButton.cs 헤더 참조).
+            // Title의 시작 버튼은 닉네임 유무에 따라 Login/Menu로 갈라져야 해서 NavButton(고정 대상 1개)
+            // 대신 TitleView.OnStartClicked가 직접 판정한다(설계 S12 지시, TitleView.cs 헤더 참조).
             AddNavButton(menu.startButton, NavButton.Target.Pick);
             AddNavButton(menu.dexButton, NavButton.Target.Dex);
             AddNavButton(pick.backButton, NavButton.Target.Menu);
@@ -203,6 +211,20 @@ namespace JackpotRun.EditorTools
         }
 
         // ── 결과 전달용 컨테이너(생성 직후 값을 여러 곳으로 넘기기 위함, 씬에는 남지 않는다) ──────
+        private sealed class TitleBuildResult
+        {
+            public RectTransform root;
+            public CanvasGroup group;
+            public TitleView view;
+            public RectTransform contentRoot;
+            public RectTransform[] reelTiles;
+            public Image[] reelIcons;
+            public Outline[] reelGlows;
+            public Sprite[] symbolSprites;
+            public Text bestText;
+            public Button startButton;
+        }
+
         private sealed class LoginBuildResult
         {
             public RectTransform root;
@@ -216,11 +238,13 @@ namespace JackpotRun.EditorTools
             public CanvasGroup group;
             public MenuView view;
             public Button startButton;
+            public Button rankButton;
             public Button dexButton;
-            public Text profileSummaryText;
-            public Text nickText;
-            public Button changeNickButton;
-            public RectTransform carouselTrack;
+            public Text hudTitleText;
+            public Text statScoreValue;
+            public Text statStageValue;
+            public Text statPlaysValue;
+            public Text summaryText;
         }
 
         private sealed class PickBuildResult
@@ -368,6 +392,50 @@ namespace JackpotRun.EditorTools
             return (RectTransform)canvasGo.transform;
         }
 
+        // S12 §5 "배경" — 오로라(w_aurora, 애니메이션 대상이라 RectTransform을 반환) + 비네트
+        // (w_vignette, 정적) 순서로 깔아 캔버스 최하단(첫 형제)에 둔다. 둘 다 투명 컨테이너라
+        // raycastTarget=false(§7 공통 규칙).
+        private static RectTransform BuildAuroraBackground(Transform canvasRoot)
+        {
+            var aurora = UiKit.Panel(canvasRoot, "Aurora", Color.white);
+            UiKit.Fill(aurora);
+            var auroraImg = aurora.GetComponent<Image>();
+            auroraImg.sprite = UiSpriteGen.Load("w_aurora");
+            auroraImg.type = Image.Type.Simple;
+            auroraImg.preserveAspect = false;
+            auroraImg.raycastTarget = false;
+
+            var vignette = UiKit.Panel(canvasRoot, "Vignette", Color.white);
+            UiKit.Fill(vignette);
+            var vignetteImg = vignette.GetComponent<Image>();
+            vignetteImg.sprite = UiSpriteGen.Load("w_vignette");
+            vignetteImg.type = Image.Type.Simple;
+            vignetteImg.preserveAspect = false;
+            vignetteImg.raycastTarget = false;
+
+            return aurora;
+        }
+
+        // §0 "--gloss" 상단 광택 오버레이 — 카드/칩/릴 상단 40~50%에 얹는다. w_gloss는 라운딩 없는
+        // 전체-사각 텍스처라(UiSpriteGen 헤더 참조) Type.Simple로 원하는 높이만큼 늘려서 쓴다.
+        private static void AddGloss(RectTransform parent, float height)
+        {
+            var go = new GameObject("Gloss", typeof(RectTransform), typeof(Image));
+            var rt = (RectTransform)go.transform;
+            rt.SetParent(parent, false);
+            rt.anchorMin = new Vector2(0f, 1f);
+            rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot = new Vector2(0.5f, 1f);
+            rt.sizeDelta = new Vector2(0f, height);
+            rt.anchoredPosition = Vector2.zero;
+            var img = go.GetComponent<Image>();
+            img.sprite = UiSpriteGen.Load("w_gloss");
+            img.type = Image.Type.Simple;
+            img.preserveAspect = false;
+            img.color = Color.white;
+            img.raycastTarget = false;
+        }
+
         private static RectTransform BuildOverlayLayer(Transform canvasRoot)
         {
             var overlay = UiKit.Panel(canvasRoot, "OverlayLayer", new Color(0f, 0f, 0f, 0f));
@@ -416,6 +484,117 @@ namespace JackpotRun.EditorTools
             so.FindProperty("label").objectReferenceValue = label;
             so.ApplyModifiedPropertiesWithoutUndo();
             return toast;
+        }
+
+        // ── TitleView 화면(S12 §3 신규 — 웹 단독판 renderIntro) ─────────────────────────
+        // 수치는 전부 설계 §3의 "(→NNN)" 최종 캔버스 px 값(이미 ×1.9 스케일 반영됨)을 그대로 쓴다.
+        private static TitleBuildResult BuildTitleScreen(Transform canvasRoot)
+        {
+            var result = new TitleBuildResult();
+
+            // 배경은 캔버스 최하단 오로라+비네트가 담당한다 — 이 화면 루트는 투명 컨테이너(§7 공통
+            // 규칙: 투명 컨테이너 패널은 raycastTarget=false).
+            var root = UiKit.Panel(canvasRoot, "TitleScreen", new Color(0f, 0f, 0f, 0f));
+            UiKit.Fill(root);
+            var rootImg = root.GetComponent<Image>();
+            if (rootImg != null) rootImg.raycastTarget = false;
+            result.root = root;
+            result.group = root.gameObject.AddComponent<CanvasGroup>();
+            result.view = root.gameObject.AddComponent<TitleView>();
+
+            // §3 "전체 화면 세로 중앙, gap 13(→25), padding 24(→46)" — controlChildHeight도 켜서
+            // SizeHint(preferredHeight)가 실제로 각 자식 높이를 결정하게 한다(BuildLoginScreen과 동일
+            // 검증된 패턴).
+            var col = UiKit.VGroup(root, 25, new RectOffset(46, 46, 46, 46), true, true);
+            UiKit.SetAnchors(col, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(46f, -430f), new Vector2(-46f, 430f));
+            col.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+            result.contentRoot = col;
+
+            // ── 릴 타일 3개 — 118×152, gap 19, w_reel 배경 + 골드 Outline(테두리+글로우 근사) ──────
+            var reelsRow = UiKit.HGroup(col, 19, new RectOffset(), false, false);
+            UiKit.SizeHint(reelsRow, preferredHeight: 152, flexibleHeight: 0);
+            reelsRow.gameObject.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+
+            var reelSprite = UiSpriteGen.Load("w_reel");
+            result.reelTiles = new RectTransform[3];
+            result.reelIcons = new Image[3];
+            result.reelGlows = new Outline[3];
+            for (int i = 0; i < 3; i++)
+            {
+                var tile = UiKit.Panel(reelsRow, "Reel" + i, Color.white, reelSprite);
+                tile.sizeDelta = new Vector2(118f, 152f);
+                var glow = UiKit.AddGlowOutline(tile.gameObject, UiKit.Accent, 4f);
+                glow.enabled = true;
+
+                var icon = UiKit.Image(tile, null, Color.white);
+                icon.name = "Icon";
+                icon.rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
+                icon.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+                icon.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+                icon.rectTransform.sizeDelta = new Vector2(76f, 76f);
+                icon.rectTransform.anchoredPosition = Vector2.zero;
+
+                AddGloss(tile, 64f); // 42% of 152 ≈ 64
+
+                result.reelTiles[i] = tile;
+                result.reelIcons[i] = icon;
+                result.reelGlows[i] = glow;
+            }
+
+            // 심볼 스프라이트 14종 — 런타임은 Editor 전용 UiSpriteGen을 참조할 수 없어 빌드 시점에
+            // 구워 넘긴다(ReelView.symbolSprites와 동일한 "빌더가 와이어링" 관례).
+            var syms = JackpotRun.Engine.Symbols.All;
+            var symSprites = new Sprite[syms.Length];
+            for (int i = 0; i < syms.Length; i++) symSprites[i] = UiSpriteGen.Load("sym_" + syms[i].id);
+            result.symbolSprites = symSprites;
+
+            // ── 타이틀/부제/최고기록/시작 버튼/힌트 ──────────────────────────────────────
+            // 그라데이션 텍스트(#ffe87a→gold2)는 uGUI 불가 → #ffdd5c 단색 + 골드 글로우(Outline)로 근사
+            // (§7 재해석 규칙). 웹 원문 "🎰 잭팟 슬롯"은 astral 이모지+웹 전용 제품명이라, 기존
+            // Unity 화면들과 통일된 "잭팟런"으로 대체했다(LoginView 등과 동일 브랜딩, 임의 변경 아님).
+            var title = UiKit.Text(col, "잭팟런", 91, UiKit.Hex("#ffdd5c"), TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(title, preferredHeight: 112, flexibleHeight: 0);
+            UiKit.AddGlowOutline(title.gameObject, new Color(1f, 210f / 255f, 63f / 255f, 0.45f), 3f).enabled = true;
+
+            var sub = UiKit.Text(col, "텍스트 로그라이크 슬롯머신 · 웹 단독판", 26, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(sub, preferredHeight: 36, flexibleHeight: 0);
+
+            result.bestText = UiKit.Text(col, "", 25, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(result.bestText, preferredHeight: 36, flexibleHeight: 0);
+
+            // pill 버튼은 전체폭이 아니라 내재 크기라 VGroup의 forceExpandWidth를 그대로 받으면 안
+            // 된다 — 투명 풀와이드 슬롯 안에 고정 크기로 수동 중앙 배치한다(§7 재해석: 한 텍스처=한
+            // 반경 제약 때문에 w_pill을 금색으로 틴트해 대신 쓴다, UiSpriteGen.cs 주석 참조).
+            var btnSlot = UiKit.Panel(col, "StartBtnSlot", new Color(0f, 0f, 0f, 0f));
+            var btnSlotImg = btnSlot.GetComponent<Image>();
+            if (btnSlotImg != null) btnSlotImg.raycastTarget = false;
+            UiKit.SizeHint(btnSlot, preferredHeight: 120, flexibleHeight: 0);
+            var pillSprite = UiSpriteGen.Load("w_pill");
+            result.startButton = UiKit.Button(btnSlot, "▶ 탭하여 시작", new Vector2(460f, 120f), UiKit.Accent, UiKit.Ink, null, pillSprite);
+            var startRt = result.startButton.GetComponent<RectTransform>();
+            startRt.anchorMin = new Vector2(0.5f, 0.5f);
+            startRt.anchorMax = new Vector2(0.5f, 0.5f);
+            startRt.pivot = new Vector2(0.5f, 0.5f);
+            startRt.sizeDelta = new Vector2(460f, 120f);
+            startRt.anchoredPosition = Vector2.zero;
+
+            var hint = UiKit.Text(col, "소리 ON · 첫 탭에서 활성화돼요", 21, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(hint, preferredHeight: 30, flexibleHeight: 0);
+
+            return result;
+        }
+
+        private static void WireTitleView(TitleBuildResult r)
+        {
+            var so = new SerializedObject(r.view);
+            so.FindProperty("contentRoot").objectReferenceValue = r.contentRoot;
+            SetObjectArray(so, "reelTiles", r.reelTiles);
+            SetObjectArray(so, "reelIcons", r.reelIcons);
+            SetObjectArray(so, "reelGlows", r.reelGlows);
+            SetObjectArray(so, "symbolSprites", r.symbolSprites);
+            so.FindProperty("bestText").objectReferenceValue = r.bestText;
+            so.FindProperty("startButton").objectReferenceValue = r.startButton;
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         // ── LoginView 화면(S8 신규) ──────────────────────────────────────────────────
@@ -504,106 +683,114 @@ namespace JackpotRun.EditorTools
         }
 
         // ── MenuView 화면 ────────────────────────────────────────────────────────────
+        // ── MenuView 화면(S12 §4 — 웹 단독판 renderHome) ────────────────────────────────
+        // scr-title → hud 카드(칭호+3칸 통계) → 요약줄 → bigbtn+ghost×2 → 설명 2줄. 수치는 §4의
+        // "(→NNN)" 최종 캔버스 px 값을 그대로 쓴다.
         private static MenuBuildResult BuildMenuScreen(Transform canvasRoot)
         {
-            const float titleTopMargin = 140f;
-            const float titleHeight = 140f;
-
             var result = new MenuBuildResult();
-            var root = UiKit.Panel(canvasRoot, "MenuScreen", UiKit.Bg);
+
+            // 배경은 캔버스 최하단 오로라+비네트가 담당한다(§7 공통 규칙: 투명 컨테이너 raycastTarget=false).
+            var root = UiKit.Panel(canvasRoot, "MenuScreen", new Color(0f, 0f, 0f, 0f));
             UiKit.Fill(root);
+            var rootImg = root.GetComponent<Image>();
+            if (rootImg != null) rootImg.raycastTarget = false;
             result.root = root;
             result.group = root.gameObject.AddComponent<CanvasGroup>();
             result.view = root.gameObject.AddComponent<MenuView>();
 
-            // S8 항목⑤: 🎰(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
-            var title = UiKit.Text(root, "잭팟런", UiKit.TextStyle.Title, TextAnchor.MiddleCenter);
-            title.rectTransform.anchorMin = new Vector2(0.5f, 1f);
-            title.rectTransform.anchorMax = new Vector2(0.5f, 1f);
-            title.rectTransform.pivot = new Vector2(0.5f, 1f);
-            title.rectTransform.sizeDelta = new Vector2(960f, titleHeight);
-            title.rectTransform.anchoredPosition = new Vector2(0f, -titleTopMargin);
+            var col = UiKit.VGroup(root, 30, new RectOffset(46, 46, 70, 46), true, true);
+            UiKit.Fill(col);
 
-            result.carouselTrack = BuildCarousel(root, titleTopMargin + titleHeight + 24f);
+            // ── scr-title: h1 51 골드 + sub 25 txt2 ───────────────────────────────────
+            // 웹 원문 "🎰 잭팟 슬롯"은 astral 이모지+웹 전용 제품명이라 TitleView와 동일하게 "잭팟런"
+            // 으로 통일했다(임의 변경이 아니라 기존 Unity 화면들과의 브랜딩 일관성).
+            var title = UiKit.Text(col, "잭팟런", 51, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(title, preferredHeight: 66, flexibleHeight: 0);
+            var sub = UiKit.Text(col, "텍스트 로그라이크 슬롯머신 · 웹 단독판", 25, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(sub, preferredHeight: 34, flexibleHeight: 0);
 
-            float bottomTop = titleTopMargin + titleHeight + 24f + CarouselSlotWidth + 40f;
-            var bottom = UiKit.VGroup(root, 20, new RectOffset(0, 0, 0, 0), true, true);
-            UiKit.SetAnchors(bottom, Vector2.zero, Vector2.one, new Vector2(60f, 60f), new Vector2(-60f, -bottomTop));
+            // ── hud 카드: w_panel_grad + bd 테두리 + r-xl ───────────────────────────────
+            var panelGradSprite = UiSpriteGen.Load("w_panel_grad");
+            var hud = UiKit.Panel(col, "Hud", Color.white, panelGradSprite);
+            UiKit.SizeHint(hud, preferredHeight: 336, flexibleHeight: 0);
+            UiKit.AddGlowOutline(hud.gameObject, UiKit.Bd, 2f).enabled = true;
 
-            // S8: "@닉네임" 표기 + [닉네임 변경] 소형 버튼.
-            var panelSprite = UiSpriteGen.Load("panel_r24");
-            var nickRow = UiKit.HGroup(bottom, 12, new RectOffset(0, 0, 0, 0), true, true);
-            UiKit.SizeHint(nickRow, preferredHeight: 48, flexibleHeight: 0);
-            result.nickText = UiKit.Text(nickRow, "", 20, UiKit.TextSecondary, TextAnchor.MiddleLeft);
-            UiKit.SizeHint(result.nickText, flexibleWidth: 1, flexibleHeight: 0);
-            result.changeNickButton = UiKit.Button(nickRow, "닉네임 변경", new Vector2(170, 44), UiKit.Card, UiKit.TextPrimary, null, panelSprite);
-            UiKit.SizeHint(result.changeNickButton, preferredWidth: 170, preferredHeight: 44, flexibleWidth: 0, flexibleHeight: 0);
+            var hudCol = UiKit.VGroup(hud, 18, new RectOffset(26, 26, 22, 20), true, true);
+            UiKit.Fill(hudCol);
 
-            // S10: 웹 pick.css의 골드 단일 CTA 톤에 맞춰 시작=Accent(금), 도감=PanelBg(중립)로 통일
-            // (이전 Good/Blue 투톤은 웹에 대응 화면이 없어 자체 정한 값이었다).
-            result.profileSummaryText = UiKit.Text(bottom, "", 24, UiKit.Accent, TextAnchor.MiddleCenter);
-            UiKit.SizeHint(result.profileSummaryText, preferredHeight: 40);
+            result.hudTitleText = UiKit.Text(hudCol, "", 29, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(result.hudTitleText, preferredHeight: 38, flexibleHeight: 0);
 
-            result.startButton = UiKit.Button(bottom, "게임 시작", new Vector2(0, 140), UiKit.Accent, UiKit.Bg, null, panelSprite);
-            UiKit.SizeHint(result.startButton, preferredHeight: 140);
+            var statsRow = UiKit.HGroup(hudCol, 15, new RectOffset(), true, true);
+            UiKit.SizeHint(statsRow, preferredHeight: 130, flexibleHeight: 0);
+            result.statScoreValue = BuildHudStatCell(statsRow, "최고 점수");
+            result.statStageValue = BuildHudStatCell(statsRow, "최고 스테이지");
+            result.statPlaysValue = BuildHudStatCell(statsRow, "플레이");
 
-            result.dexButton = UiKit.Button(bottom, "도감", new Vector2(0, 140), UiKit.PanelBg, UiKit.TextPrimary, null, panelSprite);
-            UiKit.SizeHint(result.dexButton, preferredHeight: 140);
+            // ── 요약줄: "업적 n/482 · 장치 n/16 해금" ───────────────────────────────────
+            result.summaryText = UiKit.Text(col, "", 22, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(result.summaryText, preferredHeight: 32, flexibleHeight: 0);
 
-            var footerSpacer = UiKit.Panel(bottom, "FooterSpacer", new Color(0f, 0f, 0f, 0f));
+            // ── bigbtn "게임 시작" + ghost×2(랭킹/도감) ─────────────────────────────────
+            var goldBtnSprite = UiSpriteGen.Load("w_gold_btn");
+            var ghostBtnSprite = UiSpriteGen.Load("w_ghost_btn");
+
+            result.startButton = UiKit.Button(col, "▶ 게임 시작", new Vector2(0f, 150f), UiKit.Accent, UiKit.Ink, null, goldBtnSprite);
+            UiKit.SizeHint(result.startButton, preferredHeight: 150, flexibleHeight: 0);
+
+            var ghostRow = UiKit.HGroup(col, 16, new RectOffset(), true, true);
+            UiKit.SizeHint(ghostRow, preferredHeight: 120, flexibleHeight: 0);
+
+            result.rankButton = UiKit.Button(ghostRow, "🏆 랭킹", new Vector2(0f, 120f), UiKit.Panel2, UiKit.TextPrimary, null, ghostBtnSprite);
+            UiKit.SizeHint(result.rankButton, flexibleWidth: 1, preferredHeight: 120, flexibleHeight: 0);
+            UiKit.AddGlowOutline(result.rankButton.gameObject, UiKit.Bd2, 2f).enabled = true;
+
+            result.dexButton = UiKit.Button(ghostRow, "📚 도감", new Vector2(0f, 120f), UiKit.Panel2, UiKit.TextPrimary, null, ghostBtnSprite);
+            UiKit.SizeHint(result.dexButton, flexibleWidth: 1, preferredHeight: 120, flexibleHeight: 0);
+            UiKit.AddGlowOutline(result.dexButton.gameObject, UiKit.Bd2, 2f).enabled = true;
+
+            // ── 설명 2줄 ───────────────────────────────────────────────────────────────
+            var desc = UiKit.Text(col,
+                "캐릭터 · 슬롯머신 · 장치를 골라 스테이지를 클리어하세요.\n증강/유물/장치로 빌드를 키워 고득점에 도전!",
+                21, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(desc, preferredHeight: 66, flexibleHeight: 0);
+
+            var footerSpacer = UiKit.Panel(col, "FooterSpacer", new Color(0f, 0f, 0f, 0f));
             UiKit.SizeHint(footerSpacer, flexibleHeight: 1);
-
-            var credit = UiKit.Text(bottom, "잭팟런 — Unity", 20, UiKit.TextSecondary, TextAnchor.MiddleCenter);
-            UiKit.SizeHint(credit, preferredHeight: 50);
 
             return result;
         }
 
-        // 캐러셀 트랙 — 고유 아트 3장(CarouselCharIds) + 첫 장의 복제본 1장을 CarouselSlotWidth 간격으로
-        // 나란히 배치한다. viewport 폭 == CarouselSlotWidth라 한 번에 1장만 보이고, MenuView가
-        // anchoredPosition.x를 -CarouselSlotWidth*index로 애니메이션해 넘긴다(MenuView.CarouselLoop).
-        private static RectTransform BuildCarousel(Transform parent, float topOffset)
+        // hud-stats 한 칸 — rgba(0,0,0,.25) + bd + r-md + 상단 gloss, k(라벨)/v(값) 텍스트. v를
+        // 반환해 MenuView가 매 Refresh마다 값만 바꿔 쓸 수 있게 한다.
+        private static Text BuildHudStatCell(RectTransform row, string label)
         {
-            var viewport = UiKit.Panel(parent, "CarouselViewport", new Color(0f, 0f, 0f, 0f));
-            viewport.anchorMin = new Vector2(0.5f, 1f);
-            viewport.anchorMax = new Vector2(0.5f, 1f);
-            viewport.pivot = new Vector2(0.5f, 1f);
-            viewport.sizeDelta = new Vector2(CarouselSlotWidth, CarouselSlotWidth);
-            viewport.anchoredPosition = new Vector2(0f, -topOffset);
-            viewport.gameObject.AddComponent<RectMask2D>();
+            var cell = UiKit.Panel(row, "Cell", new Color(0f, 0f, 0f, 0.25f), UiSpriteGen.Load("w_r12"));
+            UiKit.SizeHint(cell, flexibleWidth: 1, preferredHeight: 130, flexibleHeight: 0);
+            UiKit.AddGlowOutline(cell.gameObject, UiKit.Bd, 1.5f).enabled = true;
 
-            var trackGo = new GameObject("Track", typeof(RectTransform));
-            var track = (RectTransform)trackGo.transform;
-            track.SetParent(viewport, false);
-            track.anchorMin = new Vector2(0f, 0.5f);
-            track.anchorMax = new Vector2(0f, 0.5f);
-            track.pivot = new Vector2(0f, 0.5f);
-            track.sizeDelta = new Vector2(CarouselSlotWidth * 4f, CarouselSlotWidth);
-            track.anchoredPosition = Vector2.zero;
+            var inner = UiKit.VGroup(cell, 4, new RectOffset(6, 6, 12, 10), true, true);
+            UiKit.Fill(inner);
+            var k = UiKit.Text(inner, label, 19, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(k, preferredHeight: 26, flexibleHeight: 0);
+            var v = UiKit.Text(inner, "0", 29, Color.white, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(v, preferredHeight: 42, flexibleHeight: 0);
 
-            for (int i = 0; i < 4; i++)
-            {
-                string charId = CarouselCharIds[i % CarouselCharIds.Length];
-                var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(
-                    $"Assets/JackpotRun/Resources/JackpotRun/Sprites/Characters/char_{charId}.png");
-                var img = UiKit.Image(track, sprite, Color.white);
-                img.rectTransform.anchorMin = new Vector2(0f, 0.5f);
-                img.rectTransform.anchorMax = new Vector2(0f, 0.5f);
-                img.rectTransform.pivot = new Vector2(0.5f, 0.5f);
-                img.rectTransform.sizeDelta = new Vector2(512f, 512f);
-                img.rectTransform.anchoredPosition = new Vector2(CarouselSlotWidth * i + CarouselSlotWidth / 2f, 0f);
-            }
+            AddGloss(cell, 65f); // 50% of 130
 
-            return track;
+            return v;
         }
 
         private static void WireMenuView(MenuBuildResult r)
         {
             var so = new SerializedObject(r.view);
-            so.FindProperty("profileSummaryText").objectReferenceValue = r.profileSummaryText;
-            so.FindProperty("carouselTrack").objectReferenceValue = r.carouselTrack;
-            so.FindProperty("nickText").objectReferenceValue = r.nickText;
-            so.FindProperty("changeNickButton").objectReferenceValue = r.changeNickButton;
+            so.FindProperty("hudTitleText").objectReferenceValue = r.hudTitleText;
+            so.FindProperty("statScoreValue").objectReferenceValue = r.statScoreValue;
+            so.FindProperty("statStageValue").objectReferenceValue = r.statStageValue;
+            so.FindProperty("statPlaysValue").objectReferenceValue = r.statPlaysValue;
+            so.FindProperty("summaryText").objectReferenceValue = r.summaryText;
+            so.FindProperty("rankButton").objectReferenceValue = r.rankButton;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 

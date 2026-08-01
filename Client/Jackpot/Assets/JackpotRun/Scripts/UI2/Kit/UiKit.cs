@@ -15,35 +15,51 @@ namespace JackpotRun.UI2
     //      직접 참조·사용한다.
     public static class UiKit
     {
-        // ── 팔레트 (S10 — public/jackpotpick/pick.css :root 그대로 이식) ──────────────────
-        // 기존 필드명은 유지하고 값만 pick.css 값으로 교체했다(호출부 전부 그대로 동작).
-        // pick.css에 없던 색(bg1/panel2/bd/bd2/dim2/amber/pink/green)은 CSS 변수명 그대로 새로 추가.
-        public static readonly Color Bg = Hex("#0B0D15"); // --bg0
-        public static readonly Color Bg1 = Hex("#11131F"); // --bg1(헤더 그라데이션 등)
-        public static readonly Color PanelBg = Hex("#171A27"); // --panel
-        public static readonly Color Panel2 = Hex("#1C2030"); // --panel2(카드 그라데이션 상단/밝은 패널)
+        // ── 팔레트 (S12a — Docs/WebRef/slot/style.css :root §0 표 그대로 이식) ─────────────
+        // 기존 상수명은 유지하고 값을 slot/style.css :root 값으로 교체했다(호출부 전부 그대로 동작).
+        // 이전(S10 pick.css) 값에서 바뀐 필드가 대부분이다 — PickView/DexView(S10)는 아직 이 색으로
+        // 재검증되지 않았다(S12c "PickView·DexView 토큰 정리" 예정, 그때까지는 시각 변화가 그대로
+        // 전파된다 — 보고 대상).
+        public static readonly Color Bg = Hex("#07080f"); // --bg0
+        public static readonly Color Bg1 = Hex("#0e1020"); // --bg1(헤더 그라데이션 등)
+        public static readonly Color Bg2 = Hex("#141833"); // --bg2(신규)
+        public static readonly Color PanelBg = Hex("#161a2c"); // --panel
+        public static readonly Color Panel2 = Hex("#1c2238"); // --panel2(카드 그라데이션 상단/밝은 패널)
+        public static readonly Color Panel3 = Hex("#252c46"); // --panel3(신규 — ghost 버튼 상단 등)
         public static readonly Color Card = Panel2; // 기존 소비처 호환용 별칭 — panel2와 동일
-        // 탭/카드 "활성" 강조색 — pick.css .tab.active{background:linear-gradient(180deg,#2a2238,#211c30)}
-        // 두 스톱의 평균(#251f34, 보라 톤)으로 근사(uGUI Image는 단색만 지원 — 그라데이션 재해석).
-        // PickView/DexView의 활성 탭·선택 카드 강조에 공용으로 쓰인다(기존 필드명 유지).
+        // 탭/카드 "활성" 강조색 — pick.css(S10) 전용 파생색, slot/style.css :root에는 대응 토큰이
+        // 없다(S12c 정리 대상 — 그때까지 유지, "부족한 색 추가"는 §0 표 항목에만 해당).
         public static readonly Color CardTop = Hex("#251F34");
-        public static readonly Color Bd = Hex("#2A3048"); // --bd(기본 테두리)
-        public static readonly Color Bd2 = Hex("#394365"); // --bd2(hover/강조 테두리)
-        public static readonly Color Accent = Hex("#FFD23F"); // --gold
+        public static readonly Color Bd = Hex("#2c3454"); // --bd(기본 테두리)
+        public static readonly Color Bd2 = Hex("#3f4a76"); // --bd2(hover/강조 테두리)
+        public static readonly Color Accent = Hex("#ffd23f"); // --gold
         public static readonly Color Gold = Accent; // pick.css 이름 그대로 쓰고 싶은 호출부용 별칭
-        public static readonly Color Amber = Hex("#F59E0B"); // --amber
-        public static readonly Color Pink = Hex("#FF7ADB"); // --pink
-        public static readonly Color TextPrimary = Hex("#E9EBF5"); // --txt
-        public static readonly Color TextSecondary = Hex("#8B93A7"); // --dim
-        public static readonly Color Dim2 = Hex("#69718A"); // --dim2(탭 번호 등 더 흐린 보조색)
-        public static readonly Color Good = Hex("#34D3C0"); // --teal(기존 소비처 호환 별칭)
+        public static readonly Color Gold2 = Hex("#ffb300"); // --gold2(신규)
+        public static readonly Color Amber = Hex("#f59e0b"); // --amber
+        public static readonly Color Pink = Hex("#ff6ec7"); // --pink
+        public static readonly Color TextPrimary = Hex("#eef1fb"); // --txt
+        public static readonly Color TextSecondary = Hex("#8b93b5"); // --dim
+        public static readonly Color Dim2 = Hex("#6a7299"); // --dim2(탭 번호 등 더 흐린 보조색)
+        public static readonly Color Good = Hex("#2ee6c8"); // --teal(기존 소비처 호환 별칭)
         public static readonly Color Teal = Good;
-        public static readonly Color Bad = Hex("#FF6B6B"); // --red(기존 소비처 호환 별칭)
+        public static readonly Color Bad = Hex("#ff5d6c"); // --red(기존 소비처 호환 별칭)
         public static readonly Color Red = Bad;
-        public static readonly Color Blue = Hex("#5B8CFF"); // --blue
-        public static readonly Color Purple = Hex("#A974FF"); // --purple
-        public static readonly Color Green = Hex("#4ADE80"); // --green(장점 프리픽스 등 teal과 별개의 색)
-        public static readonly Color LockScrim = new Color(11f / 255f, 13f / 255f, 21f / 255f, 0.62f); // bg0 62%
+        public static readonly Color Blue = Hex("#5b9bff"); // --blue
+        public static readonly Color Purple = Hex("#b07bff"); // --purple
+        public static readonly Color Green = Hex("#4ade80"); // --green(장점 프리픽스 등 teal과 별개의 색)
+        public static readonly Color Silver = Hex("#cdd6ea"); // --silver(신규)
+        public static readonly Color Ink = Hex("#15131f"); // --ink(신규 — 골드 버튼 위 글자색)
+        public static readonly Color LockScrim = new Color(Bg.r, Bg.g, Bg.b, 0.62f); // bg0 62%
+
+        // ── 라운드 반경 상수(§0 "라운드" 표) — UiSpriteGen의 w_r9~r22/w_pill 9-slice와 짝을 이룬다.
+        // 값 자체(px)는 CSS 리터럴 그대로(스케일 없음 — S10 rrect_r* 선례와 동일 관례, style.css도
+        // --r-* 토큰을 --sc로 스케일하지 않는다).
+        public const float R9 = 9f; // --r-sm
+        public const float R12 = 12f; // --r-md
+        public const float R16 = 16f; // --r-lg
+        public const float R18 = 18f; // --r-xl
+        public const float R22 = 22f; // --r-2xl
+        public const float RPill = 999f; // --r-pill(스프라이트는 캔버스 절반인 128을 굽는다)
 
         // 등급 3종 — Tier enum(JackpotRun.Engine)과 대응하지만 여기서는 카탈로그 pick.tier 문자열
         // ("SILVER"/"GOLD"/"PRISM")을 그대로 받는다(뷰가 카탈로그 데이터를 직접 다루므로). 별도

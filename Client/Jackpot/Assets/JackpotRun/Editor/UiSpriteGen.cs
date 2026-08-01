@@ -1,4 +1,5 @@
 using System.IO;
+using JackpotRun.UI2;
 using UnityEditor;
 using UnityEngine;
 
@@ -91,6 +92,67 @@ namespace JackpotRun.EditorTools
                 // 소비측이 Image.color = UiKit.Panel2(밝은 쪽, top)로 틴트하면: 아래(bottom)=0.815×Panel2
                 // ≈ Panel, 위(top)=1.0×Panel2 그대로 — panel_r24/card_grad와 동일한 "흰색 베이스 굽기" 관례.
                 WriteSprite("card_grad_r15", CreateRoundedRectGradient(CanvasSize, 15, 0.815f, 1f), Border(15), overwrite);
+
+                // ── S12a — ENGINE_PORT_DESIGN.md S12 §1(웹 단독판 토큰 이식). 전부 "w_" 접두 새
+                // 파일명(overwrite:false 함정 회피 — 기존 파일은 안 건드린다). 흰색 베이스(w_r9~r22/
+                // w_pill/w_gloss)는 소비측이 Image.color로 틴트하고, 나머지(w_reel/w_gold_btn/
+                // w_ghost_btn/w_panel_grad/w_expfill/w_aurora/w_vignette)는 style.css 색 그대로 굽는다
+                // (소비측은 틴트 없이 흰색으로 사용).
+                //
+                // ⚠️ 9-slice border는 Sprite 임포트 메타데이터에 고정되어 인스턴스별로 다르게 줄 수
+                // 없다 — 파일 하나 = 반경 하나. 이번 슬라이스(S12a, TitleView·MenuView)가 실제로 쓰는
+                // 반경을 기준으로 굽고, 다른 반경이 필요한 화면은 별도 파일(w_pill 등)을 대신 쓰거나
+                // 아래 주석에 충돌을 남겨 Fable에게 보고한다(설계 §7 "충돌 시 보고").
+                WriteSprite("w_r9", CreateRoundedRect(CanvasSize, UiKit.R9, Color.white), Border(UiKit.R9), overwrite);
+                WriteSprite("w_r12", CreateRoundedRect(CanvasSize, UiKit.R12, Color.white), Border(UiKit.R12), overwrite);
+                WriteSprite("w_r16", CreateRoundedRect(CanvasSize, UiKit.R16, Color.white), Border(UiKit.R16), overwrite);
+                WriteSprite("w_r18", CreateRoundedRect(CanvasSize, UiKit.R18, Color.white), Border(UiKit.R18), overwrite);
+                WriteSprite("w_r22", CreateRoundedRect(CanvasSize, UiKit.R22, Color.white), Border(UiKit.R22), overwrite);
+                // pill(반경 999 → 캔버스 절반 128px border, 인스턴스 높이에 맞춰 자동으로 스타디움
+                // 모양이 된다 — 기존 chip_r999와 동일한 공식). 흰색 베이스지만 상단이 살짝 더 밝은
+                // 세로 그라데이션으로 구워서, 골드로 틴트했을 때(TitleView .intro-start) 2-스톱
+                // 그라데이션 느낌이 함께 난다 — w_gold_btn은 r-lg(16, .bigbtn/.spinbtn 다수결)로 굽고
+                // pill 반경이 필요한 유일한 버튼(.intro-start)은 이 w_pill을 금색 틴트로 대신 쓴다
+                // (한 PNG=한 반경 제약 때문의 재해석, 보고 대상).
+                WriteSprite("w_pill", CreateRoundedRectGradient(CanvasSize, Center, 0.86f, 1f), Border(Center), overwrite);
+                // 상단 광택 오버레이 — 흰 14%→투명 세로 그라데이션, 텍스처 전체(0~100%)에 굽는다.
+                // 소비측이 부모 카드/칩/릴의 "상단 40~50%" 영역 크기로 Type.Simple(비-9slice)로 늘려
+                // 붙인다 — uGUI엔 부모의 둥근 모서리에 자동으로 클리핑되는 마스크가 없어(§7 재해석
+                // 규칙) 낮은 알파(.14) 그라데이션이라 사각 모서리가 거의 티 나지 않는 것으로 대신한다.
+                WriteSprite("w_gloss", CreateTopGloss(CanvasSize), Vector4.zero, overwrite);
+                // 릴 셀 배경 165° 그라데이션(상단 #2a3354→48% #1a2038→하단 #10162a). 반경은 이번
+                // 슬라이스(TitleView §3, 118×152 타일)가 쓰는 27(14px×1.9)로 굽는다. ⚠️RunView(§5,
+                // S12b)는 같은 파일명을 r-xl(18)로 쓰라고 되어 있어 반경이 어긋난다 — S12b 착수 시
+                // Fable 판단 필요(보고 대상, 그때 별도 파일로 분리하거나 이 반경을 조정해야 한다).
+                WriteSprite("w_reel", CreateGradientRoundedRect(CanvasSize, 27,
+                    new[] { (0f, ParseHex("#2a3354")), (0.48f, ParseHex("#1a2038")), (1f, ParseHex("#10162a")) }),
+                    Border(27), overwrite);
+                // 골드 버튼 세로 그라데(#ffe680→#f59e0b) — r-lg(16, .bigbtn/.spinbtn 다수결. 위 w_pill
+                // 주석 참조).
+                WriteSprite("w_gold_btn", CreateGradientRoundedRect(CanvasSize, UiKit.R16,
+                    new[] { (0f, ParseHex("#ffe680")), (1f, ParseHex("#f59e0b")) }),
+                    Border(UiKit.R16), overwrite);
+                // 고스트(보조) 버튼 세로 그라데(panel3→panel2) — .bigbtn.ghost 반경 그대로 r-lg(16).
+                WriteSprite("w_ghost_btn", CreateGradientRoundedRect(CanvasSize, UiKit.R16,
+                    new[] { (0f, ParseHex("#252c46")), (1f, ParseHex("#1c2238")) }),
+                    Border(UiKit.R16), overwrite);
+                // 패널(.hud) 세로 그라데(panel2→panel) — r-xl(18), MenuView/RunView 공용(반경 충돌 없음).
+                WriteSprite("w_panel_grad", CreateGradientRoundedRect(CanvasSize, UiKit.R18,
+                    new[] { (0f, ParseHex("#1c2238")), (1f, ParseHex("#161a2c")) }),
+                    Border(UiKit.R18), overwrite);
+                // EXP 바 채움 가로 그라데(#f59e0b→70% gold→#fff6c0) — r-pill(999→128, expbar-wrap과 동일
+                // 공식). S12a는 소비하지 않지만(RunView는 S12b) §1 표는 "전체 생성" 단계라 지금 굽는다.
+                WriteSprite("w_expfill", CreateGradientRoundedRect(CanvasSize, Center,
+                    new[] { (0f, ParseHex("#f59e0b")), (0.7f, ParseHex("#ffd23f")), (1f, ParseHex("#fff6c0")) },
+                    horizontal: true),
+                    Border(Center), overwrite);
+
+                // 배경 오로라/비네트 — 256 캔버스가 아니라 1080×1920 전체 화면 텍스처(9-slice 아님,
+                // Type.Simple로 늘려 붙인다). body::before의 "inset:-20%"(뷰포트보다 넓게 잡아 애니메이션
+                // 중 가장자리가 비지 않게 하는 여백)는 재현하지 않았다 — 대신 애니메이션 배율이 항상
+                // ≥1.02이고 이동량이 작아(§7 재해석) 실사용에서 가장자리가 드러나지 않는다.
+                WriteFullSprite("w_aurora", CreateAuroraTexture(1080, 1920), overwrite, 2048);
+                WriteFullSprite("w_vignette", CreateVignetteTexture(1080, 1920), overwrite, 2048);
             }
             finally
             {
@@ -131,6 +193,37 @@ namespace JackpotRun.EditorTools
             importer.spritePixelsPerUnit = 100;
             importer.spriteBorder = border;
             importer.maxTextureSize = CanvasSize;
+            importer.SaveAndReimport();
+        }
+
+        // S12a — w_aurora/w_vignette처럼 256 캔버스보다 큰(1080×1920) 전체 화면 텍스처 저장 경로.
+        // border 없음(Type.Simple 소비 전제), maxTextureSize를 호출자가 지정한다(WriteSprite는
+        // CanvasSize=256 고정이라 이 크기의 텍스처를 그대로 넣으면 임포트 시 다운스케일된다).
+        private static void WriteFullSprite(string fileName, Texture2D tex, bool overwrite, int maxTextureSize)
+        {
+            string path = $"{OutputDir}/{fileName}.png";
+            if (!overwrite && File.Exists(path))
+            {
+                Object.DestroyImmediate(tex);
+                return;
+            }
+
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(path);
+            if (importer == null) return;
+
+            importer.textureType = TextureImporterType.Sprite;
+            importer.spriteImportMode = SpriteImportMode.Single;
+            importer.mipmapEnabled = false;
+            importer.filterMode = FilterMode.Bilinear;
+            importer.wrapMode = TextureWrapMode.Clamp;
+            importer.alphaIsTransparency = true;
+            importer.spritePixelsPerUnit = 100;
+            importer.spriteBorder = Vector4.zero;
+            importer.maxTextureSize = maxTextureSize;
             importer.SaveAndReimport();
         }
 
@@ -211,6 +304,147 @@ namespace JackpotRun.EditorTools
                     var c = stroke;
                     c.a = stroke.a * ring;
                     pixels[y * size + x] = c;
+                }
+            }
+            tex.SetPixels32(pixels);
+            tex.Apply();
+            return tex;
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════
+        // S12a — 다중 스톱 그라데이션 + 라운드 사각(w_reel/w_gold_btn/w_ghost_btn/w_panel_grad/
+        // w_expfill 공용) · 상단 광택 오버레이 · 오로라/비네트 배경
+        // ══════════════════════════════════════════════════════════════════════════════
+
+        /// <summary>CSS linear-gradient 스타일의 다중 스톱 그라데이션을 라운드 사각 알파 마스크 위에
+        /// 굽는다. stops는 (0=시작 쪽, 1=끝 쪽) 위치의 (pct, color) 목록 — vertical이면 0=상단/1=하단
+        /// (CSS 180deg 관용과 동일), horizontal이면 0=좌측/1=우측(CSS 90deg 관용과 동일).</summary>
+        private static Texture2D CreateGradientRoundedRect(int size, float radius, (float pct, Color color)[] stops,
+            bool horizontal = false)
+        {
+            var tex = NewTex(size);
+            var pixels = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float sdf = RoundedRectSdf(x + 0.5f, y + 0.5f, size, size, radius);
+                    float coverage = Mathf.Clamp01(0.5f - sdf);
+                    float pos = horizontal ? (x + 0.5f) / size : 1f - (y + 0.5f) / size;
+                    Color c = SampleStops(stops, pos);
+                    c.a = coverage;
+                    pixels[y * size + x] = c;
+                }
+            }
+            tex.SetPixels32(pixels);
+            tex.Apply();
+            return tex;
+        }
+
+        private static Color SampleStops((float pct, Color color)[] stops, float t)
+        {
+            if (stops == null || stops.Length == 0) return Color.white;
+            if (t <= stops[0].pct) return stops[0].color;
+            for (int i = 0; i < stops.Length - 1; i++)
+            {
+                if (t <= stops[i + 1].pct)
+                {
+                    float span = stops[i + 1].pct - stops[i].pct;
+                    float local = span > 0.0001f ? (t - stops[i].pct) / span : 0f;
+                    return Color.Lerp(stops[i].color, stops[i + 1].color, local);
+                }
+            }
+            return stops[stops.Length - 1].color;
+        }
+
+        // 상단 광택(--gloss) 오버레이 — 흰 14%→투명 세로 그라데이션, 라운딩 없는 전체 사각(소비측이
+        // Type.Simple로 원하는 높이만큼 늘려 쓴다).
+        private static Texture2D CreateTopGloss(int size)
+        {
+            var tex = NewTex(size);
+            var pixels = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                float fromTop = 1f - y / (float)(size - 1);
+                float alpha = 0.14f * (1f - fromTop);
+                var c = new Color(1f, 1f, 1f, alpha);
+                for (int x = 0; x < size; x++) pixels[y * size + x] = c;
+            }
+            tex.SetPixels32(pixels);
+            tex.Apply();
+            return tex;
+        }
+
+        // body::before 오로라 — 4개 방사 그라데이션(보라 22%/8% .28 · 핑크 82%/4% .22 · 민트 50%/102%
+        // .16 · 파랑 50%/40% .10) + 세로 bg1→bg0(60%). CSS radial-gradient(Wx Hy at Xx Yy, color, transparent
+        // stop%)를 "중심에서 stop*반경까지 선형 페이드"로 근사(2-스톱 그라데이션과 수학적으로 동일).
+        // 페인트 순서는 CSS의 첫 레이어가 맨 위(나중에 그림)라 linear→blue→teal→pink→purple 순.
+        private static Texture2D CreateAuroraTexture(int w, int h)
+        {
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            var pixels = new Color32[w * h];
+            Color bg1 = ParseHex("#0e1020"), bg0 = ParseHex("#07080f");
+
+            (float wPct, float hPct, float xPct, float yPct, Color color, float stop)[] radials =
+            {
+                (60f, 50f, 50f, 40f, new Color(91f / 255f, 155f / 255f, 255f / 255f, 0.10f), 0.70f), // blue(맨 아래)
+                (50f, 40f, 50f, 102f, new Color(46f / 255f, 230f / 255f, 200f / 255f, 0.16f), 0.60f), // teal
+                (42f, 32f, 82f, 4f, new Color(255f / 255f, 110f / 255f, 199f / 255f, 0.22f), 0.60f), // pink
+                (40f, 30f, 22f, 8f, new Color(176f / 255f, 123f / 255f, 255f / 255f, 0.28f), 0.60f), // purple(맨 위)
+            };
+
+            for (int y = 0; y < h; y++)
+            {
+                float fromTop = 1f - y / (float)(h - 1);
+                float lt = Mathf.Clamp01(fromTop / 0.6f); // 0(상단,bg1)→1(60%지점부터 bg0로 고정)
+                Color baseColor = Color.Lerp(bg1, bg0, lt);
+                for (int x = 0; x < w; x++)
+                {
+                    Color c = baseColor;
+                    foreach (var r in radials)
+                    {
+                        float cx = r.xPct / 100f * w;
+                        float cyFromTop = r.yPct / 100f * h;
+                        float radX = r.wPct / 100f * w;
+                        float radY = r.hPct / 100f * h;
+                        if (radX <= 0f || radY <= 0f) continue;
+                        float dx = (x + 0.5f - cx) / radX;
+                        float dyFromTop = (fromTop * h) - cyFromTop;
+                        float dy = dyFromTop / radY;
+                        float d = Mathf.Sqrt(dx * dx + dy * dy);
+                        float a = d < r.stop ? r.color.a * (1f - d / r.stop) : 0f;
+                        if (a > 0f) c = Color.Lerp(c, new Color(r.color.r, r.color.g, r.color.b, 1f), a);
+                    }
+                    pixels[y * w + x] = c;
+                }
+            }
+            tex.SetPixels32(pixels);
+            tex.Apply();
+            return tex;
+        }
+
+        // body::after 비네트 — radial-gradient(120% 80% at 50% 0%, transparent 55%, rgba(0,0,0,.55)).
+        // 상단 중앙은 투명(55% 반경까지), 그 밖은 55%→100% 구간에서 검정 55% 알파까지 선형 증가,
+        // 100% 밖은 클램프(마지막 스톱 색 유지) — 실제 알파가 들어간 텍스처(오로라 위에 얹는 용도).
+        private static Texture2D CreateVignetteTexture(int w, int h)
+        {
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            var pixels = new Color32[w * h];
+            const float radXPct = 120f, radYPct = 80f, stop0 = 0.55f, endAlpha = 0.55f;
+            float radX = radXPct / 100f * w;
+            float radY = radYPct / 100f * h;
+            for (int y = 0; y < h; y++)
+            {
+                float fromTop = (1f - y / (float)(h - 1)) * h; // 상단 원점 기준 절대 픽셀
+                for (int x = 0; x < w; x++)
+                {
+                    float dx = (x + 0.5f - w / 2f) / radX;
+                    float dy = fromTop / radY;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    float alpha;
+                    if (d <= stop0) alpha = 0f;
+                    else alpha = endAlpha * Mathf.Clamp01((d - stop0) / (1f - stop0));
+                    pixels[y * w + x] = new Color(0f, 0f, 0f, alpha);
                 }
             }
             tex.SetPixels32(pixels);
