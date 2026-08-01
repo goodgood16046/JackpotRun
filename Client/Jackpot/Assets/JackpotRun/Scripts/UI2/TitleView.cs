@@ -145,7 +145,11 @@ namespace JackpotRun.UI2
             if (tile == null) yield break;
             var glow = reelGlows != null && index < reelGlows.Length ? reelGlows[index] : null;
 
-            Vector2 basePos = tile.anchoredPosition;
+            // 한 프레임 기다렸다가 기준 위치를 잡는다 — Awake 시점엔 HorizontalLayoutGroup이 아직
+            // 배치하지 않아 전부 (0,0)이고, 그 값을 기준으로 삼으면 타일 3개가 같은 자리에 겹친다.
+            yield return null;
+            if (tile == null) yield break;
+            float baseY = tile.anchoredPosition.y;
             float delay = index < BobDelay.Length ? BobDelay[index] : 0f;
             float startTime = Time.time + delay;
 
@@ -164,7 +168,8 @@ namespace JackpotRun.UI2
                     wave = (1f - Mathf.Cos(phase * Mathf.PI * 2f)) * 0.5f; // 0→1→0
                 }
 
-                tile.anchoredPosition = basePos + new Vector2(0f, -BobAmplitude * wave);
+                // X는 레이아웃 그룹이 정한 값을 그대로 두고 Y만 흔든다(겹침 방지).
+                tile.anchoredPosition = new Vector2(tile.anchoredPosition.x, baseY - BobAmplitude * wave);
                 if (glow != null)
                 {
                     var c = glow.effectColor;

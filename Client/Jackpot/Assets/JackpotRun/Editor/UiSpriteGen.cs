@@ -115,6 +115,10 @@ namespace JackpotRun.EditorTools
                 // pill 반경이 필요한 유일한 버튼(.intro-start)은 이 w_pill을 금색 틴트로 대신 쓴다
                 // (한 PNG=한 반경 제약 때문의 재해석, 보고 대상).
                 WriteSprite("w_pill", CreateRoundedRectGradient(CanvasSize, Center, 0.86f, 1f), Border(Center), overwrite);
+                // 실제 pill 버튼용(높이 128 기준) — w_pill은 border 128이라 높이 120짜리 버튼에 9-slice로
+                // 붙이면 좌우 경계가 겹쳐 타원으로 찌그러진다. 반경/경계를 64로 낮춰 높이 128 버튼에서
+                // 위아래 경계 합(128)이 정확히 맞아떨어지게 한 전용 스프라이트.
+                WriteSprite("w_pill_btn", CreateRoundedRectGradient(CanvasSize, 64f, 0.86f, 1f), Border(64f), overwrite);
                 // 상단 광택 오버레이 — 흰 14%→투명 세로 그라데이션, 텍스처 전체(0~100%)에 굽는다.
                 // 소비측이 부모 카드/칩/릴의 "상단 40~50%" 영역 크기로 Type.Simple(비-9slice)로 늘려
                 // 붙인다 — uGUI엔 부모의 둥근 모서리에 자동으로 클리핑되는 마스크가 없어(§7 재해석

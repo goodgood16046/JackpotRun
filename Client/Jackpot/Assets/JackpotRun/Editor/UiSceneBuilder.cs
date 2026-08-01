@@ -568,14 +568,15 @@ namespace JackpotRun.EditorTools
             var btnSlot = UiKit.Panel(col, "StartBtnSlot", new Color(0f, 0f, 0f, 0f));
             var btnSlotImg = btnSlot.GetComponent<Image>();
             if (btnSlotImg != null) btnSlotImg.raycastTarget = false;
-            UiKit.SizeHint(btnSlot, preferredHeight: 120, flexibleHeight: 0);
-            var pillSprite = UiSpriteGen.Load("w_pill");
-            result.startButton = UiKit.Button(btnSlot, "▶ 탭하여 시작", new Vector2(460f, 120f), UiKit.Accent, UiKit.Ink, null, pillSprite);
+            UiKit.SizeHint(btnSlot, preferredHeight: 128, flexibleHeight: 0);
+            // 높이는 스프라이트 경계 합(64+64)과 같은 128로 맞춘다 — 그래야 9-slice가 찌그러지지 않는다.
+            var pillSprite = UiSpriteGen.Load("w_pill_btn");
+            result.startButton = UiKit.Button(btnSlot, "▶ 탭하여 시작", new Vector2(460f, 128f), UiKit.Accent, UiKit.Ink, null, pillSprite);
             var startRt = result.startButton.GetComponent<RectTransform>();
             startRt.anchorMin = new Vector2(0.5f, 0.5f);
             startRt.anchorMax = new Vector2(0.5f, 0.5f);
             startRt.pivot = new Vector2(0.5f, 0.5f);
-            startRt.sizeDelta = new Vector2(460f, 120f);
+            startRt.sizeDelta = new Vector2(460f, 128f);
             startRt.anchoredPosition = Vector2.zero;
 
             var hint = UiKit.Text(col, "소리 ON · 첫 탭에서 활성화돼요", 21, UiKit.TextSecondary, TextAnchor.MiddleCenter);
