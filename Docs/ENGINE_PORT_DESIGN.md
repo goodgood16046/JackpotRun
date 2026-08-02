@@ -364,6 +364,108 @@ Play: PlaySceneRoot.Awake → AppRoot.ConsumePendingLaunch() → GameSession 생
 - 폰트 크기는 CSS px를 1080 기준 그대로 쓰되, 가독성 위해 **×1.6 스케일**(웹은 360~420px 폭 기준, Unity 캔버스는 1080) — 예: 15.5px → 25pt, 12.5px → 20pt, 11px → 18pt.
 - 클릭 차단 재발 방지: 투명 컨테이너 패널은 반드시 `Image.raycastTarget=false`.
 
+## S15 — 글로벌 랭킹 (Firebase RTDB, 앱+웹) (2026-08-03, Fable 설계)
+
+**배경**: Firebase 콘솔의 프로젝트 **표시명이 "JackpotRun"으로 변경**됐다(사용자 통보). 표시명
+변경은 프로젝트 ID·URL·키에 영향이 없으므로 **ID는 `jackpotrun-web` 그대로**다(2026-08-03 실측:
+`jackpotrun-web-default-rtdb...` RTDB·호스팅 정상 응답, `jackpotrun` ID의 RTDB/호스팅은 전 리전
+404 — 별도 신규 프로젝트는 존재하지 않음). 이 슬라이스는 그 프로젝트의 RTDB에 **앱·웹 공용
+글로벌 랭킹**을 신설한다. 카톡 봇의 `jackpotdex/<token>.rank`(봇 자체 리더보드)와는 별개 보드다.
+
+### DB 계약 — `jackpotrank/$pid`
+
+- `$pid`: 기기(설치)별 GUID 32자(`Guid.NewGuid().ToString("N")`) — PlayerPrefs `"jackpotrun_pid"`.
+- 값: `{ "nick": string(1~12자), "score": long, "stage": long, "ts": long(unix ms) }`
+  - `score` = 프로필 `bestScore`, `stage` = 프로필 `bestStage` — **서로 다른 런의 개인 최고치일 수
+    있다**(이 보드는 "개인 최고 기록" 게시판, 단일 런 스냅샷이 아님). `ts` = 마지막 갱신 시각.
+- `database.rules.json`에 노드 추가: `.read: true` · `.indexOn: ["score"]` · `$pid`에 `.write: true`
+  \+ `.validate`($pid 길이 8~40, 필수 자식 nick/score/stage/ts, nick 문자열 1~12자, score/stage/ts
+  숫자, `$other: .validate false`). 공개 쓰기는 기존 노드들과 같은 수준 — CLAUDE.md의 미해결 보안
+  이슈 범위에 포함되며 이 슬라이스에서 조이지 않는다.
+- **규칙이 배포되기 전에는 read/write 모두 거부**(RTDB 기본 거부) — 앱 랭킹 화면이 오류 상태를
+  보여주는 것이 정상. 배포는 사용자: `firebase deploy --only hosting,database --project jackpotrun-web`
+  (이 PC엔 firebase CLI/node 없음).
+
+### Unity — 파일별 작업
+
+1. **`Scripts/Game/MiniJson.cs` (신규)** — 순수 C#(UnityEngine 비의존) 재귀하강 JSON **파서**(쓰기
+   없음). `public static object Parse(string)` — object→`Dictionary<string, object>`, array→
+   `List<object>`, string(이스케이프 `\" \\ \/ \b \f \n \r \t \uXXXX`), number→`double`,
+   `true/false/null`. 형식 오류 시 예외 대신 **null 반환**. RankingService 전용 최소 구현.
+2. **`Scripts/Game/RankingService.cs` (신규)** — `static class`, `UnityEngine.Networking` 사용.
+   - `const string DbUrl = "https://jackpotrun-web-default-rtdb.asia-southeast1.firebasedatabase.app"`
+     (주석: 콘솔 표시명 "JackpotRun" = 프로젝트 ID `jackpotrun-web`. **프로젝트를 옮기면 이 상수
+     하나만 교체**) · `const string Node = "jackpotrank"`.
+   - `public static string PlayerId()` — PlayerPrefs `"jackpotrun_pid"`, 없으면 GUID "N" 생성·저장.
+   - `[Serializable]` DTO(nick/score/stage/ts) → `JsonUtility.ToJson`으로 PUT 바디.
+   - `public sealed class Entry { string pid; string nick; long score; long stage; long ts; }`
+   - `public static void TrySubmitBest(MonoBehaviour host)` — nick=`LoginView.SavedNick()`,
+     profile=`AppRoot.Instance?.Profile`. **스킵**: host/profile null · nick 빈 문자열 ·
+     `BestScore <= 0`. PlayerPrefs `"jackpotrun_rank_sent_score"`(string으로 저장한 long)·
+     `"jackpotrun_rank_sent_nick"`과 비교해 **BestScore가 더 크거나 nick이 달라졌을 때만**
+     `UnityWebRequest.Put($"{DbUrl}/{Node}/{pid}.json", json)` 코루틴(host에서 Start, timeout 10s,
+     Content-Type application/json). 성공(result Success) 시 prefs 갱신, 실패 시 `Debug.Log`만
+     (prefs를 안 건드리므로 다음 트리거에서 자동 재시도).
+   - `public static void Fetch(MonoBehaviour host, Action<List<Entry>> onOk, Action<string> onError)`
+     — `GET {DbUrl}/{Node}.json`(timeout 10s). 본문 `"null"` → 빈 리스트로 onOk. MiniJson 파싱 —
+     루트가 Dictionary가 아니면 onError, 항목별로 형이 안 맞으면 **그 항목만 건너뜀**. 정렬:
+     score 내림차순, 동점 ts 오름차순(먼저 세운 쪽 위). HTTP/네트워크 오류 → onError(사유 문자열).
+3. **`ScreenRouter.cs`** — `ScreenId`에 `Rank` 추가(맨 끝).
+4. **`AppRoot.cs`** — `public void ShowRank()`(기존 ShowX와 동일 패턴). `RegisterIntro` 끝에
+   `RankingService.TrySubmitBest(this)` 호출 — host가 DontDestroyOnLoad인 AppRoot라 씬 전환에
+   코루틴이 안 끊긴다. EndRun → Intro 복귀 시 RegisterIntro가 다시 불리므로 **게임오버 직후의
+   신기록도 이 훅 하나로 업로드**되고, 앱 재시작 시(오프라인이었던 기록) 재시도도 겸한다.
+5. **`IntroSceneRoot.cs`** — `[SerializeField] RankView rankView` + `public RankView Rank` 프로퍼티
+   (기존 뷰 5종과 동일 형식).
+6. **`MenuView.cs`** — `OnRankClicked()`를 `appRoot?.ShowRank()`로 교체(토스트 제거), 헤더 주석의
+   "랭킹 화면 없음" 문구 갱신.
+7. **`Scripts/UI2/RankView.cs` (신규)** — 필드: `Text statusText` · `RectTransform listContent` ·
+   `RectTransform rowTemplate`(자식 경로 계약: `"RankNo"`·`"Nick"`·`"Score"` 각 Text, 루트에 행 배경
+   Image). `Awake`: rowTemplate 비활성. `OnEnable`: 기존 행 제거(rowTemplate 제외 —
+   DexView.RenderGrid 패턴) → statusText "랭킹 불러오는 중..." → `RankingService.Fetch(this, ...)`.
+   onOk 0건 → "아직 등록된 기록이 없어요\n첫 기록의 주인공이 되어보세요!"; 있으면 statusText 숨기고
+   **상위 100행** 생성 — RankNo: 1~3위 `🥇🥈🥉`, 4위부터 숫자 / Nick: nick / Score:
+   `NumberFormat.Comma(score) + " · S" + stage`. **내 행**(pid==PlayerId()): 배경 `UiKit.CardTop` +
+   Nick 색 골드(UiKit에 골드 상수 있으면 그것, 없으면 `UiKit.Hex("#F5C34D")`). onError → statusText
+   "랭킹을 불러오지 못했어요\n네트워크 확인 후 다시 열어주세요". 화면이 꺼지면 host(this) 코루틴이
+   함께 멎으므로 콜백 누수 없음 — 콜백 첫 줄에서 파괴/비활성 가드.
+8. **`Editor/UiSceneBuilder.cs`** — `BuildRankScreen(canvasRoot)`: **BuildDexScreen 컨벤션 그대로**
+   (UiKit.Panel/Fill/VGroup/HGroup/SizeHint/Scroll, `panel_r24`). 헤더 90("🏆 랭킹" H1 +
+   "← 메뉴" 백버튼 160×70 `#2A3048` — `AddNavButton(backButton, NavButton.Target.Menu)`) →
+   statusText(TextSecondary, MiddleCenter, preferredHeight 64, flexibleHeight 0) → 세로
+   Scroll(flexibleHeight 1): content에 VerticalLayoutGroup(spacing 10, padding 20/20/12/20,
+   childControlWidth/Height true, childForceExpandWidth true·Height false) + ContentSizeFitter
+   (vertical Preferred) + rowTemplate. **rowTemplate**: UiKit.Panel(`UiKit.PanelBg`, `rrect_r11`)
+   preferredHeight 84, 내부 HGroup(spacing 12, padding 18/18/12/12): RankNo(28pt, 폭 88,
+   MiddleCenter) · Nick(24pt bold, flexibleWidth 1, MiddleLeft) · Score(22pt, 폭 320, MiddleRight,
+   TextSecondary). RankView 와이어링은 기존 화면들과 같은 SerializedObject·FindProperty 방식.
+   `BuildIntroScene`에 화면 등록: screens 배열 `(ScreenId.Rank, root, group)` + IntroSceneRoot
+   `rankView` 와이어링. **구현 후 씬 리빌드 필수**(메뉴 JackpotRun/Build Intro Scene).
+
+### 웹 — 파일별 작업
+
+1. **`public/ranking/index.html` (신규)** — jackpotdex/index.html의 뼈대·메타(viewport, lang=ko,
+   다크 배경) 축소판. 타이틀 "잭팟런 랭킹". 헤더(🏆 잭팟런 랭킹 + 부제 "글로벌 최고 기록") +
+   `#list` 컨테이너 + 상태 문구 영역.
+2. **`public/ranking/app.js` (신규)** — firebase-app/database **10.12.2 모듈**(jackpotdex와 동일),
+   **동일 firebaseConfig**(주석: 표시명 "JackpotRun" = ID `jackpotrun-web`). `get(ref(db,
+   "jackpotrank"))` 1회 → 값 배열화 → score 내림차순·ts 오름차순 → **상위 100** 렌더. 행: 순위
+   (1~3위 🥇🥈🥉) · 닉네임 · `점수 comma` · `S스테이지` · 날짜(`YYYY.MM.DD`, ts 기준). 0건 →
+   "아직 등록된 기록이 없어요", 오류 → "랭킹을 불러오지 못했어요". **닉네임은 반드시 이스케이프**
+   (jackpotdex `_hesc` 패턴) — XSS 방지.
+3. **`public/ranking/style.css` (신규)** — jackpotdex/style.css의 팔레트·`.rankrow` 계열에서 필요한
+   최소만 복제(전체 복사 금지).
+4. **`firebase.json`** — 기존 두 블록과 동일한 `/ranking/**` no-cache 헤더 블록 추가.
+5. **`database.rules.json`** — 위 DB 계약의 `jackpotrank` 규칙 추가.
+
+### 검증·주의
+
+- 엔진(`Engine/`) 무변경 — EngineTests 영향 없음. 새 코드는 전부 Unity 어댑터/에디터/웹.
+- csc 스모크(오프라인 컴파일) + 에디터 리프레시 후 Editor.log CS 오류 grep + Intro 씬 리빌드 +
+  플레이 스모크(메뉴 → 랭킹 → 백버튼). 규칙 미배포 상태에서는 오류 상태 문구가 뜨는 게 정상.
+- 표기 규칙 준수: 점수는 정수 comma(`NumberFormat.Comma` / 웹 `toLocaleString`).
+- 웹 스타일·구조는 기존 파일에서 복제하되 **jackpotpick/jackpotdex는 수정하지 않는다**.
+
 ## S14 — 연출 강화 (2026-08-01, Fable 설계)
 
 S13 구조(스트립 릴 + FxKit) 위에 **체감 연출**을 얹는다. 게임 로직·확률은 불변(뷰 계층 전용).
