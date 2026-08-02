@@ -405,11 +405,13 @@ namespace JackpotRun.EditorTools
             public Text stageText, cursesText, expBarText, spinsText, coinsText, scoreText;
             public RectTransform expBarFill;
             public Image expBarFillImage;
+            public RectTransform expLeadDot; // S14 §D — EXP 바 선두 광점
             public Outline hudOutline;
             public Image[] unluckyPips;
             public CanvasGroup bossBannerGroup;
             public RectTransform bossBannerRect;
             public Text bossBannerText;
+            public CanvasGroup bossVignetteGroup; // S14 §D — 보스 진입 적색 비네트 펄스
 
             public RectTransform reelSectionRoot;
             public RectTransform reelRow;
@@ -420,6 +422,7 @@ namespace JackpotRun.EditorTools
             public RectTransform jackpotBannerRect;
 
             public Text resultLineText; // 릴과 노트 사이 "스테이지 정보 영역" — 획득 요약 큰 텍스트
+            public CanvasGroup resultLineGroup; // S14 §C — 점수 팝업 페이드 대상
 
             public RectTransform notesRoot;
             public RectTransform notesRowsContent;
@@ -1442,9 +1445,27 @@ namespace JackpotRun.EditorTools
             (result.jackpotBannerGroup, result.jackpotBannerRect) = BuildDropBanner(root, "JackpotBanner", "JACKPOT!", UiKit.Accent);
             (result.bossBannerGroup, result.bossBannerRect) = BuildDropBanner(root, "BossBanner", "", UiKit.Bad);
             result.bossBannerText = result.bossBannerRect.GetComponentInChildren<Text>();
+            // S14 §D — 보스 진입 적색 비네트 펄스(w_vignette 재사용, 붉게 틴트). 평소엔 완전 투명.
+            result.bossVignetteGroup = BuildColorVignette(root, UiKit.Bad);
 
             result.view = root.gameObject.AddComponent<UI2.RunView>();
             return result;
+        }
+
+        // S14 §D — w_vignette(비네트 형태 알파 텍스처)를 임의 색으로 틴트해 화면 가장자리가 그 색으로
+        // 은은하게 물드는 펄스 오버레이를 만든다(보스 진입 등). BuildScreenFlash(단색 전체화면)와
+        // 달리 가장자리만 강조되는 모양이 필요할 때 쓴다.
+        private static CanvasGroup BuildColorVignette(Transform parent, Color color)
+        {
+            var panel = UiKit.Panel(parent, "BossVignette", color, UiSpriteGen.Load("w_vignette"));
+            panel.GetComponent<Image>().type = Image.Type.Simple;
+            UiKit.Fill(panel);
+            panel.GetComponent<Image>().raycastTarget = false;
+            var group = panel.gameObject.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            group.blocksRaycasts = false;
+            group.interactable = false;
+            return group;
         }
 
         // HUD와 릴 사이의 고정 여백(S9) — flex 스페이서는 잔여 공간을 다 먹어 화면이 비어 보였다.
@@ -1476,6 +1497,23 @@ namespace JackpotRun.EditorTools
             result.expBarFill = UiKit.Panel(barBg, "ExpBarFill", UiKit.Good, UiSpriteGen.Load("bar_fill_r12"));
             UiKit.SetAnchors(result.expBarFill, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
             result.expBarFillImage = result.expBarFill.GetComponent<Image>();
+
+            // S14 §D — EXP 바 "선두에 흐르는 광점". expBarFill의 우측 끝(anchorMin/Max x=1)에 자식으로
+            // 붙여서 expBarFill.anchorMax.x가 바뀔 때마다(SetExpBarImmediate) 채움 끝점을 자동으로
+            // 따라간다(별도 위치 갱신 코드 불필요 — HudView는 알파 펄스만 담당).
+            var leadDotGo = new GameObject("ExpLeadDot", typeof(RectTransform), typeof(Image));
+            result.expLeadDot = (RectTransform)leadDotGo.transform;
+            result.expLeadDot.SetParent(result.expBarFill, false);
+            result.expLeadDot.anchorMin = new Vector2(1f, 0.5f);
+            result.expLeadDot.anchorMax = new Vector2(1f, 0.5f);
+            result.expLeadDot.pivot = new Vector2(0.5f, 0.5f);
+            result.expLeadDot.sizeDelta = new Vector2(14f, 14f);
+            var leadDotImg = leadDotGo.GetComponent<Image>();
+            leadDotImg.sprite = UiKit.PillSprite(14f);
+            leadDotImg.type = Image.Type.Sliced;
+            leadDotImg.color = Color.white;
+            leadDotImg.raycastTarget = false;
+
             result.expBarText = UiKit.Text(barBg, "", 19, UiKit.Bg, TextAnchor.MiddleCenter, true);
             UiKit.Fill(result.expBarText.rectTransform);
 
@@ -1576,7 +1614,8 @@ namespace JackpotRun.EditorTools
         // 없어 여기서는 직접 AddComponent<Outline>()을 두 번 호출한다).
         private static RectTransform BuildReelCellTemplate(Transform parent)
         {
-            float cellSize = UiKit.ReelCellSize;
+            float cellSize = UiKit.ReelCellSize; // 뷰포트(셀 프레임) — S14 §A "196 유지"
+            float slotSize = UiKit.ReelSlotSize; // 스트립 개별 슬롯 — S14 §A "130으로 축소"
             var cell = UiKit.Panel(parent, "CellTemplate", Color.white, UiSpriteGen.Load("w_reel"));
             UiKit.SizeHint(cell, flexibleWidth: 1, preferredHeight: cellSize, flexibleHeight: 0);
             cell.gameObject.AddComponent<RectMask2D>(); // Strip 무한 스크롤 클리핑(설계 구조 필수 요소)
@@ -1596,7 +1635,7 @@ namespace JackpotRun.EditorTools
             strip.anchorMin = new Vector2(0f, 0.5f);
             strip.anchorMax = new Vector2(1f, 0.5f);
             strip.pivot = new Vector2(0.5f, 0.5f);
-            strip.sizeDelta = new Vector2(0f, cellSize * 5f); // 위2/중앙/아래2
+            strip.sizeDelta = new Vector2(0f, slotSize * 5f); // 위2/중앙/아래2
             strip.anchoredPosition = Vector2.zero;
 
             for (int k = 0; k < 5; k++)
@@ -1606,20 +1645,62 @@ namespace JackpotRun.EditorTools
                 slot.anchorMin = new Vector2(0f, 0.5f);
                 slot.anchorMax = new Vector2(1f, 0.5f);
                 slot.pivot = new Vector2(0.5f, 0.5f);
-                slot.sizeDelta = new Vector2(0f, cellSize); // "각 칸 높이 = 셀 높이"(설계 그대로)
-                slot.anchoredPosition = new Vector2(0f, (2 - k) * cellSize); // k=0(맨위,+2칸)..k=4(맨아래,-2칸)
+                slot.sizeDelta = new Vector2(0f, slotSize); // S14 §A "각 칸 높이=슬롯 높이"(뷰포트보다 작다 → 이웃 노출)
+                slot.anchoredPosition = new Vector2(0f, (2 - k) * slotSize); // k=0(맨위,+2칸)..k=4(맨아래,-2칸)
 
-                var icon = UiKit.Image(slot, null, Color.white); // preserveAspect=true(S13 §B, UiKit.Image 공통 수정)
+                // S14 §A — 심볼은 슬롯을 꽉 채우지 않고 고정 크기(UiKit.ReelSymbolSize=95)로 중앙에
+                // 앉는다(preserveAspect=true, UiKit.Image 공통 수정은 유지) — 이웃 슬롯 스케일(0.88)이
+                // 이 고정 크기에 곱해져 "중앙 95px·이웃 ~84px"가 된다.
+                var icon = UiKit.Image(slot, null, Color.white);
                 icon.name = "Icon";
-                UiKit.Fill(icon.rectTransform);
+                icon.rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
+                icon.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+                icon.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+                icon.rectTransform.sizeDelta = new Vector2(UiKit.ReelSymbolSize, UiKit.ReelSymbolSize);
+                icon.rectTransform.anchoredPosition = Vector2.zero;
 
                 var tag = UiKit.Text(slot, "", 16, UiKit.Accent, TextAnchor.UpperRight, true);
                 tag.name = "Tag";
                 UiKit.SetAnchors(tag.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-56, -28), new Vector2(-6, -4));
             }
 
+            // S14 §B — 최고속 모션 스트릭 오버레이(w_streak, 평소 알파 0 — ReelView.ApplyMaxSpeedStyle이
+            // 알파만 토글). Strip 위, 페이드 마스크 아래에 셀 전체를 덮는다.
+            var streak = UiKit.Panel(cell, "Streak", new Color(1f, 1f, 1f, 0f), UiSpriteGen.Load("w_streak"));
+            UiKit.Fill(streak);
+            var streakImg = streak.GetComponent<Image>();
+            streakImg.type = Image.Type.Simple;
+            streakImg.raycastTarget = false;
+
+            // S14 §A — 상/하단 28px 페이드 마스크(w_reel_fade, 자식 경로 계약: ReelView는 이름으로
+            // 찾지 않는다 — 순수 장식이라 런타임 참조 불필요).
+            AddReelFadeMask(cell, top: true);
+            AddReelFadeMask(cell, top: false);
+
             cell.gameObject.SetActive(false);
             return cell;
+        }
+
+        // S14 §A — 릴 셀 상/하단 페이드 오버레이 1장. w_reel_fade는 "위쪽(텍스처 y=size-1)이 불투명,
+        // 아래쪽이 투명"으로 구워져 있어(UiSpriteGen.CreateVerticalFade) top=true는 그대로, top=false는
+        // 세로로 뒤집어(localScale.y=-1) 붙여 같은 스프라이트를 재사용한다.
+        private static void AddReelFadeMask(Transform cell, bool top)
+        {
+            var go = new GameObject(top ? "FadeTop" : "FadeBottom", typeof(RectTransform), typeof(Image));
+            var rt = (RectTransform)go.transform;
+            rt.SetParent(cell, false);
+            rt.anchorMin = new Vector2(0f, top ? 1f : 0f);
+            rt.anchorMax = new Vector2(1f, top ? 1f : 0f);
+            rt.pivot = new Vector2(0.5f, top ? 1f : 0f);
+            rt.sizeDelta = new Vector2(0f, UiKit.ReelFadeHeight);
+            rt.anchoredPosition = Vector2.zero;
+            rt.localScale = new Vector3(1f, top ? 1f : -1f, 1f);
+
+            var img = go.GetComponent<Image>();
+            img.sprite = UiSpriteGen.Load("w_reel_fade");
+            img.type = Image.Type.Simple;
+            img.preserveAspect = false;
+            img.raycastTarget = false;
         }
 
         // S8 항목⑥: 고정 120(기존 flexibleHeight:1에서 축소 — 잔여 공간은 이제 릴 위/아래 스페이서가
@@ -1634,6 +1715,8 @@ namespace JackpotRun.EditorTools
 
             result.resultLineText = UiKit.Text(inner, "", 30, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
             UiKit.SizeHint(result.resultLineText, flexibleHeight: 1);
+            // S14 §C — 점수 팝업(카운트업+위로 떠오르며 페이드)용 CanvasGroup.
+            result.resultLineGroup = result.resultLineText.gameObject.AddComponent<CanvasGroup>();
         }
 
         // Fable 육안 검수 지시(2026-07-31): 최근 6줄 고정 표시(280, flex 아님), 20pt, 좌우 패딩 24,
@@ -1742,6 +1825,7 @@ namespace JackpotRun.EditorTools
             so.FindProperty("hudView").objectReferenceValue = WireHudView(r);
             so.FindProperty("reelView").objectReferenceValue = WireReelView(r);
             so.FindProperty("resultLineText").objectReferenceValue = r.resultLineText;
+            so.FindProperty("resultLineGroup").objectReferenceValue = r.resultLineGroup;
             so.FindProperty("notesFeed").objectReferenceValue = WireNotesFeed(r);
             so.FindProperty("controlsGroup").objectReferenceValue = r.controlsGroup;
             SetObjectArray(so, "modeButtons", r.modeButtons);
@@ -1769,6 +1853,7 @@ namespace JackpotRun.EditorTools
             so.FindProperty("expBarFill").objectReferenceValue = r.expBarFill;
             so.FindProperty("expBarFillImage").objectReferenceValue = r.expBarFillImage;
             so.FindProperty("expBarText").objectReferenceValue = r.expBarText;
+            so.FindProperty("expLeadDot").objectReferenceValue = r.expLeadDot;
             so.FindProperty("spinsText").objectReferenceValue = r.spinsText;
             so.FindProperty("coinsText").objectReferenceValue = r.coinsText;
             so.FindProperty("scoreText").objectReferenceValue = r.scoreText;
@@ -1777,6 +1862,8 @@ namespace JackpotRun.EditorTools
             so.FindProperty("bossBannerGroup").objectReferenceValue = r.bossBannerGroup;
             so.FindProperty("bossBannerRect").objectReferenceValue = r.bossBannerRect;
             so.FindProperty("bossBannerText").objectReferenceValue = r.bossBannerText;
+            so.FindProperty("bossVignetteGroup").objectReferenceValue = r.bossVignetteGroup;
+            so.FindProperty("runScreenRoot").objectReferenceValue = r.root;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
         }
@@ -1798,6 +1885,7 @@ namespace JackpotRun.EditorTools
             so.FindProperty("flashOverlay").objectReferenceValue = r.flashOverlay;
             so.FindProperty("jackpotBannerGroup").objectReferenceValue = r.jackpotBannerGroup;
             so.FindProperty("jackpotBannerRect").objectReferenceValue = r.jackpotBannerRect;
+            so.FindProperty("runScreenRoot").objectReferenceValue = r.root;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
         }
@@ -1858,6 +1946,17 @@ namespace JackpotRun.EditorTools
             UiKit.Fill(scrim);
             scrim.gameObject.SetActive(false);
 
+            // S14 §E — "배경 딤 페이드"는 이 스크림 자체가 아니라 별도 오버레이로 만든다. scrim에
+            // CanvasGroup을 직접 붙이면 그 CanvasGroup이 자식 전체(Banner/Card)의 알파에도 곱해져,
+            // 이미 자기 알파로 다 켜져 있는 Banner가 카드 슬라이드업 구간에서 함께 어두워졌다 다시
+            // 밝아지는 깜빡임이 생긴다 — Banner/Card와 형제인 별도 패널로 분리해 서로 간섭하지 않게 한다.
+            var dimOverlay = UiKit.Panel(scrim, "DimOverlay", new Color(0f, 0f, 0f, 0.5f));
+            UiKit.Fill(dimOverlay);
+            dimOverlay.GetComponent<Image>().raycastTarget = false;
+            var dimGroup = dimOverlay.gameObject.AddComponent<CanvasGroup>();
+            dimGroup.blocksRaycasts = false;
+            dimGroup.interactable = false;
+
             var bannerPanel = UiKit.Panel(scrim, "Banner", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
             bannerPanel.anchorMin = bannerPanel.anchorMax = new Vector2(0.5f, 1f);
             bannerPanel.pivot = new Vector2(0.5f, 1f);
@@ -1901,6 +2000,7 @@ namespace JackpotRun.EditorTools
             so.FindProperty("cardRect").objectReferenceValue = cardRect;
             so.FindProperty("cardsContent").objectReferenceValue = cardsContent;
             so.FindProperty("cardTemplate").objectReferenceValue = cardTemplate;
+            so.FindProperty("dimGroup").objectReferenceValue = dimGroup;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
         }

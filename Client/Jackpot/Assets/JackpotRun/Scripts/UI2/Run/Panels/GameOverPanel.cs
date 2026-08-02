@@ -12,9 +12,14 @@ namespace JackpotRun.UI2
     // GameOver 페이즈 패널 — ENGINE_PORT_DESIGN.md S7 Run/Panels/GameOverPanel.cs. "GameOver: 딤 0.3s →
     // 패널 스케일인 → 신규 업적 스태거 리스트(0.05s 간격)"(설계 수치 그대로). 이관 원본:
     // Scripts/UI/RunPanels.cs의 BuildGameOver.
+    //
+    // S14 §E — "화면 채도 0.5로 0.4s 페이드"(게임오버 진입). uGUI에는 saturate() 필터가 없어 S12 §7
+    // 재해석 규칙("filter: saturate/brightness → CanvasGroup 알파 또는 색 곱") 그대로, 기존 검정
+    // 스크림(dimGroup)의 페이드를 "채도 저하"의 근사로 재사용하고 지속시간만 0.3s→0.4s로 맞췄다
+    // (완전한 채도 필터를 새로 만들지 않음 — 재해석 보고 대상).
     public sealed class GameOverPanel : MonoBehaviour
     {
-        private const float DimDuration = 0.3f; // 설계 명시
+        private const float DimDuration = 0.4f; // S14 §E 명시: "0.4s 페이드"(원래 0.3s에서 갱신)
         private const float ScaleInDuration = 0.35f; // 설계 미명시 — 패널 스케일인 길이 기본값
         private const float AchStagger = 0.05f; // 설계 명시
 

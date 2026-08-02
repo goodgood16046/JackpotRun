@@ -26,6 +26,11 @@ namespace JackpotRun.UI2
         TitleSpark,
         BtnPress,
         CardPick,
+
+        // S14 §F — 연출 강화 신규 파티클 3종.
+        ReelLand,
+        Converge,
+        JackpotRays,
     }
 
     // 런타임 파티클 재생 API — ENGINE_PORT_DESIGN.md S7c "런타임 API(Scripts/UI2/Fx/FxKit.cs)".
@@ -278,6 +283,9 @@ namespace JackpotRun.UI2
                 case FxId.TitleSpark: return "fx_title_spark";
                 case FxId.BtnPress: return "fx_btn_press";
                 case FxId.CardPick: return "fx_card_pick";
+                case FxId.ReelLand: return "fx_reel_land";
+                case FxId.Converge: return "fx_converge";
+                case FxId.JackpotRays: return "fx_jackpot_rays";
                 default: return null;
             }
         }

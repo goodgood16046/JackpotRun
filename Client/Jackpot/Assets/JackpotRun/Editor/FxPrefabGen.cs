@@ -94,6 +94,11 @@ namespace JackpotRun.EditorTools
                 SavePrefab(Build_TitleSpark(), overwrite);
                 SavePrefab(Build_BtnPress(), overwrite);
                 SavePrefab(Build_CardPick(), overwrite);
+
+                // S14 §F — 연출 강화 신규 파티클 3종(새 파일명).
+                SavePrefab(Build_ReelLand(), overwrite);
+                SavePrefab(Build_Converge(), overwrite);
+                SavePrefab(Build_JackpotRays(), overwrite);
             }
             finally
             {
@@ -634,6 +639,94 @@ namespace JackpotRun.EditorTools
             shape.radiusThickness = 0f;
 
             SizeShrink(ps, 1f, 0.15f);
+            FadeOut(ps);
+            return go;
+        }
+
+        // ── S14 §F: 연출 강화 신규 파티클 3종 ────────────────────────────────────────────
+
+        // fx_reel_land — 릴 착지 임팩트(§B). 셀 바닥 쪽에서 먼지 6개, 0.3s, 알파블렌드, 베이지.
+        private static GameObject Build_ReelLand()
+        {
+            var go = NewRoot("fx_reel_land", _matAlpha, OrderNormal);
+            var ps = go.GetComponent<ParticleSystem>();
+
+            var main = ps.main;
+            main.duration = 0.3f;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.2f, 0.3f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(60f, 140f);
+            main.startSize = new ParticleSystem.MinMaxCurve(8f, 14f);
+            main.startColor = new Color(0.85f, 0.78f, 0.6f, 0.6f); // 먼지(베이지)
+            main.maxParticles = 10;
+
+            SetBurst(ps, 0f, 6); // "먼지 파티클(6개)"
+
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Circle;
+            shape.radius = 70f;
+            shape.position = new Vector3(0f, -90f, 0f); // "바닥" 쪽으로 오프셋(셀 하단 근사)
+
+            FadeOut(ps);
+            return go;
+        }
+
+        // fx_converge — 4매치 성립 시 셀에서 중앙으로 에너지 수렴(§C). FxKit.PlayFlyTo가 from(매치
+        // 셀)→to(중앙 셀)로 이동시키는 것을 전제로 emission/shape를 모두 비활성(fx_coin과 동일 패턴).
+        private static GameObject Build_Converge()
+        {
+            var go = NewRoot("fx_converge", _matAdd, OrderNormal);
+            var ps = go.GetComponent<ParticleSystem>();
+
+            var main = ps.main;
+            main.duration = 0.5f;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.4f, 0.5f);
+            main.startSpeed = 0f;
+            main.startSize = new ParticleSystem.MinMaxCurve(10f, 16f);
+            main.startColor = UiKit.TierGold;
+            main.maxParticles = 24;
+
+            var emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTime = 0f; // FxKit.PlayFlyTo가 Emit(count)로 직접 발사
+
+            var shape = ps.shape;
+            shape.enabled = false;
+
+            FadeInOut(ps, 0.1f, 0.6f);
+            return go;
+        }
+
+        // fx_jackpot_rays — 잭팟 전용 회전 광선(§C "골드 방사 광선 8줄 회전"). w_ray(UiSpriteGen)
+        // 텍스처를 파티클에 그대로 물려(별도 uGUI 8-스포크 리그를 새로 짓지 않는다 — 재해석 보고
+        // 대상) 8개 버스트 + rotationOverLifetime으로 "회전하는 광선 다발"을 근사한다. 개별 파티클의
+        // 초기 방향은 균등 8방향이 아니라 무작위(ParticleSystem 기본 API 한계) — 시각적으로는 여전히
+        // 방사형으로 회전하는 광선 다발처럼 보인다.
+        private static GameObject Build_JackpotRays()
+        {
+            var rayTex = AssetDatabase.LoadAssetAtPath<Texture2D>(UiSpriteGen.OutputDir + "/w_ray.png");
+            var mat = CloneWithTexture(_matAdd, rayTex, "jackpot_rays");
+            var go = NewRoot("fx_jackpot_rays", mat, OrderFullscreen);
+            var ps = go.GetComponent<ParticleSystem>();
+
+            var main = ps.main;
+            main.duration = 1f;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.8f, 1f);
+            main.startSpeed = 0f;
+            main.startSize = new ParticleSystem.MinMaxCurve(260f, 340f); // 화면을 가로지르는 긴 광선
+            main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f); // 라디안 — 무작위 초기 방향
+            main.startColor = new Color(UiKit.TierGold.r, UiKit.TierGold.g, UiKit.TierGold.b, 0.55f);
+            main.maxParticles = 10;
+
+            SetBurst(ps, 0f, 8); // "8줄"
+
+            var shape = ps.shape;
+            shape.enabled = false; // 중심 고정 방출
+
+            var rot = ps.rotationOverLifetime;
+            rot.enabled = true;
+            rot.z = new ParticleSystem.MinMaxCurve(90f, 150f); // "회전"(도/초)
+
             FadeOut(ps);
             return go;
         }

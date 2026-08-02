@@ -18,12 +18,23 @@ namespace JackpotRun.UI2
     {
         private static readonly SpinMode[] ModeOrder = { SpinMode.Focus, SpinMode.Allin, SpinMode.Pray, SpinMode.Last };
 
+        // ── S14 §B 차징(스핀 버튼 스쿼시) ────────────────────────────────────────────────
+        private const float ChargeSquashDuration = 0.08f; // 설계 명시: "버튼 0.08s 스쿼시"
+        private const float ChargeSquashScale = 0.94f;    // 설계 명시: "scale 0.94"
+        private const float ChargeReleaseDuration = 0.10f; // 설계 미명시
+
+        // ── S14 §C 점수 팝업(릴 위 카운트업 + 위로 떠오르며 페이드) ─────────────────────────
+        private const float ScorePopupCountUpDuration = 0.35f; // 설계 명시: "0.35s, OutCubic"
+        private const float ScorePopupFloatDistance = 60f;     // 설계 명시: "위로 60px"
+        private const float ScorePopupFloatDuration = 0.6f;    // 설계 미명시
+
         // AppRoot는 DontDestroyOnLoad 싱글턴(S8)이라 씬에 없다 — SceneBuilder가 와이어링할 수 없으므로
         // 정적 인스턴스를 계산 프로퍼티로 읽는다(호출부는 그대로 "appRoot.XXX").
         private AppRoot appRoot => AppRoot.Instance;
         [SerializeField] private HudView hudView;
         [SerializeField] private ReelView reelView;
         [SerializeField] private Text resultLineText; // 릴-노트 사이 "스테이지 정보 영역" 획득 요약(Fable 지시)
+        [SerializeField] private CanvasGroup resultLineGroup; // S14 §C — 점수 팝업 페이드 대상(resultLineText 소유)
         [SerializeField] private NotesFeed notesFeed;
         [SerializeField] private CanvasGroup controlsGroup; // 연출 중 조작부 잠금(스팸 클릭 방지)
 
@@ -68,9 +79,14 @@ namespace JackpotRun.UI2
             for (int i = 0; i < modeButtons.Length && i < ModeOrder.Length; i++)
             {
                 var mode = ModeOrder[i];
-                modeButtons[i].onClick.AddListener(() => Send(new Spin(mode)));
+                var btnRect = modeButtons[i].GetComponent<RectTransform>();
+                modeButtons[i].onClick.AddListener(() => { PlaySpinChargeSquash(btnRect); Send(new Spin(mode)); });
             }
-            if (spinButton != null) spinButton.onClick.AddListener(() => Send(new Spin(SpinMode.N)));
+            if (spinButton != null)
+            {
+                var spinRect = spinButton.GetComponent<RectTransform>();
+                spinButton.onClick.AddListener(() => { PlaySpinChargeSquash(spinRect); Send(new Spin(SpinMode.N)); });
+            }
             if (bagButton != null)
                 bagButton.onClick.AddListener(() => bagPopup?.Show(_session.State, itemId => Send(new UseItem(itemId))));
         }
@@ -81,6 +97,9 @@ namespace JackpotRun.UI2
         public void Bind(GameSession session)
         {
             _session = session;
+            // OnEnable이 세션보다 먼저 도는 경로(PlaySceneRoot.Start에서 바인딩)에서는 초기화가
+            // 통째로 건너뛰어져 릴이 비어 보였다 — 이미 활성 상태면 여기서 초기화를 이어서 한다.
+            if (isActiveAndEnabled && !_initialized) InitForRun();
         }
 
         private void OnEnable()
@@ -88,7 +107,15 @@ namespace JackpotRun.UI2
             // Bind가 먼저 호출되지 않았다면(Play 씬 단독 실행 등 예외 경로) AppRoot.Session을 폴백으로 읽는다.
             if (_session == null) _session = appRoot != null ? appRoot.Session : null;
             if (_session == null) return; // 초기 씬 로드 중 화면이 잠깐 활성화되는 경우 등 방어
+            InitForRun();
+        }
 
+        private bool _initialized;
+
+        private void InitForRun()
+        {
+            if (_session == null) return;
+            _initialized = true;
             _busy = false;
             _lastClear = null;
             _lastOfferEvent = null;
@@ -96,8 +123,12 @@ namespace JackpotRun.UI2
 
             notesFeed?.Clear();
             reelView?.Clear();
+            // 첫 스핀 전까지 릴이 비어 보이지 않도록 대기 상태 셀을 세워 둔다(셀 생성은 원래
+            // PlaySpinRoutine 안에서만 일어난다). 릴 수는 엔진 기본값 + 보조릴 장치 보정.
+            reelView?.ShowIdle(IdleReelCount());
             hudView?.ResetForNewRun();
             if (resultLineText != null) resultLineText.text = "";
+            if (resultLineGroup != null) resultLineGroup.alpha = 1f;
             HidePanels();
             SetControlsInteractable(true);
 
@@ -108,10 +139,19 @@ namespace JackpotRun.UI2
         {
             StopAllCoroutines();
             _busy = false;
+            _initialized = false;
             // 페이즈 패널/팝업은 전역 OverlayLayer 산하라(RunScreen의 자식이 아님) SetActive(false)가
             // 저절로 전파되지 않는다 — 화면을 떠날 때(EndRun→ShowMenu 등) 명시적으로 닫아야 다음 화면
             // 위에 유령처럼 남아있는 것을 막는다.
             HidePanels();
+        }
+
+        // 대기 상태 릴 개수 — SpinResolver와 같은 규칙(보조릴 장치면 +1). 엔진 상태를 읽기만 한다.
+        private int IdleReelCount()
+        {
+            var st = _session?.Controller?.State;
+            bool subreel = st != null && (st.Device == "dev_subreel" || st.Device2 == "dev_subreel");
+            return subreel ? Formulas.REEL + 1 : Formulas.REEL;
         }
 
         private void HidePanels()
@@ -148,14 +188,17 @@ namespace JackpotRun.UI2
                 yield return reelView.PlaySpinRoutine(spinToAnimate.result, () =>
                 {
                     hudView.RefreshAfterSpin(_session.State, _session.PreviewQuotaSpins(), expBefore);
-                    SetResultLine(gained, res.score, res.coins);
+                    // S14 §C — "획득 EXP/점수를 릴 위에서 카운트업 + 위로 60px 떠오르며 페이드".
+                    StartCoroutine(ScorePopupRoutine(gained, res.score, res.coins));
                     // S7c 연출 훅: "코인 증가 시 Coin(릴→코인 라벨 flyTo)".
                     hudView.PlayCoinFx((RectTransform)reelView.transform, res.coins);
                 });
             }
             else
             {
-                reelView.Clear();
+                // 스핀 결과가 없는 이벤트 배치(런 시작·노드 선택 등)에서는 릴을 비우는 대신 대기
+                // 상태로 세워 둔다 — 그냥 Clear하면 첫 스핀 전까지 릴 영역이 통째로 비어 보인다.
+                reelView.ShowIdle(IdleReelCount());
                 hudView.RefreshInstant(_session.State, _session.PreviewQuotaSpins());
             }
 
@@ -167,13 +210,61 @@ namespace JackpotRun.UI2
             _busy = false;
         }
 
-        // "스테이지 정보 영역"(릴-노트 사이 flex 영역) 획득 요약 — Fable 지시로 이모지 없이 한글 라벨만
-        // 사용한다(astral 이모지가 레거시 Text에서 렌더링되지 않는 문제 회피, HudView 코인/점수와 동일 이유).
-        private void SetResultLine(long expGained, long scoreGained, int coinsGained)
+        // S14 §B — 스핀을 발동한 버튼 자체를 0.94로 스쿼시했다 되돌린다(릴 반동은 ReelView가 동시에
+        // 재생 — PlaySpinRoutine 시작 부분의 ChargeRoutine). PressFx가 이미 포인터 다운/업에 0.96
+        // 스쿼시를 재생하지만, 그건 터치 자체의 즉각 피드백이고 이건 "스핀이 실제로 시작되는 순간"에
+        // 맞춘 별도의 체감 펀치라 함께 재생해도 부자연스럽지 않다(설계 "스핀 버튼 누름 → 버튼 0.08s
+        // 스쿼시" — 4버튼 모드도 전부 스핀을 발동하므로 동일하게 적용한다).
+        private void PlaySpinChargeSquash(RectTransform rt)
         {
-            if (resultLineText == null) return;
-            resultLineText.text =
-                $"획득 EXP +{NumberFormat.Comma(expGained)} · 점수 +{NumberFormat.Comma(scoreGained)} · 코인 +{coinsGained}";
+            if (rt == null) return;
+            StartCoroutine(SpinChargeSquashRoutine(rt));
+        }
+
+        private IEnumerator SpinChargeSquashRoutine(RectTransform rt)
+        {
+            yield return UiTween.ScaleRoutine(rt, rt.localScale, Vector3.one * ChargeSquashScale, ChargeSquashDuration, UiTween.Ease.OutQuad);
+            if (rt == null) yield break;
+            yield return UiTween.ScaleRoutine(rt, rt.localScale, Vector3.one, ChargeReleaseDuration, UiTween.Ease.OutBack);
+        }
+
+        // S14 §C — "스테이지 정보 영역"(릴-노트 사이 flex 영역) 획득 요약을 정적 텍스트 대신 카운트업
+        // (0.35s, OutCubic) 후 위로 60px 떠오르며 페이드시키는 팝업으로 재생한다. 설계는 "릴 위"라고
+        // 표현하지만 새 오버레이를 짓는 대신 기존 resultLineText(릴 바로 아래 StageInfo 영역, 릴과
+        // 인접)를 재사용했다 — 위치는 기존 레이아웃 그대로이고 카운트업+플로팅+페이드 애니메이션만
+        // 새로 얹은 것(재해석 보고 대상). 코인은 설계가 카운트업 대상으로 명시하지 않아 즉시 표시.
+        private IEnumerator ScorePopupRoutine(long expGained, long scoreGained, int coinsGained)
+        {
+            if (resultLineText == null) yield break;
+            var rt = resultLineText.rectTransform;
+            Vector2 basePos = rt.anchoredPosition;
+            rt.anchoredPosition = basePos;
+            if (resultLineGroup != null) resultLineGroup.alpha = 1f;
+
+            float ct = 0f;
+            while (ct < ScorePopupCountUpDuration)
+            {
+                ct += Time.deltaTime;
+                float e = UiTween.Apply(UiTween.Ease.OutCubic, ct / ScorePopupCountUpDuration);
+                long curExp = (long)System.Math.Round(expGained * e);
+                long curScore = (long)System.Math.Round(scoreGained * e);
+                resultLineText.text = $"획득 EXP +{NumberFormat.Comma(curExp)} · 점수 +{NumberFormat.Comma(curScore)} · 코인 +{coinsGained}";
+                yield return null;
+            }
+            resultLineText.text = $"획득 EXP +{NumberFormat.Comma(expGained)} · 점수 +{NumberFormat.Comma(scoreGained)} · 코인 +{coinsGained}";
+
+            float ft = 0f;
+            while (ft < ScorePopupFloatDuration)
+            {
+                ft += Time.deltaTime;
+                float p = Mathf.Clamp01(ft / ScorePopupFloatDuration);
+                rt.anchoredPosition = basePos + new Vector2(0f, ScorePopupFloatDistance * p);
+                if (resultLineGroup != null) resultLineGroup.alpha = 1f - p;
+                yield return null;
+            }
+            rt.anchoredPosition = basePos;
+            if (resultLineGroup != null) resultLineGroup.alpha = 1f;
+            resultLineText.text = "";
         }
 
         private void SetControlsInteractable(bool interactable)

@@ -67,6 +67,17 @@ namespace JackpotRun.UI2
         // 하나로 통일했다((1080 - 패딩48 - 스페이싱48)/5 ≈ 196.8의 근사 정사각, S7 이관 값 그대로).
         public const float ReelCellSize = 196f;
 
+        // S14 §A — "릴 이웃 칸 상시 노출": 뷰포트(=Reel_i, RectMask2D, 위 ReelCellSize)는 196으로
+        // 그대로 두고, Strip 내부 개별 슬롯 높이만 130으로 줄인다 — (196-130)/2=33px씩 위/아래
+        // 이웃이 뷰포트 안으로 비쳐 보인다("위/아래 각 33px씩 보인다", 설계 그대로). Editor(빌더)와
+        // 런타임(ReelView 노치 스크롤 거리)이 같은 값을 공유해야 하므로 ReelCellSize와 동일하게
+        // 여기 하나로 통일한다.
+        public const float ReelSlotSize = 130f;
+        // 중앙 슬롯 심볼 렌더 크기(고정 정사각) — 이웃은 여기에 §A "scale 0.88"을 곱해서 축소한다.
+        public const float ReelSymbolSize = 95f;
+        // 셀 상/하단 페이드 마스크 높이(w_reel_fade 오버레이가 덮는 영역) — §A "28px" 그대로.
+        public const float ReelFadeHeight = 28f;
+
         // 등급 3종 — Tier enum(JackpotRun.Engine)과 대응하지만 여기서는 카탈로그 pick.tier 문자열
         // ("SILVER"/"GOLD"/"PRISM")을 그대로 받는다(뷰가 카탈로그 데이터를 직접 다루므로). 별도
         // "정답" 색상표가 없어 심볼 팔레트(gem=보석 #7C5CFF 등)와 톤을 맞춰 새로 정했다 — 사용자

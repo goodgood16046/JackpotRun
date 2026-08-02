@@ -29,6 +29,7 @@ namespace JackpotRun.UI2
         [SerializeField] private RectTransform cardRect; // 슬라이드업 대상(카드 패널 전체)
         [SerializeField] private RectTransform cardsContent;
         [SerializeField] private RectTransform cardTemplate;
+        [SerializeField] private CanvasGroup dimGroup; // S14 §E — 배경 딤(scrim 자체의 CanvasGroup) 페이드
 
         private Coroutine _routine;
 
@@ -36,6 +37,7 @@ namespace JackpotRun.UI2
         {
             if (cardTemplate != null) cardTemplate.gameObject.SetActive(false);
             if (bannerGroup != null) bannerGroup.alpha = 0f;
+            if (dimGroup != null) dimGroup.alpha = 0f;
         }
 
         public void Show(ClearOutcome clear, RunState run, Action<int> onChoose)
@@ -59,6 +61,7 @@ namespace JackpotRun.UI2
         {
             if (bannerGroup != null) bannerGroup.alpha = 0f;
             if (cardRect != null) cardRect.anchoredPosition = Vector2.zero;
+            if (dimGroup != null) dimGroup.alpha = 1f;
         }
 
         private IEnumerator EnterRoutine(ClearOutcome clear)
@@ -82,6 +85,8 @@ namespace JackpotRun.UI2
                 yield return new WaitForSeconds(PostBannerDelay);
             }
 
+            // S14 §E — "1.0s 후 노드 패널 슬라이드업 + 배경 딤 페이드"(동시 재생).
+            if (dimGroup != null) StartCoroutine(UiTween.FadeRoutine(dimGroup, 0f, 1f, CardSlideDuration));
             if (cardRect != null)
                 yield return UiTween.MoveRoutine(cardRect, cardRect.anchoredPosition, Vector2.zero,
                     CardSlideDuration, UiTween.Ease.OutBack);

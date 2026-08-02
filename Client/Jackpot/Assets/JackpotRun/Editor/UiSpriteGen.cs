@@ -157,6 +157,24 @@ namespace JackpotRun.EditorTools
                 // ≥1.02이고 이동량이 작아(§7 재해석) 실사용에서 가장자리가 드러나지 않는다.
                 WriteFullSprite("w_aurora", CreateAuroraTexture(1080, 1920), overwrite, 2048);
                 WriteFullSprite("w_vignette", CreateVignetteTexture(1080, 1920), overwrite, 2048);
+
+                // ── S14 §F — 신규 에셋(전부 새 파일명, overwrite:false 함정 회피) ─────────────
+                // w_reel_fade: 릴 셀 상/하단 28px 페이드 마스크(§A). border 0(Type.Simple 취급 —
+                // w_gloss와 동일 관례) — 소비측이 위쪽엔 그대로, 아래쪽엔 세로로 뒤집어(localScale.y=-1)
+                // 붙인다. 릴 셀 배경(w_reel)이 자체 그라데이션이라 단일 edge color로 완벽히 맞물리진
+                // 않지만, 중간 톤(w_reel의 48% 스톱 색)을 써서 위/아래 어느 쪽에도 크게 어긋나지
+                // 않게 근사했다(보고 대상 — 완전 매치가 필요하면 상/하 별도 파일 분리 검토).
+                WriteSprite("w_reel_fade", CreateVerticalFade(64, 256, ParseHex("#1a2038")), Vector4.zero, overwrite);
+                // w_streak: 최고속 스핀 중 셀에 얹는 세로 블러 스트릭 오버레이(§B). 흰색 베이스라
+                // 소비측이 Image.color 알파(설계 .35)로 세기를 조절한다. 실제 "아래로 흐름" 스크롤은
+                // uGUI Image가 텍스처 오프셋 애니메이션을 기본 지원하지 않아 생략했다(정적 밴드
+                // 오버레이 + 알파 온/오프로 근사, 보고 대상).
+                WriteSprite("w_streak", CreateVerticalStreak(CanvasSize), Vector4.zero, overwrite);
+                // w_ray: 잭팟용 방사 광선 1줄(쐐기꼴, 밑변 불투명→끝 투명). 9-slice 아님(border 0) —
+                // 이번 슬라이스는 이 스프라이트를 fx_jackpot_rays 파티클 텍스처로만 소비한다(별도
+                // uGUI 8-스포크 리그를 새로 짓지 않고 파티클 버스트 8개 + 자체 회전으로 "8줄 회전"을
+                // 근사 — FxPrefabGen.cs 주석 참조, 재해석 보고 대상).
+                WriteSprite("w_ray", CreateRayTexture(CanvasSize), Vector4.zero, overwrite);
             }
             finally
             {
@@ -459,6 +477,77 @@ namespace JackpotRun.EditorTools
         private static Color ParseHex(string hex)
         {
             return ColorUtility.TryParseHtmlString(hex, out var c) ? c : Color.white;
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════
+        // S14 §F — 신규 에셋 3종 텍스처 생성
+        // ══════════════════════════════════════════════════════════════════════════════
+
+        // 세로 페이드(y=0 하단=투명 → y=h-1 상단=edgeColor 완전 불투명) — CreateTopGloss와 동일한
+        // "y=size-1이 위쪽" 관례. 소비측이 아래쪽 페이드로 쓸 땐 세로로 뒤집어(localScale.y=-1) 붙인다.
+        private static Texture2D CreateVerticalFade(int w, int h, Color edgeColor)
+        {
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            var pixels = new Color32[w * h];
+            for (int y = 0; y < h; y++)
+            {
+                float alpha = y / (float)(h - 1);
+                var c = edgeColor;
+                c.a = edgeColor.a * alpha;
+                for (int x = 0; x < w; x++) pixels[y * w + x] = c;
+            }
+            tex.SetPixels32(pixels);
+            tex.Apply();
+            return tex;
+        }
+
+        // 세로 블러 스트릭 — x축을 따라 4개의 부드러운 흰색 밴드(가우시안형 falloff)를 반복해
+        // "세로로 흐르는 모션 블러" 느낌을 낸다. 흰색 베이스(소비측 알파 틴트 전제).
+        private static Texture2D CreateVerticalStreak(int size)
+        {
+            var tex = NewTex(size);
+            var pixels = new Color32[size * size];
+            const float bands = 4f;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float u = (x + 0.5f) / size;
+                    float bandPos = u * bands;
+                    float frac = bandPos - Mathf.Floor(bandPos);
+                    float distFromCenter = Mathf.Abs(frac - 0.5f) * 2f; // 0(밴드 중심)~1(밴드 경계)
+                    float a = Mathf.Clamp01(1f - distFromCenter * distFromCenter);
+                    pixels[y * size + x] = new Color(1f, 1f, 1f, a * 0.9f);
+                }
+            }
+            tex.SetPixels32(pixels);
+            tex.Apply();
+            return tex;
+        }
+
+        // 방사 광선 1줄(쐐기꼴) — 밑변(y=0, 화면/파티클 피벗 기준점)은 넓고 불투명, 끝(y=size-1,
+        // 바깥쪽 팁)으로 갈수록 좁아지고 투명해진다. 흰색 베이스(소비측이 골드로 틴트).
+        private static Texture2D CreateRayTexture(int size)
+        {
+            var tex = NewTex(size);
+            var pixels = new Color32[size * size];
+            float baseHalfWidth = size * 0.10f;
+            float cx = size / 2f;
+            for (int y = 0; y < size; y++)
+            {
+                float v = y / (float)(size - 1); // 0(밑변)~1(팁)
+                float halfW = Mathf.Lerp(baseHalfWidth, 0f, v);
+                float alphaFade = Mathf.Pow(1f - v, 1.4f);
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = Mathf.Abs(x + 0.5f - cx);
+                    float coverage = Mathf.Clamp01(halfW - dx + 1f);
+                    pixels[y * size + x] = new Color(1f, 1f, 1f, coverage * alphaFade);
+                }
+            }
+            tex.SetPixels32(pixels);
+            tex.Apply();
+            return tex;
         }
 
         // ══════════════════════════════════════════════════════════════════════════════
