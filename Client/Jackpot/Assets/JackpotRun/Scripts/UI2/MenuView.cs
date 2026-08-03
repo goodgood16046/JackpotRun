@@ -17,7 +17,7 @@ namespace JackpotRun.UI2
     // 쓰므로 원본에 맞는 동작이지만, Unity에는 그 설정 화면이 아직 없다(Fable 보고 대상 — 후속 슬라이스
     // 필요 여부 판단).
     //
-    // 랭킹 화면(RankView)은 아직 없어 버튼만 두고 토스트로 "준비 중"만 안내한다(§4 그대로 버튼은 유지).
+    // 랭킹 버튼은 S15에서 실제 화면(RankView)으로 연결됐다(§4 그대로 버튼 유지, 토스트 안내는 제거).
     public sealed class MenuView : MonoBehaviour
     {
         private AppRoot appRoot => AppRoot.Instance;
@@ -27,7 +27,7 @@ namespace JackpotRun.UI2
         [SerializeField] private Text statStageValue;  // hud-stats "최고 스테이지"
         [SerializeField] private Text statPlaysValue;  // hud-stats "플레이"
         [SerializeField] private Text summaryText;      // "업적 n/482 · 장치 n/16 해금"
-        [SerializeField] private Button rankButton;     // 랭킹(화면 미구현 — 토스트 안내)
+        [SerializeField] private Button rankButton;     // 랭킹(S15: RankView로 이동)
         [SerializeField] private RectTransform mainButtonRect; // S13 §E — fx_ui_aura 앵커("▶ 게임 시작" 버튼)
 
         private ParticleSystem _mainButtonAura;
@@ -51,7 +51,7 @@ namespace JackpotRun.UI2
 
         private void OnRankClicked()
         {
-            appRoot?.Toast?.Show("랭킹은 아직 준비 중이에요");
+            appRoot?.ShowRank();
         }
 
         private void Refresh()

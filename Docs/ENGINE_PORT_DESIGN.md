@@ -420,17 +420,25 @@ Play: PlaySceneRoot.Awake → AppRoot.ConsumePendingLaunch() → GameSession 생
 6. **`MenuView.cs`** — `OnRankClicked()`를 `appRoot?.ShowRank()`로 교체(토스트 제거), 헤더 주석의
    "랭킹 화면 없음" 문구 갱신.
 7. **`Scripts/UI2/RankView.cs` (신규)** — 필드: `Text statusText` · `RectTransform listContent` ·
-   `RectTransform rowTemplate`(자식 경로 계약: `"RankNo"`·`"Nick"`·`"Score"` 각 Text, 루트에 행 배경
-   Image). `Awake`: rowTemplate 비활성. `OnEnable`: 기존 행 제거(rowTemplate 제외 —
-   DexView.RenderGrid 패턴) → statusText "랭킹 불러오는 중..." → `RankingService.Fetch(this, ...)`.
+   `RectTransform rowTemplate`(자식 경로 계약: `"Content/RankNo"`·`"Content/Nick"`·`"Content/Score"`
+   각 Text, 루트에 행 배경 Image — UiKit.HGroup이 만드는 중간 GameObject를 "Content"로 개명해 찾는다.
+   Transform.Find는 직계 자식만 찾으므로, BuildDexCardTemplate "Content" 계약과 동일. **Opus 1차
+   검수 치명-1 반영**: 초안의 "직계 자식" 표기는 8번의 HGroup 구조와 모순이었다). `Awake`:
+   rowTemplate 비활성. `OnEnable`: 기존 행 제거(rowTemplate 제외 — DexView.RenderGrid 패턴) →
+   statusText "랭킹 불러오는 중..." → `RankingService.Fetch(this, ...)`.
    onOk 0건 → "아직 등록된 기록이 없어요\n첫 기록의 주인공이 되어보세요!"; 있으면 statusText 숨기고
-   **상위 100행** 생성 — RankNo: 1~3위 `🥇🥈🥉`, 4위부터 숫자 / Nick: nick / Score:
+   **상위 100행** 생성 — RankNo: **항상 숫자**, 1~3위는 금/은/동 색 강조(`UiKit.Gold` /
+   `#C7CFDE` / `#D08A4E`. 초안의 메달 `🥇🥈🥉`는 astral 이모지라 레거시 Text가 렌더링하지 못해
+   — S8 항목⑤ 실측 — 색상 숫자로 대체, **Opus 검수 중요-3 반영**) / Nick: nick / Score:
    `NumberFormat.Comma(score) + " · S" + stage`. **내 행**(pid==PlayerId()): 배경 `UiKit.CardTop` +
-   Nick 색 골드(UiKit에 골드 상수 있으면 그것, 없으면 `UiKit.Hex("#F5C34D")`). onError → statusText
+   Nick 색 `UiKit.Gold`. onError → statusText
    "랭킹을 불러오지 못했어요\n네트워크 확인 후 다시 열어주세요". 화면이 꺼지면 host(this) 코루틴이
    함께 멎으므로 콜백 누수 없음 — 콜백 첫 줄에서 파괴/비활성 가드.
+   추가(Fable 최종 검수): `AppRoot.CompleteLogin`에도 `TrySubmitBest` 훅 — 닉네임 변경 직후 보드
+   반영(내부 "닉이 달라졌나" 판정이 실제 PUT 여부 결정).
 8. **`Editor/UiSceneBuilder.cs`** — `BuildRankScreen(canvasRoot)`: **BuildDexScreen 컨벤션 그대로**
-   (UiKit.Panel/Fill/VGroup/HGroup/SizeHint/Scroll, `panel_r24`). 헤더 90("🏆 랭킹" H1 +
+   (UiKit.Panel/Fill/VGroup/HGroup/SizeHint/Scroll, `panel_r24`). 헤더 90("잭팟런 랭킹" H1 —
+   초안의 "🏆"는 astral 미렌더로 제거(중요-3) —
    "← 메뉴" 백버튼 160×70 `#2A3048` — `AddNavButton(backButton, NavButton.Target.Menu)`) →
    statusText(TextSecondary, MiddleCenter, preferredHeight 64, flexibleHeight 0) → 세로
    Scroll(flexibleHeight 1): content에 VerticalLayoutGroup(spacing 10, padding 20/20/12/20,

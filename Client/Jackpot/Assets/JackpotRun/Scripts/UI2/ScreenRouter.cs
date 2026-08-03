@@ -26,6 +26,7 @@ namespace JackpotRun.UI2
             Menu,
             Pick,
             Dex,
+            Rank, // S15: 글로벌 랭킹(RankView.cs)
         }
 
         [Serializable]

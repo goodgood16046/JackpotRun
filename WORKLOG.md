@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-03 - S15 글로벌 랭킹 (Firebase RTDB, 앱+웹)
+
+- **Firebase 확인**: 콘솔 표시명이 "JackpotRun"으로 바뀌었으나 **프로젝트 ID는 `jackpotrun-web` 불변**(표시명 변경은 ID/URL/키에 무영향 — RTDB·호스팅 실측, `jackpotrun` ID는 전 리전 404). 코드는 기존 URL 유지, 프로젝트 이전 시 `RankingService.DbUrl`·웹 config 두 곳만 교체.
+- **파이프라인**: Fable 설계(ENGINE_PORT_DESIGN.md S15) → Sonnet 2병렬(Unity/웹) → Opus 검수 → Fable 반영. Opus 검수: 치명 1(행 자식 경로 계약 — HGroup이 중간 노드라 `row.Find("RankNo")` 전부 null → `"Content/…"` 계약으로 통일, Dex 선례) · 중요 2(씬 리빌드 필요, astral 이모지 미렌더 → 1~3위 금은동 **색상 숫자**로 대체) · 경미 8(MiniJson `catch(Exception)` 확대, `CompleteLogin`에도 제출 훅(닉 변경 즉시 반영), 주석 정리 등 반영).
+- **Unity 앱**: `Game/MiniJson.cs`(순수 C# JSON 파서) · `Game/RankingService.cs`(RTDB REST — `jackpotrank/$pid` PUT/GET, PlayerPrefs pid GUID·제출 캐시로 중복 PUT 방지, 실패 시 다음 Intro 진입에서 자동 재시도) · `UI2/RankView.cs`(상위 100, 내 행 CardTop+골드 닉 강조) · ScreenRouter `Rank` + AppRoot `ShowRank`/RegisterIntro 제출 훅 + MenuView 랭킹 버튼 실연결(토스트 제거) + UiSceneBuilder `BuildRankScreen` + **Intro 씬 리빌드 완료**.
+- **웹**: `public/ranking/`(index/app/style — 동일 정렬 score↓·ts↑, `_hesc` XSS 이스케이프, 상위 100, 날짜 표기) · `firebase.json` `/ranking/**` no-cache · `database.rules.json` `jackpotrank`(read 공개, `$pid` 검증 쓰기, indexOn score, `$other` 차단).
+- **검증**: csc 오프라인 컴파일 0오류 · 에디터 컴파일/씬 리빌드 0오류 · 플레이 스모크 실클릭 경로(타이틀→메뉴→랭킹→백버튼) — 오류 상태 문구(규칙 미배포라 정상) 및 **성공 경로**(가짜 5건 주입: 행 렌더·점수 표기 `52,340 · S15`·내 행 강조) 스크린샷 확인, 콘솔 오류·경고 0. 참고: 비포커스 화면 겹침은 기지의 runInBackground=false 현상(코드 버그 아님).
+- ⏳ **남은 것(사용자 실행 필요)**: `firebase deploy --only hosting,database --project jackpotrun-web` — 이 PC엔 firebase CLI 없음. **규칙 배포 전에는 앱·웹 랭킹이 "불러오지 못했어요" 문구를 띄우는 게 정상**(RTDB 기본 거부).
+
 ## 2026-07-31 - MCP 인터랙티브 실플레이 검증 통과 + 저장소 문서 정리
 
 - **MCP 연결**: stdio 브리지가 자동 시작되지 않던 원인(AutoStartOnLoad 기본 off) 해결 — `Editor/McpBridgeAutoStart.cs` 추가(에디터 열면 자동 연결). 

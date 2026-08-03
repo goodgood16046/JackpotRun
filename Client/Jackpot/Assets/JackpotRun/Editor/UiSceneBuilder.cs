@@ -111,6 +111,7 @@ namespace JackpotRun.EditorTools
             var overlay = BuildOverlayLayer(canvasRoot);
             var dexDetail = BuildDexDetailPopup(overlay);
             var dex = BuildDexScreen(canvasRoot, dexDetail);
+            var rank = BuildRankScreen(canvasRoot); // S15: 글로벌 랭킹
             ((RectTransform)overlay).SetAsLastSibling();
 
             var toast = BuildToast(canvasRoot);
@@ -125,7 +126,8 @@ namespace JackpotRun.EditorTools
                 (ScreenRouter.ScreenId.Login, login.root, login.group),
                 (ScreenRouter.ScreenId.Menu, menu.root, menu.group),
                 (ScreenRouter.ScreenId.Pick, pick.root, pick.group),
-                (ScreenRouter.ScreenId.Dex, dex.root, dex.group));
+                (ScreenRouter.ScreenId.Dex, dex.root, dex.group),
+                (ScreenRouter.ScreenId.Rank, rank.root, rank.group));
 
             var introSo = new SerializedObject(introRoot);
             introSo.FindProperty("router").objectReferenceValue = router;
@@ -134,6 +136,7 @@ namespace JackpotRun.EditorTools
             introSo.FindProperty("menuView").objectReferenceValue = menu.view;
             introSo.FindProperty("pickView").objectReferenceValue = pick.view;
             introSo.FindProperty("dexView").objectReferenceValue = dex.view;
+            introSo.FindProperty("rankView").objectReferenceValue = rank.view;
             introSo.FindProperty("auroraRect").objectReferenceValue = auroraRect;
             introSo.ApplyModifiedPropertiesWithoutUndo();
 
@@ -141,6 +144,7 @@ namespace JackpotRun.EditorTools
             WireMenuView(menu);
             WirePickView(pick);
             WireDexView(dex, dexDetail);
+            WireRankView(rank);
 
             // 순수 내비게이션 버튼(AppRoot는 DontDestroyOnLoad라 에디터 시점엔 존재하지 않으므로
             // UnityEventTools.AddPersistentListener로 직접 가리킬 수 없다 — NavButton.cs 헤더 참조).
@@ -150,6 +154,7 @@ namespace JackpotRun.EditorTools
             AddNavButton(menu.dexButton, NavButton.Target.Dex);
             AddNavButton(pick.backButton, NavButton.Target.Menu);
             AddNavButton(dex.backButton, NavButton.Target.Menu);
+            AddNavButton(rank.backButton, NavButton.Target.Menu);
 
             CheckLayoutOverlaps(canvasRoot); // S13 §C 회귀 방지 자가 점검
             SaveScene(scene, IntroScenePath);
@@ -458,6 +463,18 @@ namespace JackpotRun.EditorTools
             public Image[] tabImages;
             public RectTransform gridContent;
             public RectTransform cardTemplate;
+        }
+
+        // S15 — 글로벌 랭킹 화면(RankView.cs) 결과 컨테이너.
+        private sealed class RankBuildResult
+        {
+            public RectTransform root;
+            public CanvasGroup group;
+            public UI2.RankView view;
+            public Button backButton;
+            public Text statusText;
+            public RectTransform listContent;
+            public RectTransform rowTemplate;
         }
 
         // ── 씬 공통 골격 ─────────────────────────────────────────────────────────────
@@ -2740,6 +2757,93 @@ namespace JackpotRun.EditorTools
             so.FindProperty("closeButton").objectReferenceValue = closeButton;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════
+        // RankScreen — S15: 글로벌 랭킹(jackpotrank/$pid, 앱+웹 공용). BuildDexScreen 컨벤션 그대로
+        // (헤더 → 상태 문구 → 세로 스크롤 행 목록). 이관 원본 없음(신규 화면).
+        // ══════════════════════════════════════════════════════════════════════════════
+        private static RankBuildResult BuildRankScreen(Transform canvasRoot)
+        {
+            var result = new RankBuildResult();
+            var panelSprite = UiSpriteGen.Load("panel_r24");
+
+            var root = UiKit.Panel(canvasRoot, "RankScreen", UiKit.Bg);
+            UiKit.Fill(root);
+            result.root = root;
+            result.group = root.gameObject.AddComponent<CanvasGroup>();
+            result.view = root.gameObject.AddComponent<UI2.RankView>();
+
+            var col = UiKit.VGroup(root, 0, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.Fill(col);
+
+            // 헤더 — 90.
+            var header = UiKit.HGroup(col, 16, new RectOffset(24, 24, 16, 8), true, true);
+            UiKit.SizeHint(header, preferredHeight: 90, flexibleHeight: 0);
+            // "🏆 랭킹"이 아니라 한글만 — astral 이모지는 레거시 Text가 렌더링하지 못한다(S8 항목⑤).
+            var title = UiKit.Text(header, "잭팟런 랭킹", UiKit.TextStyle.H1, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(title, flexibleWidth: 1, flexibleHeight: 0);
+            result.backButton = UiKit.Button(header, "← 메뉴", new Vector2(160, 70), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, panelSprite);
+            UiKit.SizeHint(result.backButton, preferredWidth: 160, preferredHeight: 70, flexibleWidth: 0, flexibleHeight: 0);
+
+            // 상태 문구(로딩/빈 목록/오류) — RankView.OnEnable·OnFetchOk·OnFetchError가 채운다.
+            result.statusText = UiKit.Text(col, "", UiKit.TextStyle.BodySecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(result.statusText, preferredHeight: 64, flexibleHeight: 0);
+
+            // 세로 스크롤 목록 — 상위 100행(RankView가 채움).
+            var listScroll = UiKit.Scroll(col, out var listContent, vertical: true);
+            UiKit.SizeHint(listScroll, flexibleHeight: 1);
+            var vlg = listContent.gameObject.AddComponent<VerticalLayoutGroup>();
+            vlg.spacing = 10;
+            vlg.padding = new RectOffset(20, 20, 12, 20);
+            vlg.childControlWidth = true;
+            vlg.childControlHeight = true;
+            vlg.childForceExpandWidth = true;
+            vlg.childForceExpandHeight = false;
+            var listCsf = listContent.gameObject.AddComponent<ContentSizeFitter>();
+            listCsf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            result.listContent = listContent;
+            result.rowTemplate = BuildRankRowTemplate(listContent);
+
+            return result;
+        }
+
+        // 자식 경로 계약(RankView.cs): 루트 자신에 행 배경 Image, "Content/RankNo"·"Content/Nick"·
+        // "Content/Score" 각 Text. UiKit.HGroup이 만드는 중간 GameObject를 "Content"로 개명한다 —
+        // Transform.Find는 직계 자식만 찾으므로(BuildDexCardTemplate과 동일 이유, Opus S15 치명-1).
+        private static RectTransform BuildRankRowTemplate(Transform parent)
+        {
+            var r11 = UiSpriteGen.Load("rrect_r11");
+            var row = UiKit.Panel(parent, "RankRowTemplate", UiKit.PanelBg, r11);
+            UiKit.SizeHint(row, preferredHeight: 84, flexibleHeight: 0);
+
+            var content = UiKit.HGroup(row, 12, new RectOffset(18, 18, 12, 12), true, true);
+            content.name = "Content";
+            UiKit.Fill(content);
+
+            var rankNo = UiKit.Text(content, "", 28, UiKit.TextPrimary, TextAnchor.MiddleCenter);
+            rankNo.name = "RankNo";
+            UiKit.SizeHint(rankNo, preferredWidth: 88, flexibleWidth: 0);
+
+            var nick = UiKit.Text(content, "", 24, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            nick.name = "Nick";
+            UiKit.SizeHint(nick, flexibleWidth: 1);
+
+            var score = UiKit.Text(content, "", 22, UiKit.TextSecondary, TextAnchor.MiddleRight);
+            score.name = "Score";
+            UiKit.SizeHint(score, preferredWidth: 320, flexibleWidth: 0);
+
+            row.gameObject.SetActive(false);
+            return row;
+        }
+
+        private static void WireRankView(RankBuildResult r)
+        {
+            var so = new SerializedObject(r.view);
+            so.FindProperty("statusText").objectReferenceValue = r.statusText;
+            so.FindProperty("listContent").objectReferenceValue = r.listContent;
+            so.FindProperty("rowTemplate").objectReferenceValue = r.rowTemplate;
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         private static Text BuildDetailListCell(RectTransform row, string title, Color color)

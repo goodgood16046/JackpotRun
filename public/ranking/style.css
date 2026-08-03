@@ -1,0 +1,15 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; background: #0f1117; color: #e5e7eb; padding: 14px; max-width: 720px; margin: 0 auto; }
+.dim { color: #8b93a7; font-weight: 400; font-size: .85em; }
+.hidden { display: none !important; }
+header { margin-bottom: 12px; }
+header h1 { font-size: 1.35rem; margin-bottom: 4px; }
+.sub { font-size: .85rem; color: #fbbf24; font-weight: 700; }
+.state { text-align: center; color: #8b93a7; padding: 40px 0; }
+.list { display: flex; flex-direction: column; gap: 8px; }
+.rankrow { display: flex; align-items: center; gap: 10px; background: #1a1d27; border-radius: 10px; padding: 9px 12px; }
+.rk { width: 28px; font-weight: 700; text-align: center; }
+.rn { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs { color: #fbbf24; font-size: .85rem; white-space: nowrap; }
+.rd { color: #8b93a7; font-size: .72rem; white-space: nowrap; margin-left: 4px; }
+footer { margin-top: 16px; text-align: center; }

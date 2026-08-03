@@ -3,10 +3,10 @@ using UnityEngine;
 
 namespace JackpotRun.UI2
 {
-    // Intro 씬(Title/Login/Menu/Pick/Dex)의 씬 소유자 — ENGINE_PORT_DESIGN.md S8 "영속 계층": "각 씬은
+    // Intro 씬(Title/Login/Menu/Pick/Dex/Rank)의 씬 소유자 — ENGINE_PORT_DESIGN.md S8 "영속 계층": "각 씬은
     // IntroSceneRoot/PlaySceneRoot MonoBehaviour가 자기 씬의 뷰를 [SerializeField]로 들고, Awake에서
     // AppRoot.Instance에 자기를 등록한다(역방향 참조만)". UiSceneBuilder.BuildIntroScene이 씬에
-    // 정확히 1개 생성하고 router/화면 5종을 와이어링한다.
+    // 정확히 1개 생성하고 router/화면 6종을 와이어링한다(Rank는 S15 추가).
     //
     // S12: 첫 화면이 Title로 바뀌었다(이전엔 여기서 닉네임 유무를 미리 판정해 Login/Menu 중 하나로
     // 바로 진입했다) — 닉네임 판정은 이제 TitleView의 시작 버튼을 누른 "이후"로 미뤘다(웹 단독판
@@ -19,6 +19,7 @@ namespace JackpotRun.UI2
         [SerializeField] private MenuView menuView;
         [SerializeField] private PickView pickView;
         [SerializeField] private DexView dexView;
+        [SerializeField] private RankView rankView; // S15: 글로벌 랭킹
 
         // 오로라 배경(S12 §5 "배경") — 캔버스 최하단에 항상 떠 있어 화면 전환과 무관하게 이
         // SceneRoot가 직접 호스트로 돌린다(개별 화면 뷰는 전환마다 SetActive(false)되어 루프가
@@ -31,6 +32,7 @@ namespace JackpotRun.UI2
         public MenuView Menu => menuView;
         public PickView Pick => pickView;
         public DexView Dex => dexView;
+        public RankView Rank => rankView;
 
         public ToastManager Toast => router != null ? router.Toast : null;
         public RectTransform OverlayLayer => router != null ? router.OverlayLayer : null;
