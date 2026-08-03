@@ -364,6 +364,80 @@ Play: PlaySceneRoot.Awake → AppRoot.ConsumePendingLaunch() → GameSession 생
 - 폰트 크기는 CSS px를 1080 기준 그대로 쓰되, 가독성 위해 **×1.6 스케일**(웹은 360~420px 폭 기준, Unity 캔버스는 1080) — 예: 15.5px → 25pt, 12.5px → 20pt, 11px → 18pt.
 - 클릭 차단 재발 방지: 투명 컨테이너 패널은 반드시 `Image.raycastTarget=false`.
 
+## S16 — 증강 오퍼 티어 폴백 + 폭탄 폭발 연출 (2026-08-03, Fable 설계)
+
+사용자 보고 2건: ① "증강 노드를 골랐는데 오퍼 없이 그냥 지나간다" ② "폭탄 칸이 처음부터 빈칸으로
+나온다 — 원래 심볼이 나왔다가 폭탄이 터뜨려 없애는 연출을 달라".
+
+### A. 증강/유물 오퍼 티어 폴백 — 원인과 수정 (엔진, [원본 이탈 — Fable 승인 2026-08-03])
+
+**원인(확정)**: `Schools.BasePerkIds` 22종(증강 10 + 유물 12)은 **전부 SILVER**다. 신규/저레벨
+프로필의 `Shop.GatedPool`은 사실상 BASE만 남는데, `Formulas.TierForClearedStage`는 클리어 스테이지
+%3==0이면 **GOLD를 강제**(%5==0 PRISM, 10% "행운 등급업"도 SILVER→GOLD 승급). 노드 오퍼는
+`NodeEvents.OfferPerks → Shop.PickPerksByTier(forceTier: nodeTier)` 경로라 **강제 티어 풀이 비면
+오퍼 전체가 빈 리스트** → `NodeEvents.Select`의 `break; // 풀 소진 → EVENT 테이블 폴백`으로
+증강/유물 노드가 **랜덤 EVENT로 조용히 대체**된다. Kotlin 원본과 동일한 로직이지만 원본(봇)은
+계정이 장기 성장해 풀이 풍부했고, 단독 앱은 모두 신규 프로필로 시작하므로 상시 재현된다.
+(PRISM만은 기존에 rawPool 폴백이 있어 보스 보상은 항상 나온다 — `PickPerksByTier` PRISM 분기.)
+
+**수정** — `Engine/Run/Shop.cs` `PickPerksByTier`: `tierPool` 계산 직후(두 분기 공통) 폴백 1줄 추가:
+
+```csharp
+// [원본 이탈 — Fable 승인 2026-08-03] 티어 풀 소진 시 잔여 후보 전체로 폴백 — PickAugments의
+// "any" 폴백과 동일 패턴. (신규 프로필: BASE 22종 전부 SILVER + %3 스테이지 GOLD 강제 → 오퍼가
+// 통째로 비어 증강/유물 노드가 EVENT로 조용히 대체되던 문제. ENGINE_PORT_DESIGN.md S16 §A)
+if (!tierPool.Any(p => !used.Contains(p.id))) tierPool = avail;
+```
+
+- `avail`(게이트 통과 + 미보유 전체)은 이미 L195에서 계산돼 있고, `avail.Count == 0`이면 L196에서
+  조기 반환하므로 **"전 풀 소진 → EVENT 폴백" 경로는 그대로 보존**된다(이 경우만 원본대로 지나감 —
+  이제 사실상 도달 불가 수준의 희귀 케이스).
+- RNG 소비는 "기존에 오퍼가 비던 분기"에서만 달라진다 — 그 분기는 어차피 이후 EVENT 테이블로
+  가던 경로라 기존 시드 재현성 테스트와 충돌하지 않는다.
+- `Tests_S4_RetakeExhaustion`(RETAKE_EMPTY)·`GatedPoolBaseFallback`은 **avail 자체를 고갈**시키는
+  방식이라 영향 없음(확인됨 — Tests_S4.cs L589-599).
+
+**신규 테스트** — `Tools/EngineTests/Tests_S4.cs`에 추가(기존 스타일·TestCtx 사용):
+- 잠긴 stat(`{"dummy_unrelated_key":1}` — GatedPool이 BASE로 폴백) + `run.Stage = 4`(클리어 3 →
+  GOLD 강제) + `run.Phase = NodeSelect` + `NodeOptions = [Augment]` → `NodeEvents.Select(0)` 결과가
+  **`PERK_OFFER`**(EVENT 아님)이고 오퍼 전원이 BASE 증강(SILVER)인지. Relic 노드도 동일 패턴 1건.
+- 전 풀 소진(BASE 증강 전부 보유) + 같은 조건 → 기존대로 EVENT 폴백(PERK_OFFER 아님) 1건.
+- 전 스위트(17,819+) 통과 필수: `dotnet run --project Client/Jackpot/Tools/EngineTests`.
+
+### B. 폭탄 폭발 연출 (엔진 표시용 필드 + ReelView)
+
+**현상**: `SpinResolver.Evaluate`가 폭탄 인접 칸을 `new Cell(EmptySym, "💥")`로 **덮어써서**(L267)
+UI(`ReelView`)는 최종 셀만 받는다 → 릴이 처음부터 빈칸으로 착지. 원본 심볼 정보가 소실돼 UI만으로는
+연출 불가.
+
+**엔진** — `Engine/Run/SpinResolver.cs`:
+- `SpinResult`에 `public List<Cell> rawCells;` 추가 — **표시 전용, 로직·RNG·점수 무영향**.
+  `Evaluate`가 결과를 만들 때 `rawCells = new List<Cell>(raw)`(입력 스냅샷 — Evaluate 내부 변형
+  (폭탄 💥/자석 🧲/왕관 👑/스펀지 🧽 등) 이전 상태. Cell 교체는 새 인스턴스 대입이므로 리스트
+  복사로 충분). 주석에 [표시 전용 — 밸런스 무관] 명시. 기존 테스트는 필드 추가에 영향받지 않음
+  (전 스위트로 확인).
+
+**UI** — `UI2/Run/ReelView.cs` `PlaySpinRoutine`:
+1. 릴 **착지 심볼을 `result.rawCells`로**(null이면 기존대로 `result.cells` — 방어) 바꾼다.
+   니어미스/기대감 감지는 기존대로 `result.cells`(최종 결과) 기준 유지.
+2. 전 릴 정지(니어미스 연출 포함) 후, `rawCells != null`일 때 **변형 공개 패스**를 삽입:
+   `for i: raw[i]와 cells[i]가 다르면` —
+   - 최종 셀 태그가 `"💥"`(폭탄 폭발): 해당 칸에 `FxKit.I?.Play(FxId.Skull, 칸 RectTransform,
+     주황 틴트 UiKit.Hex("#FF7A3D"))` 버스트 + 칸 스케일 펀치(1→1.18→0, 0.22s, InBack 수축) 후
+     최종(빈칸) 표시. 폭탄 칸 자신도 0.94→1 살짝 펀치(터뜨린 주체 강조). 폭발이 1개 이상이면
+     릴 전체에 S14 셰이크 재사용(있으면 그 함수, 없으면 ±6px 0.15s). **신규 FxId 추가 금지**
+     (FxPrefabGen 재실행 리스크 — 기존 버스트 재사용, 틴트로 차별화).
+   - 그 외 변형(자석 복사 🧲·왕관 강제 👑·스펀지 🧽 등): 0.12s 스케일 다운→업 팝 스왑으로 최종
+     셀 표시(개별 FX 없음 — 이번 스코프는 폭탄만 강조).
+   - 폭발 전 잠깐(0.25s) 원본 심볼을 보여주는 대기 후 일괄 폭발(칸별 스태거 0.05s).
+3. 패스 종료 후에야 `onCellsRevealed` 호출(HUD 갱신·점수 카운트업·승리 FX 체인은 기존 순서 그대로 —
+   전부 최종 셀 기준이라 변경 없음). 변형이 하나도 없으면(대부분의 스핀) 추가 지연 0.
+4. 시간 예산: 폭탄 있는 스핀만 +0.5s 내외.
+
+**검증**: 전 스위트 dotnet 테스트 + csc 스모크 + 에디터 플레이 스모크. 폭탄 연출은 RNG 대기 대신
+`execute_code`로 폭탄 포함 `SpinResult`(rawCells 포함)를 직접 만들어 `PlaySpinRoutine`을 재생해
+확인한다(S15 랭킹 행 주입 검증과 동일 기법). 증강 폴백은 신규 엔진 테스트가 커버.
+
 ## S15 — 글로벌 랭킹 (Firebase RTDB, 앱+웹) (2026-08-03, Fable 설계)
 
 **배경**: Firebase 콘솔의 프로젝트 **표시명이 "JackpotRun"으로 변경**됐다(사용자 통보). 표시명
