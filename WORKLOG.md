@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-03 - S16 증강 오퍼 티어 폴백 + 폭탄 폭발 연출
+
+- **버그(사용자 보고 "증강 골랐는데 그냥 지나감") 원인 확정**: BASE 퍼크 22종 전부 SILVER + 클리어 스테이지 %3==0 → GOLD 강제 → 신규 프로필의 게이트 풀에 GOLD 0개 → `PickPerksByTier` 오퍼가 통째로 비어 증강/유물 노드가 **랜덤 EVENT로 조용히 대체**(Kotlin 원본 동일 로직 — 봇은 계정이 장기 성장해 미노출, 단독 앱은 상시 재현).
+- **수정 [원본 이탈 — Fable 승인]**: `Shop.PickPerksByTier` 티어 풀 소진 시 잔여 후보 전체(any tier) 폴백 1줄(PickAugments 기존 패턴과 동일). 정상 경로 RNG·결과 완전 불변(Opus 전수 확인). 전 풀 소진 → EVENT 경로는 보존. 회귀 테스트 3건 추가(`Tests_S4_TierPoolFallback` — GOLD 강제 시 PERK_OFFER 보장 ×증강/유물, 전 풀 소진 시 기존 EVENT 폴백 보존).
+- **폭탄 연출(사용자 요청)**: `SpinResult.rawCells`(Evaluate 입력 스냅샷, [표시 전용 — 밸런스 무관]) 추가 → ReelView가 **원시 심볼로 착지 → 0.25s 대기 → 폭탄 인접 칸 FxId.Skull 주황 버스트 + 1→1.18→0 InBack 펀치 + 폭탄 칸 0.94→1 펀치 + 셰이크(±6px) → 빈칸 전환**(칸별 0.05s 스태거). 자석 복사 칸은 0.12s 팝 스왑. 변형 없는 스핀은 추가 지연 0. `UiTween.Ease.InBack` 신규(OutBack 대칭).
+- **Opus 검수**: 치명 0 · 중요 1(변형 목록 주석/설계 부정확 — Evaluate 내부 변형은 💥·🧲 2종뿐, 👑/🧽/🌀/🌱→는 이전 단계에서 raw에 반영. 문서·주석 정정) · 경미 5(폭탄 칸 펀치 시작 스케일 명시 대입 반영, 테스트 `?.tier` 방어 반영, PRISM 전량 보유 케이스 폴백 문서화, 셰이크 타이밍은 유지 판단).
+- **검증**: EngineTests **17,832 통과(+13, 골든값 무수정)** · csc 0오류 · 에디터 플레이 주입 재생으로 폭탄 연출 확인.
+- 특이사항: 검증 중 에디터가 플레이 진입 도메인 리로드에서 35분 데드락(`Begin MonoManager ReloadAssembly`에서 정지) — 강제 종료 후 재시작으로 복구. 씬·스프라이트 meta 등 디스크 저장분 유실 없음.
+
 ## 2026-08-03 - S15 글로벌 랭킹 (Firebase RTDB, 앱+웹)
 
 - **Firebase 확인**: 콘솔 표시명이 "JackpotRun"으로 바뀌었으나 **프로젝트 ID는 `jackpotrun-web` 불변**(표시명 변경은 ID/URL/키에 무영향 — RTDB·호스팅 실측, `jackpotrun` ID는 전 리전 404). 코드는 기존 URL 유지, 프로젝트 이전 시 `RankingService.DbUrl`·웹 config 두 곳만 교체.

@@ -250,6 +250,11 @@ namespace JackpotRun.Engine
                 tierPool = pool.Where(p => p.tier == tier).ToList();
             }
 
+            // [원본 이탈 — Fable 승인 2026-08-03] 티어 풀 소진 시 잔여 후보 전체로 폴백 — PickAugments의
+            // "any" 폴백과 동일 패턴. (신규 프로필: BASE 22종 전부 SILVER + %3 스테이지 GOLD 강제 → 오퍼가
+            // 통째로 비어 증강/유물 노드가 EVENT로 조용히 대체되던 문제. ENGINE_PORT_DESIGN.md S16 §A)
+            if (!tierPool.Any(p => !used.Contains(p.id))) tierPool = avail;
+
             var cat = string.IsNullOrWhiteSpace(favoredCat) ? null : favoredCat;
             if (cat != null)
                 Take(rng.PickOrDefault(tierPool.Where(p => !used.Contains(p.id) && p.desc.Contains(cat)).ToList()));

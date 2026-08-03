@@ -123,6 +123,18 @@ namespace JackpotRun.UI2
         private const float JackpotSlowMoScale = 0.35f;    // 설계 명시: "Time.timeScale 0.35→1.0"
         private const float JackpotSlowMoDuration = 0.25f; // 설계 명시: "0.25s" — 실시간(WaitForSecondsRealtime) 기준
 
+        // ── S16 §B 폭탄 폭발 연출(변형 공개 패스) — 설계 명시값 그대로, 미명시 항목은 기본값 ─────────
+        private const float TransformHoldDuration = 0.25f;    // 설계 명시: "폭발 전 잠깐(0.25s) 원본 심볼을 보여주는 대기"
+        private const float TransformStaggerDelay = 0.05f;    // 설계 명시: "칸별 스태거 0.05s"
+        private const float BombPunchPeakScale = 1.18f;       // 설계 명시: "1→1.18→0"
+        private const float BombPunchGrowDuration = 0.08f;    // 설계 미명시 — 총 0.22s 중 성장 구간 분배 기본값
+        private const float BombPunchShrinkDuration = 0.14f;  // 설계 미명시 — 나머지(0.22s-0.08s), InBack 수축
+        private const float BombSourcePunchScale = 0.94f;     // 설계 명시: "폭탄 칸 자신도 0.94→1 살짝 펀치"
+        private const float BombSourcePunchDuration = 0.12f;  // 설계 미명시
+        private const float TransformPopHalfDuration = 0.06f; // 설계 명시: "0.12s 스케일 다운→업"의 절반
+        private const float BombShakeAmplitude = 6f;          // 설계 명시: "없으면 ±6px"(S14 PlayScreenShake 재사용)
+        private const float BombShakeDuration = 0.15f;        // 설계 명시: "0.15s"
+
         // ── 매치/잭팟/해골 FX(S7c 이관, 그대로 유지 — 설계 D "매치 시 기존 연출 유지") ────────────
         private const float SetGlowPulseDuration = 0.35f;
         private const float Set4FlashDuration = 0.12f;
@@ -144,6 +156,10 @@ namespace JackpotRun.UI2
             { "bomb", HexColor("#3A4051") }, { "dice", HexColor("#E8EAF2") }, { "seed", HexColor("#4CAF50") },
             { "wild", HexColor("#00C2A8") }, { "key", HexColor("#C9A227") },
         };
+
+        // S16 §B — 폭탄 폭발 버스트(FxId.Skull) 틴트. 설계 명시값 그대로(UiKit.Hex와 동일 구현의
+        // HexColor를 그대로 재사용).
+        private static readonly Color BombBurstTint = HexColor("#FF7A3D");
 
         // Cell.tag(SpinResolver.cs)가 내보내는 astral 이모지를 BMP 안전 기호로 치환(엔진 파일은 미수정
         // — 표시 레이어에서만 변환). 목록: 성장 "🌱→"/와일드주입 "🌀"/제거 "🧽"/왕관강제 "👑"/폭탄폭발
@@ -260,19 +276,28 @@ namespace JackpotRun.UI2
             DetectNearMiss(result, out bool isNearMiss, out SymInfo nearMissSym);
             bool isAnticipation = DetectAnticipation(result);
 
+            // S16 §B — 릴은 최종 결과(cells)가 아니라 원시 착지 심볼(rawCells)로 멈춘다(폭탄💥/자석🧲
+            // 등 Evaluate 내부 변형 이전 상태 — null이면 기존대로 cells, 방어). 니어미스/기대감 감지는
+            // 위에서 이미 최종 결과(result.cells) 기준으로 끝났다(변경 없음, 설계 그대로).
+            IReadOnlyList<Cell> landingCells = result.rawCells ?? result.cells;
+
             // ── 릴별 정지 타이밍: 왼쪽부터 0.10s 스태거(설계 명시), 가속(0.25s)+최소 유지(0.35s,
             // 설계 미명시 기본값) 이후 순서대로 멈춘다. 니어미스/기대감은 "마지막 릴"에만 적용(설계 그대로).
             int lastIdx = result.cells.Count - 1;
             var routines = new Coroutine[_cells.Count];
-            for (int i = 0; i < _cells.Count && i < result.cells.Count; i++)
+            for (int i = 0; i < _cells.Count && i < landingCells.Count; i++)
             {
                 float stopDelay = AccelDuration + BaseSpinHold + i * StaggerDelay;
                 bool nearMissHere = isNearMiss && i == lastIdx;
                 bool anticipationHere = isAnticipation && i == lastIdx;
-                routines[i] = StartCoroutine(SpinOneReel(_cells[i], result.cells[i], stopDelay, nearMissHere, anticipationHere, nearMissSym));
+                routines[i] = StartCoroutine(SpinOneReel(_cells[i], landingCells[i], stopDelay, nearMissHere, anticipationHere, nearMissSym));
             }
             for (int i = 0; i < routines.Length; i++)
                 if (routines[i] != null) yield return routines[i];
+
+            // S16 §B — 전 릴 정지 후, 원시 착지(raw)와 최종 결과(cells)가 다른 칸만 최종 값으로 갈아
+            // 끼우는 변형 공개 패스. 변형이 없으면(대부분의 스핀) 즉시 반환 — 추가 지연 0.
+            yield return TransformRevealRoutine(result);
 
             onCellsRevealed?.Invoke();
 
@@ -612,6 +637,102 @@ namespace JackpotRun.UI2
             // 니어미스는 bestSetCount<3일 때만 발생하므로).
             cv.glow.effectColor = prevColor;
             cv.glow.enabled = wasEnabled;
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // S16 §B — 변형 공개 패스. SpinResolver.Evaluate가 폭탄 인접 칸을 Cell(EmptySym,"💥")로
+        // 덮어써 원본 심볼 정보가 소실되므로(엔진 로직 불변), 릴은 원시 착지(rawCells)로 먼저 멈추고
+        // 전 릴 정지 후 이 패스가 raw≠final인 칸만 최종 값으로 갈아 끼운다. 대부분의 스핀은 변형이
+        // 없어 즉시 반환(추가 지연 0).
+        // ══════════════════════════════════════════════════════════════════════
+        private IEnumerator TransformRevealRoutine(SpinResult result)
+        {
+            var raw = result.rawCells;
+            var final = result.cells;
+            if (raw == null) yield break;
+
+            var diffIdxs = new List<int>();
+            for (int i = 0; i < _cells.Count && i < raw.Count && i < final.Count; i++)
+                if (!ReferenceEquals(raw[i], final[i])) diffIdxs.Add(i);
+            if (diffIdxs.Count == 0) yield break;
+
+            // 폭발 전 잠깐(0.25s) 원본 심볼을 그대로 보여주는 대기(설계 명시).
+            yield return new WaitForSeconds(TransformHoldDuration);
+
+            bool anyBombBurst = false;
+            var bombSourcePunched = new HashSet<int>();
+            var reveals = new List<Coroutine>();
+            for (int k = 0; k < diffIdxs.Count; k++)
+            {
+                int i = diffIdxs[k];
+                float delay = k * TransformStaggerDelay; // 칸별 스태거 0.05s(설계 명시)
+                var finalCell = final[i];
+                bool isBombBurst = finalCell?.tag == "💥";
+                reveals.Add(StartCoroutine(RevealTransformedCellRoutine(_cells[i], finalCell, isBombBurst, delay)));
+
+                if (isBombBurst)
+                {
+                    anyBombBurst = true;
+                    // 터뜨린 주체(인접 폭탄 칸) 강조 — 같은 스태거 시점에 0.94→1 살짝 펀치(설계 명시).
+                    foreach (int adj in new[] { i - 1, i + 1 })
+                    {
+                        if (adj < 0 || adj >= raw.Count || adj >= _cells.Count) continue;
+                        if (raw[adj]?.sym == null || raw[adj].sym.special != Sp.BOMB) continue;
+                        if (!bombSourcePunched.Add(adj)) continue;
+                        reveals.Add(StartCoroutine(BombSourcePunchRoutine(_cells[adj], delay)));
+                    }
+                }
+            }
+
+            // 폭발이 1개 이상이면 릴 전체에 S14 셰이크 함수(PlayScreenShake) 재사용(설계 명시 ±6px/0.15s).
+            if (anyBombBurst) PlayScreenShake(BombShakeAmplitude, BombShakeDuration);
+
+            for (int r = 0; r < reveals.Count; r++)
+                if (reveals[r] != null) yield return reveals[r];
+        }
+
+        // 최종 셀 태그가 "💥"(폭탄 폭발)이면 FxId.Skull 주황 틴트 버스트 + 칸 스케일 펀치(1→1.18→0,
+        // InBack 수축) 후 최종(빈칸) 표시. 그 외 변형은 개별 FX 없이 0.12s 스케일 다운→업 팝 스왑으로만
+        // 최종 셀을 보여준다(설계 — 이번 스코프는 폭탄만 강조). Evaluate 내부 변형은 💥·🧲 2종뿐이라
+        // 이 분기는 실질적으로 자석 복사(🧲) 전용이다 — 👑/🧽/🌀/🌱→는 Evaluate 이전에 raw에 반영돼
+        // raw≠final 차집합에 안 잡힌다(Opus S16 검수 중요-1).
+        private IEnumerator RevealTransformedCellRoutine(CellView cv, Cell finalCell, bool isBombBurst, float startDelay)
+        {
+            if (startDelay > 0f) yield return new WaitForSeconds(startDelay);
+            var slot = cv?.slots != null && cv.slots.Length > 2 ? cv.slots[2] : null;
+            if (slot?.rt == null || finalCell?.sym == null) yield break;
+
+            if (isBombBurst)
+            {
+                FxKit.I?.Play(FxId.Skull, cv.rt, BombBurstTint);
+                yield return UiTween.ScaleRoutine(slot.rt, Vector3.one, Vector3.one * BombPunchPeakScale, BombPunchGrowDuration, UiTween.Ease.OutQuad);
+                if (slot.rt == null) yield break;
+                yield return UiTween.ScaleRoutine(slot.rt, slot.rt.localScale, Vector3.zero, BombPunchShrinkDuration, UiTween.Ease.InBack);
+                if (slot.rt == null) yield break;
+                SetSlotSymbol(slot, finalCell.sym, finalCell.tag); // 내부에서 스케일을 1로 복원(빈칸이라 시각적으로 무관)
+                cv.lastSymId = finalCell.sym.id;
+            }
+            else
+            {
+                yield return UiTween.ScaleRoutine(slot.rt, Vector3.one, Vector3.zero, TransformPopHalfDuration, UiTween.Ease.OutQuad);
+                if (slot.rt == null) yield break;
+                SetSlotSymbol(slot, finalCell.sym, finalCell.tag); // 스케일0(비가시) 상태에서 최종 심볼로 교체
+                slot.rt.localScale = Vector3.zero; // SetSlotSymbol이 내부적으로 1로 되돌리므로 팝업 전 다시 0으로
+                cv.lastSymId = finalCell.sym.id;
+                yield return UiTween.ScaleRoutine(slot.rt, Vector3.zero, Vector3.one, TransformPopHalfDuration, UiTween.Ease.OutBack);
+            }
+        }
+
+        // 폭탄 칸 자신도 0.94→1 살짝 펀치(터뜨린 주체 강조, 설계 명시).
+        private IEnumerator BombSourcePunchRoutine(CellView cv, float startDelay)
+        {
+            if (startDelay > 0f) yield return new WaitForSeconds(startDelay);
+            var slot = cv?.slots != null && cv.slots.Length > 2 ? cv.slots[2] : null;
+            if (slot?.rt == null) yield break;
+            // ScaleRoutine은 from을 즉시 대입하지 않고 첫 프레임부터 보간한다 — 시작 스케일을 명시
+            // 대입해야 0.94 수축이 실제로 보인다(LandSquashRoutine과 동일 조치, Opus S16 검수 경미-1).
+            slot.rt.localScale = Vector3.one * BombSourcePunchScale;
+            yield return UiTween.ScaleRoutine(slot.rt, Vector3.one * BombSourcePunchScale, Vector3.one, BombSourcePunchDuration, UiTween.Ease.OutBack);
         }
 
         // S14 §C — 결과 연출 단계별(2/3/4/5매치+잭팟). 잭팟(전칸)이 최우선이고, 그 다음 4/3매치

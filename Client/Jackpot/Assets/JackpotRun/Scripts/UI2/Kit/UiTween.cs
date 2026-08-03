@@ -29,6 +29,7 @@ namespace JackpotRun.UI2
             OutCubic,
             OutQuad,
             OutBack,
+            InBack, // S16 §B — 폭탄 폭발 칸 스케일 펀치의 "1→1.18→0" 수축 구간 전용(OutBack의 대칭형)
         }
 
         // easing 함수 — t는 0..1 입력(클램프됨), 반환값은 OutBack 특성상 1을 살짝 넘거나(오버슈트) 잠깐
@@ -51,6 +52,12 @@ namespace JackpotRun.UI2
                     const float c3 = c1 + 1f;
                     float f = t - 1f;
                     return 1f + c3 * f * f * f + c1 * f * f;
+                }
+                case Ease.InBack:
+                {
+                    const float c1 = 1.70158f;
+                    const float c3 = c1 + 1f;
+                    return c3 * t * t * t - c1 * t * t;
                 }
                 default:
                     return t;

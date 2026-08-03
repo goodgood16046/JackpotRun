@@ -1233,4 +1233,83 @@ namespace JackpotRun.EngineTests
             }
         }
     }
+
+    // ── S16 §A 신규 — 증강/유물 오퍼 티어 풀 소진 폴백(Shop.PickPerksByTier) ────────────────────────
+    // 원인: BasePerkIds 22종(증강10+유물12)이 전부 SILVER인데, 클리어 스테이지 %3==0이면
+    // Formulas.TierForClearedStage가 GOLD를 강제한다. 신규 프로필처럼 GatedPool이 BASE로만 폴백되는
+    // 상황에서는 강제 티어의 tierPool이 항상 비어 오퍼 전체가 빈 리스트가 되고, NodeEvents.ChooseNode가
+    // 조용히 EVENT 테이블로 대체하던 문제를 Shop.PickPerksByTier의 잔여 후보 전체 폴백으로 고쳤다
+    // (ENGINE_PORT_DESIGN.md S16 §A). 세 가지를 검증: ①증강 노드 티어 폴백 → PERK_OFFER(전원
+    // BASE·SILVER) ②유물 노드 동일 패턴 ③전 풀 소진(BASE 전부 보유)은 여전히 기존대로 EVENT 폴백
+    // (PERK_OFFER 아님).
+    internal static class Tests_S4_TierPoolFallback
+    {
+        public static void Run(TestCtx t)
+        {
+            TierFallbackOffersBaseOnly(t, "AUGMENT", NodeKind.Augment, seedBase: 8_000_000L);
+            TierFallbackOffersBaseOnly(t, "RELIC", NodeKind.Relic, seedBase: 8_100_000L);
+            FullPoolExhaustionStillFallsBackToEvent(t);
+        }
+
+        // 잠긴 stat(GatedPool이 BASE로만 폴백) + clearedStage=3(%3==0 → baseTier GOLD 강제) 조합에서는
+        // BASE 풀에 GOLD가 하나도 없어(전부 SILVER) 강제 티어 풀이 비게 된다 — 고친 폴백이 없다면 오퍼가
+        // 통째로 비어 EVENT로 샜을 상황. OfferPerks의 "10% 행운 등급업"(GOLD→PRISM)이 걸리면 PRISM 분기
+        // (기존 rawPool 폴백, Shop.cs L245-246)로 갈라져 이 테스트의 취지(GOLD 강제 폴백)와 무관해지므로,
+        // 등급업이 걸리지 않은 시드만 골라 검증한다 — Rng는 결정론적이라 이 탐색 루프도 항상 같은 결과를
+        // 낸다(재현성 훼손 없음).
+        private static void TierFallbackOffersBaseOnly(TestCtx t, string label, NodeKind node, long seedBase)
+        {
+            var lockedStat = new Dictionary<string, long> { ["dummy_unrelated_key"] = 1 };
+            RunState foundRun = null;
+            RunEvent foundEv = null;
+
+            for (long seed = seedBase; seed < seedBase + 200; seed++)
+            {
+                var run = S4TestHelpers.NewRun(seed);
+                run.Phase = RunPhase.NodeSelect;
+                run.Stage = 4; // clearedStage=3 → baseTier=GOLD 강제(%3==0)
+                run.NodeOptions.Add(node);
+
+                var ev = NodeEvents.ChooseNode(run, 0, lockedStat);
+                if (ev[0].type == "PERK_OFFER" && !ev[0].offerTierBumped)
+                {
+                    foundRun = run;
+                    foundEv = ev[0];
+                    break;
+                }
+            }
+
+            t.True(foundRun != null, $"[tier-fallback:{label}] 10% 등급업 안 걸리는 시드를 200개 내에서 확보");
+            if (foundRun == null) return;
+
+            t.Eq("PERK_OFFER", foundEv.type, $"[tier-fallback:{label}] 티어 풀 소진에도 EVENT 아닌 PERK_OFFER");
+            t.True(foundRun.PerkOfferIds.Count >= 1, $"[tier-fallback:{label}] 오퍼 최소 1건");
+            t.True(foundRun.PerkOfferIds.All(id => Schools.BasePerkIds.Contains(id)),
+                $"[tier-fallback:{label}] 오퍼 전원이 BasePerkIds 소속(잔여 후보 폴백 풀)");
+            t.True(foundRun.PerkOfferIds.All(id => Perks.ById(id)?.tier == Tier.SILVER),
+                $"[tier-fallback:{label}] 오퍼 전원이 SILVER(BasePerkIds는 전부 SILVER — GOLD 강제 티어를 무시하고 폴백됨)");
+        }
+
+        // avail 자체가 고갈(BASE 증강 전부 보유)되면 PickPerksByTier가 즉시 빈 리스트를 반환하는 기존
+        // 조기 반환 경로(avail.Count==0, Shop.cs L196)는 이번 수정과 무관하게 보존된다 — ChooseNode가
+        // 여전히 EVENT 테이블로 폴백(NODE_RESOLVED, PERK_OFFER 아님)하는지 확인.
+        private static void FullPoolExhaustionStillFallsBackToEvent(TestCtx t)
+        {
+            var lockedStat = new Dictionary<string, long> { ["dummy_unrelated_key"] = 1 };
+            var run = S4TestHelpers.NewRun(8_200_000L);
+            run.Phase = RunPhase.NodeSelect;
+            run.Stage = 4;
+            run.NodeOptions.Add(NodeKind.Augment);
+            foreach (var id in Schools.BasePerkIds)
+            {
+                var p = Perks.ById(id);
+                if (p != null && p.cat == PCat.AUGMENT) run.Perks.Add(id);
+            }
+
+            var ev = NodeEvents.ChooseNode(run, 0, lockedStat);
+            t.Eq("NODE_RESOLVED", ev[0].type, "[tier-fallback:exhausted] 전 풀 소진 → 기존대로 EVENT 테이블 폴백");
+            t.Eq(NodeKind.Event, ev[0].node, "[tier-fallback:exhausted] node 필드 = Event(공용 EVENT 테이블 경유)");
+            t.Eq(RunPhase.Spin, run.Phase, "[tier-fallback:exhausted] Phase → Spin");
+        }
+    }
 }

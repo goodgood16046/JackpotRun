@@ -394,6 +394,8 @@ if (!tierPool.Any(p => !used.Contains(p.id))) tierPool = avail;
   이제 사실상 도달 불가 수준의 희귀 케이스).
 - RNG 소비는 "기존에 오퍼가 비던 분기"에서만 달라진다 — 그 분기는 어차피 이후 EVENT 테이블로
   가던 경로라 기존 시드 재현성 테스트와 충돌하지 않는다.
+- 부수 케이스(Opus 검수 경미-3, 인지·승인): PRISM 분기에서 "게이트 통과 PRISM은 있으나 전부
+  보유"인 극후반 케이스도 이제 EVENT 대신 non-PRISM 잔여 후보로 폴백된다 — 의도 범위 내 개선.
 - `Tests_S4_RetakeExhaustion`(RETAKE_EMPTY)·`GatedPoolBaseFallback`은 **avail 자체를 고갈**시키는
   방식이라 영향 없음(확인됨 — Tests_S4.cs L589-599).
 
@@ -412,10 +414,12 @@ UI(`ReelView`)는 최종 셀만 받는다 → 릴이 처음부터 빈칸으로 �
 
 **엔진** — `Engine/Run/SpinResolver.cs`:
 - `SpinResult`에 `public List<Cell> rawCells;` 추가 — **표시 전용, 로직·RNG·점수 무영향**.
-  `Evaluate`가 결과를 만들 때 `rawCells = new List<Cell>(raw)`(입력 스냅샷 — Evaluate 내부 변형
-  (폭탄 💥/자석 🧲/왕관 👑/스펀지 🧽 등) 이전 상태. Cell 교체는 새 인스턴스 대입이므로 리스트
-  복사로 충분). 주석에 [표시 전용 — 밸런스 무관] 명시. 기존 테스트는 필드 추가에 영향받지 않음
-  (전 스위트로 확인).
+  `Evaluate`가 결과를 만들 때 `rawCells = new List<Cell>(raw)`(입력 스냅샷. Cell 교체는 새 인스턴스
+  대입이므로 리스트 복사로 충분). 주석에 [표시 전용 — 밸런스 무관] 명시. 기존 테스트는 필드 추가에
+  영향받지 않음(전 스위트로 확인).
+  **정정(Opus 검수 중요-1)**: Evaluate "내부" 변형은 **폭탄 💥·자석 🧲 2종뿐**이다 — 👑/🧽/🌀/🌱→는
+  Evaluate 호출 이전(RollRaw/ApplyCellOps)에 이미 raw에 반영되므로 rawCells에도 그대로 포함되고,
+  아래 공개 패스의 raw≠final 차집합에는 잡히지 않는다(비폭탄 분기는 실질적으로 자석 전용).
 
 **UI** — `UI2/Run/ReelView.cs` `PlaySpinRoutine`:
 1. 릴 **착지 심볼을 `result.rawCells`로**(null이면 기존대로 `result.cells` — 방어) 바꾼다.
@@ -427,7 +431,7 @@ UI(`ReelView`)는 최종 셀만 받는다 → 릴이 처음부터 빈칸으로 �
      최종(빈칸) 표시. 폭탄 칸 자신도 0.94→1 살짝 펀치(터뜨린 주체 강조). 폭발이 1개 이상이면
      릴 전체에 S14 셰이크 재사용(있으면 그 함수, 없으면 ±6px 0.15s). **신규 FxId 추가 금지**
      (FxPrefabGen 재실행 리스크 — 기존 버스트 재사용, 틴트로 차별화).
-   - 그 외 변형(자석 복사 🧲·왕관 강제 👑·스펀지 🧽 등): 0.12s 스케일 다운→업 팝 스왑으로 최종
+   - 그 외 변형(실질적으로 자석 복사 🧲 — 정정 참조): 0.12s 스케일 다운→업 팝 스왑으로 최종
      셀 표시(개별 FX 없음 — 이번 스코프는 폭탄만 강조).
    - 폭발 전 잠깐(0.25s) 원본 심볼을 보여주는 대기 후 일괄 폭발(칸별 스태거 0.05s).
 3. 패스 종료 후에야 `onCellsRevealed` 호출(HUD 갱신·점수 카운트업·승리 FX 체인은 기존 순서 그대로 —

@@ -35,6 +35,12 @@ namespace JackpotRun.Engine
     public sealed class SpinResult
     {
         public List<Cell> cells;
+        // [표시 전용 — 밸런스 무관] Evaluate 입력 스냅샷 — Evaluate "내부" 변형은 폭탄(💥)·자석(🧲)
+        // 2종뿐이라 이 스냅샷과 cells가 갈라지는 것도 그 2종뿐이다. 👑/🧽/🌀/🌱→는 Evaluate 호출 이전
+        // (RollRaw/ApplyCellOps)에 이미 raw에 반영돼 스냅샷에도 그대로 들어있다(Opus S16 검수 중요-1).
+        // UI(ReelView)가 폭탄 폭발 등 "원래 심볼 → 변형" 연출에 쓴다. 로직·RNG·점수는 여전히
+        // cells만 참조 — 이 필드를 읽고 쓰는 코드는 표시 계층에 한정된다(ENGINE_PORT_DESIGN.md S16 §B).
+        public List<Cell> rawCells;
         public long exp;
         public long score;
         public int coins;
@@ -519,6 +525,7 @@ namespace JackpotRun.Engine
             return new SpinResult
             {
                 cells = cells,
+                rawCells = new List<Cell>(raw), // [표시 전용] 변형 이전 입력 스냅샷 — Cell은 교체 시 새 인스턴스라 리스트 복사로 충분
                 exp = Math.Max((long)exp, 0),
                 score = Math.Max((long)score, 0),
                 coins = coins,
