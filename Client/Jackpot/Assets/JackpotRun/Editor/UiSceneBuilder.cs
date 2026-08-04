@@ -1223,7 +1223,8 @@ namespace JackpotRun.EditorTools
             top.name = "Top";
             UiKit.SizeHint(top, preferredHeight: 83, flexibleHeight: 0);
 
-            var iconSlot = UiKit.Panel(top, "IconSlot", UiKit.Hex("#0E1019"), r11);
+            // S15 §D: S10 리터럴 #0E1019(≈Bg1과 거의 동일) → §0 표 토큰(Bg1)으로 교체.
+            var iconSlot = UiKit.Panel(top, "IconSlot", UiKit.Bg1, r11);
             UiKit.SizeHint(iconSlot, preferredWidth: 83, preferredHeight: 83, flexibleWidth: 0, flexibleHeight: 0);
             iconSlot.sizeDelta = new Vector2(83f, 83f); // controlChildH=false라 LayoutElement만으론 부족 — 실측 크기 직접 고정.
             var icon = UiKit.Image(iconSlot, null, Color.white);
@@ -1247,7 +1248,8 @@ namespace JackpotRun.EditorTools
             nameText.name = "Name";
             UiKit.SizeHint(nameText, flexibleWidth: 1, flexibleHeight: 0);
             var (badgeRoot, badgeBg, badgeLabel) = BuildAutoPill(nameRow, "Badge", r7, 17, new RectOffset(11, 11, 3, 3), true);
-            badgeLabel.color = UiKit.Hex("#15161F"); // pick.css .b-diff{color:#15161f} 고정 어두운 글자
+            // S15 §D: S10 리터럴 #15161F(≈Ink와 거의 동일) → §0 표 토큰(Ink)으로 교체.
+            badgeLabel.color = UiKit.Ink;
 
             var role = UiKit.Text(info, "", 18, UiKit.TextSecondary, TextAnchor.MiddleLeft);
             role.name = "Role";
@@ -1257,7 +1259,8 @@ namespace JackpotRun.EditorTools
             // ── Eff: 효과 박스(.jc-eff) ──
             var eff = UiKit.Panel(body, "Eff", new Color(1f, 1f, 1f, 0.035f), r9);
             UiKit.SizeHint(eff, preferredHeight: 52, flexibleHeight: 0);
-            var effText = UiKit.Text(eff, "", 20, UiKit.Hex("#CDD3E6"), TextAnchor.UpperLeft);
+            // S15 §D: S10 리터럴 #CDD3E6(카드 본문 보조 텍스트) → §0 표 토큰(Txt2)으로 교체.
+            var effText = UiKit.Text(eff, "", 20, UiKit.Txt2, TextAnchor.UpperLeft);
             effText.name = "Text";
             UiKit.SetAnchors(effText.rectTransform, Vector2.zero, Vector2.one, new Vector2(14f, 8f), new Vector2(-14f, -8f));
 
@@ -2123,96 +2126,160 @@ namespace JackpotRun.EditorTools
         }
 
         // ── PerkOfferPanel ───────────────────────────────────────────────────────────
+        // S15 §C 전면 재설계 — 하단 시트(BuildSheetChrome)를 버리고 로그라이크 표준 모달로 교체:
+        // 전체화면 딤 0.72(baked, BuildSheetChrome의 0.62와 다른 값이라 헬퍼를 공유하지 않는다) +
+        // 화면 중앙 고정 ModalRoot(헤더 + 카드 3장 가로열 + 하단 보조 행). 유물 노드도 같은 모달을
+        // 재사용(PerkOfferPanel.Show가 헤더 문구만 분기) — 이 빌더 함수는 변경 없이 공용.
         private static UI2.PerkOfferPanel BuildPerkOfferPanel(Transform overlay)
         {
-            var chrome = BuildSheetChrome(overlay, "PerkOfferPanel", 1560f, dismissOnScrimClick: false);
-            var scrim = chrome.scrim;
-            var col = chrome.cardCol;
+            var scrim = UiKit.Panel(overlay, "PerkOfferPanel", new Color(0f, 0f, 0f, 0f));
+            UiKit.Fill(scrim);
+            scrim.gameObject.SetActive(false);
 
-            var titleText = UiKit.Text(col, "", 30, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
-            UiKit.SizeHint(titleText, preferredHeight: 48, flexibleHeight: 0);
-            var bannerText = UiKit.Text(col, "", 19, UiKit.Accent, TextAnchor.MiddleCenter, true);
-            UiKit.SizeHint(bannerText, preferredHeight: 30, flexibleHeight: 0);
+            // 딤 0.72(설계 명시) — Image 자체에 굽고 CanvasGroup은 0→1 페이드 전용 배율(기존 BuildSheetChrome
+            // DimOverlay와 동일 기법, 알파값만 0.62→0.72로 교체).
+            var dimOverlay = UiKit.Panel(scrim, "DimOverlay", new Color(0f, 0f, 0f, 0.72f));
+            UiKit.Fill(dimOverlay);
+            dimOverlay.GetComponent<Image>().raycastTarget = false;
+            var dimGroup = dimOverlay.gameObject.AddComponent<CanvasGroup>();
+            dimGroup.blocksRaycasts = false;
+            dimGroup.interactable = false;
+            dimGroup.alpha = 0f;
 
-            var scroll = UiKit.Scroll(col, out var cardsContent, vertical: true);
-            UiKit.SizeHint(scroll, flexibleHeight: 1);
-            SetupStackContent(cardsContent, 4, 16, 14);
-            var cardTemplate = BuildPerkCardTemplate(cardsContent);
+            // ModalRoot — 화면 중앙 고정, 높이는 ContentSizeFitter 자동(하단 보조 행이 꺼지면 다시
+            // 접히도록). 폭은 카드열 실폭(320*3+28*2=1016)에 여유를 더한 1040 고정.
+            var modalRoot = UiKit.VGroup(scrim, 28f, new RectOffset(0, 0, 0, 0), true, true, autoSizeH: true);
+            modalRoot.name = "ModalRoot";
+            modalRoot.anchorMin = modalRoot.anchorMax = new Vector2(0.5f, 0.5f);
+            modalRoot.pivot = new Vector2(0.5f, 0.5f);
+            modalRoot.sizeDelta = new Vector2(1040f, 0f);
+            modalRoot.anchoredPosition = Vector2.zero;
+            modalRoot.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
 
-            // .bigbtn.ghost 톤(panel3→panel2 + bd2) — 재추첨은 보조 액션.
-            var retakeButton = UiKit.Button(col, "", new Vector2(0, 78), UiKit.Panel2, UiKit.TextPrimary, null, UiSpriteGen.Load("w_ghost_btn"));
-            UiKit.SizeHint(retakeButton, preferredHeight: 78, flexibleHeight: 0);
+            // ── 헤더: 티어 배지 + "증강 선택" 46 + 부제 24 ──
+            var header = UiKit.VGroup(modalRoot, 10f, new RectOffset(0, 0, 0, 0), true, true);
+            header.name = "Header";
+            UiKit.SizeHint(header, preferredHeight: 150f, flexibleHeight: 0);
+            header.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+
+            var badgeRow = UiKit.HGroup(header, 0, new RectOffset(0, 0, 0, 0), false, true);
+            badgeRow.name = "BadgeRow";
+            UiKit.SizeHint(badgeRow, preferredHeight: 40f, flexibleHeight: 0);
+            badgeRow.gameObject.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+            var (tierBadgeRoot, tierBadgeImg, tierBadgeLabel) = BuildAutoPill(
+                badgeRow, "TierBadge", UiKit.PillSprite(40f), 20, new RectOffset(20, 20, 8, 8), true);
+
+            var titleText = UiKit.Text(header, "", 46, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            titleText.name = "Title";
+            UiKit.SizeHint(titleText, preferredHeight: 58f, flexibleHeight: 0);
+
+            var subtitleText = UiKit.Text(header, "", 24, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            subtitleText.name = "Subtitle";
+            UiKit.SizeHint(subtitleText, preferredHeight: 32f, flexibleHeight: 0);
+
+            // ── 카드 3장 가로열(320×620, gap 28) ──
+            var cardsRow = UiKit.HGroup(modalRoot, 28f, new RectOffset(0, 0, 0, 0), false, false);
+            cardsRow.name = "CardsRow";
+            UiKit.SizeHint(cardsRow, preferredHeight: 620f, flexibleHeight: 0);
+            cardsRow.gameObject.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+            var cardTemplate = BuildPerkCardTemplate(cardsRow);
+
+            // ── 하단 보조 행: 재추첨(전체, dev_retake 보유 시) — 보류는 카드별 HoldCorner로 이동
+            // (onHold(idx)가 "어느 카드"를 보류할지 요구하는 시그니처라 모달 단일 버튼으로는 표현할
+            // 수 없다 — S15 §C가 "[보류]"를 단일 버튼처럼 적어 놓은 부분과의 재해석/충돌, 보고 대상).
+            var bottomRow = UiKit.HGroup(modalRoot, 16f, new RectOffset(0, 0, 0, 0), false, true);
+            bottomRow.name = "BottomRow";
+            UiKit.SizeHint(bottomRow, preferredHeight: 64f, flexibleHeight: 0);
+            bottomRow.gameObject.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+            var retakeButton = UiKit.Button(bottomRow, "", new Vector2(300, 64), UiKit.Panel2, UiKit.TextPrimary, null, UiSpriteGen.Load("w_ghost_btn"));
+            UiKit.SizeHint(retakeButton, preferredWidth: 300f, preferredHeight: 64f, flexibleWidth: 0, flexibleHeight: 0);
             UiKit.AddGlowOutline(retakeButton.gameObject, UiKit.Bd2, 2f).enabled = true;
             var retakeLabel = retakeButton.GetComponentInChildren<Text>();
 
             var view = scrim.gameObject.AddComponent<UI2.PerkOfferPanel>();
             var so = new SerializedObject(view);
             so.FindProperty("titleText").objectReferenceValue = titleText;
-            so.FindProperty("bannerText").objectReferenceValue = bannerText;
-            so.FindProperty("cardsContent").objectReferenceValue = cardsContent;
+            so.FindProperty("subtitleText").objectReferenceValue = subtitleText;
+            so.FindProperty("tierBadgeImage").objectReferenceValue = tierBadgeImg;
+            so.FindProperty("tierBadgeText").objectReferenceValue = tierBadgeLabel;
+            so.FindProperty("cardsContent").objectReferenceValue = cardsRow;
             so.FindProperty("cardTemplate").objectReferenceValue = cardTemplate;
             so.FindProperty("retakeButton").objectReferenceValue = retakeButton;
             so.FindProperty("retakeButtonLabel").objectReferenceValue = retakeLabel;
-            so.FindProperty("cardRect").objectReferenceValue = chrome.card;
-            so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
+            so.FindProperty("dimGroup").objectReferenceValue = dimGroup;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
         }
 
         // 자식 경로 계약(PerkOfferPanel.cs) — Transform.Find는 "/" 없이는 직계 자식만 찾으므로 중간
         // 레이아웃 컨테이너에도 전부 이름을 박아 전체 경로로 찾는다:
-        //   "Content/TopRow/IconSlot/Icon"·"Content/TopRow/IconSlot/IconEmoji"
-        //   "Content/TopRow/NameCol/Name"·".../Tier"·".../Badges"
-        //   "Content/Desc", "Content/ButtonRow/PickButton"·"Content/ButtonRow/HoldButton"
-        // S12c §2 — .pcard 톤(w_card_grad r16 + bd 1.5 + 상단 40% gloss). 시너지 주입 카드는 보라
-        // Outline을 별도로 켠다(런타임이 enabled 토글, 배경 아웃라인과는 다른 오브젝트).
+        //   "Content/Art/Icon"·"Content/Art/IconEmoji", "Content/Name",
+        //   "Content/TierRow/TierRibbon"(+"/Label"), "Content/Badges", "Content/Desc",
+        //   "Content/PickButton", "HoldCorner"(카드 루트 직계, 코너 오버레이 — PickView Corner와 동일 톤)
+        // S15 §C 카드 구성: 아트 260 정사각(티어색 3px 테두리+글로우) → 이름 32 w900 → 티어 리본 →
+        // 효과 설명 24 txt2(3줄) → [선택] 골드 버튼. 시너지 주입 카드는 카드 루트에 보라 Outline을
+        // 별도로 켠다(런타임이 enabled 토글).
         private static RectTransform BuildPerkCardTemplate(Transform parent)
         {
-            var card = UiKit.Panel(parent, "PerkCardTemplate", Color.white, UiSpriteGen.Load("w_card_grad"));
-            UiKit.SizeHint(card, preferredHeight: 340, flexibleHeight: 0);
-            UiKit.AddGlowOutline(card.gameObject, UiKit.Bd, 1.5f).enabled = true;
-            UiKit.AddGlowOutline(card.gameObject, UiKit.Purple, 3f); // 시너지 카드 전용(런타임이 enabled 토글)
+            var card = UiKit.Panel(parent, "PerkCardTemplate", UiKit.Panel2, UiSpriteGen.Load("w_card_grad"));
+            card.sizeDelta = new Vector2(320f, 620f); // cardsRow(controlChildW/H=false) — 실측 크기 직접 고정.
+            UiKit.AddGlowOutline(card.gameObject, UiKit.Purple, 3f); // 시너지 카드 전용(런타임이 enabled 토글, 기본 비활성)
+            card.gameObject.AddComponent<CanvasGroup>(); // 선택 시 나머지 카드 페이드아웃 대상(S15 §C)
 
-            var col = UiKit.VGroup(card, 8, new RectOffset(20, 20, 16, 16), true, true);
+            // Content 패딩 좌우 30(320-60=260) — Art가 controlChildW=true로 전체 폭을 받으면 정확히
+            // 260 정사각이 되도록 역산(별도 정렬용 래퍼 불필요).
+            var col = UiKit.VGroup(card, 14f, new RectOffset(30, 30, 22, 20), true, true);
             col.name = "Content";
             UiKit.Fill(col);
 
-            var topRow = UiKit.HGroup(col, 14, new RectOffset(0, 0, 0, 0), true, true);
-            topRow.name = "TopRow";
-            UiKit.SizeHint(topRow, preferredHeight: 92, flexibleHeight: 0);
-            BuildIconSlot(topRow, 80, 46);
+            var art = UiKit.Panel(col, "Art", UiKit.Bg1, UiSpriteGen.Load("w_r16"));
+            art.name = "Art";
+            UiKit.SizeHint(art, preferredHeight: 260f, flexibleHeight: 0);
+            UiKit.AddGlowOutline(art.gameObject, UiKit.Bd, 3f).enabled = true; // 색은 런타임이 tierColor로 덮어씀
+            var icon = UiKit.Image(art, null, Color.white);
+            icon.name = "Icon";
+            UiKit.Fill(icon.rectTransform);
+            var iconEmoji = UiKit.Text(art, "", 96, UiKit.TextPrimary, TextAnchor.MiddleCenter);
+            iconEmoji.name = "IconEmoji";
+            UiKit.Fill(iconEmoji.rectTransform);
 
-            var nameCol = UiKit.VGroup(topRow, 2, new RectOffset(0, 0, 0, 0), true, true);
-            nameCol.name = "NameCol";
-            UiKit.SizeHint(nameCol, flexibleWidth: 1, flexibleHeight: 0);
-            var name = UiKit.Text(nameCol, "", 25, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            var name = UiKit.Text(col, "", 32, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
             name.name = "Name";
-            UiKit.SizeHint(name, preferredHeight: 34, flexibleHeight: 0);
-            var tier = UiKit.Text(nameCol, "", 16, UiKit.TextSecondary, TextAnchor.MiddleLeft);
-            tier.name = "Tier";
-            UiKit.SizeHint(tier, preferredHeight: 22, flexibleHeight: 0);
-            var badges = UiKit.Text(nameCol, "", 16, UiKit.Purple, TextAnchor.MiddleLeft, true);
-            badges.name = "Badges";
-            UiKit.SizeHint(badges, preferredHeight: 22, flexibleHeight: 0);
+            UiKit.SizeHint(name, preferredHeight: 42f, flexibleHeight: 0);
 
-            var desc = UiKit.Text(col, "", 19, UiKit.TextPrimary, TextAnchor.UpperLeft);
+            var tierRow = UiKit.HGroup(col, 0, new RectOffset(0, 0, 0, 0), false, true);
+            tierRow.name = "TierRow";
+            UiKit.SizeHint(tierRow, preferredHeight: 28f, flexibleHeight: 0);
+            tierRow.gameObject.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+            BuildAutoPill(tierRow, "TierRibbon", UiKit.PillSprite(28f), 17, new RectOffset(16, 16, 4, 4), true);
+
+            // 보류/시너지 배지 — S15 §C 카드 구성 목록엔 없지만 기존(S7~S12c) 정보를 묵시적으로
+            // 삭제하지 않기 위해 티어 리본 아래 작은 캡션으로 유지(보고 대상).
+            var badges = UiKit.Text(col, "", 16, UiKit.Purple, TextAnchor.MiddleCenter, true);
+            badges.name = "Badges";
+            UiKit.SizeHint(badges, preferredHeight: 22f, flexibleHeight: 0);
+
+            var desc = UiKit.Text(col, "", 24, UiKit.Txt2, TextAnchor.UpperCenter);
             desc.name = "Desc";
             UiKit.SizeHint(desc, flexibleHeight: 1);
 
-            var btnRow = UiKit.HGroup(col, 10, new RectOffset(0, 0, 0, 0), true, true);
-            btnRow.name = "ButtonRow";
-            UiKit.SizeHint(btnRow, preferredHeight: 66, flexibleHeight: 0);
-            // .bigbtn(골드+ink) — 주 액션.
-            var pickBtn = UiKit.Button(btnRow, "선택", new Vector2(0, 66), UiKit.Accent, UiKit.Ink, null, UiSpriteGen.Load("w_gold_btn"));
+            // .bigbtn(골드+ink) — 주 액션. PressFx(UiKit.Button 자동 부착)의 PressedScale=0.96이
+            // 설계 "누름 시 scale .96"과 그대로 일치 — 별도 구현 없이 재사용.
+            var pickBtn = UiKit.Button(col, "선택", new Vector2(0, 66), UiKit.Accent, UiKit.Ink, null, UiSpriteGen.Load("w_gold_btn"));
             pickBtn.name = "PickButton";
-            UiKit.SizeHint(pickBtn, flexibleWidth: 1, preferredHeight: 66, flexibleHeight: 0);
-            // .bigbtn.ghost — 보류(보조). S8 항목⑤: 🗂️(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
-            var holdBtn = UiKit.Button(btnRow, "보류", new Vector2(0, 66), UiKit.Panel2, UiKit.TextPrimary, null, UiSpriteGen.Load("w_ghost_btn"));
-            holdBtn.name = "HoldButton";
-            UiKit.SizeHint(holdBtn, flexibleWidth: 1, preferredHeight: 66, flexibleHeight: 0);
-            UiKit.AddGlowOutline(holdBtn.gameObject, UiKit.Bd2, 2f).enabled = true;
+            UiKit.SizeHint(pickBtn, preferredHeight: 66f, flexibleHeight: 0);
 
-            AddGloss(card, 136f); // 40% of 340
+            AddGloss(card, 248f); // 40% of 620
+
+            // HoldCorner — 카드별 보류(dev_holdfile 보유 시만 표시, PickView Corner와 동일 톤의 고스트 필).
+            var holdCorner = UiKit.Button(card, "보류", new Vector2(108, 40), UiKit.Panel2, UiKit.TextPrimary, null, UiKit.PillSprite(40f));
+            holdCorner.name = "HoldCorner";
+            var holdRt = holdCorner.GetComponent<RectTransform>();
+            holdRt.anchorMin = holdRt.anchorMax = new Vector2(1f, 1f);
+            holdRt.pivot = new Vector2(1f, 1f);
+            holdRt.anchoredPosition = new Vector2(-14f, -14f);
+            UiKit.AddGlowOutline(holdCorner.gameObject, UiKit.Bd2, 1.5f).enabled = true;
+            holdCorner.gameObject.SetActive(false); // 기본 숨김 — 런타임이 canHold일 때만 켠다.
 
             card.gameObject.SetActive(false);
             return card;

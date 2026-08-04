@@ -28,7 +28,9 @@ namespace JackpotRun.UI2
         public static readonly Color Panel3 = Hex("#252c46"); // --panel3(신규 — ghost 버튼 상단 등)
         public static readonly Color Card = Panel2; // 기존 소비처 호환용 별칭 — panel2와 동일
         // 탭/카드 "활성" 강조색 — pick.css(S10) 전용 파생색, slot/style.css :root에는 대응 토큰이
-        // 없다(S12c 정리 대상 — 그때까지 유지, "부족한 색 추가"는 §0 표 항목에만 해당).
+        // 없다. S15 §D에서 PickView의 탭 강조는 §0 토큰(Panel3)으로 교체했다 — 이 상수는 RankView.cs
+        // ("내 순위 행" 강조)가 여전히 참조해 삭제하지 않고 유지한다(RankView 토큰 정리는 이번 작업
+        // 범위 밖 — S15b 지시가 PerkOfferPanel·PickView만 지정).
         public static readonly Color CardTop = Hex("#251F34");
         public static readonly Color Bd = Hex("#2c3454"); // --bd(기본 테두리)
         public static readonly Color Bd2 = Hex("#3f4a76"); // --bd2(hover/강조 테두리)
@@ -39,6 +41,9 @@ namespace JackpotRun.UI2
         public static readonly Color Pink = Hex("#ff6ec7"); // --pink
         public static readonly Color TextPrimary = Hex("#eef1fb"); // --txt
         public static readonly Color TextSecondary = Hex("#8b93b5"); // --dim
+        // S15 §C — §0 표에는 있었지만(txt2) 지금까지 어느 소비처도 참조하지 않아 상수가 없었다.
+        // 보상 선택 모달 카드 설명("효과 설명 24 txt2")이 처음으로 명시 참조 — §0 표 값 그대로 추가.
+        public static readonly Color Txt2 = Hex("#c3cae3"); // --txt2
         public static readonly Color Dim2 = Hex("#6a7299"); // --dim2(탭 번호 등 더 흐린 보조색)
         public static readonly Color Good = Hex("#2ee6c8"); // --teal(기존 소비처 호환 별칭)
         public static readonly Color Teal = Good;

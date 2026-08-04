@@ -200,8 +200,10 @@ namespace JackpotRun.UI2
 
         private void UpdateTabHighlight()
         {
+            // S15 §D — CardTop(S10 pick.css 전용 파생색, §0 표에 대응 토큰 없음)을 §0 표 토큰
+            // Panel3(다른 화면의 "활성/융기" 패널 강조와 동일 역할)으로 교체.
             for (int i = 0; i < tabButtonImages.Length && i < TabOrder.Length; i++)
-                tabButtonImages[i].color = TabOrder[i] == _tab ? UiKit.CardTop : UiKit.PanelBg;
+                tabButtonImages[i].color = TabOrder[i] == _tab ? UiKit.Panel3 : UiKit.PanelBg;
         }
 
         private void UpdateSortHighlight()
