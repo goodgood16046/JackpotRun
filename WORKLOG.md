@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-08-04 - 파티클 근본 수정 3건 + S16 스핀 결과 패널(GainPanel)
+
+- **사용자 보고 "터지는 이펙트는 어디 갔나 · 그냥 텍스처 덩어리만 보인다"** — 파티클 미구현이 아니라 `FxPrefabGen`이 굽는 에셋 쪽 버그 3건이었다. 커밋 `527bfe8`.
+  1. **텍스처가 머티리얼에 안 붙음**: `GenerateAll`이 `StartAssetEditing` 배치 안에서 PNG를 쓰고 곧바로 `LoadAssetAtPath`로 읽어 항상 null → `fx_add/fx_alpha`의 `_MainTex`가 빈 채로 저장. 텍스처 생성을 배치 밖으로 빼고 `Refresh` 후 재로드.
+  2. **파생 머티리얼 참조 끊김**: `CloneWithTexture`의 메모리 상 `Material`은 `SaveAsPrefabAsset`에 저장되지 않아 렌더러 머티리얼이 None → 유니티 기본 파티클 머티리얼(텍스처 없는 흰 쿼드)로 대체됐다. `Art/FX/mats/*.mat` 에셋으로 저장(재실행 시 제자리 갱신 → GUID·프리팹 참조 보존).
+  3. **단위 불일치 = "덩어리"의 정체**: `scalingMode=Local`은 부모 스케일을 무시해 설계의 캔버스px 수치를 월드 단위로 해석 — Screen Space-Camera 캔버스 `lossyScale`이 약 0.005라 크기 8이 **화면 두 배 크기의 흰 사각형**이 됐다 → `Hierarchy`. 같은 이유로 `gravityModifier`(월드 가속)는 입자를 0.25초에 화면 밖 수천 px로 날려 긴 줄무늬만 남겼다 → `forceOverLifetime`(Local space) 기반 `SetGravityPx`로 교체. 트레일 `minVertexDistance` 4→0.02.
+  - 검증: 프리팹 39개 렌더러 전부 텍스처 있는 머티리얼 + Hierarchy, 플레이 모드 `Simulate(0.25s)` 후 카메라 렌더 캡처로 실제 입자 형태(컨페티·코인·파편·스파클) 육안 확인.
+- **S16 스핀 결과 패널** (설계 ENGINE_PORT_DESIGN.md S16, 사용자 피드백 "로그 나열 말고 얼마나·왜 얻었는지"). 파이프라인: Fable 설계 → Sonnet 구현 → Fable 최종 검수. 커밋 `8486911`.
+  - `UI2/Run/GainPanel.cs` 신규: 획득 대문짝(+N EXP, 0.35s 카운트업 + OutBack 팝인) · 점수/코인 칩(0이면 숨김) · 기여 내역 최대 6줄(0.05s 스태거) · 세트 설명 박스. **표시 전용 분해** — 심볼 기본/세트/해골/배율/가산으로 나누고 남는 차이는 `기타` 줄로 드러낸다(오차 은폐 금지), 최종 수치는 항상 엔진 값 그대로.
+  - `RunView`: `resultLineText`/`ScorePopupRoutine` 제거 → `gainPanel.Show/Clear`. `NotesFeed`: 3줄로 축소 + astral 이모지 한글 치환(레거시 Text가 서로게이트 쌍을 못 그려 `🔥 EXP +50%`가 앞이 빈 채로 보이던 문제).
+  - **Fable 최종 검수에서 잡은 것 2건**: ① GainPanel에 flex를 준 첫 구현이 잔여 공간을 통째로 먹어 세트 박스와 로그 사이에 화면 중앙 검은 구멍이 생김 → 잔여를 릴 섹션(flex 1)과 조작부 위 스페이서(flex 1)로 반씩 분배. ② `fx_exp_gain`이 `ZeroVelocityXZ`를 잘못 호출해 방금 넣은 x 속도를 도로 지우고 y만 다른 모드로 남겨 "Particle Velocity curves must all be in the same mode" 경고가 상시 발생 → `ZeroVelocityYZ` 추가, 콘솔 경고 0.
+  - 검증: 컴파일 0오류 · 씬 재빌드 · 플레이 모드 실제 스핀에서 `+12 EXP = 체리×2 +6 · 보석×1 +1 · 세트 2연속 +8 · 해골×1 -3` 합 일치, 로그 3줄 한글 정상 표기.
+
 ## 2026-08-03 - S16 증강 오퍼 티어 폴백 + 폭탄 폭발 연출
 
 - **버그(사용자 보고 "증강 골랐는데 그냥 지나감") 원인 확정**: BASE 퍼크 22종 전부 SILVER + 클리어 스테이지 %3==0 → GOLD 강제 → 신규 프로필의 게이트 풀에 GOLD 0개 → `PickPerksByTier` 오퍼가 통째로 비어 증강/유물 노드가 **랜덤 EVENT로 조용히 대체**(Kotlin 원본 동일 로직 — 봇은 계정이 장기 성장해 미노출, 단독 앱은 상시 재현).
