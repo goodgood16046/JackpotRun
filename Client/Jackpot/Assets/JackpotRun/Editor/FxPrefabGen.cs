@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using JackpotRun.UI2;
 using UnityEditor;
@@ -50,10 +51,7 @@ namespace JackpotRun.EditorTools
         private const int ShardSize = 48;
         private const int CoinSize = 64;
 
-        // 중력 가속도 환산 — ParticleSystem.MainModule.gravityModifier는 Physics.gravity.y(기본
-        // -9.81)에 곱해지는 배율이다. 설계가 픽셀/초² 단위로 값을 주므로(예: "중력 400") 9.81로 나눠
-        // 배율로 변환한다.
-        private const float GravityUnit = 9.81f;
+        // 중력 — SetGravityPx 참조. main.gravityModifier(월드 공간)는 쓰지 않는다.
 
         // sortingOrder — S7c "sortingOrder" 규칙(앰비언트 99 / 일반 150 / 전체화면 250)의 프리팹별
         // 배정. 표가 예시로 명시한 "화면 전체 연출(잭팟/클리어)"에 게임오버(어두운 전면 패널 루프)를
@@ -78,6 +76,8 @@ namespace JackpotRun.EditorTools
         private static Texture2D _texCoin;
         private static Material _matAdd;
         private static Material _matAlpha;
+        private static string _matDir = ArtDir + "/mats";
+        private static readonly Dictionary<string, Material> _cloneCache = new Dictionary<string, Material>();
 
         [MenuItem("JackpotRun/Generate FX Prefabs")]
         public static void GenerateAllMenuItem()
@@ -93,22 +93,42 @@ namespace JackpotRun.EditorTools
         {
             Directory.CreateDirectory(ArtDir);
             Directory.CreateDirectory(PrefabDir);
-            AssetDatabase.StartAssetEditing();
-            try
+
+            // ⚠️ 텍스처 생성은 StartAssetEditing "밖"에서 해야 한다. 배치 편집 구간 안에서는 방금 쓴
+            // PNG가 아직 임포트되지 않아 LoadAssetAtPath가 null을 돌려주고, 그 null이 머티리얼에
+            // 그대로 들어가 파티클이 텍스처 없는 흰 사각형("텍스처 덩어리")으로 보였다(2026-08-01).
+            _texDot = WriteTexture("dot_soft", CreateSoftDot(DotSize), overwrite);
+            _texStar = WriteTexture("star_soft", CreateSoftStar(StarSize), overwrite);
+            _texConfetti = WriteTexture("confetti", CreateConfettiTex(ConfettiW, ConfettiH), overwrite);
+
+            // S15 §B — 공통 재료 4종(새 파일명, p_dot은 dot_soft 재사용이라 파일 없음).
+            _texStar4 = WriteTexture("p_star4", CreateStar4Tex(Star4Size), overwrite);
+            _texRing = WriteTexture("p_ring", CreateRingTex(RingSize), overwrite);
+            _texShard = WriteTexture("p_shard", CreateShardTex(ShardSize), overwrite);
+            _texCoin = WriteTexture("p_coin", CreateCoinTex(CoinSize), overwrite);
+            AssetDatabase.Refresh();
+
+            // 임포트 완료 후 다시 로드 — WriteTexture가 배치 중이 아니어도 방어적으로 한 번 더 확인한다.
+            _texDot = _texDot != null ? _texDot : AssetDatabase.LoadAssetAtPath<Texture2D>($"{ArtDir}/dot_soft.png");
+            _texStar = _texStar != null ? _texStar : AssetDatabase.LoadAssetAtPath<Texture2D>($"{ArtDir}/star_soft.png");
+            _texConfetti = _texConfetti != null ? _texConfetti : AssetDatabase.LoadAssetAtPath<Texture2D>($"{ArtDir}/confetti.png");
+            _texStar4 = _texStar4 != null ? _texStar4 : AssetDatabase.LoadAssetAtPath<Texture2D>($"{ArtDir}/p_star4.png");
+            _texRing = _texRing != null ? _texRing : AssetDatabase.LoadAssetAtPath<Texture2D>($"{ArtDir}/p_ring.png");
+            _texShard = _texShard != null ? _texShard : AssetDatabase.LoadAssetAtPath<Texture2D>($"{ArtDir}/p_shard.png");
+            _texCoin = _texCoin != null ? _texCoin : AssetDatabase.LoadAssetAtPath<Texture2D>($"{ArtDir}/p_coin.png");
+
+            // ⚠️ 머티리얼/프리팹 생성도 배치 편집 밖에서 한다. CloneWithTexture가 만드는 파생 머티리얼은
+            // .mat 에셋으로 저장돼야 프리팹이 GUID로 참조할 수 있는데, StartAssetEditing 구간 안에서
+            // CreateAsset한 에셋은 아직 임포트 전이라 프리팹 저장 시 참조가 끊겼다(머티리얼 = None →
+            // 유니티 기본 파티클 머티리얼로 렌더 = 흰 사각형).
+            _matDir = $"{ArtDir}/mats";
+            Directory.CreateDirectory(_matDir);
+            _cloneCache.Clear();
+
+            _matAdd = WriteMaterial("fx_add", additive: true, _texDot, overwrite);
+            _matAlpha = WriteMaterial("fx_alpha", additive: false, _texDot, overwrite);
+
             {
-                _texDot = WriteTexture("dot_soft", CreateSoftDot(DotSize), overwrite);
-                _texStar = WriteTexture("star_soft", CreateSoftStar(StarSize), overwrite);
-                _texConfetti = WriteTexture("confetti", CreateConfettiTex(ConfettiW, ConfettiH), overwrite);
-
-                // S15 §B — 공통 재료 4종(새 파일명, p_dot은 dot_soft 재사용이라 파일 없음).
-                _texStar4 = WriteTexture("p_star4", CreateStar4Tex(Star4Size), overwrite);
-                _texRing = WriteTexture("p_ring", CreateRingTex(RingSize), overwrite);
-                _texShard = WriteTexture("p_shard", CreateShardTex(ShardSize), overwrite);
-                _texCoin = WriteTexture("p_coin", CreateCoinTex(CoinSize), overwrite);
-
-                _matAdd = WriteMaterial("fx_add", additive: true, _texDot, overwrite);
-                _matAlpha = WriteMaterial("fx_alpha", additive: false, _texDot, overwrite);
-
                 SavePrefab(Build_SpinStop(), overwrite);
                 SavePrefab(Build_SetHit(), overwrite);
                 SavePrefab(Build_Jackpot(), overwrite);
@@ -139,10 +159,9 @@ namespace JackpotRun.EditorTools
                 SavePrefab(Build_CoinSpark(), overwrite);
                 SavePrefab(Build_RunAmbient(), overwrite);
             }
-            finally
-            {
-                AssetDatabase.StopAssetEditing();
-            }
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh(); // 방금 저장한 프리팹을 다시 임포트 — 캐시된 옛 인스턴스가 남지 않게.
         }
 
         // ── 프리팹 11종(S7c) + UI 발광 4종(S13 §E) + 연출강화 3종(S14 §F) + 파티클재작업 5종(S15 §B) ──
@@ -164,7 +183,7 @@ namespace JackpotRun.EditorTools
             main.startSpeed = new ParticleSystem.MinMaxCurve(300f, 600f); // 설계 명시
             main.startSize = new ParticleSystem.MinMaxCurve(9f, 16f);
             main.startColor = Color.white; // 런타임 tint(심볼색)로 덮어쓰는 것을 전제로 한 기본값
-            main.gravityModifier = 200f / GravityUnit; // 설계 명시 "중력200"
+            SetGravityPx(ps, 200f); // 설계 명시 "중력200"
             main.maxParticles = 20;
 
             SetBursts(ps, (0f, 6), (0.05f, 4)); // 설계 "스파크 10개" — 다단계로 겹쳐 "터지는 맛"
@@ -218,7 +237,7 @@ namespace JackpotRun.EditorTools
             main.startSizeY = new ParticleSystem.MinMaxCurve(16f, 24f);
             main.startSizeZ = new ParticleSystem.MinMaxCurve(1f, 1f);
             main.startColor = new ParticleSystem.MinMaxGradient(UiKit.TierGold, Color.white);
-            main.gravityModifier = 400f / GravityUnit; // "중력 400"(px/s²)
+            SetGravityPx(ps, 400f); // "중력 400"(px/s²)
             main.maxParticles = 100;
 
             SetBursts(ps, (0f, 80));
@@ -271,7 +290,7 @@ namespace JackpotRun.EditorTools
             coinMain.startSpeed = new ParticleSystem.MinMaxCurve(200f, 420f);
             coinMain.startSize = new ParticleSystem.MinMaxCurve(16f, 26f);
             coinMain.startColor = new ParticleSystem.MinMaxGradient(UiKit.TierGold, UiKit.Gold2);
-            coinMain.gravityModifier = 380f / GravityUnit; // "중력"(수치 미명시 — confetti 400 근사)
+            SetGravityPx(coinPs, 380f); // "중력"(수치 미명시 — confetti 400 근사)
             coinMain.maxParticles = 90;
 
             SetBursts(coinPs, (0f, 40), (0.15f, 20)); // 설계 "60개" — 다단계
@@ -396,7 +415,7 @@ namespace JackpotRun.EditorTools
             main.startSpeed = 0f;
             main.startSize = new ParticleSystem.MinMaxCurve(10f, 20f);
             main.startColor = new ParticleSystem.MinMaxGradient(UiKit.TierGold, Color.white);
-            main.gravityModifier = 150f / GravityUnit; // 완만한 낙하(설계에 수치 없음 — 구현 결정치)
+            SetGravityPx(ps, 150f); // 완만한 낙하(설계에 수치 없음 — 구현 결정치)
             main.maxParticles = 50;
 
             SetBursts(ps, (0f, 40));
@@ -530,7 +549,7 @@ namespace JackpotRun.EditorTools
             smain.startSpeed = new ParticleSystem.MinMaxCurve(80f, 180f);
             smain.startSize = new ParticleSystem.MinMaxCurve(8f, 14f);
             smain.startColor = UiKit.Bad; // 붉은 파편(기본값 — 틴트 시 덮어써짐)
-            smain.gravityModifier = 300f / GravityUnit; // "하강"
+            SetGravityPx(shardPs, 300f); // "하강"
             smain.maxParticles = 10;
 
             SetBursts(shardPs, (0f, 6)); // 설계 명시 "6"
@@ -603,7 +622,7 @@ namespace JackpotRun.EditorTools
             main.startSpeed = 0f;
             main.startSize = new ParticleSystem.MinMaxCurve(8f, 16f);
             main.startColor = new Color(0.45f, 0.45f, 0.48f, 0.4f); // 어두운 회색, 알파 0.4
-            main.gravityModifier = 60f / GravityUnit; // 완만한 낙하(설계에 수치 없음 — 구현 결정치)
+            SetGravityPx(ps, 60f); // 완만한 낙하(설계에 수치 없음 — 구현 결정치)
             main.maxParticles = 70;
 
             var emission = ps.emission;
@@ -830,7 +849,7 @@ namespace JackpotRun.EditorTools
             main.startSpeed = new ParticleSystem.MinMaxCurve(60f, 140f);
             main.startSize = new ParticleSystem.MinMaxCurve(8f, 14f);
             main.startColor = new Color(0.85f, 0.78f, 0.6f, 0.6f); // 먼지(베이지)
-            main.gravityModifier = 40f / GravityUnit; // 살짝 가라앉는 먼지(설계 미명시 — 구현 결정치)
+            SetGravityPx(ps, 40f); // 살짝 가라앉는 먼지(설계 미명시 — 구현 결정치)
             main.maxParticles = 10;
 
             SetBursts(ps, (0f, 6)); // "먼지 파티클(6개)" 설계 그대로
@@ -951,7 +970,7 @@ namespace JackpotRun.EditorTools
             main.startSpeed = new ParticleSystem.MinMaxCurve(180f, 320f);
             main.startSize = new ParticleSystem.MinMaxCurve(8f, 14f);
             main.startColor = Color.white; // 런타임 tint(심볼색)로 덮어쓰는 것을 전제로 한 기본값
-            main.gravityModifier = 250f / GravityUnit;
+            SetGravityPx(ps, 250f);
             main.maxParticles = 20;
 
             SetBursts(ps, (0f, 8), (0.05f, 4)); // 설계 "파편 12" — 다단계
@@ -1137,7 +1156,11 @@ namespace JackpotRun.EditorTools
             main.simulationSpace = ParticleSystemSimulationSpace.Local;
             main.startRotation3D = false;
             main.startSize3D = false;
-            main.scalingMode = ParticleSystemScalingMode.Local;
+            // ⚠️ Hierarchy 필수. 설계의 모든 수치(startSize·속도·shape 반지름·중력)는 "캔버스 픽셀"
+            // 단위로 적었는데, Local 모드는 부모 스케일을 무시하고 그 값을 월드 단위로 해석한다.
+            // Screen Space-Camera 캔버스의 lossyScale은 약 0.005(월드/캔버스px)라, Local이면 크기 8이
+            // 8월드 = 화면 높이의 두 배가 넘는 흰 사각형이 된다 — 사용자가 본 "텍스처 덩어리"의 정체.
+            main.scalingMode = ParticleSystemScalingMode.Hierarchy;
 
             var emission = ps.emission;
             emission.enabled = true;
@@ -1241,7 +1264,11 @@ namespace JackpotRun.EditorTools
             trails.mode = ParticleSystemTrailMode.PerParticle;
             trails.ratio = 1f;
             trails.lifetime = lifetime;
-            trails.minVertexDistance = 4f;
+            // minVertexDistance는 scalingMode의 영향을 받지 않는 "월드 단위" 값이다. 캔버스
+            // lossyScale이 약 0.005라 4를 그대로 두면 새 정점이 사실상 추가되지 않아, 트레일이 첫 정점과
+            // 현재 위치를 잇는 화면을 가로지르는 긴 직선으로 그려졌다(2026-08-01 관측). 4 캔버스px
+            // 상당인 0.02로 맞춘다.
+            trails.minVertexDistance = 0.02f;
             trails.worldSpace = false;
             trails.dieWithParticles = true;
             trails.sizeAffectsWidth = true;
@@ -1254,6 +1281,25 @@ namespace JackpotRun.EditorTools
         // 설정하고 나머지를 기본값(Constant)으로 두면 Unity가 "Particle Velocity curves must all be in
         // the same mode" 경고를 낸다). 호출측이 먼저 y(또는 x)를 TwoConstants로 설정한 뒤 이 헬퍼로
         // 나머지 두 축을 (0,0) TwoConstants로 맞춘다.
+        // 설계의 "중력 N"은 캔버스 px/s²다. main.gravityModifier는 Physics.gravity(월드 공간 가속)에
+        // 곱해지는 값이라 scalingMode=Hierarchy로도 스케일되지 않는다 — 캔버스 lossyScale이 약
+        // 0.005라 월드 400은 로컬(=캔버스px) 8만 이상이 돼, 입자가 0.25초 만에 화면 밖 수천 px로
+        // 날아가고 그 궤적이 화면을 가로지르는 긴 줄로 보였다(2026-08-01). forceOverLifetime을
+        // Local space로 주면 시뮬레이션 공간(=캔버스 단위) 그대로 해석돼 설계 수치가 의도대로 산다.
+        private static void SetGravityPx(ParticleSystem ps, float pxPerSecSq)
+        {
+            var main = ps.main;
+            main.gravityModifier = 0f;
+
+            var force = ps.forceOverLifetime;
+            force.enabled = true;
+            force.space = ParticleSystemSimulationSpace.Local;
+            // x/y/z는 반드시 같은 모드로(velocityOverLifetime과 동일한 유니티 제약).
+            force.x = new ParticleSystem.MinMaxCurve(0f);
+            force.y = new ParticleSystem.MinMaxCurve(-pxPerSecSq);
+            force.z = new ParticleSystem.MinMaxCurve(0f);
+        }
+
         private static void ZeroVelocityXZ(ParticleSystem ps)
         {
             var vol = ps.velocityOverLifetime;
@@ -1553,7 +1599,17 @@ namespace JackpotRun.EditorTools
         {
             string path = $"{ArtDir}/{name}.mat";
             if (!overwrite && File.Exists(path))
-                return AssetDatabase.LoadAssetAtPath<Material>(path);
+            {
+                var existing = AssetDatabase.LoadAssetAtPath<Material>(path);
+                // 텍스처가 비어 있으면 채워 준다 — 과거 실행에서 텍스처 없이 만들어진 머티리얼이
+                // overwrite:false 때문에 계속 남아 파티클이 "흰 네모 덩어리"로 보이던 버그(2026-08-01).
+                if (existing != null && defaultTex != null && existing.mainTexture == null)
+                {
+                    existing.mainTexture = defaultTex;
+                    EditorUtility.SetDirty(existing);
+                }
+                return existing;
+            }
 
             var shader = FindParticleShader(additive);
             if (shader == null)
@@ -1589,12 +1645,34 @@ namespace JackpotRun.EditorTools
             if (mat.HasProperty("_TintColor")) mat.SetColor("_TintColor", Color.white);
         }
 
+        // 파생 머티리얼은 반드시 .mat "에셋"으로 저장한다. 메모리 상의 new Material(...)을 프리팹
+        // 렌더러에 물린 채 SaveAsPrefabAsset하면 그 참조가 저장되지 않고 None으로 끊긴다 → 유니티가
+        // 기본 파티클 머티리얼로 대체해 텍스처 없는 흰 사각형만 보였다(2026-08-01 사용자 리포트).
         private static Material CloneWithTexture(Material baseMat, Texture2D tex, string tag)
         {
             if (baseMat == null) return null;
             if (tex == null) return baseMat;
-            var clone = new Material(baseMat) { name = baseMat.name + "_" + tag };
+
+            string name = baseMat.name + "_" + tag;
+            if (_cloneCache.TryGetValue(name, out var cached) && cached != null) return cached;
+
+            string path = $"{_matDir}/{name}.mat";
+            var existing = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (existing != null)
+            {
+                // 텍스처/셰이더가 어긋난 과거 산출물은 제자리에서 고쳐 쓴다(GUID 유지 → 프리팹 참조 보존).
+                if (existing.shader != baseMat.shader) existing.shader = baseMat.shader;
+                existing.CopyPropertiesFromMaterial(baseMat);
+                existing.mainTexture = tex;
+                EditorUtility.SetDirty(existing);
+                _cloneCache[name] = existing;
+                return existing;
+            }
+
+            var clone = new Material(baseMat) { name = name };
             clone.mainTexture = tex;
+            AssetDatabase.CreateAsset(clone, path);
+            _cloneCache[name] = clone;
             return clone;
         }
 
