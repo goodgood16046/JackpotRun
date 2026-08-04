@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using JackpotRun.Engine;
 using UnityEngine;
 using UnityEngine.UI;
@@ -11,11 +12,14 @@ namespace JackpotRun.UI2
     // ShowManipPicker.
     public sealed class ManipPickPopup : MonoBehaviour
     {
-        private const float ScaleInDuration = 0.25f; // 설계 미명시 — 팝업 등장 길이 기본값
+        // S12c §6 — 시트 슬라이드업 "0.24s cubic-bezier(.2,.9,.3,1)" → OutCubic 근사(설계 명시,
+        // 이전엔 중앙 팝업 scale-in 0.25s OutBack이었다).
+        private const float SheetSlideDuration = 0.24f;
         private static readonly string[] NeedsArgIds = { "dev_pin", "dev_copy", "dev_swap" };
 
         [SerializeField] private Button scrimButton;
         [SerializeField] private RectTransform cardRect;
+        [SerializeField] private CanvasGroup dimGroup; // S12c §6 — 배경 딤 페이드(BuildSheetChrome.dimGroup)
         [SerializeField] private Text headText;
         [SerializeField] private Text descText;
         [SerializeField] private RectTransform cellsContent;
@@ -26,6 +30,7 @@ namespace JackpotRun.UI2
         {
             if (cellButtonTemplate != null) cellButtonTemplate.gameObject.SetActive(false);
             gameObject.SetActive(false);
+            if (dimGroup != null) dimGroup.alpha = 0f;
             if (scrimButton != null) scrimButton.onClick.AddListener(Hide);
             if (cancelButton != null) cancelButton.onClick.AddListener(Hide);
         }
@@ -40,16 +45,19 @@ namespace JackpotRun.UI2
                 return;
             }
 
+            bool firstShow = !gameObject.activeSelf;
             gameObject.SetActive(true);
             if (headText != null) headText.text = $"{dev.emoji} {dev.name} — 칸 선택";
             if (descText != null) descText.text = dev.desc;
 
             BuildCellButtons(run.LastCells.Count, dev.id, onConfirm);
 
-            if (cardRect != null)
+            StopAllCoroutines();
+            if (firstShow) StartCoroutine(EnterRoutine());
+            else
             {
-                StopAllCoroutines();
-                StartCoroutine(UiTween.ScaleRoutine(cardRect, Vector3.zero, Vector3.one, ScaleInDuration, UiTween.Ease.OutBack));
+                if (dimGroup != null) dimGroup.alpha = 1f;
+                if (cardRect != null) cardRect.anchoredPosition = Vector2.zero;
             }
         }
 
@@ -57,6 +65,15 @@ namespace JackpotRun.UI2
         {
             StopAllCoroutines();
             gameObject.SetActive(false);
+        }
+
+        // S12c §6 — 시트 슬라이드업(0.24s OutCubic) + 배경 딤 페이드 동시 재생.
+        private IEnumerator EnterRoutine()
+        {
+            if (cardRect != null) cardRect.anchoredPosition = new Vector2(0f, -cardRect.rect.height);
+            if (dimGroup != null) StartCoroutine(UiTween.FadeRoutine(dimGroup, 0f, 1f, SheetSlideDuration));
+            if (cardRect != null)
+                yield return UiTween.MoveRoutine(cardRect, cardRect.anchoredPosition, Vector2.zero, SheetSlideDuration, UiTween.Ease.OutCubic);
         }
 
         private void BuildCellButtons(int cellCount, string deviceId, Action<string, int?> onConfirm)

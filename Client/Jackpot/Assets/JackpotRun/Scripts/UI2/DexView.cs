@@ -76,9 +76,11 @@ namespace JackpotRun.UI2
 
         private void UpdateTabHighlight()
         {
+            // S12c §3 — S12 §0 토큰만 사용(CardTop은 pick.css 전용 파생색이라 정리 대상, .dex-tab.on의
+            // 배경색 자체는 §0 표에 없는 커스텀 그라데이션이라 가장 가까운 톤 단계인 Panel3로 근사).
             var order = JackpotCatalog.CategoryOrder;
             for (int i = 0; i < tabImages.Length && i < order.Length; i++)
-                if (tabImages[i] != null) tabImages[i].color = order[i] == _cat ? UiKit.CardTop : UiKit.PanelBg;
+                if (tabImages[i] != null) tabImages[i].color = order[i] == _cat ? UiKit.Panel3 : UiKit.PanelBg;
         }
 
         private void RenderGrid()

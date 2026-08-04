@@ -29,6 +29,10 @@ namespace JackpotRun.EditorTools
         private const float CameraPlaneDistance = 100f;
         private const int CanvasSortingOrder = 100;
 
+        // S12c §6 — ".sheet{max-height:82vh}" — 캔버스 1920 기준 82% (Node/Perk/Shop/PostSpin/Bag/Manip
+        // 시트 공용 상한, BuildSheetChrome 호출측이 이보다 작은 값을 주면 그 값을 그대로 쓴다).
+        private const float SheetMaxHeight = 1574f;
+
         [MenuItem("JackpotRun/Build UI Scenes")]
         public static void Build()
         {
@@ -440,6 +444,18 @@ namespace JackpotRun.EditorTools
             public Text bagButtonLabel;
             public RectTransform deviceRow;
             public RectTransform deviceButtonTemplate;
+        }
+
+        // S12c §6 — BuildSheetChrome(...)이 반환하는 "시트" 골격 3요소. scrim(전체화면, 클릭 차단) →
+        // dimGroup(rgba(0,0,0,.62) 딤, CanvasGroup 알파 0 시작 — 각 패널의 Show()가 0→1 페이드) →
+        // card(w_sheet_top 배경, 하단 고정 앵커라 슬라이드업의 대상) → cardCol(card를 채우는 빈
+        // VGroup, 호출측이 제목/스크롤/버튼을 여기 쌓는다).
+        private struct SheetChrome
+        {
+            public RectTransform scrim;
+            public CanvasGroup dimGroup;
+            public RectTransform card;
+            public RectTransform cardCol;
         }
 
         private sealed class RunOverlayResult
@@ -1956,29 +1972,90 @@ namespace JackpotRun.EditorTools
             };
         }
 
-        // ── NodePanel ────────────────────────────────────────────────────────────────
-        private static UI2.NodePanel BuildNodePanel(Transform overlay)
+        // S12c §6 — 시트 공용 골격("바텀시트" — Node/Perk/Shop/PostSpin/Bag/Manip 6개 패널이 전부 이
+        // 헬퍼로 짓는다). scrim은 전체화면 투명(클릭 차단, Image 기본 raycastTarget=true) —
+        // dismissOnScrimClick=true면 빈 Button을 추가해 각 패널의 Awake()가 Hide를 리스너로 붙인다
+        // (기존 BagPopup/ManipPickPopup 관례 그대로, 리스너 연결은 런타임 쪽 책임 — 빌더는 컴포넌트만
+        // 붙인다). card는 하단 고정 앵커(anchorMin/Max.y=0, pivot.y=0) — 런타임이 anchoredPosition을
+        // (0,-card.rect.height)에서 (0,0)으로 슬라이드한다(오프스크린 높이는 card 자신의 rect에서
+        // 읽으므로 이 함수가 굳이 반환할 필요 없음). w_sheet_top(상단만 r-2xl) + bd2 테두리 +
+        // 그랩 핸들(.grab 재해석) 장식.
+        private static SheetChrome BuildSheetChrome(Transform overlay, string name, float maxHeight,
+            bool dismissOnScrimClick)
         {
-            var scrim = UiKit.Panel(overlay, "NodePanel", new Color(0f, 0f, 0f, 0.66f));
+            var scrim = UiKit.Panel(overlay, name, new Color(0f, 0f, 0f, 0f));
             UiKit.Fill(scrim);
             scrim.gameObject.SetActive(false);
+            if (dismissOnScrimClick)
+            {
+                var scrimBtn = scrim.gameObject.AddComponent<Button>();
+                scrimBtn.transition = Selectable.Transition.None;
+            }
 
-            // S14 §E — "배경 딤 페이드"는 이 스크림 자체가 아니라 별도 오버레이로 만든다. scrim에
-            // CanvasGroup을 직접 붙이면 그 CanvasGroup이 자식 전체(Banner/Card)의 알파에도 곱해져,
-            // 이미 자기 알파로 다 켜져 있는 Banner가 카드 슬라이드업 구간에서 함께 어두워졌다 다시
-            // 밝아지는 깜빡임이 생긴다 — Banner/Card와 형제인 별도 패널로 분리해 서로 간섭하지 않게 한다.
-            var dimOverlay = UiKit.Panel(scrim, "DimOverlay", new Color(0f, 0f, 0f, 0.5f));
+            var dimOverlay = UiKit.Panel(scrim, "DimOverlay", new Color(0f, 0f, 0f, 0.62f));
             UiKit.Fill(dimOverlay);
             dimOverlay.GetComponent<Image>().raycastTarget = false;
             var dimGroup = dimOverlay.gameObject.AddComponent<CanvasGroup>();
             dimGroup.blocksRaycasts = false;
             dimGroup.interactable = false;
+            dimGroup.alpha = 0f;
 
-            var bannerPanel = UiKit.Panel(scrim, "Banner", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
+            var card = UiKit.Panel(scrim, "Card", Color.white, UiSpriteGen.Load("w_sheet_top"));
+            UiKit.AddGlowOutline(card.gameObject, UiKit.Bd2, 2f).enabled = true;
+            card.anchorMin = new Vector2(0f, 0f);
+            card.anchorMax = new Vector2(1f, 0f);
+            card.pivot = new Vector2(0.5f, 0f);
+            card.sizeDelta = new Vector2(0f, Mathf.Min(maxHeight, SheetMaxHeight));
+            card.anchoredPosition = Vector2.zero;
+            if (dismissOnScrimClick)
+            {
+                var cardBlocker = card.gameObject.AddComponent<Button>();
+                cardBlocker.transition = Selectable.Transition.None;
+            }
+
+            AddGrabHandle(card);
+
+            var cardCol = UiKit.VGroup(card, 0, new RectOffset(0, 0, 0, 0), true, true);
+            cardCol.name = "Content";
+            // 상단 34(그랩 핸들 10+8 아래로 여유 16) · 좌우 27(14px×1.9) · 하단 20(§6 padding 20px 그대로).
+            UiKit.SetAnchors(cardCol, Vector2.zero, Vector2.one, new Vector2(27f, 20f), new Vector2(-27f, -34f));
+
+            return new SheetChrome { scrim = scrim, dimGroup = dimGroup, card = card, cardCol = cardCol };
+        }
+
+        // .grab 재해석 — 시트 상단 중앙 40×8(스케일 20×1.9≈40, 4×1.9≈8) bd2색 pill 장식. 높이 8px는
+        // 9-slice 후보 중 가장 작은 반경(w_r9=9)도 초과하는 "찌그러짐 구간"이라(§13 §A 경고 그대로 —
+        // 대상 크기보다 border가 크면 늘어난다) 9-slice 없이 단색 사각(Image.Type.Simple)으로 굽는다 —
+        // 8px 높이에서는 둥근 끝인지 각진 끝인지 시각적으로 거의 구분되지 않는다(재해석). 장식용이라
+        // raycastTarget=false(§7 공통 규칙 "투명 컨테이너는 raycastTarget=false"와 동일 취지).
+        private static void AddGrabHandle(RectTransform card)
+        {
+            var grab = UiKit.Panel(card, "Grab", UiKit.Bd2);
+            grab.GetComponent<Image>().raycastTarget = false;
+            grab.anchorMin = new Vector2(0.5f, 1f);
+            grab.anchorMax = new Vector2(0.5f, 1f);
+            grab.pivot = new Vector2(0.5f, 1f);
+            grab.sizeDelta = new Vector2(40f, 8f);
+            grab.anchoredPosition = new Vector2(0f, -10f);
+        }
+
+        // ── NodePanel ────────────────────────────────────────────────────────────────
+        // S12c §6 — 카드 목록 부분을 BuildSheetChrome(바텀시트)으로 교체. Banner(클리어 등급 배너)는
+        // 웹 원본 .sheet에 없는 Unity 전용 연출이라 그대로 유지하되(§7 재해석 대상 아님 — 임의 삭제
+        // 금지), 배경만 토큰 스프라이트(w_panel_grad+bd2)로 갱신한다. Banner의 자체 CanvasGroup 페이드
+        // /드롭 애니메이션은 NodePanel.cs가 그대로 담당(변경 없음) — chrome.dimGroup과는 별개.
+        private static UI2.NodePanel BuildNodePanel(Transform overlay)
+        {
+            var chrome = BuildSheetChrome(overlay, "NodePanel", 1300f, dismissOnScrimClick: false);
+            var scrim = chrome.scrim;
+
+            var bannerPanel = UiKit.Panel(scrim, "Banner", Color.white, UiSpriteGen.Load("w_panel_grad"));
+            UiKit.AddGlowOutline(bannerPanel.gameObject, UiKit.Bd2, 2f).enabled = true;
             bannerPanel.anchorMin = bannerPanel.anchorMax = new Vector2(0.5f, 1f);
             bannerPanel.pivot = new Vector2(0.5f, 1f);
             bannerPanel.sizeDelta = new Vector2(860f, 230f);
             bannerPanel.anchoredPosition = new Vector2(0f, -140f);
+            bannerPanel.SetAsLastSibling(); // 시트(Card)보다 위 형제로 — 배너가 카드에 가리지 않게.
             var bannerGroup = bannerPanel.gameObject.AddComponent<CanvasGroup>();
             bannerGroup.blocksRaycasts = false;
             bannerGroup.interactable = false;
@@ -1992,19 +2069,12 @@ namespace JackpotRun.EditorTools
             var subText = UiKit.Text(bannerCol, "", 17, UiKit.TextSecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(subText, flexibleHeight: 1);
 
-            var cardRect = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
-            cardRect.anchorMin = cardRect.anchorMax = new Vector2(0.5f, 0.5f);
-            cardRect.pivot = new Vector2(0.5f, 0.5f);
-            cardRect.sizeDelta = new Vector2(940f, 1300f);
-            var cardCol = UiKit.VGroup(cardRect, 0, new RectOffset(0, 0, 0, 0), true, true);
-            UiKit.Fill(cardCol);
+            var title = UiKit.Text(chrome.cardCol, "다음 노드를 선택하세요", 30, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(title, preferredHeight: 56, flexibleHeight: 0);
 
-            var title = UiKit.Text(cardCol, "다음 노드를 선택하세요", 30, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
-            UiKit.SizeHint(title, preferredHeight: 64, flexibleHeight: 0);
-
-            var scroll = UiKit.Scroll(cardCol, out var cardsContent, vertical: true);
+            var scroll = UiKit.Scroll(chrome.cardCol, out var cardsContent, vertical: true);
             UiKit.SizeHint(scroll, flexibleHeight: 1);
-            SetupStackContent(cardsContent, 28, 12, 16);
+            SetupStackContent(cardsContent, 4, 12, 16);
             var cardTemplate = BuildNodeCardTemplate(cardsContent);
 
             var view = scrim.gameObject.AddComponent<UI2.NodePanel>();
@@ -2014,19 +2084,21 @@ namespace JackpotRun.EditorTools
             so.FindProperty("bannerGradeText").objectReferenceValue = gradeText;
             so.FindProperty("bannerScoreText").objectReferenceValue = scoreText;
             so.FindProperty("bannerSubText").objectReferenceValue = subText;
-            so.FindProperty("cardRect").objectReferenceValue = cardRect;
+            so.FindProperty("cardRect").objectReferenceValue = chrome.card;
             so.FindProperty("cardsContent").objectReferenceValue = cardsContent;
             so.FindProperty("cardTemplate").objectReferenceValue = cardTemplate;
-            so.FindProperty("dimGroup").objectReferenceValue = dimGroup;
+            so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
         }
 
-        // 자식 경로 계약(NodePanel.cs): "Head"(Text)/"Body"(Text).
+        // 자식 경로 계약(NodePanel.cs): "Head"(Text)/"Body"(Text). S12c §2 — .pcard 톤(w_card_grad r16
+        // + bd 1.5 + 상단 40% gloss). 카드 자체가 클릭 대상(Button+PressFx)이라 눌림 시 자동 scale .96.
         private static RectTransform BuildNodeCardTemplate(Transform parent)
         {
-            var card = UiKit.Panel(parent, "NodeCardTemplate", UiKit.Card, UiSpriteGen.Load("card_grad"));
-            UiKit.SizeHint(card, preferredHeight: 210, flexibleHeight: 0);
+            var card = UiKit.Panel(parent, "NodeCardTemplate", Color.white, UiSpriteGen.Load("w_card_grad"));
+            UiKit.SizeHint(card, preferredHeight: 200, flexibleHeight: 0);
+            UiKit.AddGlowOutline(card.gameObject, UiKit.Bd, 1.5f).enabled = true;
             var btn = card.gameObject.AddComponent<Button>();
             btn.targetGraphic = card.GetComponent<Image>();
             card.gameObject.AddComponent<PressFx>();
@@ -2044,6 +2116,8 @@ namespace JackpotRun.EditorTools
             body.name = "Body";
             UiKit.SizeHint(body, flexibleHeight: 1);
 
+            AddGloss(card, 80f); // .pcard::after height:40% of 200 — MenuView 관례처럼 콘텐츠 위 마지막 형제.
+
             card.gameObject.SetActive(false);
             return card;
         }
@@ -2051,16 +2125,9 @@ namespace JackpotRun.EditorTools
         // ── PerkOfferPanel ───────────────────────────────────────────────────────────
         private static UI2.PerkOfferPanel BuildPerkOfferPanel(Transform overlay)
         {
-            var scrim = UiKit.Panel(overlay, "PerkOfferPanel", new Color(0f, 0f, 0f, 0.66f));
-            UiKit.Fill(scrim);
-            scrim.gameObject.SetActive(false);
-
-            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
-            card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
-            card.pivot = new Vector2(0.5f, 0.5f);
-            card.sizeDelta = new Vector2(980f, 1560f);
-            var col = UiKit.VGroup(card, 8, new RectOffset(0, 0, 20, 20), true, true);
-            UiKit.Fill(col);
+            var chrome = BuildSheetChrome(overlay, "PerkOfferPanel", 1560f, dismissOnScrimClick: false);
+            var scrim = chrome.scrim;
+            var col = chrome.cardCol;
 
             var titleText = UiKit.Text(col, "", 30, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
             UiKit.SizeHint(titleText, preferredHeight: 48, flexibleHeight: 0);
@@ -2069,11 +2136,13 @@ namespace JackpotRun.EditorTools
 
             var scroll = UiKit.Scroll(col, out var cardsContent, vertical: true);
             UiKit.SizeHint(scroll, flexibleHeight: 1);
-            SetupStackContent(cardsContent, 28, 16, 14);
+            SetupStackContent(cardsContent, 4, 16, 14);
             var cardTemplate = BuildPerkCardTemplate(cardsContent);
 
-            var retakeButton = UiKit.Button(col, "", new Vector2(0, 78), UiKit.Blue, UiKit.Bg, null, UiSpriteGen.Load("panel_r24"));
+            // .bigbtn.ghost 톤(panel3→panel2 + bd2) — 재추첨은 보조 액션.
+            var retakeButton = UiKit.Button(col, "", new Vector2(0, 78), UiKit.Panel2, UiKit.TextPrimary, null, UiSpriteGen.Load("w_ghost_btn"));
             UiKit.SizeHint(retakeButton, preferredHeight: 78, flexibleHeight: 0);
+            UiKit.AddGlowOutline(retakeButton.gameObject, UiKit.Bd2, 2f).enabled = true;
             var retakeLabel = retakeButton.GetComponentInChildren<Text>();
 
             var view = scrim.gameObject.AddComponent<UI2.PerkOfferPanel>();
@@ -2084,6 +2153,8 @@ namespace JackpotRun.EditorTools
             so.FindProperty("cardTemplate").objectReferenceValue = cardTemplate;
             so.FindProperty("retakeButton").objectReferenceValue = retakeButton;
             so.FindProperty("retakeButtonLabel").objectReferenceValue = retakeLabel;
+            so.FindProperty("cardRect").objectReferenceValue = chrome.card;
+            so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
         }
@@ -2093,12 +2164,14 @@ namespace JackpotRun.EditorTools
         //   "Content/TopRow/IconSlot/Icon"·"Content/TopRow/IconSlot/IconEmoji"
         //   "Content/TopRow/NameCol/Name"·".../Tier"·".../Badges"
         //   "Content/Desc", "Content/ButtonRow/PickButton"·"Content/ButtonRow/HoldButton"
-        // 카드 루트에 Outline(시너지 보라 테두리).
+        // S12c §2 — .pcard 톤(w_card_grad r16 + bd 1.5 + 상단 40% gloss). 시너지 주입 카드는 보라
+        // Outline을 별도로 켠다(런타임이 enabled 토글, 배경 아웃라인과는 다른 오브젝트).
         private static RectTransform BuildPerkCardTemplate(Transform parent)
         {
-            var card = UiKit.Panel(parent, "PerkCardTemplate", UiKit.Card, UiSpriteGen.Load("card_grad"));
+            var card = UiKit.Panel(parent, "PerkCardTemplate", Color.white, UiSpriteGen.Load("w_card_grad"));
             UiKit.SizeHint(card, preferredHeight: 340, flexibleHeight: 0);
-            UiKit.AddGlowOutline(card.gameObject, UiKit.Purple, 3f);
+            UiKit.AddGlowOutline(card.gameObject, UiKit.Bd, 1.5f).enabled = true;
+            UiKit.AddGlowOutline(card.gameObject, UiKit.Purple, 3f); // 시너지 카드 전용(런타임이 enabled 토글)
 
             var col = UiKit.VGroup(card, 8, new RectOffset(20, 20, 16, 16), true, true);
             col.name = "Content";
@@ -2129,13 +2202,17 @@ namespace JackpotRun.EditorTools
             var btnRow = UiKit.HGroup(col, 10, new RectOffset(0, 0, 0, 0), true, true);
             btnRow.name = "ButtonRow";
             UiKit.SizeHint(btnRow, preferredHeight: 66, flexibleHeight: 0);
-            var pickBtn = UiKit.Button(btnRow, "선택", new Vector2(0, 66), UiKit.Accent, UiKit.Bg, null, UiSpriteGen.Load("panel_r24"));
+            // .bigbtn(골드+ink) — 주 액션.
+            var pickBtn = UiKit.Button(btnRow, "선택", new Vector2(0, 66), UiKit.Accent, UiKit.Ink, null, UiSpriteGen.Load("w_gold_btn"));
             pickBtn.name = "PickButton";
             UiKit.SizeHint(pickBtn, flexibleWidth: 1, preferredHeight: 66, flexibleHeight: 0);
-            // S8 항목⑤: 🗂️(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
-            var holdBtn = UiKit.Button(btnRow, "보류", new Vector2(0, 66), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
+            // .bigbtn.ghost — 보류(보조). S8 항목⑤: 🗂️(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
+            var holdBtn = UiKit.Button(btnRow, "보류", new Vector2(0, 66), UiKit.Panel2, UiKit.TextPrimary, null, UiSpriteGen.Load("w_ghost_btn"));
             holdBtn.name = "HoldButton";
             UiKit.SizeHint(holdBtn, flexibleWidth: 1, preferredHeight: 66, flexibleHeight: 0);
+            UiKit.AddGlowOutline(holdBtn.gameObject, UiKit.Bd2, 2f).enabled = true;
+
+            AddGloss(card, 136f); // 40% of 340
 
             card.gameObject.SetActive(false);
             return card;
@@ -2144,33 +2221,28 @@ namespace JackpotRun.EditorTools
         // ── ShopPanel ────────────────────────────────────────────────────────────────
         private static UI2.ShopPanel BuildShopPanel(Transform overlay)
         {
-            var scrim = UiKit.Panel(overlay, "ShopPanel", new Color(0f, 0f, 0f, 0.66f));
-            UiKit.Fill(scrim);
-            scrim.gameObject.SetActive(false);
-
-            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
-            card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
-            card.pivot = new Vector2(0.5f, 0.5f);
-            card.sizeDelta = new Vector2(980f, 1600f);
-            var col = UiKit.VGroup(card, 10, new RectOffset(0, 0, 20, 20), true, true);
-            UiKit.Fill(col);
+            var chrome = BuildSheetChrome(overlay, "ShopPanel", 1560f, dismissOnScrimClick: false);
+            var scrim = chrome.scrim;
+            var col = chrome.cardCol;
 
             var titleText = UiKit.Text(col, "", 28, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
-            UiKit.SizeHint(titleText, preferredHeight: 54, flexibleHeight: 0);
+            UiKit.SizeHint(titleText, preferredHeight: 50, flexibleHeight: 0);
 
             var scroll = UiKit.Scroll(col, out var rowsContent, vertical: true);
             UiKit.SizeHint(scroll, flexibleHeight: 1);
-            SetupStackContent(rowsContent, 24, 8, 12);
+            SetupStackContent(rowsContent, 4, 8, 12);
             var emptyText = UiKit.Text(rowsContent, "오퍼가 없습니다.", 20, UiKit.TextSecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(emptyText, preferredHeight: 60, flexibleHeight: 0);
             var rowTemplate = BuildShopRowTemplate(rowsContent);
 
-            var btnRow = UiKit.HGroup(col, 14, new RectOffset(24, 24, 4, 4), true, true);
+            // 웹 renderShop foot 순서 그대로: 새로고침=ghost(보조) · 나가기=bigbtn(주 액션, 골드).
+            var btnRow = UiKit.HGroup(col, 14, new RectOffset(0, 0, 4, 0), true, true);
             UiKit.SizeHint(btnRow, preferredHeight: 90, flexibleHeight: 0);
-            var rerollButton = UiKit.Button(btnRow, "", new Vector2(0, 90), UiKit.Blue, UiKit.Bg, null, UiSpriteGen.Load("panel_r24"));
+            var rerollButton = UiKit.Button(btnRow, "", new Vector2(0, 90), UiKit.Panel2, UiKit.TextPrimary, null, UiSpriteGen.Load("w_ghost_btn"));
             UiKit.SizeHint(rerollButton, flexibleWidth: 1, preferredHeight: 90, flexibleHeight: 0);
+            UiKit.AddGlowOutline(rerollButton.gameObject, UiKit.Bd2, 2f).enabled = true;
             var rerollLabel = rerollButton.GetComponentInChildren<Text>();
-            var leaveButton = UiKit.Button(btnRow, "나가기", new Vector2(0, 90), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
+            var leaveButton = UiKit.Button(btnRow, "나가기 ▶", new Vector2(0, 90), UiKit.Accent, UiKit.Ink, null, UiSpriteGen.Load("w_gold_btn"));
             UiKit.SizeHint(leaveButton, flexibleWidth: 1, preferredHeight: 90, flexibleHeight: 0);
 
             var view = scrim.gameObject.AddComponent<UI2.ShopPanel>();
@@ -2182,16 +2254,19 @@ namespace JackpotRun.EditorTools
             so.FindProperty("rerollButton").objectReferenceValue = rerollButton;
             so.FindProperty("rerollButtonLabel").objectReferenceValue = rerollLabel;
             so.FindProperty("leaveButton").objectReferenceValue = leaveButton;
+            so.FindProperty("cardRect").objectReferenceValue = chrome.card;
+            so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
         }
 
         // 자식 경로 계약(ShopPanel.cs): IconSlot/Icon·IconSlot/IconEmoji, "Name"/"Desc"(Text),
-        // "PriceButton"(Button)+"PriceButton/PriceLabel"(Text).
+        // "PriceButton"(Button)+"PriceButton/PriceLabel"(Text). S12c §2 — .pcard 톤.
         private static RectTransform BuildShopRowTemplate(Transform parent)
         {
-            var row = UiKit.Panel(parent, "ShopRowTemplate", UiKit.Card, UiSpriteGen.Load("card_r16"));
+            var row = UiKit.Panel(parent, "ShopRowTemplate", Color.white, UiSpriteGen.Load("w_card_grad"));
             UiKit.SizeHint(row, preferredHeight: 140, flexibleHeight: 0);
+            UiKit.AddGlowOutline(row.gameObject, UiKit.Bd, 1.5f).enabled = true;
             // "Content"/"InfoCol" 이름 계약(ShopPanel.cs) — Transform.Find는 직계 자식만 찾으므로 중간
             // 컨테이너에도 이름이 필요하다(NodePanel/PerkOfferPanel과 동일 이유).
             var inner = UiKit.HGroup(row, 14, new RectOffset(16, 16, 10, 10), true, true);
@@ -2227,6 +2302,8 @@ namespace JackpotRun.EditorTools
             priceLabel.name = "PriceLabel";
             UiKit.Fill(priceLabel.rectTransform);
 
+            AddGloss(row, 56f); // .pcard::after 40% of 140
+
             row.gameObject.SetActive(false);
             return row;
         }
@@ -2234,17 +2311,9 @@ namespace JackpotRun.EditorTools
         // ── PostSpinPanel ────────────────────────────────────────────────────────────
         private static UI2.PostSpinPanel BuildPostSpinPanel(Transform overlay)
         {
-            var scrim = UiKit.Panel(overlay, "PostSpinPanel", new Color(0f, 0f, 0f, 0.66f));
-            UiKit.Fill(scrim);
-            scrim.gameObject.SetActive(false);
-            var dimGroup = scrim.gameObject.AddComponent<CanvasGroup>();
-
-            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
-            card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
-            card.pivot = new Vector2(0.5f, 0.5f);
-            card.sizeDelta = new Vector2(900f, 900f);
-            var col = UiKit.VGroup(card, 18, new RectOffset(28, 28, 26, 26), true, true);
-            UiKit.Fill(col);
+            var chrome = BuildSheetChrome(overlay, "PostSpinPanel", 900f, dismissOnScrimClick: false);
+            var scrim = chrome.scrim;
+            var col = chrome.cardCol;
 
             // S8 항목⑤: 💥(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
             var head = UiKit.Text(col, "클리어 실패", 32, UiKit.Bad, TextAnchor.MiddleCenter, true);
@@ -2254,15 +2323,20 @@ namespace JackpotRun.EditorTools
 
             var scroll = UiKit.Scroll(col, out var manipButtonsContent, vertical: true);
             UiKit.SizeHint(scroll, flexibleHeight: 1);
-            SetupStackContent(manipButtonsContent, 0, 0, 14);
-            var manipTemplate = BuildLabeledButtonTemplateNamed(manipButtonsContent, UiSpriteGen.Load("panel_r24"), "ManipButtonTemplate", 92);
+            SetupStackContent(manipButtonsContent, 0, 8, 14);
+            // 만회 수단 = 주 액션(.bigbtn 골드).
+            var manipTemplate = BuildLabeledButtonTemplateNamed(manipButtonsContent, UiSpriteGen.Load("w_gold_btn"),
+                "ManipButtonTemplate", 92, UiKit.Accent, UiKit.Ink);
 
-            var giveUpButton = UiKit.Button(col, "포기", new Vector2(0, 84), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
+            // 포기 = 보조/이탈 액션(.bigbtn.ghost).
+            var giveUpButton = UiKit.Button(col, "포기", new Vector2(0, 84), UiKit.Panel2, UiKit.TextPrimary, null, UiSpriteGen.Load("w_ghost_btn"));
             UiKit.SizeHint(giveUpButton, preferredHeight: 84, flexibleHeight: 0);
+            UiKit.AddGlowOutline(giveUpButton.gameObject, UiKit.Bd2, 2f).enabled = true;
 
             var view = scrim.gameObject.AddComponent<UI2.PostSpinPanel>();
             var so = new SerializedObject(view);
-            so.FindProperty("dimGroup").objectReferenceValue = dimGroup;
+            so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
+            so.FindProperty("cardRect").objectReferenceValue = chrome.card;
             so.FindProperty("subText").objectReferenceValue = subText;
             so.FindProperty("manipButtonsContent").objectReferenceValue = manipButtonsContent;
             so.FindProperty("manipButtonTemplate").objectReferenceValue = manipTemplate;
@@ -2272,14 +2346,17 @@ namespace JackpotRun.EditorTools
         }
 
         // ── GameOverPanel ────────────────────────────────────────────────────────────
+        // S12c §1 — 전체 화면 결과라 시트(하단 슬라이드업) 대신 기존 중앙 팝업 배치를 유지하되, 배경·
+        // 테두리·버튼은 §0 토큰으로 정리한다(w_panel_grad+bd2, 메뉴 버튼은 .bigbtn 골드+ink).
         private static UI2.GameOverPanel BuildGameOverPanel(Transform overlay)
         {
-            var scrim = UiKit.Panel(overlay, "GameOverPanel", new Color(0f, 0f, 0f, 0.66f));
+            var scrim = UiKit.Panel(overlay, "GameOverPanel", new Color(0f, 0f, 0f, 0.62f));
             UiKit.Fill(scrim);
             scrim.gameObject.SetActive(false);
             var dimGroup = scrim.gameObject.AddComponent<CanvasGroup>();
 
-            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
+            var card = UiKit.Panel(scrim, "Card", Color.white, UiSpriteGen.Load("w_panel_grad"));
+            UiKit.AddGlowOutline(card.gameObject, UiKit.Bd2, 2f).enabled = true;
             card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
             card.pivot = new Vector2(0.5f, 0.5f);
             card.sizeDelta = new Vector2(980f, 1560f);
@@ -2313,7 +2390,7 @@ namespace JackpotRun.EditorTools
             var achTotalText = UiKit.Text(content, "", 19, UiKit.TextSecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(achTotalText, preferredHeight: 30, flexibleHeight: 0);
 
-            var menuButton = UiKit.Button(outerCol, "메뉴로", new Vector2(0, 96), UiKit.Accent, UiKit.Bg, null, UiSpriteGen.Load("panel_r24"));
+            var menuButton = UiKit.Button(outerCol, "메뉴로", new Vector2(0, 96), UiKit.Accent, UiKit.Ink, null, UiSpriteGen.Load("w_gold_btn"));
             UiKit.SizeHint(menuButton, preferredHeight: 96, flexibleHeight: 0);
 
             var view = scrim.gameObject.AddComponent<UI2.GameOverPanel>();
@@ -2334,10 +2411,11 @@ namespace JackpotRun.EditorTools
             return view;
         }
 
-        // 자식 경로 계약(GameOverPanel.cs): "Label"(Text) — 단순 한 줄 업적 행.
+        // 자식 경로 계약(GameOverPanel.cs): "Label"(Text) — 단순 한 줄 업적 행. S12c §2 — .pcard 톤.
         private static RectTransform BuildAchRowTemplate(Transform parent)
         {
-            var row = UiKit.Panel(parent, "AchRowTemplate", UiKit.Card, UiSpriteGen.Load("card_r16"));
+            var row = UiKit.Panel(parent, "AchRowTemplate", Color.white, UiSpriteGen.Load("w_card_grad"));
+            UiKit.AddGlowOutline(row.gameObject, UiKit.Bd, 1.5f).enabled = true;
             UiKit.SizeHint(row, preferredHeight: 56, flexibleHeight: 0);
             var label = UiKit.Text(row, "", 18, UiKit.TextPrimary, TextAnchor.MiddleLeft);
             label.name = "Label";
@@ -2350,38 +2428,30 @@ namespace JackpotRun.EditorTools
         // ── BagPopup ─────────────────────────────────────────────────────────────────
         private static UI2.BagPopup BuildBagPopup(Transform overlay)
         {
-            var scrim = UiKit.Panel(overlay, "BagPopup", new Color(0f, 0f, 0f, 0.66f));
-            UiKit.Fill(scrim);
-            scrim.gameObject.SetActive(false);
-            var scrimButton = scrim.gameObject.AddComponent<Button>();
-            scrimButton.transition = Selectable.Transition.None;
-
-            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
-            card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
-            card.pivot = new Vector2(0.5f, 0.5f);
-            card.sizeDelta = new Vector2(900f, 1200f);
-            var cardBlocker = card.gameObject.AddComponent<Button>();
-            cardBlocker.transition = Selectable.Transition.None;
-            var outerCol = UiKit.VGroup(card, 10, new RectOffset(0, 0, 20, 20), true, true);
-            UiKit.Fill(outerCol);
+            var chrome = BuildSheetChrome(overlay, "BagPopup", 1200f, dismissOnScrimClick: true);
+            var scrim = chrome.scrim;
+            var scrimButton = scrim.GetComponent<Button>();
+            var outerCol = chrome.cardCol;
 
             var titleText = UiKit.Text(outerCol, "", 26, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
-            UiKit.SizeHint(titleText, preferredHeight: 52, flexibleHeight: 0);
+            UiKit.SizeHint(titleText, preferredHeight: 48, flexibleHeight: 0);
 
             var scroll = UiKit.Scroll(outerCol, out var rowsContent, vertical: true);
             UiKit.SizeHint(scroll, flexibleHeight: 1);
-            SetupStackContent(rowsContent, 24, 8, 12);
+            SetupStackContent(rowsContent, 4, 8, 12);
             var emptyText = UiKit.Text(rowsContent, "가방이 비어 있습니다.", 20, UiKit.TextSecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(emptyText, preferredHeight: 60, flexibleHeight: 0);
             var rowTemplate = BuildBagRowTemplate(rowsContent);
 
-            var closeButton = UiKit.Button(outerCol, "닫기", new Vector2(0, 80), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
+            var closeButton = UiKit.Button(outerCol, "닫기", new Vector2(0, 80), UiKit.Panel2, UiKit.TextPrimary, null, UiSpriteGen.Load("w_ghost_btn"));
             UiKit.SizeHint(closeButton, preferredHeight: 80, flexibleHeight: 0);
+            UiKit.AddGlowOutline(closeButton.gameObject, UiKit.Bd2, 2f).enabled = true;
 
             var view = scrim.gameObject.AddComponent<UI2.BagPopup>();
             var so = new SerializedObject(view);
             so.FindProperty("scrimButton").objectReferenceValue = scrimButton;
-            so.FindProperty("cardRect").objectReferenceValue = card;
+            so.FindProperty("cardRect").objectReferenceValue = chrome.card;
+            so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
             so.FindProperty("titleText").objectReferenceValue = titleText;
             so.FindProperty("rowsContent").objectReferenceValue = rowsContent;
             so.FindProperty("rowTemplate").objectReferenceValue = rowTemplate;
@@ -2392,9 +2462,11 @@ namespace JackpotRun.EditorTools
         }
 
         // 자식 경로 계약(BagPopup.cs): IconSlot/Icon·IconSlot/IconEmoji, "Name"/"Desc"(Text), "UseButton"(Button).
+        // S12c §2 — .pcard 톤.
         private static RectTransform BuildBagRowTemplate(Transform parent)
         {
-            var row = UiKit.Panel(parent, "BagRowTemplate", UiKit.Card, UiSpriteGen.Load("card_r16"));
+            var row = UiKit.Panel(parent, "BagRowTemplate", Color.white, UiSpriteGen.Load("w_card_grad"));
+            UiKit.AddGlowOutline(row.gameObject, UiKit.Bd, 1.5f).enabled = true;
             UiKit.SizeHint(row, preferredHeight: 130, flexibleHeight: 0);
             // "Content"/"InfoCol" 이름 계약(BagPopup.cs) — ShopRowTemplate과 동일 이유.
             var inner = UiKit.HGroup(row, 12, new RectOffset(14, 14, 8, 8), true, true);
@@ -2413,9 +2485,11 @@ namespace JackpotRun.EditorTools
             desc.name = "Desc";
             UiKit.SizeHint(desc, flexibleHeight: 1);
 
-            var useBtn = UiKit.Button(inner, "사용", new Vector2(120, 76), UiKit.Accent, UiKit.Bg, null, UiSpriteGen.Load("panel_r24"));
+            var useBtn = UiKit.Button(inner, "사용", new Vector2(120, 76), UiKit.Accent, UiKit.Ink, null, UiSpriteGen.Load("w_gold_btn"));
             useBtn.name = "UseButton";
             UiKit.SizeHint(useBtn, preferredWidth: 120, preferredHeight: 76, flexibleWidth: 0, flexibleHeight: 0);
+
+            AddGloss(row, 52f); // 40% of 130
 
             row.gameObject.SetActive(false);
             return row;
@@ -2424,20 +2498,10 @@ namespace JackpotRun.EditorTools
         // ── ManipPickPopup ───────────────────────────────────────────────────────────
         private static UI2.ManipPickPopup BuildManipPickPopup(Transform overlay)
         {
-            var scrim = UiKit.Panel(overlay, "ManipPickPopup", new Color(0f, 0f, 0f, 0.66f));
-            UiKit.Fill(scrim);
-            scrim.gameObject.SetActive(false);
-            var scrimButton = scrim.gameObject.AddComponent<Button>();
-            scrimButton.transition = Selectable.Transition.None;
-
-            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
-            card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
-            card.pivot = new Vector2(0.5f, 0.5f);
-            card.sizeDelta = new Vector2(860f, 680f);
-            var cardBlocker = card.gameObject.AddComponent<Button>();
-            cardBlocker.transition = Selectable.Transition.None;
-            var col = UiKit.VGroup(card, 16, new RectOffset(28, 28, 26, 26), true, true);
-            UiKit.Fill(col);
+            var chrome = BuildSheetChrome(overlay, "ManipPickPopup", 680f, dismissOnScrimClick: true);
+            var scrim = chrome.scrim;
+            var scrimButton = scrim.GetComponent<Button>();
+            var col = chrome.cardCol;
 
             var headText = UiKit.Text(col, "", 26, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
             UiKit.SizeHint(headText, preferredHeight: 40, flexibleHeight: 0);
@@ -2446,18 +2510,22 @@ namespace JackpotRun.EditorTools
 
             var cellsContent = UiKit.HGroup(col, 10, new RectOffset(0, 0, 10, 10), true, true);
             UiKit.SizeHint(cellsContent, preferredHeight: 100, flexibleHeight: 0);
-            var cellTemplate = BuildLabeledButtonTemplateNamed(cellsContent, UiSpriteGen.Load("panel_r24"), "CellButtonTemplate", 96);
+            // 칸 선택 = 주 액션(.bigbtn 골드).
+            var cellTemplate = BuildLabeledButtonTemplateNamed(cellsContent, UiSpriteGen.Load("w_gold_btn"),
+                "CellButtonTemplate", 96, UiKit.Accent, UiKit.Ink);
 
             var spacer = UiKit.Panel(col, "Spacer", new Color(0, 0, 0, 0));
             UiKit.SizeHint(spacer, flexibleHeight: 1);
 
-            var cancelButton = UiKit.Button(col, "취소", new Vector2(0, 76), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
+            var cancelButton = UiKit.Button(col, "취소", new Vector2(0, 76), UiKit.Panel2, UiKit.TextPrimary, null, UiSpriteGen.Load("w_ghost_btn"));
             UiKit.SizeHint(cancelButton, preferredHeight: 76, flexibleHeight: 0);
+            UiKit.AddGlowOutline(cancelButton.gameObject, UiKit.Bd2, 2f).enabled = true;
 
             var view = scrim.gameObject.AddComponent<UI2.ManipPickPopup>();
             var so = new SerializedObject(view);
             so.FindProperty("scrimButton").objectReferenceValue = scrimButton;
-            so.FindProperty("cardRect").objectReferenceValue = card;
+            so.FindProperty("cardRect").objectReferenceValue = chrome.card;
+            so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
             so.FindProperty("headText").objectReferenceValue = headText;
             so.FindProperty("descText").objectReferenceValue = descText;
             so.FindProperty("cellsContent").objectReferenceValue = cellsContent;
@@ -2468,19 +2536,24 @@ namespace JackpotRun.EditorTools
         }
 
         // 라벨 1개짜리 버튼 템플릿(공용) — 자식 경로 계약: "Label"(Text). name/height를 호출측이 지정한다.
-        private static RectTransform BuildLabeledButtonTemplateNamed(Transform parent, Sprite panelSprite, string name, float height)
+        // S12c §2 — bg/fg를 호출측이 지정(PostSpinPanel 만회 버튼·ManipPickPopup 칸 버튼 모두 .bigbtn
+        // 골드 톤으로 통일 — 이전엔 하드코딩된 Blue였다, §0 토큰표에 없는 임의색이라 정리 대상).
+        private static RectTransform BuildLabeledButtonTemplateNamed(Transform parent, Sprite panelSprite, string name,
+            float height, Color bg, Color fg)
         {
             var go = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button), typeof(PressFx));
             var rt = (RectTransform)go.transform;
             rt.SetParent(parent, false);
             var img = go.GetComponent<Image>();
-            img.color = UiKit.Blue;
+            img.color = bg;
             if (panelSprite != null) { img.sprite = panelSprite; img.type = Image.Type.Sliced; }
             var btn = go.GetComponent<Button>();
             btn.targetGraphic = img;
             UiKit.SizeHint(btn, flexibleWidth: 1, preferredHeight: height, flexibleHeight: 0);
+            // S13 §E — fx_btn_press는 골드 버튼만. UiKit.Button 헬퍼를 안 거치는 수동 생성이라 직접 설정.
+            go.GetComponent<PressFx>().SetGold(bg == UiKit.Accent);
 
-            var label = UiKit.Text(rt, "", 22, UiKit.Bg, TextAnchor.MiddleCenter, true);
+            var label = UiKit.Text(rt, "", 22, fg, TextAnchor.MiddleCenter, true);
             label.name = "Label";
             UiKit.Fill(label.rectTransform);
 
@@ -2508,10 +2581,13 @@ namespace JackpotRun.EditorTools
         // DexScreen — 카테고리 탭(가로 스크롤 pill) + 3열 그리드 + 상세 팝업(DexDetailPopup, 전역
         // OverlayLayer 산하). 이관 원본: Scripts/UI/DexScreen.cs·DetailPopup.cs.
         // ══════════════════════════════════════════════════════════════════════════════
+        // S12c §3 — 토큰 정리: 헤더 뒤로가기=.bigbtn.ghost, 통계 4타일=.hud-stats 톤(rgba(0,0,0,.25)+bd+
+        // r-md+상단 gloss, MenuView.BuildHudStatCell과 동일 관례), 카테고리 탭=pill(UiKit.PillSprite —
+        // 9-slice 늘어남 금지 지시 그대로, 96 높이에 맞는 최대 안전 반경 자동 선택).
         private static DexBuildResult BuildDexScreen(Transform canvasRoot, UI2.DexDetailPopup detailPopup)
         {
             var result = new DexBuildResult();
-            var panelSprite = UiSpriteGen.Load("panel_r24");
+            var ghostBtnSprite = UiSpriteGen.Load("w_ghost_btn");
 
             var root = UiKit.Panel(canvasRoot, "DexScreen", UiKit.Bg);
             UiKit.Fill(root);
@@ -2527,8 +2603,9 @@ namespace JackpotRun.EditorTools
             UiKit.SizeHint(header, preferredHeight: 90, flexibleHeight: 0);
             var title = UiKit.Text(header, "잭팟런 도감", UiKit.TextStyle.H1, TextAnchor.MiddleLeft);
             UiKit.SizeHint(title, flexibleWidth: 1, flexibleHeight: 0);
-            result.backButton = UiKit.Button(header, "← 메뉴", new Vector2(160, 70), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, panelSprite);
+            result.backButton = UiKit.Button(header, "← 메뉴", new Vector2(160, 70), UiKit.Panel2, UiKit.TextPrimary, null, ghostBtnSprite);
             UiKit.SizeHint(result.backButton, preferredWidth: 160, preferredHeight: 70, flexibleWidth: 0, flexibleHeight: 0);
+            UiKit.AddGlowOutline(result.backButton.gameObject, UiKit.Bd2, 2f).enabled = true;
 
             // 통계 4타일 — 96. S8 항목⑤: astral 이모지(🏆🧗🔁📈)는 렌더링되지 않는다 — 한글 라벨만 사용.
             var statsRow = UiKit.HGroup(col, 12, new RectOffset(24, 24, 4, 12), true, true);
@@ -2539,7 +2616,10 @@ namespace JackpotRun.EditorTools
             result.statTotalScoreText = BuildStatTile(statsRow, "통산 점수");
 
             // 카테고리 탭 — 96, JackpotCatalog.CategoryOrder 8종 고정(제목은 JackpotCatalog.CategoryTitle,
-            // S8에서 이모지 제거됨).
+            // S8에서 이모지 제거됨). pill(UiKit.PillSprite(96)) — 활성/비활성은 배경색만 토글
+            // (Panel3/PanelBg, §0 토큰), 테두리는 정적 bd(활성 시 amber로 바뀌는 CSS 디테일은 생략 —
+            // 재해석 보고 대상).
+            var tabPill = UiKit.PillSprite(96f);
             var tabScroll = UiKit.Scroll(col, out var tabsContent, vertical: false);
             UiKit.SizeHint(tabScroll, preferredHeight: 96, flexibleHeight: 0);
             var tabsHlg = tabsContent.gameObject.AddComponent<HorizontalLayoutGroup>();
@@ -2562,9 +2642,10 @@ namespace JackpotRun.EditorTools
                 var tabRt = (RectTransform)tabGo.transform;
                 tabRt.SetParent(tabsContent, false);
                 var tabImg = tabGo.GetComponent<Image>();
-                tabImg.sprite = panelSprite;
+                tabImg.sprite = tabPill;
                 tabImg.type = Image.Type.Sliced;
                 tabImg.color = UiKit.PanelBg;
+                UiKit.AddGlowOutline(tabGo, UiKit.Bd, 1.5f).enabled = true;
                 result.tabImages[i] = tabImg;
                 var tabBtn = tabGo.GetComponent<Button>();
                 tabBtn.targetGraphic = tabImg;
@@ -2588,26 +2669,32 @@ namespace JackpotRun.EditorTools
             return result;
         }
 
+        // .hud-stats 칸 톤 — rgba(0,0,0,.25) + bd + r-md + 상단 50% gloss (MenuView.BuildHudStatCell과
+        // 동일 관례, S12c §3 "S12 토큰 적용").
         private static Text BuildStatTile(RectTransform row, string label)
         {
-            var cell = UiKit.Panel(row, "Stat", UiKit.PanelBg);
+            var cell = UiKit.Panel(row, "Stat", new Color(0f, 0f, 0f, 0.25f), UiSpriteGen.Load("w_r12"));
             UiKit.SizeHint(cell, flexibleWidth: 1, preferredHeight: 96, flexibleHeight: 0);
+            UiKit.AddGlowOutline(cell.gameObject, UiKit.Bd, 1.5f).enabled = true;
             var col = UiKit.VGroup(cell, 2, new RectOffset(8, 8, 10, 10), true, true);
             UiKit.Fill(col);
             var l = UiKit.Text(col, label, 15, UiKit.TextSecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(l, preferredHeight: 22, flexibleHeight: 0);
             var v = UiKit.Text(col, "-", 25, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
             UiKit.SizeHint(v, flexibleHeight: 1);
+            AddGloss(cell, 48f); // 50% of 96
             return v;
         }
 
-        // S10 — jackpotdex/style.css .card: 가로 배치(아이콘 좌 48px→77 + 이름/설명 우). 자식 경로
-        // 계약(DexView.cs): "Content/IconSlot/Icon"·"IconSlot/IconEmoji", "Content/Name"/"Desc"/"Sub",
-        // "Lock"(GameObject)+"Lock/Hint"(Text).
+        // S10/S12c §3 — jackpotdex/style.css .card: 가로 배치(아이콘 좌 48px→77 + 이름/설명 우). .pcard
+        // 톤(w_card_grad r16 + bd 1.5 + 상단 40% gloss)으로 갱신. 자식 경로 계약(DexView.cs):
+        // "Content/IconSlot/Icon"·"IconSlot/IconEmoji", "Content/Name"/"Desc"/"Sub", "Lock"(GameObject)+
+        // "Lock/Hint"(Text).
         private static RectTransform BuildDexCardTemplate(Transform parent)
         {
             var r11 = UiSpriteGen.Load("rrect_r11");
-            var card = UiKit.Panel(parent, "DexCardTemplate", UiKit.Panel2, UiSpriteGen.Load("card_grad_r15"));
+            var card = UiKit.Panel(parent, "DexCardTemplate", Color.white, UiSpriteGen.Load("w_card_grad"));
+            UiKit.AddGlowOutline(card.gameObject, UiKit.Bd, 1.5f).enabled = true;
             var cardBtn = card.gameObject.AddComponent<Button>();
             cardBtn.targetGraphic = card.GetComponent<Image>();
             card.gameObject.AddComponent<PressFx>();
@@ -2618,7 +2705,7 @@ namespace JackpotRun.EditorTools
             row.name = "Content";
             UiKit.Fill(row);
 
-            var iconSlot = UiKit.Panel(row, "IconSlot", UiKit.Hex("#0E1019"), r11);
+            var iconSlot = UiKit.Panel(row, "IconSlot", UiKit.Bg1, r11);
             UiKit.SizeHint(iconSlot, preferredWidth: 77, preferredHeight: 77, flexibleWidth: 0, flexibleHeight: 0);
             var icon = UiKit.Image(iconSlot, null, Color.white);
             icon.name = "Icon";
@@ -2656,6 +2743,8 @@ namespace JackpotRun.EditorTools
             UiKit.SizeHint(lockHint, flexibleHeight: 1);
             lockOverlay.gameObject.SetActive(false);
 
+            AddGloss(card, 60f); // .pcard::after 40% of 150
+
             card.gameObject.SetActive(false);
             return card;
         }
@@ -2675,15 +2764,18 @@ namespace JackpotRun.EditorTools
         }
 
         // ── DexDetailPopup(전역 OverlayLayer 산하) ──────────────────────────────────────
+        // S12c §3 — "DexView 톤 정리"에 포함(같은 파일의 상세 팝업). 시트 목록(①) 대상은 아니라 기존
+        // 중앙 팝업 배치는 유지하고 배경/테두리/닫기 버튼만 토큰으로 정리(GameOverPanel과 동일 취지).
         private static UI2.DexDetailPopup BuildDexDetailPopup(Transform overlay)
         {
-            var scrim = UiKit.Panel(overlay, "DexDetailPopup", new Color(0f, 0f, 0f, 0.66f));
+            var scrim = UiKit.Panel(overlay, "DexDetailPopup", new Color(0f, 0f, 0f, 0.62f));
             UiKit.Fill(scrim);
             scrim.gameObject.SetActive(false);
             var scrimButton = scrim.gameObject.AddComponent<Button>();
             scrimButton.transition = Selectable.Transition.None;
 
-            var card = UiKit.Panel(scrim, "Card", UiKit.PanelBg, UiSpriteGen.Load("panel_r24"));
+            var card = UiKit.Panel(scrim, "Card", Color.white, UiSpriteGen.Load("w_panel_grad"));
+            UiKit.AddGlowOutline(card.gameObject, UiKit.Bd2, 2f).enabled = true;
             card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
             card.pivot = new Vector2(0.5f, 0.5f);
             card.sizeDelta = new Vector2(900f, 1600f);
@@ -2735,8 +2827,9 @@ namespace JackpotRun.EditorTools
             var prosText = BuildDetailListCell(colsRow, "장점", UiKit.Good);
             var consText = BuildDetailListCell(colsRow, "주의", UiKit.Bad);
 
-            var closeButton = UiKit.Button(cardCol, "닫기", new Vector2(0, 84), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, UiSpriteGen.Load("panel_r24"));
+            var closeButton = UiKit.Button(cardCol, "닫기", new Vector2(0, 84), UiKit.Panel2, UiKit.TextPrimary, null, UiSpriteGen.Load("w_ghost_btn"));
             UiKit.SizeHint(closeButton, preferredHeight: 84, flexibleHeight: 0);
+            UiKit.AddGlowOutline(closeButton.gameObject, UiKit.Bd2, 2f).enabled = true;
 
             var view = scrim.gameObject.AddComponent<UI2.DexDetailPopup>();
             var so = new SerializedObject(view);

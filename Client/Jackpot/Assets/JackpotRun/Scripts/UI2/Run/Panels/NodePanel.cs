@@ -16,8 +16,8 @@ namespace JackpotRun.UI2
         private const float BannerDropDuration = 0.4f; // 설계 미명시 — OutBack 드롭 길이 기본값
         private const float ScoreCountUpDuration = 0.5f; // 설계 미명시
         private const float PostBannerDelay = 1.0f; // 설계 명시: "1.0s 후 노드 패널 슬라이드업"
-        private const float CardSlideDuration = 0.4f; // 설계 미명시 — 슬라이드업 길이 기본값
-        private const float OffscreenY = -1500f;
+        // S12c §6 — 시트 슬라이드업 "0.24s cubic-bezier(.2,.9,.3,1)" → OutCubic 근사(설계 명시).
+        private const float CardSlideDuration = 0.24f;
         private const float BannerRestY = -160f;
         private const float BannerStartY = 240f;
 
@@ -66,7 +66,9 @@ namespace JackpotRun.UI2
 
         private IEnumerator EnterRoutine(ClearOutcome clear)
         {
-            if (cardRect != null) cardRect.anchoredPosition = new Vector2(0f, OffscreenY);
+            // S12c §6 — 하단 고정 앵커(BuildSheetChrome) 시트라 오프스크린 시작 위치는 카드 자신의
+            // 높이(rect.height)만큼 아래(translateY(100%) 재해석) — 고정 매직넘버 대신 실측값 사용.
+            if (cardRect != null) cardRect.anchoredPosition = new Vector2(0f, -cardRect.rect.height);
             if (bannerGroup != null) bannerGroup.alpha = 0f;
 
             if (clear != null)
@@ -85,11 +87,11 @@ namespace JackpotRun.UI2
                 yield return new WaitForSeconds(PostBannerDelay);
             }
 
-            // S14 §E — "1.0s 후 노드 패널 슬라이드업 + 배경 딤 페이드"(동시 재생).
+            // S14 §E / S12c §6 — "1.0s 후 노드 패널 슬라이드업 + 배경 딤 페이드"(동시 재생, 0.24s OutCubic).
             if (dimGroup != null) StartCoroutine(UiTween.FadeRoutine(dimGroup, 0f, 1f, CardSlideDuration));
             if (cardRect != null)
                 yield return UiTween.MoveRoutine(cardRect, cardRect.anchoredPosition, Vector2.zero,
-                    CardSlideDuration, UiTween.Ease.OutBack);
+                    CardSlideDuration, UiTween.Ease.OutCubic);
             _routine = null;
         }
 

@@ -13,11 +13,15 @@ namespace JackpotRun.UI2
     // FailureOutcome.manipHints를 그대로 버튼화한다. 이관 원본: Scripts/UI/RunPanels.cs의 BuildPostSpin.
     public sealed class PostSpinPanel : MonoBehaviour
     {
-        private const float DimDuration = 0.3f; // 설계 명시(GameOverPanel과 공용 규칙)
+        // S12c §6 — 시트 슬라이드업 "0.24s cubic-bezier(.2,.9,.3,1)" → OutCubic 근사(설계 명시).
+        // 이전엔 "GameOverPanel과 공용 규칙"으로 0.3s 딤-only 페이드였으나, 이 패널은 이제 바텀시트로
+        // 전환되어 딤 페이드 + 카드 슬라이드가 함께 재생된다(GameOverPanel은 중앙 팝업 유지라 그대로 0.3s).
+        private const float SheetSlideDuration = 0.24f;
         private const float ButtonStagger = 0.06f; // 설계 미명시 — 만회 버튼 등장 간격 기본값
         private const float ButtonPopDuration = 0.25f;
 
         [SerializeField] private CanvasGroup dimGroup;
+        [SerializeField] private RectTransform cardRect; // S12c §6 — 시트(Card) 슬라이드업 대상
         [SerializeField] private Text subText;
         [SerializeField] private RectTransform manipButtonsContent;
         [SerializeField] private RectTransform manipButtonTemplate; // 자식 경로 계약: Label(Text)
@@ -49,6 +53,7 @@ namespace JackpotRun.UI2
             else
             {
                 if (dimGroup != null) dimGroup.alpha = 1f;
+                if (cardRect != null) cardRect.anchoredPosition = Vector2.zero;
                 foreach (var b in buttons) b.localScale = Vector3.one;
             }
         }
@@ -59,10 +64,15 @@ namespace JackpotRun.UI2
             gameObject.SetActive(false);
         }
 
+        // S12c §6 — 시트 슬라이드업(0.24s OutCubic) + 배경 딤 페이드 동시 재생, 완료 후 버튼 스태거 팝인.
         private IEnumerator EnterRoutine(List<RectTransform> buttons)
         {
             foreach (var b in buttons) if (b != null) b.localScale = Vector3.zero;
-            yield return UiTween.FadeRoutine(dimGroup, 0f, 1f, DimDuration);
+            if (cardRect != null) cardRect.anchoredPosition = new Vector2(0f, -cardRect.rect.height);
+            if (dimGroup != null) StartCoroutine(UiTween.FadeRoutine(dimGroup, 0f, 1f, SheetSlideDuration));
+            if (cardRect != null)
+                yield return UiTween.MoveRoutine(cardRect, cardRect.anchoredPosition, Vector2.zero, SheetSlideDuration, UiTween.Ease.OutCubic);
+
             for (int i = 0; i < buttons.Count; i++)
             {
                 if (buttons[i] != null) StartCoroutine(UiTween.ScaleRoutine(buttons[i], Vector3.zero, Vector3.one, ButtonPopDuration, UiTween.Ease.OutBack));

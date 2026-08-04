@@ -16,6 +16,8 @@ namespace JackpotRun.UI2
     {
         private const float CardStagger = 0.08f; // 설계 명시
         private const float CardPopDuration = 0.28f; // 설계 미명시 — OutBack 팝인 길이 기본값
+        // S12c §6 — 시트 슬라이드업 "0.24s cubic-bezier(.2,.9,.3,1)" → OutCubic 근사(설계 명시).
+        private const float SheetSlideDuration = 0.24f;
 
         // S8 항목⑤: 메달 이모지(🥈🥇🌈)는 astral이라 렌더링되지 않는다 — 카드의 Tier 텍스트 줄이
         // 이미 등급명을 표시하므로 접두어는 제거했다(빈 문자열).
@@ -30,10 +32,13 @@ namespace JackpotRun.UI2
         [SerializeField] private RectTransform cardTemplate; // 자식 경로 계약: Icon/Name/Tier/Badges/Desc/PickButton/HoldButton
         [SerializeField] private Button retakeButton;
         [SerializeField] private Text retakeButtonLabel;
+        [SerializeField] private RectTransform cardRect; // S12c §6 — 시트(Card) 슬라이드업 대상
+        [SerializeField] private CanvasGroup dimGroup; // S12c §6 — 배경 딤 페이드(BuildSheetChrome.dimGroup)
 
         private void Awake()
         {
             if (cardTemplate != null) cardTemplate.gameObject.SetActive(false);
+            if (dimGroup != null) dimGroup.alpha = 0f;
         }
 
         public void Show(RunState run, RunEvent offerEvent, Action<int> onPick, Action<int> onHold, Action onRetake)
@@ -70,14 +75,30 @@ namespace JackpotRun.UI2
             }
 
             var cards = BuildCards(run, offerEvent, onPick, canHold ? onHold : null);
-            if (firstShow) StartCoroutine(PopInRoutine(cards));
-            else foreach (var c in cards) c.localScale = Vector3.one;
+            if (firstShow) StartCoroutine(EnterRoutine(cards));
+            else
+            {
+                if (dimGroup != null) dimGroup.alpha = 1f;
+                if (cardRect != null) cardRect.anchoredPosition = Vector2.zero;
+                foreach (var c in cards) c.localScale = Vector3.one;
+            }
         }
 
         public void Hide()
         {
             StopAllCoroutines();
             gameObject.SetActive(false);
+        }
+
+        // S12c §6 — 시트 슬라이드업(0.24s OutCubic) + 배경 딤 페이드 동시 재생, 완료 후 카드 스태거 팝인.
+        private IEnumerator EnterRoutine(List<RectTransform> cards)
+        {
+            if (cardRect != null) cardRect.anchoredPosition = new Vector2(0f, -cardRect.rect.height);
+            if (dimGroup != null) StartCoroutine(UiTween.FadeRoutine(dimGroup, 0f, 1f, SheetSlideDuration));
+            if (cardRect != null)
+                yield return UiTween.MoveRoutine(cardRect, cardRect.anchoredPosition, Vector2.zero, SheetSlideDuration, UiTween.Ease.OutCubic);
+
+            yield return PopInRoutine(cards);
         }
 
         private IEnumerator PopInRoutine(List<RectTransform> cards)

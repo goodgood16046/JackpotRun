@@ -12,10 +12,13 @@ namespace JackpotRun.UI2
     // 이관 원본: Scripts/UI/RunPanels.cs의 ShowBag.
     public sealed class BagPopup : MonoBehaviour
     {
-        private const float ScaleInDuration = 0.25f; // 설계 미명시 — 팝업 등장 길이 기본값
+        // S12c §6 — 시트 슬라이드업 "0.24s cubic-bezier(.2,.9,.3,1)" → OutCubic 근사(설계 명시,
+        // 이전엔 중앙 팝업 scale-in 0.25s OutBack이었다).
+        private const float SheetSlideDuration = 0.24f;
 
         [SerializeField] private Button scrimButton; // 배경 클릭 시 닫힘
         [SerializeField] private RectTransform cardRect;
+        [SerializeField] private CanvasGroup dimGroup; // S12c §6 — 배경 딤 페이드(BuildSheetChrome.dimGroup)
         [SerializeField] private Text titleText;
         [SerializeField] private RectTransform rowsContent;
         [SerializeField] private RectTransform rowTemplate; // 자식 경로 계약: Icon/IconEmoji/Name/Desc/UseButton
@@ -26,12 +29,14 @@ namespace JackpotRun.UI2
         {
             if (rowTemplate != null) rowTemplate.gameObject.SetActive(false);
             gameObject.SetActive(false);
+            if (dimGroup != null) dimGroup.alpha = 0f;
             if (scrimButton != null) scrimButton.onClick.AddListener(Hide);
             if (closeButton != null) closeButton.onClick.AddListener(Hide);
         }
 
         public void Show(RunState run, Action<string> onUse)
         {
+            bool firstShow = !gameObject.activeSelf;
             gameObject.SetActive(true);
             // S8 항목⑤: 🎒(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
             if (titleText != null) titleText.text = $"가방 ({run.Items.Count}/{ItemUse.ItemSlots})";
@@ -39,10 +44,12 @@ namespace JackpotRun.UI2
 
             BuildRows(run, onUse);
 
-            if (cardRect != null)
+            StopAllCoroutines();
+            if (firstShow) StartCoroutine(EnterRoutine());
+            else
             {
-                StopAllCoroutines();
-                StartCoroutine(UiTween.ScaleRoutine(cardRect, Vector3.zero, Vector3.one, ScaleInDuration, UiTween.Ease.OutBack));
+                if (dimGroup != null) dimGroup.alpha = 1f;
+                if (cardRect != null) cardRect.anchoredPosition = Vector2.zero;
             }
         }
 
@@ -50,6 +57,15 @@ namespace JackpotRun.UI2
         {
             StopAllCoroutines();
             gameObject.SetActive(false);
+        }
+
+        // S12c §6 — 시트 슬라이드업(0.24s OutCubic) + 배경 딤 페이드 동시 재생.
+        private IEnumerator EnterRoutine()
+        {
+            if (cardRect != null) cardRect.anchoredPosition = new Vector2(0f, -cardRect.rect.height);
+            if (dimGroup != null) StartCoroutine(UiTween.FadeRoutine(dimGroup, 0f, 1f, SheetSlideDuration));
+            if (cardRect != null)
+                yield return UiTween.MoveRoutine(cardRect, cardRect.anchoredPosition, Vector2.zero, SheetSlideDuration, UiTween.Ease.OutCubic);
         }
 
         private void BuildRows(RunState run, Action<string> onUse)

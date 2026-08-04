@@ -151,6 +151,22 @@ namespace JackpotRun.EditorTools
                     horizontal: true),
                     Border(Center), overwrite);
 
+                // ── S12c §1 — 시트/카드 전용 신규 2종(새 파일명, overwrite:false 함정 회피) ─────
+                // w_card_grad: .pcard/.bigcard 톤(panel2→panel, r-lg) — w_panel_grad와 동일 스톱이지만
+                // 반경이 다르다(18 vs 16, "한 텍스처=한 반경" 제약 — 위 w_reel 주석과 동일 이유로 별도
+                // 파일 분리). NodePanel/PerkOfferPanel/ShopPanel/BagPopup 카드류·DexView 카드가 공용.
+                WriteSprite("w_card_grad", CreateGradientRoundedRect(CanvasSize, UiKit.R16,
+                    new[] { (0f, ParseHex("#1c2238")), (1f, ParseHex("#161a2c")) }),
+                    Border(UiKit.R16), overwrite);
+                // w_sheet_top: .sheet 배경 — panel2→panel 그라데는 w_panel_grad와 동일하지만 "상단
+                // 모서리만 r-2xl, 하단은 각짐"(§6 지시). 표준 4모서리 SDF가 아니라 모서리별 반경을
+                // 받는 CreateTopRoundedRectGradient(하단 두 모서리 반경 0)로 굽는다 — Border는 나머지
+                // w_r* 관례와 동일하게 균일값(R22)을 쓴다(하단 모서리는 반경이 0이라 사각형 타일이라
+                // 9-slice로 늘려도 눈에 띄는 차이가 없다).
+                WriteSprite("w_sheet_top", CreateTopRoundedRectGradient(CanvasSize, UiKit.R22,
+                    new[] { (0f, ParseHex("#1c2238")), (1f, ParseHex("#161a2c")) }),
+                    Border(UiKit.R22), overwrite);
+
                 // 배경 오로라/비네트 — 256 캔버스가 아니라 1080×1920 전체 화면 텍스처(9-slice 아님,
                 // Type.Simple로 늘려 붙인다). body::before의 "inset:-20%"(뷰포트보다 넓게 잡아 애니메이션
                 // 중 가장자리가 비지 않게 하는 여백)는 재현하지 않았다 — 대신 애니메이션 배율이 항상
@@ -353,6 +369,51 @@ namespace JackpotRun.EditorTools
                     float sdf = RoundedRectSdf(x + 0.5f, y + 0.5f, size, size, radius);
                     float coverage = Mathf.Clamp01(0.5f - sdf);
                     float pos = horizontal ? (x + 0.5f) / size : 1f - (y + 0.5f) / size;
+                    Color c = SampleStops(stops, pos);
+                    c.a = coverage;
+                    pixels[y * size + x] = c;
+                }
+            }
+            tex.SetPixels32(pixels);
+            tex.Apply();
+            return tex;
+        }
+
+        // S12c §6 — 모서리별 반경 SDF(Inigo Quilez "2D distance to rounded box - exact" 공식 이식).
+        // px,py는 텍스처 픽셀 좌표(y=0 하단→y=size-1 상단, RoundedRectSdf와 동일 관례). r*는 각 모서리
+        // 반경(px) — 상단(rTopLeft/rTopRight)만 값을 주고 하단(rBottomLeft/rBottomRight)을 0으로 두면
+        // "상단만 둥글고 하단은 각진" 시트 배경(.sheet border-radius: r-2xl r-2xl 0 0)이 나온다.
+        private static float RoundedRectCornerSdf(float px, float py, float w, float h,
+            float rTopRight, float rBottomRight, float rTopLeft, float rBottomLeft)
+        {
+            float cx = w / 2f, cy = h / 2f;
+            float qx = px - cx, qy = py - cy; // qy>0 = 상단(위쪽) 절반 — y가 클수록 위쪽인 관례와 일치.
+
+            float rNear, rFar; // qx 부호로 좌/우 페어를 고르고, qy 부호로 그 중 상/하를 고른다.
+            if (qx > 0f) { rNear = rTopRight; rFar = rBottomRight; }
+            else { rNear = rTopLeft; rFar = rBottomLeft; }
+            float r = qy > 0f ? rNear : rFar;
+
+            float ax = Mathf.Abs(qx) - cx + r;
+            float ay = Mathf.Abs(qy) - cy + r;
+            float outsideX = Mathf.Max(ax, 0f), outsideY = Mathf.Max(ay, 0f);
+            return Mathf.Min(Mathf.Max(ax, ay), 0f) + Mathf.Sqrt(outsideX * outsideX + outsideY * outsideY) - r;
+        }
+
+        /// <summary>상단 두 모서리만 topRadius로 둥글고 하단 두 모서리는 각진 사각형 위에 다중 스톱
+        /// 세로 그라데이션을 굽는다(.sheet 배경 전용, w_sheet_top). stops 관례는
+        /// CreateGradientRoundedRect와 동일(0=상단/1=하단).</summary>
+        private static Texture2D CreateTopRoundedRectGradient(int size, float topRadius, (float pct, Color color)[] stops)
+        {
+            var tex = NewTex(size);
+            var pixels = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float sdf = RoundedRectCornerSdf(x + 0.5f, y + 0.5f, size, size, topRadius, 0f, topRadius, 0f);
+                    float coverage = Mathf.Clamp01(0.5f - sdf);
+                    float pos = 1f - (y + 0.5f) / size;
                     Color c = SampleStops(stops, pos);
                     c.a = coverage;
                     pixels[y * size + x] = c;

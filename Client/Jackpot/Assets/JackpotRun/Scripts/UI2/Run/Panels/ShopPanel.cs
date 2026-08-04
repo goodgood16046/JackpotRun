@@ -18,6 +18,8 @@ namespace JackpotRun.UI2
         private const float RowPopDuration = 0.28f;
         private const float ShakeAmplitude = 8f; // 설계 미명시 — 코인 부족 흔들림 기본값
         private const float ShakeDuration = 0.25f;
+        // S12c §6 — 시트 슬라이드업 "0.24s cubic-bezier(.2,.9,.3,1)" → OutCubic 근사(설계 명시).
+        private const float SheetSlideDuration = 0.24f;
 
         [SerializeField] private Text titleText;
         [SerializeField] private RectTransform rowsContent;
@@ -26,10 +28,13 @@ namespace JackpotRun.UI2
         [SerializeField] private Button rerollButton;
         [SerializeField] private Text rerollButtonLabel;
         [SerializeField] private Button leaveButton;
+        [SerializeField] private RectTransform cardRect; // S12c §6 — 시트(Card) 슬라이드업 대상
+        [SerializeField] private CanvasGroup dimGroup; // S12c §6 — 배경 딤 페이드(BuildSheetChrome.dimGroup)
 
         private void Awake()
         {
             if (rowTemplate != null) rowTemplate.gameObject.SetActive(false);
+            if (dimGroup != null) dimGroup.alpha = 0f;
         }
 
         public void Show(RunState run, Action<int> onBuy, Action onReroll, Action onLeave)
@@ -54,14 +59,30 @@ namespace JackpotRun.UI2
             }
 
             var rows = BuildRows(run, onBuy);
-            if (firstShow) StartCoroutine(PopInRoutine(rows));
-            else foreach (var r in rows) r.localScale = Vector3.one;
+            if (firstShow) StartCoroutine(EnterRoutine(rows));
+            else
+            {
+                if (dimGroup != null) dimGroup.alpha = 1f;
+                if (cardRect != null) cardRect.anchoredPosition = Vector2.zero;
+                foreach (var r in rows) r.localScale = Vector3.one;
+            }
         }
 
         public void Hide()
         {
             StopAllCoroutines();
             gameObject.SetActive(false);
+        }
+
+        // S12c §6 — 시트 슬라이드업(0.24s OutCubic) + 배경 딤 페이드 동시 재생, 완료 후 행 스태거 팝인.
+        private IEnumerator EnterRoutine(List<RectTransform> rows)
+        {
+            if (cardRect != null) cardRect.anchoredPosition = new Vector2(0f, -cardRect.rect.height);
+            if (dimGroup != null) StartCoroutine(UiTween.FadeRoutine(dimGroup, 0f, 1f, SheetSlideDuration));
+            if (cardRect != null)
+                yield return UiTween.MoveRoutine(cardRect, cardRect.anchoredPosition, Vector2.zero, SheetSlideDuration, UiTween.Ease.OutCubic);
+
+            yield return PopInRoutine(rows);
         }
 
         private IEnumerator PopInRoutine(List<RectTransform> rows)
