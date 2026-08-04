@@ -351,7 +351,10 @@ namespace JackpotRun.EditorTools
             vol.enabled = true;
             vol.space = ParticleSystemSimulationSpace.Local;
             vol.x = new ParticleSystem.MinMaxCurve(30f, 70f); // 바 진행 방향(+X)으로 흘러가는 트레일
-            ZeroVelocityXZ(ps); // y/z를 x와 같은 TwoConstants(0,0) 모드로 맞춰 경고 제거(품질 규칙)
+            // 여기서 축을 맞출 대상은 y/z다. ZeroVelocityXZ를 쓰면 방금 넣은 x를 도로 (0,0)으로
+            // 덮어쓰고 y만 Constant로 남아 "Particle Velocity curves must all be in the same mode"
+            // 경고가 계속 났다(2026-08-01 콘솔에서 발견 — 트레일 속도도 함께 죽어 있었다).
+            ZeroVelocityYZ(ps);
 
             SizeGrowShrink(ps, 1f, 0.2f, 0.5f);
             FadeInOut(ps);
@@ -1304,6 +1307,14 @@ namespace JackpotRun.EditorTools
         {
             var vol = ps.velocityOverLifetime;
             vol.x = new ParticleSystem.MinMaxCurve(0f, 0f);
+            vol.z = new ParticleSystem.MinMaxCurve(0f, 0f);
+        }
+
+        // x를 먼저 설정한 경우용 짝(위 ZeroVelocityXZ는 y를 먼저 설정한 경우용).
+        private static void ZeroVelocityYZ(ParticleSystem ps)
+        {
+            var vol = ps.velocityOverLifetime;
+            vol.y = new ParticleSystem.MinMaxCurve(0f, 0f);
             vol.z = new ParticleSystem.MinMaxCurve(0f, 0f);
         }
 

@@ -430,8 +430,19 @@ namespace JackpotRun.EditorTools
             public CanvasGroup jackpotBannerGroup;
             public RectTransform jackpotBannerRect;
 
-            public Text resultLineText; // 릴과 노트 사이 "스테이지 정보 영역" — 획득 요약 큰 텍스트
-            public CanvasGroup resultLineGroup; // S14 §C — 점수 팝업 페이드 대상
+            // S16 — 구 resultLineText(한 줄 요약)를 대체하는 스핀 결과 패널(GainPanel.cs).
+            public RectTransform gainPanelRoot;
+            public Text gainBigText; // "+{N} EXP" 대문짝
+            public RectTransform gainScoreChipRoot;
+            public Image gainScoreChipBg;
+            public Text gainScoreChipLabel;
+            public RectTransform gainCoinChipRoot;
+            public Image gainCoinChipBg;
+            public Text gainCoinChipLabel;
+            public RectTransform gainRowsContent; // 기여 내역 행 스택(행 템플릿+비활성 원본)
+            public RectTransform gainRowTemplate;
+            public RectTransform gainSetExplainRoot; // 세트 성립 시에만 노출하는 보라 테두리 설명 박스
+            public Text gainSetExplainText;
 
             public RectTransform notesRoot;
             public RectTransform notesRowsContent;
@@ -1460,16 +1471,20 @@ namespace JackpotRun.EditorTools
 
             var col = UiKit.VGroup(root, 0, new RectOffset(0, 0, 0, 0), true, true);
             UiKit.Fill(col);
-            // 행 높이 계약(S9 육안 검수 반영): 릴을 화면 상단부에 붙이고 죽은 여백을 없앤다.
-            // Hud 210 · 릴 위 여백 60(고정) · ReelSection 260 · StageInfo 120 · NotesFeed(flex 1,
-            // 잔여 전부 — 스핀 노트가 쌓일수록 채워진다) · Controls 300.
-            // 이전 구성은 릴 위/아래 flex 스페이서 2개가 750px를 반씩 먹어 화면 절반이 빈 채로 보였다.
+            // 행 높이 계약(S16 육안 검수 갱신): Hud 210 · 릴 위 여백 60(고정) · ReelSection(preferred
+            // 260 · flex 1) · GainPanel(preferred 300 · flex 0 — 대문짝+칩+기여 내역) ·
+            // NotesFeed(preferred 120 · flex 0 — 최근 3줄만) · 바닥 스페이서(flex 1) · Controls 300.
+            // 잔여 공간(기기에 따라 600px 이상)은 릴 위아래 여백과 조작부 위 여백 두 곳으로 반씩
+            // 흘려보낸다 — GainPanel에 flex를 주면 세트 설명 박스와 로그 사이에 그 잔여가 통째로
+            // 몰려 화면 중앙에 검은 구멍이 생겼다(첫 구현의 실제 증상).
+            // S9 교훈(릴 위 flex 스페이서 금지 — 화면 절반이 비어 보였다)은 고정 60px로 유지한다.
 
             BuildRunHud(col, result);
             AddFixedSpacer(col, 60f);
             BuildRunReel(col, result);
-            BuildRunStageInfo(col, result);
+            BuildRunGainPanel(col, result);
             BuildRunNotesFeed(col, result);
+            AddFlexSpacer(col);
             BuildRunControls(col, result, panelSprite);
 
             // 화면 플래시/배너는 RunScreen 자신의 "root" 직계 자식(HudView/ReelView가 소유) — root는
@@ -1509,6 +1524,13 @@ namespace JackpotRun.EditorTools
         {
             var spacer = UiKit.Panel(col, "Spacer", new Color(0f, 0f, 0f, 0f));
             UiKit.SizeHint(spacer, preferredHeight: height, flexibleHeight: 0);
+        }
+
+        // 잔여 공간 흡수용 스페이서 — 콘텐츠 행이 전부 flex 0일 때 남는 높이를 "여기로 몰기" 위한 것.
+        private static void AddFlexSpacer(RectTransform col)
+        {
+            var spacer = UiKit.Panel(col, "FlexSpacer", new Color(0f, 0f, 0f, 0f));
+            UiKit.SizeHint(spacer, preferredHeight: 0, flexibleHeight: 1);
         }
 
         private static void BuildRunHud(RectTransform col, RunBuildResult result)
@@ -1618,7 +1640,9 @@ namespace JackpotRun.EditorTools
         private static void BuildRunReel(RectTransform col, RunBuildResult result)
         {
             var section = UiKit.Panel(col, "ReelSection", new Color(0, 0, 0, 0));
-            UiKit.SizeHint(section, preferredHeight: 260, flexibleHeight: 0);
+            // flex 1 — 잔여 공간의 절반을 여기로 받아 릴이 위아래 여백에 감싸인 채 세로 중앙에 놓인다
+            // (셀 크기는 reelRow의 childForceExpandHeight=false 덕에 늘어나지 않는다).
+            UiKit.SizeHint(section, preferredHeight: 260, flexibleHeight: 1);
             result.reelSectionRoot = section;
             result.reelRow = UiKit.HGroup(section, 12, new RectOffset(24, 24, 32, 32), true, true);
             // childControlHeight=true(생성 인자)만으로는 childForceExpandHeight도 true가 되어 셀이
@@ -1739,50 +1763,122 @@ namespace JackpotRun.EditorTools
             img.raycastTarget = false;
         }
 
-        // S8 항목⑥: 고정 120(기존 flexibleHeight:1에서 축소 — 잔여 공간은 이제 릴 위/아래 스페이서가
-        // 가져간다). 스핀 획득 요약(EXP/점수/코인)을 중앙 표시 — 이모지 대신 한글 라벨만 사용.
-        private static void BuildRunStageInfo(RectTransform col, RunBuildResult result)
+        // S16 — 구 StageInfo(한 줄 요약)를 스핀 결과 패널(GainPanel.cs)로 교체. preferred 300 ·
+        // flexible 1(내역 줄이 많아지면 조금 더 자란다 — 최대치는 GainPanel의 6줄 캡이 사실상 제한).
+        // 자식 경로 계약은 GainPanel.cs 헤더 주석 그대로("bigNumberText" 등).
+        private static void BuildRunGainPanel(RectTransform col, RunBuildResult result)
         {
-            var panel = UiKit.Panel(col, "StageInfo", new Color(0f, 0f, 0f, 0f));
-            UiKit.SizeHint(panel, preferredHeight: 120, flexibleHeight: 0);
-            var inner = UiKit.VGroup(panel, 0, new RectOffset(24, 24, 8, 8), true, true);
-            UiKit.Fill(inner);
-            inner.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+            var panel = UiKit.Panel(col, "GainPanel", new Color(0f, 0f, 0f, 0f));
+            // flex 0 — 잔여 공간은 릴 섹션과 바닥 스페이서가 나눠 갖는다(BuildRunScreen 행 높이 계약).
+            UiKit.SizeHint(panel, preferredHeight: 300, flexibleHeight: 0);
+            result.gainPanelRoot = panel;
 
-            result.resultLineText = UiKit.Text(inner, "", 30, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
-            UiKit.SizeHint(result.resultLineText, flexibleHeight: 1);
-            // S14 §C — 점수 팝업(카운트업+위로 떠오르며 페이드)용 CanvasGroup.
-            result.resultLineGroup = result.resultLineText.gameObject.AddComponent<CanvasGroup>();
+            var innerCol = UiKit.VGroup(panel, 6, new RectOffset(24, 24, 8, 8), true, true);
+            UiKit.Fill(innerCol);
+            innerCol.gameObject.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.UpperCenter;
+
+            // 획득 대문짝 — "+{N} EXP" 46pt w900(레거시 Text는 Bold로 근사) 골드.
+            result.gainBigText = UiKit.Text(innerCol, "", 46, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(result.gainBigText, preferredHeight: 64, flexibleHeight: 0);
+
+            // 칩 2개 — 점수(blue) · 코인(gold). BuildAutoPill(자기 텍스트 길이만큼 스스로 폭을 정하는
+            // 필 — S13 §A 9-slice 관례)을 그대로 재사용, 색은 런타임(GainPanel.SetChip)이 매 스핀 입힌다.
+            var chipsRow = UiKit.HGroup(innerCol, 12, new RectOffset(0, 0, 0, 0), false, true);
+            chipsRow.gameObject.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
+            UiKit.SizeHint(chipsRow, preferredHeight: 36, flexibleHeight: 0);
+            var scoreChip = BuildAutoPill(chipsRow, "ScoreChip", UiKit.PillSprite(36f), 18, new RectOffset(18, 18, 7, 7), true);
+            result.gainScoreChipRoot = scoreChip.root; result.gainScoreChipBg = scoreChip.bg; result.gainScoreChipLabel = scoreChip.label;
+            var coinChip = BuildAutoPill(chipsRow, "CoinChip", UiKit.PillSprite(36f), 18, new RectOffset(18, 18, 7, 7), true);
+            result.gainCoinChipRoot = coinChip.root; result.gainCoinChipBg = coinChip.bg; result.gainCoinChipLabel = coinChip.label;
+
+            // 기여 내역 리스트 — 최대 6줄, 행 템플릿+비활성 원본 패턴(BuildNotesRowTemplate과 동일 기법).
+            // rowsContent 자신도 VerticalLayoutGroup이라 ILayoutElement로서 "실제 활성 자식(줄) 기준
+            // preferredHeight"를 innerCol에 그대로 보고한다 — 여기에 flexibleHeight를 주면(이전 실수,
+            // 육안 검수로 발견) 줄이 몇 개 없을 때도 잔여 공간을 통째로 떠먹어 내용과 세트 설명 박스
+            // 사이에 큰 빈 공간이 생긴다. ContentSizeFitter는 붙이지 않는다 — innerCol이 이미
+            // childControlHeight=true라 부모가 매기는 값과 이중으로 다투게 된다.
+            var rowsContent = UiKit.VGroup(innerCol, 2, new RectOffset(0, 0, 4, 4), true, true);
+            result.gainRowsContent = rowsContent;
+            result.gainRowTemplate = BuildGainRowTemplate(rowsContent);
+
+            // 세트 설명 박스 — bestSetCount>=2일 때만 GainPanel이 활성화한다.
+            result.gainSetExplainRoot = BuildSetExplainBox(innerCol, out result.gainSetExplainText);
+
+            // 트레일 스페이서 — preferred(300)와 실제 콘텐츠 높이의 차이를 아래쪽에서 흡수해 대문짝이
+            // 항상 릴 바로 아래에 붙게 한다(줄 수가 스핀마다 달라져도 위치가 흔들리지 않는다).
+            var trailSpacer = UiKit.Panel(innerCol, "TrailSpacer", new Color(0f, 0f, 0f, 0f));
+            UiKit.SizeHint(trailSpacer, preferredHeight: 0, flexibleHeight: 1);
         }
 
-        // Fable 육안 검수 지시(2026-07-31): 최근 6줄 고정 표시(280, flex 아님), 20pt, 좌우 패딩 24,
-        // 최신 줄이 위로, 각 줄에 은은한 배경(카드색 알파 40%). 단일 Text 블록 대신 행 템플릿으로 재구성.
+        // 자식 경로 계약(GainPanel.cs): 루트에 CanvasGroup(스태거 페이드) + "Inner"(RectTransform,
+        // 8px 상승 트윈 대상) 아래 "Label"(Text, 좌측 62%)·"Value"(Text, 우측 38%, 굵게 우측정렬).
+        // "Inner"를 한 겹 더 두는 이유: rowsContent의 VerticalLayoutGroup은 직접 자식(행 루트)의
+        // anchoredPosition만 재계산한다 — 위치 트윈 대상을 손자뻘(Inner)로 두면 스태거 도중 다음 행이
+        // Instantiate되어 레이아웃이 다시 계산돼도 진행 중이던 상승 애니메이션이 덮어써지지 않는다.
+        private static RectTransform BuildGainRowTemplate(Transform parent)
+        {
+            var row = UiKit.Panel(parent, "GainRowTemplate", new Color(0f, 0f, 0f, 0f));
+            UiKit.SizeHint(row, preferredHeight: 34, flexibleHeight: 0);
+            row.gameObject.AddComponent<CanvasGroup>();
+
+            var innerGo = new GameObject("Inner", typeof(RectTransform));
+            var inner = (RectTransform)innerGo.transform;
+            inner.SetParent(row, false);
+            UiKit.Fill(inner);
+
+            var label = UiKit.Text(inner, "", 20, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            label.name = "Label";
+            UiKit.SetAnchors(label.rectTransform, new Vector2(0f, 0f), new Vector2(0.62f, 1f), new Vector2(8f, 0f), new Vector2(-6f, 0f));
+
+            var value = UiKit.Text(inner, "", 20, UiKit.TextSecondary, TextAnchor.MiddleRight, true);
+            value.name = "Value";
+            UiKit.SetAnchors(value.rectTransform, new Vector2(0.62f, 0f), new Vector2(1f, 1f), new Vector2(6f, 0f), new Vector2(-8f, 0f));
+
+            row.gameObject.SetActive(false);
+            return row;
+        }
+
+        // S16 — "세트 설명 박스"(웹 .set-explain 재해석): 그라데이션 배경 대신 UiKit 팔레트의 보라
+        // (Purple)를 낮은 알파로 깔고 상시 Outline으로 테두리를 흉내낸다(AddGlowOutline은 다른 곳에선
+        // 토글용으로 기본 꺼두지만, 여기는 그 자체가 상시 스타일이라 즉시 enabled=true).
+        private static RectTransform BuildSetExplainBox(Transform parent, out Text text)
+        {
+            var bg = UiKit.Purple; bg.a = 0.14f;
+            var box = UiKit.Panel(parent, "SetExplainBox", bg, UiSpriteGen.Load("panel_r24"));
+            UiKit.SizeHint(box, preferredHeight: 44, flexibleHeight: 0);
+            UiKit.AddGlowOutline(box.gameObject, UiKit.Purple, 2f).enabled = true;
+
+            text = UiKit.Text(box, "", 22, UiKit.Purple, TextAnchor.MiddleCenter, true);
+            UiKit.Fill(text.rectTransform);
+            box.gameObject.SetActive(false);
+            return box;
+        }
+
+        // S16 — 로그는 축소: 최근 3줄만(NotesFeed.Cap=3), 배경 없이(투명), 18pt dim, 행 높이 34.
+        // 이전엔 여기가 "로그 나열" 인상을 주는 주역이었지만 이제 GainPanel이 그 역할을 넘겨받았다.
         private static void BuildRunNotesFeed(RectTransform col, RunBuildResult result)
         {
-            // S9: 잔여 공간을 노트 피드가 흡수하되(고정 280이면 죽은 여백이 남는다), 패널 배경은
-            // 투명하게 둔다 — 줄마다 자체 배경이 있어서, 빈 영역이 "빈 상자"로 보이지 않는다.
             var panel = UiKit.Panel(col, "NotesFeed", new Color(0f, 0f, 0f, 0f));
-            UiKit.SizeHint(panel, preferredHeight: 280, flexibleHeight: 1);
+            UiKit.SizeHint(panel, preferredHeight: 120, flexibleHeight: 0);
             result.notesRoot = panel;
-            var inner = UiKit.VGroup(panel, 0, new RectOffset(0, 0, 10, 10), true, true);
+            var inner = UiKit.VGroup(panel, 0, new RectOffset(0, 0, 6, 6), true, true);
             UiKit.Fill(inner);
 
             var scroll = UiKit.Scroll(inner, out var rowsContent, vertical: true);
             UiKit.SizeHint(scroll, flexibleHeight: 1);
-            SetupStackContent(rowsContent, 24, 0, 6);
+            SetupStackContent(rowsContent, 24, 0, 4);
 
             result.notesRowsContent = rowsContent;
             result.notesRowTemplate = BuildNotesRowTemplate(rowsContent);
         }
 
-        // 자식 경로 계약(NotesFeed.cs): "Label"(Text).
+        // 자식 경로 계약(NotesFeed.cs): "Label"(Text). S16 — 배경 제거(투명), 18pt dim, 행 높이 34
+        // (기존 44·20pt·카드색 배경 40%에서 축소 — "로그 나열" 인상을 없앤다는 설계 지시 그대로).
         private static RectTransform BuildNotesRowTemplate(Transform parent)
         {
-            var bg = UiKit.Card;
-            bg.a = 0.4f;
-            var row = UiKit.Panel(parent, "NoteRowTemplate", bg);
-            UiKit.SizeHint(row, preferredHeight: 44, flexibleHeight: 0);
-            var label = UiKit.Text(row, "", 20, UiKit.TextPrimary, TextAnchor.MiddleLeft);
+            var row = UiKit.Panel(parent, "NoteRowTemplate", new Color(0f, 0f, 0f, 0f));
+            UiKit.SizeHint(row, preferredHeight: 34, flexibleHeight: 0);
+            var label = UiKit.Text(row, "", 18, UiKit.TextSecondary, TextAnchor.MiddleLeft);
             label.name = "Label";
             UiKit.SetAnchors(label.rectTransform, Vector2.zero, Vector2.one, new Vector2(14, 2), new Vector2(-14, -2));
             row.gameObject.SetActive(false);
@@ -1860,8 +1956,7 @@ namespace JackpotRun.EditorTools
             var so = new SerializedObject(r.view);
             so.FindProperty("hudView").objectReferenceValue = WireHudView(r);
             so.FindProperty("reelView").objectReferenceValue = WireReelView(r);
-            so.FindProperty("resultLineText").objectReferenceValue = r.resultLineText;
-            so.FindProperty("resultLineGroup").objectReferenceValue = r.resultLineGroup;
+            so.FindProperty("gainPanel").objectReferenceValue = WireGainPanel(r);
             so.FindProperty("notesFeed").objectReferenceValue = WireNotesFeed(r);
             so.FindProperty("controlsGroup").objectReferenceValue = r.controlsGroup;
             SetObjectArray(so, "modeButtons", r.modeButtons);
@@ -1932,6 +2027,26 @@ namespace JackpotRun.EditorTools
             var so = new SerializedObject(view);
             so.FindProperty("rowsContent").objectReferenceValue = r.notesRowsContent;
             so.FindProperty("rowTemplate").objectReferenceValue = r.notesRowTemplate;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // S16 — GainPanel.cs 자식 경로 계약 그대로 배선.
+        private static UI2.GainPanel WireGainPanel(RunBuildResult r)
+        {
+            var view = r.gainPanelRoot.gameObject.AddComponent<UI2.GainPanel>();
+            var so = new SerializedObject(view);
+            so.FindProperty("bigNumberText").objectReferenceValue = r.gainBigText;
+            so.FindProperty("scoreChipRoot").objectReferenceValue = r.gainScoreChipRoot;
+            so.FindProperty("scoreChipBg").objectReferenceValue = r.gainScoreChipBg;
+            so.FindProperty("scoreChipLabel").objectReferenceValue = r.gainScoreChipLabel;
+            so.FindProperty("coinChipRoot").objectReferenceValue = r.gainCoinChipRoot;
+            so.FindProperty("coinChipBg").objectReferenceValue = r.gainCoinChipBg;
+            so.FindProperty("coinChipLabel").objectReferenceValue = r.gainCoinChipLabel;
+            so.FindProperty("rowsContent").objectReferenceValue = r.gainRowsContent;
+            so.FindProperty("rowTemplate").objectReferenceValue = r.gainRowTemplate;
+            so.FindProperty("setExplainRoot").objectReferenceValue = r.gainSetExplainRoot;
+            so.FindProperty("setExplainText").objectReferenceValue = r.gainSetExplainText;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
         }
