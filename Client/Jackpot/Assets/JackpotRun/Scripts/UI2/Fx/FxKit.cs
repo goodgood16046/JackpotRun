@@ -4,9 +4,9 @@ using UnityEngine;
 
 namespace JackpotRun.UI2
 {
-    // 파티클 이펙트 11종 식별자 — ENGINE_PORT_DESIGN.md S7c "파티클 에셋 생성" 표의 id 컬럼과
-    // 1:1 대응(Editor/FxPrefabGen.cs가 굽는 Resources/JackpotRun/FX/<snake_case>.prefab 파일명은
-    // FileName(FxId)가 변환한다).
+    // 파티클 이펙트 식별자 — Editor/FxPrefabGen.cs가 굽는 Resources/JackpotRun/FX/<snake_case>.prefab
+    // 파일명은 FileName(FxId)가 변환한다. 각 슬라이스(S7c/S13/S14/S15)가 추가한 항목은 아래 그룹
+    // 주석으로 구분(ENGINE_PORT_DESIGN.md 해당 절 표 참조).
     public enum FxId
     {
         SpinStop,
@@ -31,6 +31,13 @@ namespace JackpotRun.UI2
         ReelLand,
         Converge,
         JackpotRays,
+
+        // S15 §B — 파티클 전면 재작업 신규 5종(ENGINE_PORT_DESIGN.md S15 §B 표).
+        Match2,        // 세트 2매치 전용(파편12+링1+별4)
+        RisingLight,   // 3매치 이상 "화면 하단/가장자리 상승 광입자"
+        ConvergeBurst, // 4매치 수렴 도착 시 "폭발 링 2연발"(PlayFlyTo arrivalBurst)
+        CoinSpark,     // 코인 도착 시 스파크(PlayFlyTo arrivalBurst)
+        RunAmbient,    // 런 화면 배경 은은한 부유 광입자 루프
     }
 
     // 런타임 파티클 재생 API — ENGINE_PORT_DESIGN.md S7c "런타임 API(Scripts/UI2/Fx/FxKit.cs)".
@@ -99,8 +106,13 @@ namespace JackpotRun.UI2
         }
 
         /// <summary>from 위치에서 count개 입자를 to 위치로 날린다(코인 등). 목표점은 재생 시점 좌표로
-        /// 고정한다(대상이 정적 HUD 라벨이라는 전제). from/to null이면 null 반환.</summary>
-        public ParticleSystem PlayFlyTo(FxId id, RectTransform from, RectTransform to, int count)
+        /// 고정한다(대상이 정적 HUD 라벨이라는 전제). S15 §B — arcHeight&gt;0이면 사인 커브로 포물선
+        /// 궤적을 근사한다("중력"의 시각적 대역 — FlyToRoutine이 매 프레임 위치를 직접 덮어쓰므로 실제
+        /// ParticleSystem 물리 중력은 적용될 수 없다, 아래 FlyToRoutine 주석 참조). arrivalBurst를
+        /// 지정하면 입자 전원이 도착한 프레임에 그 FxId를 정확한 도착 좌표에서 1회 재생한다(코인 도착
+        /// 스파크, 수렴 도착 폭발 링 등). from/to null이면 null 반환.</summary>
+        public ParticleSystem PlayFlyTo(FxId id, RectTransform from, RectTransform to, int count,
+            FxId? arrivalBurst = null, float arcHeight = 0f)
         {
             if (from == null || to == null) return null;
             var ps = Acquire(id);
@@ -115,7 +127,7 @@ namespace JackpotRun.UI2
             ps.Emit(n);
 
             Vector3 targetLocalOffset = new Vector3(toLocal.x - fromLocal.x, toLocal.y - fromLocal.y, 0f);
-            StartCoroutine(FlyToRoutine(ps, targetLocalOffset));
+            StartCoroutine(FlyToRoutine(ps, targetLocalOffset, arcHeight, arrivalBurst, toLocal));
             return ps;
         }
 
@@ -211,11 +223,19 @@ namespace JackpotRun.UI2
             t.localScale = Vector3.one;
         }
 
+        /// <summary>S15 §B — tint를 루트뿐 아니라 모든 자식 ParticleSystem(레이어드 프리팹의
+        /// Ring/Sparkle/Rising 등)에도 함께 적용한다 — 레이어 색이 서로 따로 놀지 않고 하나의 팔레트로
+        /// 보이게 한다. tint가 없으면 프리팹이 구운 기본색(예: fx_skull의 검은 연기·붉은 파편처럼 항상
+        /// 고정색이어야 하는 레이어)을 그대로 둔다.</summary>
         private static void ApplyTint(ParticleSystem ps, Color? tint)
         {
             if (!tint.HasValue) return;
-            var main = ps.main;
-            main.startColor = new ParticleSystem.MinMaxGradient(tint.Value);
+            var systems = ps.GetComponentsInChildren<ParticleSystem>(true);
+            for (int i = 0; i < systems.Length; i++)
+            {
+                var main = systems[i].main;
+                main.startColor = new ParticleSystem.MinMaxGradient(tint.Value);
+            }
         }
 
         /// <summary>설계 "좌표 변환": RectTransformUtility 대신 anchor.TransformPoint(anchor.rect.center)
@@ -227,14 +247,21 @@ namespace JackpotRun.UI2
             return local;
         }
 
-        // 입자별 remainingLifetime 기준으로 "목표점에 수렴"시킨다: 매 프레임 (경과시간 / 남은수명)만큼
-        // 현재 위치→목표 사이를 보간하면, 특정 프레임 수와 무관하게 remainingLifetime이 0에 다가갈수록
-        // 정확히 target에 도달한다(고전적인 "시간 비례 추적" 공식).
-        private IEnumerator FlyToRoutine(ParticleSystem ps, Vector3 targetLocalOffset)
+        // S15 §B — 입자별 startLifetime 대비 경과 비율(t = 1 - remaining/start)로 원점(로컬 0,0,0)→
+        // targetLocalOffset을 매 프레임 절대 위치로 직접 계산한다(이전 버전은 "현재 위치 기준
+        // remainingLifetime-비례 접근"이었는데, 그 방식 위에 아크 오프셋을 얹으면 매 프레임 이전
+        // 프레임의 아크가 다시 입력으로 들어가 피드백이 누적돼 궤적이 뒤틀린다 — t를 절대 기준으로
+        // 구해 매 프레임 새로 계산하면 아크와 함께 써도 안정적이다). arcHeight&gt;0이면
+        // sin(eased·π)만큼 Y를 더해 포물선을 근사한다("중력"의 시각적 대역 — PlayFlyTo 주석 참조,
+        // 이 함수가 위치를 직접 덮어쓰므로 ParticleSystem의 실제 gravityModifier는 무의미하다).
+        // 전 입자가 도착(e≥0.97)한 첫 프레임에 arrivalBurst를 정확한 도착 좌표에서 1회 재생한다.
+        private IEnumerator FlyToRoutine(ParticleSystem ps, Vector3 targetLocalOffset, float arcHeight,
+            FxId? arrivalBurst, Vector2 arrivalLocalPos)
         {
             if (ps == null) yield break;
             var buffer = new ParticleSystem.Particle[Mathf.Max(8, ps.main.maxParticles)];
             float elapsed = 0f;
+            bool arrivalFired = false;
             while (ps != null && elapsed < FlyToSafetyDuration)
             {
                 elapsed += Time.deltaTime;
@@ -246,20 +273,25 @@ namespace JackpotRun.UI2
                     continue;
                 }
 
+                bool allArrived = true;
                 for (int i = 0; i < count; i++)
                 {
                     float remain = buffer[i].remainingLifetime;
-                    if (remain > 0.0001f)
-                    {
-                        float frac = Mathf.Clamp01(Time.deltaTime / remain);
-                        buffer[i].position = Vector3.Lerp(buffer[i].position, targetLocalOffset, frac);
-                    }
-                    else
-                    {
-                        buffer[i].position = targetLocalOffset;
-                    }
+                    float total = buffer[i].startLifetime;
+                    float t = total > 0.0001f ? Mathf.Clamp01(1f - remain / total) : 1f;
+                    float e = t * t * (3f - 2f * t); // smoothstep
+                    Vector3 pos = Vector3.LerpUnclamped(Vector3.zero, targetLocalOffset, e);
+                    if (arcHeight > 0f) pos.y += Mathf.Sin(e * Mathf.PI) * arcHeight;
+                    buffer[i].position = pos;
+                    if (e < 0.97f) allArrived = false;
                 }
                 ps.SetParticles(buffer, count);
+
+                if (allArrived && !arrivalFired && arrivalBurst.HasValue)
+                {
+                    arrivalFired = true;
+                    PlayAt(arrivalBurst.Value, arrivalLocalPos);
+                }
                 yield return null;
             }
         }
@@ -286,6 +318,11 @@ namespace JackpotRun.UI2
                 case FxId.ReelLand: return "fx_reel_land";
                 case FxId.Converge: return "fx_converge";
                 case FxId.JackpotRays: return "fx_jackpot_rays";
+                case FxId.Match2: return "fx_match2";
+                case FxId.RisingLight: return "fx_rising_light";
+                case FxId.ConvergeBurst: return "fx_converge_burst";
+                case FxId.CoinSpark: return "fx_coin_spark";
+                case FxId.RunAmbient: return "fx_run_ambient";
                 default: return null;
             }
         }

@@ -745,7 +745,13 @@ namespace JackpotRun.UI2
 
             // set3(및 그 상위인 set4/잭팟) 전부 해당 셀 글로우가 깔린다 — 잭팟은 사실상 전칸이라
             // bestSetId==jackpotSym(전 칸 동일 심볼)이므로 GlowMatchingCells 한 번으로 전칸이 켜진다.
-            if (hasSet) GlowMatchingCells(result.bestSetId);
+            if (hasSet)
+            {
+                GlowMatchingCells(result.bestSetId);
+                // S15 §B 표 "세트 3매치 ⑤"(4매치·잭팟도 "위 +" 누적) — 화면 하단(잭팟의 "가장자리"는
+                // 겸용, FxPrefabGen.Build_RisingLight 주석 참조)에서 상승 광입자.
+                FxKit.I?.Play(FxId.RisingLight, reelRow);
+            }
             else TryPairAccent(result);
 
             if (jackpot)
@@ -786,15 +792,16 @@ namespace JackpotRun.UI2
             }
         }
 
-        // S14 §C — 2매치: 정식 세트(3+)엔 못 미치지만 같은 심볼이 정확히 2번 나온 칸에 소소한 골드
-        // 테두리 펄스를 준다("골드 테두리 + 광선 스윕 1회 + 스파클 4"). 전용 스윕 그래픽/파티클은
-        // 새로 만들지 않고(§F 신규 에셋 목록에 이 등급 전용 항목이 없음) 이미 모든 릴 착지마다
-        // 재생되는 fx_spin_stop 스파크 + 이 테두리 펄스로 근사한다(재해석 보고 대상).
+        // S14 §C / S15 §B 표 "세트 2매치" — 정식 세트(3+)엔 못 미치지만 같은 심볼이 정확히 2번 나온
+        // 칸에 골드 테두리 펄스 + 레이어드 파티클(FxId.Match2: 심볼색 파편12+링1+별4)을 함께 낸다.
+        // 이전엔 Outline 펄스만 있어 "Outline 단독 사용" 위반이었다 — 이번 슬라이스에서 파티클을 항상
+        // 함께 재생하도록 고쳤다(설계 "Outline/플래시 단독 사용 금지").
         private void TryPairAccent(SpinResult result)
         {
             FindDominantValueSymbol(result, result.cells.Count, out string bestId, out int bestCount);
             if (bestCount != 2 || bestId == null) return;
 
+            Color tint = SymbolTintById.TryGetValue(bestId, out var symTint) ? symTint : Color.white;
             for (int i = 0; i < _cells.Count; i++)
             {
                 var cv = _cells[i];
@@ -802,10 +809,14 @@ namespace JackpotRun.UI2
                 cv.glow.enabled = true;
                 cv.glow.effectColor = UiKit.Accent;
                 StartCoroutine(PulseOutline(cv.glow));
+                FxKit.I?.Play(FxId.Match2, cv.rt, tint);
             }
         }
 
         // S14 §C — 4매치: 매치된 각 셀에서 중앙 셀로 에너지가 수렴하는 느낌(fx_converge, PlayFlyTo).
+        // S15 §B 표 "4매치 ⑥⑦" — 셀당 8개(매치 셀 수에 따라 합산 약 24~32개, 설계 "30개" 근사) +
+        // 중앙 도착 시 폭발 링 2연발(arrivalBurst=ConvergeBurst가 FlyToRoutine 안에서 정확한 도착
+        // 좌표에 자동 재생 — FxKit.cs 주석 참조).
         private void PlayConvergeFx(string symId)
         {
             if (string.IsNullOrEmpty(symId) || _cells.Count == 0) return;
@@ -814,13 +825,15 @@ namespace JackpotRun.UI2
             {
                 var cv = _cells[i];
                 if (cv.lastSymId != symId || cv.rt == target) continue;
-                FxKit.I?.PlayFlyTo(FxId.Converge, cv.rt, target, 6);
+                FxKit.I?.PlayFlyTo(FxId.Converge, cv.rt, target, 8, arrivalBurst: FxId.ConvergeBurst);
             }
         }
 
         private void GlowMatchingCells(string symId)
         {
             if (string.IsNullOrEmpty(symId)) return;
+            // S15 §B — fx_set_hit의 파편 레이어는 심볼색 틴트 전제(SpinStop과 동일 팔레트 규약).
+            Color tint = SymbolTintById.TryGetValue(symId, out var symTint) ? symTint : Color.white;
             for (int i = 0; i < _cells.Count; i++)
             {
                 var cv = _cells[i];
@@ -828,7 +841,7 @@ namespace JackpotRun.UI2
                 cv.glow.enabled = true;
                 cv.glow.effectColor = UiKit.Accent;
                 StartCoroutine(PulseOutline(cv.glow));
-                FxKit.I?.Play(FxId.SetHit, cv.rt);
+                FxKit.I?.Play(FxId.SetHit, cv.rt, tint);
             }
         }
 

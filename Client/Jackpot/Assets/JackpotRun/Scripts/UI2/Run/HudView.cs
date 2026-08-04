@@ -72,12 +72,28 @@ namespace JackpotRun.UI2
         private Coroutine _leadDotRoutine;
         private Coroutine _screenShakeRoutine;
         private ParticleSystem _bossFx; // S7c 연출 훅: 보스 스테이지 동안 유지되는 fx_boss 루프 핸들
+        private ParticleSystem _ambientFx; // S15 §B 표 "배경(런 화면)" — 은은한 부유 광입자 루프 핸들
 
         private void Awake()
         {
             if (bossBannerGroup != null) bossBannerGroup.alpha = 0f;
             if (bossVignetteGroup != null) bossVignetteGroup.alpha = 0f;
             if (expLeadDot != null) _leadDotRoutine = StartCoroutine(ExpLeadDotPulseLoop());
+        }
+
+        // S15 §B — runScreenRoot는 이미 S14 §G 셰이크 공용으로 와이어링된 기존 참조를 그대로 재사용한다
+        // (새 앵커 추가 없음). MenuView의 fx_ui_aura 루프(OnEnable 시작/OnDisable 정지)와 동일 패턴 —
+        // PlaySceneRoot가 LoadSceneMode.Single로 씬을 통째로 교체하므로 화면을 떠날 때 OnDisable이
+        // 확실히 호출된다(RunView.OnDisable의 기존 주석 참조).
+        private void OnEnable()
+        {
+            if (_ambientFx == null) _ambientFx = FxKit.I?.PlayLoop(FxId.RunAmbient, runScreenRoot);
+        }
+
+        private void OnDisable()
+        {
+            FxKit.I?.StopLoop(_ambientFx);
+            _ambientFx = null;
         }
 
         /// <summary>애니메이션 없이 전체를 즉시 갱신 — 화면 진입 첫 표시(RUN_STARTED 등)에 사용.</summary>
@@ -258,11 +274,15 @@ namespace JackpotRun.UI2
 
         /// <summary>S7c 연출 훅: "코인 증가 시 Coin(릴→코인 라벨 flyTo)" — RunView가 스핀 결과의
         /// coinsGained를 이미 알고 있어 여기로 직접 넘긴다(로직 변경 없음, 호출 추가). S14 §C — 파티클
-        /// 도착 시(대략 CoinFlyDuration 후) 코인 라벨을 0.15s간 펄스(scale 1.15)한다.</summary>
+        /// 도착 시(대략 CoinFlyDuration 후) 코인 라벨을 0.15s간 펄스(scale 1.15)한다. S15 §B 표 "코인
+        /// 획득" — arcHeight로 포물선 비행을 근사하고(중력은 이 시각적 아크로 대신한다 — FxKit.cs
+        /// FlyToRoutine 주석 참조), arrivalBurst(FxId.CoinSpark)로 "도착 시 스파크4"를 정확한 도착
+        /// 좌표(코인 라벨)에서 재생한다.</summary>
         public void PlayCoinFx(RectTransform from, int coinsGained)
         {
             if (coinsGained <= 0 || coinsText == null) return;
-            FxKit.I?.PlayFlyTo(FxId.Coin, from, coinsText.rectTransform, Mathf.Clamp(coinsGained, 1, 8));
+            FxKit.I?.PlayFlyTo(FxId.Coin, from, coinsText.rectTransform, Mathf.Clamp(coinsGained, 1, 8),
+                arrivalBurst: FxId.CoinSpark, arcHeight: 140f);
             StartCoroutine(CoinArrivalPulseRoutine());
         }
 

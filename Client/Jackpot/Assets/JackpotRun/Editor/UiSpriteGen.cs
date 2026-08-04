@@ -21,9 +21,14 @@ namespace JackpotRun.EditorTools
     // 폰트 검증 결과 레거시 uGUI Text는 astral(서로게이트 페어) 이모지를 렌더링하지 못한다
     // (🍒📘💎🪙👑🔥🧲💣🎲🌱🌀🗝 전부 미표시). 이모지 대신 각 심볼 타일 위에 단색/2색 도형을 직접
     // 그려 넣는다(픽셀 SDF/폴리곤 헬퍼는 아래 "픽셀 드로잉" 절 참조). 배경 타일 색상표는 그대로
-    // 유지하고, 그 위에 흰색(밝은 배경엔 대비를 위해 어두운색)으로 도형을 얹는다. skull만 예외 —
-    // 원래도 암배경(#2A0F14) 자체가 다른 13종과 뚜렷이 구분되고 해골 실루엣을 저해상도 도형으로
-    // 만들면 오히려 알아보기 어려워 도형 없이 배경 타일 그대로 둔다("기존" 유지).
+    // 유지하고, 그 위에 흰색(밝은 배경엔 대비를 위해 어두운색)으로 도형을 얹는다.
+    //
+    // ── S15 항목A: skull 예외 번복 ───────────────────────────────────────────────
+    // S8에서는 "암배경(#2A0F14) 자체가 다른 13종과 구분되니 도형 없이 둔다"고 결정했지만, 실제로는
+    // 어두운 단색 타일이 빈 칸처럼 보인다는 사용자 피드백(ENGINE_PORT_DESIGN.md S15 §A)으로 번복 —
+    // 두개골(원+턱 사각) + 눈구멍 2개(배경색으로 파냄) + 코 삼각(배경색으로 파냄) + 이빨 3칸(잇몸에
+    // 배경색 홈 2개)을 색 #E8EAF2로 그린다(다른 심볼처럼 배경 밝기 기반 자동 fg가 아니라 설계가 못박은
+    // 고정색 — 우연히 이 배경에서의 자동 fg(흰색)와 거의 같지만 정확한 값을 명시적으로 쓴다).
     //
     // ── 9-slice border 규칙 ──────────────────────────────────────────────────────────
     // 각 스프라이트 파일명의 "_rNN" 접미사가 곧 굽는 반경(px, 256px 캔버스 기준)이고, border도 동일
@@ -654,7 +659,7 @@ namespace JackpotRun.EditorTools
                 case "star": DrawStar(px, size, fg); break;
                 case "gem": DrawGem(px, size, fg); break;
                 case "crown": DrawCrown(px, size, fg); break;
-                case "skull": break; // 설계 지시: "skull=기존" — 배경 타일 그대로 유지, 도형 없음.
+                case "skull": DrawSkull(px, size, ParseHex("#E8EAF2"), bg); break; // S15 §A — 번복(위 헤더 주석 참조).
                 case "coin": DrawCoin(px, size, fg, bg); break;
                 case "flame": DrawFlame(px, size, fg); break;
                 case "magnet": DrawMagnet(px, size, fg, bg); break;
@@ -716,6 +721,20 @@ namespace JackpotRun.EditorTools
             PlotPolygon(px, size, new[] { new Vector2(88f, 100f), new Vector2(112f, 100f), new Vector2(100f, 170f) }, fg);
             PlotPolygon(px, size, new[] { new Vector2(116f, 100f), new Vector2(140f, 100f), new Vector2(128f, 196f) }, fg);
             PlotPolygon(px, size, new[] { new Vector2(144f, 100f), new Vector2(168f, 100f), new Vector2(156f, 170f) }, fg);
+        }
+
+        // S15 §A — 두개골(원+턱 사각) + 눈구멍 2개(배경색 파냄) + 코 삼각(배경색 파냄) + 이빨 3칸
+        // (잇몸에 배경색 세로 홈 2개). fg는 호출측이 고정색(#E8EAF2)으로 넘긴다(다른 심볼처럼 배경
+        // 밝기 기반 자동 선택이 아님 — 클래스 헤더 "S15 항목A" 주석 참조).
+        private static void DrawSkull(Color32[] px, int size, Color fg, Color bg)
+        {
+            PlotCircle(px, size, Center, 150f, 62f, fg); // 두개골(cranium)
+            PlotRect(px, size, 88f, 68f, 168f, 104f, fg); // 턱(jaw)
+            PlotCircle(px, size, 100f, 150f, 22f, bg); // 눈구멍(왼)
+            PlotCircle(px, size, 156f, 150f, 22f, bg); // 눈구멍(오)
+            PlotPolygon(px, size, new[] { new Vector2(128f, 106f), new Vector2(116f, 130f), new Vector2(140f, 130f) }, bg); // 코
+            PlotRect(px, size, 112f, 68f, 118f, 104f, bg); // 이빨 홈 1
+            PlotRect(px, size, 138f, 68f, 144f, 104f, bg); // 이빨 홈 2
         }
 
         private static void DrawCoin(Color32[] px, int size, Color fg, Color bg)
