@@ -254,6 +254,10 @@ namespace JackpotRun.Engine
                         MarkPerkSeen(p, e.relicGrantedId);
                         MarkPerkSeen(p, e.augmentGrantedId);
                     }
+                    // WEB_PARITY P1 ④: 장치 영구 지급(EVENT-6 장치획득 / DEVICE 노드) — 엔진은
+                    // Engine/Profile을 모르므로(설계 원칙 6) 이 글루 레이어가 RunEvent.deviceGrantedId를
+                    // 보고 PlayerProfile.OwnedDevices에 반영한다(웹 profile.ownedDevices.push 대응).
+                    if (!string.IsNullOrEmpty(e.deviceGrantedId)) p.OwnedDevices.Add(e.deviceGrantedId);
                     break;
 
                 case "PERK_GRANTED":

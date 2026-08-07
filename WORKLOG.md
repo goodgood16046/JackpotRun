@@ -4,6 +4,28 @@
 
 ---
 
+## 2026-08-07 - 웹 파리티 전환 착수 + P1 완료 (Unity ← `public/play/`)
+
+- 지시 "유니티 게임을 웹페이지에 있는 게임처럼 다 뜯어고쳐줘" — 양측 전수 인벤토리 조사(웹 20개
+  시스템/Unity 현황·격차) 후 **[Docs/WEB_PARITY_DESIGN.md](Docs/WEB_PARITY_DESIGN.md) 마스터 플랜**
+  작성: 정답지를 kotlin-reference → **웹 단독판(`public/play/`)으로 전환**(CLAUDE.md 반영),
+  규칙 충돌 결정 로그(A~H), 페이즈 로드맵 P1~P7(P7 심화모드가 최대 규모).
+- **P1 룰 파리티 완료** (Fable 설계 → Sonnet 구현 → Opus 검수 → Sonnet 반영 → Fable 최종):
+  ① 특수스핀 **첫 사용 무료**(런당 종류별 1회, 발동 성공 시만 소진 — `RunState.CmdFreeUsed`,
+  모드 버튼 "무료" 라벨) ② **첫 판 즉시 시작**(runs==0 → novice+basic 직행 + 안내 토스트)
+  ③ 실패 체인 웹 순서(보험+2스핀 → POST_SPIN → fate_bell≤15 → 게임오버) ④ REST 12·CURSE 30·
+  EVENT-6 장치 획득(rare 가중 `min(0.6,0.15+stage×0.03)` 이식)·보스 클리어 **DEVICE 노드**
+  (장착 or 코인15, 어느 쪽이든 영구 보유 — RunEvent→StatTracker→Profile 경로) ⑤ 자발적 **포기**
+  (Spin/PostSpin 즉시 결산, voluntary 플래그·확인 시트).
+- Opus 검수 반영: **[치명] dev_bell POST_SPIN 데드엔드**(버튼이 거부 토스트로 빠지고 fate_bell
+  회생까지 차단하던 신규 회귀) → 웹 `emergencyBell()` 동일 즉시 클리어+장치 파괴로 해소.
+  영구 보유 왕복 테스트 신설, GameSession 장치 시드를 UnlockedDevices(2원 판정)로, 순환 검증
+  제거, 포기 버튼 페이즈 게이팅. 결정 로그 F/G/H 추가(웹 pickDevices의 owned 인자 버그
+  미재현 — 미보유 필터 채택 등).
+- 검증: EngineTests **18,094 통과(+262, 기준선 17,832)** — HEAD 테스트 × 신엔진 교차 실행으로
+  "의도된 의미 변경 67건 외 골든(시드 유래 fx/점수/EXP) 파손 0" 확인(순환 검증 아님 증명).
+  Unity 배치(`BuildAllUnattended`)로 임포트·컴파일·씬 리빌드.
+
 ## 2026-08-07 - 잭팟런 소개·설명 PDF 제작 (`Docs/잭팟런_소개서.pdf`)
 
 - 요청 "잭팟런 소개 및 설명 pdf가 필요해" — A4 6페이지 소개서 신규 제작.

@@ -36,10 +36,21 @@ namespace JackpotRun.UI2
             switch (target)
             {
                 case Target.Menu: app.ShowMenu(); break;
-                case Target.Pick: app.ShowPick(); break;
+                case Target.Pick: OnPickClicked(app); break;
                 case Target.Dex: app.ShowDex(); break;
                 case Target.Login: app.ShowLogin(); break;
             }
+        }
+
+        // WEB_PARITY P1 ②: 첫 판 즉시 시작(웹 game.js:359-364) — MenuView "게임 시작"(target=Pick, 이
+        // 컴포넌트가 실제 부착되는 유일한 버튼, UiSceneBuilder.cs "AddNavButton(menu.startButton, ...)"
+        // 참조)이 눌렸을 때 profile.Runs==0이면 조합 선택(Pick) 화면을 건너뛰고 novice+basic+장치없음
+        // 으로 곧바로 런을 시작한다. 다음 판부터는(Runs>=1) 평소대로 Pick 화면으로 이동.
+        private static void OnPickClicked(AppRoot app)
+        {
+            var profile = app.Profile;
+            if (profile != null && profile.Runs == 0) app.StartRun("novice", "basic", "", firstRunToast: true);
+            else app.ShowPick();
         }
     }
 }

@@ -43,6 +43,10 @@ namespace JackpotRun.Engine
         public long deficitAtFailure; // quota - newExp (참고용, POST_SPIN/GameOver 메시지 구성에 유용)
         public readonly List<string> manipHints = new List<string>(); // "GAMBLER_REROLL" / "DEVICE:<id>" (POST_SPIN 전용)
         public long finalScore; // kind=="GAME_OVER"일 때만 유효 — §8-A scoreModifier 적용된 최종 점수
+        // WEB_PARITY P1 ⑤: 자발적 포기(RunController.GiveUp, 웹 game.js:1228-1231 giveUp(voluntary))로
+        // 만든 GAME_OVER면 true — GameOverPanel이 "실패" 프레이밍 대신 "포기 — 즉시 결산" 문구를 쓴다.
+        // 만회 수단을 안 써서 도달한 통상 GAME_OVER(kind=="GAME_OVER", RunController.Continue 등)는 false.
+        public bool Voluntary;
     }
 
     public sealed class SpinStepResult
@@ -158,6 +162,24 @@ namespace JackpotRun.Engine
 
             var nodes = RollNextNodes(run.Rng, nextStage);
 
+            // WEB_PARITY P1 ④: 보스 클리어 → 장치 드랍 + DEVICE 노드 추가(웹 game.js:1438 `if (boss) {
+            // const d = E.pickDevices(...)[0]; if (d) drops.push(d); }` + game.js:1499
+            // `if (drops.length) nodes.push("DEVICE")`). AUGMENT+무작위2에 "추가"되는 4번째 옵션이라
+            // 3택 규칙을 건드리지 않는다 — 미보유 장치가 하나도 없으면(전부 보유) 드랍 자체가 없어
+            // 옵션은 그대로 3개.
+            // Opus 1차검수 수정③(2026-08-07): rare 가중 추첨(NodeEvents.PickDevice, 웹 pickDevices
+            // ±L1296-1309 이식) — clearedStage(=run.Stage, 아직 nextStage로 갱신 전) 기준.
+            string deviceDrop = "";
+            if (boss)
+            {
+                var picked = NodeEvents.PickDevice(run.Rng, run.Stage, run.OwnedDeviceIds);
+                if (picked != null)
+                {
+                    deviceDrop = picked.id;
+                    nodes.Add(NodeKind.Device);
+                }
+            }
+
             // ── 상태 반영 (Kotlin clearStage L872-892) ──
             run.Score = outcome.newScore + gainedScore;
             run.Coins = outcome.newCoins + clearCoin;
@@ -185,6 +207,7 @@ namespace JackpotRun.Engine
             run.SnowStack = newSnowStack;
             run.NodeOptions.Clear();
             run.NodeOptions.AddRange(nodes);
+            run.PendingDeviceDrop = deviceDrop;
             run.Phase = RunPhase.NodeSelect;
 
             return new ClearOutcome
@@ -228,19 +251,15 @@ namespace JackpotRun.Engine
         }
 
         // ── §3-C: 실패(폭망) 처리 체인 — 순서대로 시도 ──
+        // WEB_PARITY P1 ③ (2026-08-07): 웹 순서로 재배열(game.js:1146-1157) — 기존 Unity 순서
+        // (①fate_bell ②보험증서 ③POST_SPIN)를 ①보험증서 ②POST_SPIN(_canRecover 상당, dev_bell 조건
+        // 신설) ③fate_bell ④게임오버로 뒤집었다. 보험과 fate_bell을 둘 다 보유한 채 실패하면 이제
+        // 보험이 먼저 소진된다(Tests_RunNet.cs 어서션으로 고정).
         private static FailureOutcome HandleFailure(RunState run, SpinOutcome outcome)
         {
             long deficit = outcome.quota - outcome.newExp;
 
-            // 1) 운명의종 — 런 1회, 부족분 <= 15면 자동 스핀+1, 스핀 소진 없이 계속(SPIN 유지).
-            if (deficit <= 15 && !run.FateBellUsed && run.Perks.Contains("fate_bell"))
-            {
-                run.FateBellUsed = true;
-                run.StageBonusSpins += 1;
-                return new FailureOutcome { kind = "FATE_BELL_REVIVE", deficitAtFailure = deficit };
-            }
-
-            // 2) 보험증서 — 1회용, 스핀+2.
+            // 1) 보험증서 — 1회용, 스핀+2 (웹 game.js:1147, 체인 1번째).
             if (run.Survive)
             {
                 run.Survive = false;
@@ -248,7 +267,8 @@ namespace JackpotRun.Engine
                 return new FailureOutcome { kind = "INSURANCE_REVIVE", deficitAtFailure = deficit };
             }
 
-            // 3) 만회 기회(POST_SPIN) — MANIP 장치 또는 도박꾼 무료재굴림, 이번 스테이지 미사용.
+            // 2) 만회 기회(POST_SPIN) — MANIP 장치 또는 도박꾼 무료재굴림(이번 스테이지 미사용) 또는
+            //    dev_bell 보유&부족≤25(웹 _canRecover, game.js:1205-1211 — bellReady 조건 신설분).
             //    [설계 계약 결손 — 보고 대상] ContentTypes.cs의 DeviceDef엔 Kotlin Device.cmd 필드가 없다
             //    (Devices.cs 헤더 주석 확인 — "cmd/needsArg/cooldown은 DeviceDef 계약에 필드가 없어 다루지
             //    않는다"). Kotlin은 `dev.cmd !in usedCmds`로 스테이지당 1회를 검사하지만, cmd 문자열이
@@ -257,14 +277,29 @@ namespace JackpotRun.Engine
             var dev = Devices.ById(run.Device);
             bool manipAvail = dev != null && dev.kind == "MANIP" && !run.UsedCmds.Contains(dev.id);
             bool gamblerReroll = run.CharId == "gambler" && !run.UsedCmds.Contains("GREROL");
+            bool bellReady = run.Device == "dev_bell" && deficit <= 25;
 
-            if (manipAvail || gamblerReroll)
+            if (manipAvail || gamblerReroll || bellReady)
             {
                 run.Phase = RunPhase.PostSpin;
                 var f = new FailureOutcome { kind = "POST_SPIN", deficitAtFailure = deficit };
                 if (gamblerReroll) f.manipHints.Add("GAMBLER_REROLL");
                 if (manipAvail) f.manipHints.Add("DEVICE:" + dev.id);
+                // [통합 결손 — 보고 대상] dev_bell은 kind=="INSTANT"(ARMED류)라 DeviceActions.Handle의
+                // POST_SPIN 분기(kind!="MANIP"이면 거부)를 그대로는 통과하지 못한다 — 이 조건 추가는
+                // "_canRecover 상당" 게이트만 웹과 맞춘 것이고, POST_SPIN 진입 후 dev_bell을 실제로
+                // 소비하는 액션(웹 emergencyBell(), 항상 즉시클리어)은 이번 P1 범위 밖이라 아직 없다.
+                if (bellReady) f.manipHints.Add("DEVICE:dev_bell");
                 return f;
+            }
+
+            // 3) 운명의종 — 런 1회, 부족분 <= 15면 자동 스핀+1, 스핀 소진 없이 계속(SPIN 유지)
+            //    (웹 game.js:1149, 체인 3번째로 하향).
+            if (deficit <= 15 && !run.FateBellUsed && run.Perks.Contains("fate_bell"))
+            {
+                run.FateBellUsed = true;
+                run.StageBonusSpins += 1;
+                return new FailureOutcome { kind = "FATE_BELL_REVIVE", deficitAtFailure = deficit };
             }
 
             // 4) 그 외 — 게임오버.

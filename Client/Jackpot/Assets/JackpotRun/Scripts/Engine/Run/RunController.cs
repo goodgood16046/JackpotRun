@@ -75,6 +75,15 @@ namespace JackpotRun.Engine
     // §3-C POST_SPIN 포기("포기"/"넘어가기"/"그만"/"0") — 만회 수단을 쓰지 않고 즉시 게임오버 확정.
     public sealed class Continue : RunAction { }
 
+    // WEB_PARITY P1 ④: DEVICE 노드 오퍼(RunState.PendingDeviceDrop) 확정 — equip=true면 장착(현재 런의
+    // Device 슬롯 교체), false면 코인+15만 받는다. 어느 쪽이든 장치는 영구 보유로 지급된다(웹 game.js:
+    // 2523-2529 deviceNodeTake). RunPhase.DeviceNode 전용.
+    public sealed class TakeDevice : RunAction
+    {
+        public readonly bool equip;
+        public TakeDevice(bool equip) { this.equip = equip; }
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // RunEvent — UI가 연출로 번역할 구조화 이벤트. 카톡 출력 문자열을 조립하지 않는다(설계 원칙 5) —
     // 기존 S3 산출물(SpinOutcome/ClearOutcome/FailureOutcome)을 그대로 페이로드로 재사용하고, S4가 새로
@@ -138,6 +147,11 @@ namespace JackpotRun.Engine
         public string deviceId;
         public bool secondary;
         public IReadOnlyList<string> peekCells;
+        // WEB_PARITY P1 ④: 장치가 "영구 보유"로 지급된 이벤트(EVENT 10분기표 6번 / DEVICE 노드)의
+        // 장치id — 엔진은 Engine/Profile을 참조하지 않으므로(설계 원칙 6) PlayerProfile.OwnedDevices
+        // 반영은 이 필드를 관찰하는 StatTracker(호출측 글루 레이어)가 담당한다. 비어있으면 이 이벤트로
+        // 새로 지급된 장치 없음(예: EVENT 6번의 "전부 보유 → 코인 폴백" 분기).
+        public string deviceGrantedId;
 
         // 거부.
         public string reason;
@@ -171,8 +185,13 @@ namespace JackpotRun.Engine
 
         private readonly IReadOnlyDictionary<string, long> _stat;
 
+        // WEB_PARITY P1 ④: ownedDeviceIds — 호출측(GameSession)이 PlayerProfile.OwnedDevices를 넘겨
+        // RunState.OwnedDeviceIds를 시드한다("미보유 장치" 판정 재료, NodeEvents EVENT-6/DEVICE 노드
+        // 전용). deviceId2와 동일한 취지로 선택적 트레일링 매개변수로 추가했다(기존 호출부 100% 호환,
+        // 최종 보고에 명시 — RunController.cs 헤더의 deviceId2 각주 참조).
         public RunController(string charId, string machineId, string deviceId, long seed,
-            IReadOnlyDictionary<string, long> stat, string deviceId2 = "")
+            IReadOnlyDictionary<string, long> stat, string deviceId2 = "",
+            IReadOnlyCollection<string> ownedDeviceIds = null)
         {
             _stat = stat ?? new Dictionary<string, long>();
             var run = new RunState(seed);
@@ -184,6 +203,7 @@ namespace JackpotRun.Engine
             run.CharId = ch.id;
             run.MachineId = m.id;
             run.Device = string.IsNullOrEmpty(deviceId) ? "" : deviceId;
+            if (ownedDeviceIds != null) run.OwnedDeviceIds.UnionWith(ownedDeviceIds);
             // 보조 슬롯 입력 검증 — 원본 secondaryCandidates(SlotV2Service.kt:461-462): ARMED/PEEK 전용,
             // 메인과 동일 장치 금지. 조건 위반은 조용히 미장착 처리(선택 화면이 막는 게 정상 경로).
             var d2 = string.IsNullOrEmpty(deviceId2) ? null : Devices.ById(deviceId2);
@@ -230,12 +250,16 @@ namespace JackpotRun.Engine
                 case DeviceCmd d: return DeviceActions.Handle(State, d.deviceId, d.arg);
                 case GamblerReroll _: return DeviceActions.GamblerReroll(State, fromPost: State.Phase == RunPhase.PostSpin);
                 case Continue _: return HandleContinue();
+                case TakeDevice td: return NodeEvents.TakeDevice(State, td.equip);
                 default: return RunEvents.Rejected("UNKNOWN_ACTION");
             }
         }
 
         // POST_SPIN 포기(§3-C step4의 "만회 수단 없음"과 동일한 최종 게임오버, 다만 여기선 플레이어가
         // 만회 수단이 있어도 명시적으로 포기하는 경우) — Kotlin handlePostSpin GIVEUP 분기(L1898-1902).
+        // WEB_PARITY P1 ⑤와는 별개 기능이다 — 이쪽은 "POST_SPIN 만회를 안 쓰고 그대로 실패"이고,
+        // GiveUp()은 SPIN 단계에서도 언제든 부를 수 있는 "자발적 조기종료·즉시 결산"이다(voluntary=true
+        // 프레이밍 차이, 아래 GiveUp() 헤더 참조).
         private List<RunEvent> HandleContinue()
         {
             if (State.Phase != RunPhase.PostSpin) return RunEvents.Rejected("PHASE_NOT_POST_SPIN");
@@ -247,6 +271,24 @@ namespace JackpotRun.Engine
             long quota = SpinResolver.QuotaOf(State.Stage, mods);
             long deficit = quota - State.StageExp;
             var fail = StageFlow.ForceGameOver(State, deficit);
+            return RunEvents.One(new RunEvent { type = "GAME_OVER", failure = fail });
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // WEB_PARITY P1 ⑤: 자발적 포기(웹 game.js:1228-1231 giveUp(voluntary=true) / ui.js:849-871
+        // "게임 포기 (즉시 결산)" 액션바 버튼 + 확인 시트). SPIN·POST_SPIN 어느 시점이든 호출 가능 —
+        // 즉시 게임오버로 결산하되 최종점수 공식은 손대지 않는다(StageFlow.ForceGameOver 그대로 재사용,
+        // §8-A scoreModifier 동일 적용). deficitAtFailure는 웹과 동일하게 0으로 표시한다(game.js:2538
+        // "shortBy = voluntary ? 0 : short" — 실패가 아니므로 부족분을 보여줄 이유가 없다는 취지).
+        // FailureOutcome.Voluntary=true만 다르고 그 외 결과 구조(GAME_OVER RunEvent)는 통상 게임오버와
+        // 동일 — GameOverPanel(UI)이 이 플래그로 "실패" 대신 "포기 — 즉시 결산" 문구를 고른다.
+        // ══════════════════════════════════════════════════════════════════════
+        public IReadOnlyList<RunEvent> GiveUp()
+        {
+            if (State.Phase != RunPhase.Spin && State.Phase != RunPhase.PostSpin)
+                return RunEvents.Rejected("PHASE_NOT_SPIN_OR_POST_SPIN");
+            var fail = StageFlow.ForceGameOver(State, 0);
+            fail.Voluntary = true;
             return RunEvents.One(new RunEvent { type = "GAME_OVER", failure = fail });
         }
 

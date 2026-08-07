@@ -385,6 +385,9 @@ namespace JackpotRun.EngineTests
             EventNode(t, stat, seed++);
             CurseNode(t, stat, seed++);
             RiskNode(t, stat, seed++);
+            // WEB_PARITY P1 ④: DEVICE 노드(신설) + EVENT 6번 분기(장치획득/전부보유 폴백).
+            DeviceNode(t, stat, seed++);
+            EventTableDeviceBranch(t, stat);
         }
 
         private static RunState NodeRun(long seed, NodeKind kind, int stage = 7)
@@ -430,8 +433,9 @@ namespace JackpotRun.EngineTests
             var run = NodeRun(seed, NodeKind.Rest);
             var ev = NodeEvents.ChooseNode(run, 0, stat);
             t.Eq("NODE_RESOLVED", ev[0].type, "[node:Rest] 즉시 해결");
-            t.Eq(8, ev[0].coinsDelta, "[node:Rest] 코인 +8");
-            t.Eq(8, run.Coins, "[node:Rest] 실제 코인 반영");
+            // WEB_PARITY P1 ④: 코인 8 → 12(웹 game.js:1633).
+            t.Eq(12, ev[0].coinsDelta, "[node:Rest] 코인 +12");
+            t.Eq(12, run.Coins, "[node:Rest] 실제 코인 반영");
             t.Eq(RunPhase.Spin, run.Phase, "[node:Rest] Phase → Spin");
         }
 
@@ -473,7 +477,8 @@ namespace JackpotRun.EngineTests
             t.Eq(NodeKind.Curse, ev[0].node, "[node:Curse] node 필드");
             t.True(!string.IsNullOrEmpty(ev[0].curseGrantedId), "[node:Curse] 저주 지급됨");
             t.Eq(1, run.Curses.Count, "[node:Curse] 저주 보유 목록에 추가");
-            t.Eq(15, run.Coins, "[node:Curse] 코인 +15");
+            // WEB_PARITY P1 ④: 코인 15 → 30(웹 game.js:1673).
+            t.Eq(30, run.Coins, "[node:Curse] 코인 +30");
             t.Eq(RunPhase.Spin, run.Phase, "[node:Curse] Phase → Spin");
         }
 
@@ -488,6 +493,145 @@ namespace JackpotRun.EngineTests
             t.Eq(1, run.Perks.Count, "[node:Risk] 증강 1개 보유");
             t.Eq(1, run.Curses.Count, "[node:Risk] 저주 1개 보유");
             t.Eq(RunPhase.Spin, run.Phase, "[node:Risk] Phase → Spin");
+        }
+
+        // WEB_PARITY P1 ④: DEVICE 노드 신설(웹 game.js:1696 case "DEVICE" + 2523-2529 deviceNodeTake).
+        // 오퍼 확정(ChooseNode) → RunPhase.DeviceNode 전환 → TakeDevice(equip)로 장착/코인 중 택1,
+        // 어느 쪽이든 OwnedDeviceIds에 영구 반영된다.
+        private static void DeviceNode(TestCtx t, IReadOnlyDictionary<string, long> stat, long seed)
+        {
+            // 장착(equip=true) 경로.
+            var runEquip = NodeRun(seed, NodeKind.Device);
+            runEquip.PendingDeviceDrop = "dev_flame";
+            runEquip.Device = ""; // 미장착 상태에서 시작 — 장착 결과를 명확히 관찰
+            var offer = NodeEvents.ChooseNode(runEquip, 0, stat);
+            t.Eq("DEVICE_OFFER", offer[0].type, "[node:Device] 오퍼 이벤트");
+            t.Eq("dev_flame", offer[0].deviceId, "[node:Device] 오퍼 장치id");
+            t.Eq(RunPhase.DeviceNode, runEquip.Phase, "[node:Device] Phase → DeviceNode");
+
+            var takeEquip = NodeEvents.TakeDevice(runEquip, equip: true);
+            t.Eq("NODE_RESOLVED", takeEquip[0].type, "[node:Device] 장착 확정 이벤트");
+            t.Eq("dev_flame", takeEquip[0].deviceGrantedId, "[node:Device] deviceGrantedId=dev_flame(장착)");
+            t.Eq(0, takeEquip[0].coinsDelta, "[node:Device] 장착 시 코인 변화 없음");
+            t.Eq("dev_flame", runEquip.Device, "[node:Device] 장착 시 run.Device 교체");
+            t.True(runEquip.OwnedDeviceIds.Contains("dev_flame"), "[node:Device] 장착해도 영구 보유(OwnedDeviceIds) 반영");
+            t.Eq("", runEquip.PendingDeviceDrop, "[node:Device] 소비 후 PendingDeviceDrop 리셋");
+            t.Eq(RunPhase.Spin, runEquip.Phase, "[node:Device] 확정 후 Phase → Spin");
+
+            // 미장착(equip=false, 코인+15) 경로.
+            var runCoin = NodeRun(seed + 1, NodeKind.Device);
+            runCoin.PendingDeviceDrop = "dev_seal";
+            runCoin.Device = "dev_reroll"; // 이미 다른 장치 장착 중 — 코인 선택 시 그대로 유지돼야 함
+            NodeEvents.ChooseNode(runCoin, 0, stat);
+            var takeCoin = NodeEvents.TakeDevice(runCoin, equip: false);
+            t.Eq("dev_seal", takeCoin[0].deviceGrantedId, "[node:Device] deviceGrantedId=dev_seal(미장착)");
+            t.Eq(15, takeCoin[0].coinsDelta, "[node:Device] 미장착 시 코인 +15");
+            t.Eq(15, runCoin.Coins, "[node:Device] 실제 코인 반영");
+            t.Eq("dev_reroll", runCoin.Device, "[node:Device] 미장착 선택 — 기존 장착 장치 그대로 유지");
+            t.True(runCoin.OwnedDeviceIds.Contains("dev_seal"), "[node:Device] 미장착이어도 영구 보유 반영");
+
+            // 드랍이 없는 상태(PendingDeviceDrop=="")에서 Device 노드 선택 시 EVENT 테이블로 방어 폴백.
+            var runNoDrop = NodeRun(seed + 2, NodeKind.Device);
+            runNoDrop.PendingDeviceDrop = "";
+            var evNoDrop = NodeEvents.ChooseNode(runNoDrop, 0, stat);
+            t.Eq("NODE_RESOLVED", evNoDrop[0].type, "[node:Device] 드랍 없음 → EVENT 폴백(방어)");
+            t.Eq(NodeKind.Event, evNoDrop[0].node, "[node:Device] 폴백 이벤트는 node=Event");
+            t.Eq(RunPhase.Spin, runNoDrop.Phase, "[node:Device] 폴백도 Phase → Spin");
+        }
+
+        // WEB_PARITY P1 ④: EVENT 10분기표 6번 — 미보유 장치 무작위 1개 지급(장착 중이 없으면 자동
+        // 장착), 전부 보유 중이면 코인+15 폴백(웹 game.js:2292 _randomEvent case6 의미 확인 후 이식).
+        // roll==6이 나올 때까지 시드를 훑는다(RunNet.RollNextNodesStageGate와 동일한 확률 스모크 관례).
+        private static void EventTableDeviceBranch(TestCtx t, IReadOnlyDictionary<string, long> stat)
+        {
+            (RunState run, RunEvent ev) FindRoll6(long fromSeed, Action<RunState> setup)
+            {
+                for (long seed = fromSeed; seed < fromSeed + 5000; seed++)
+                {
+                    var run = NodeRun(seed, NodeKind.Event);
+                    setup?.Invoke(run);
+                    var result = NodeEvents.ChooseNode(run, 0, stat);
+                    if (result[0].eventRoll == 6) return (run, result[0]);
+                }
+                throw new InvalidOperationException("[event6] 5000회 내 eventRoll==6을 찾지 못함(RNG 분포 회귀 의심)");
+            }
+
+            // 장치 획득 경로 — 미보유 장치 존재(신규 런은 OwnedDeviceIds가 비어 있음), 미장착 상태 시작.
+            var (runGrant, evGrant) = FindRoll6(9000, r => r.Device = "");
+            t.True(!string.IsNullOrEmpty(evGrant.deviceGrantedId), "[event6] 미보유 장치 존재 시 deviceGrantedId 지급됨");
+            t.Eq(0, evGrant.coinsDelta, "[event6] 장치 지급 성공 시 코인 폴백 없음");
+            t.True(runGrant.OwnedDeviceIds.Contains(evGrant.deviceGrantedId), "[event6] 지급 장치가 OwnedDeviceIds에 영구 반영");
+            t.Eq(evGrant.deviceGrantedId, runGrant.Device, "[event6] 미장착 상태였으므로 지급 장치가 자동 장착됨(웹 !r.device 조건)");
+
+            // 전부 보유 상태 — 코인+15 폴백. Devices.All 전체를 OwnedDeviceIds에 미리 채운다.
+            var (runFallback, evFallback) = FindRoll6(50000, r => { foreach (var d in Devices.All) r.OwnedDeviceIds.Add(d.id); });
+            t.True(string.IsNullOrEmpty(evFallback.deviceGrantedId), "[event6] 전부 보유 → deviceGrantedId 없음(폴백)");
+            t.Eq(15, evFallback.coinsDelta, "[event6] 전부 보유 → 코인 +15 폴백");
+            t.Eq(Devices.Count, runFallback.OwnedDeviceIds.Count, "[event6] 폴백 — OwnedDeviceIds 변화 없음(전부 보유 유지)");
+        }
+    }
+
+    // ── WEB_PARITY P1 ④ Opus 1차검수 수정③(2026-08-07) — NodeEvents.PickDevice rare 가중 추첨 ──────
+    // 웹 engine.js pickDevices(±L1296-1309) rareChance=min(0.6,0.15+stage*0.03) 이식 회귀. Devices.All은
+    // rare=true 8종/rare=false 8종으로 정확히 반씩 나뉘어(Devices.cs) owned가 비어 있으면 어느 쪽
+    // 등급을 원하든 후보 풀이 항상 비지 않는다 — 폴백 잡음 없이 rareChance 자체를 순수하게 관측할 수 있다.
+    internal static class Tests_S4_DevicePickRareWeight
+    {
+        public static void Run(TestCtx t)
+        {
+            RareChanceFormulaAndDistribution(t);
+            UnownedFilterAndAllOwnedFallback(t);
+            BothBranchesReachableAtLowStage(t);
+        }
+
+        private static void RareChanceFormulaAndDistribution(TestCtx t)
+        {
+            // rareChance = min(0.6, 0.15+stage*0.03) 손계산 3점(사전조건).
+            t.EqTol(0.18, Math.Min(0.6, 0.15 + 1 * 0.03), "[pickDevice] stage1: rareChance=0.18(사전조건)");
+            t.EqTol(0.51, Math.Min(0.6, 0.15 + 12 * 0.03), "[pickDevice] stage12: rareChance=0.51(사전조건)");
+            t.EqTol(0.6, Math.Min(0.6, 0.15 + 50 * 0.03), "[pickDevice] stage50: rareChance 상한 0.6 클램프(사전조건)");
+
+            // 실측: stage50(rareChance 상한고정 0.6) 2000시드, owned 비어있음 → rare 비율이 0.6 근방인지.
+            int rareCount = 0;
+            const int trials = 2000;
+            var emptyOwned = new HashSet<string>();
+            for (long seed = 1; seed <= trials; seed++)
+            {
+                var picked = NodeEvents.PickDevice(new Rng(seed), 50, emptyOwned);
+                if (picked.rare) rareCount++;
+            }
+            double frac = rareCount / (double)trials;
+            t.Report("[pickDevice] stage50 rare 비율 실측", $"{rareCount}/{trials}={frac:P1}(기대 0.6 근방)");
+            t.True(Math.Abs(frac - 0.6) < 0.06, "[pickDevice] stage50: rare 비율이 rareChance(0.6) 근방(±0.06, n=2000)");
+        }
+
+        private static void UnownedFilterAndAllOwnedFallback(TestCtx t)
+        {
+            // rare 전부 보유 → wantRare=true를 뽑아도 그 등급 후보가 없어 등급무관 미보유 폴백(=non-rare).
+            var rareIds = new HashSet<string>(Devices.All.Where(d => d.rare).Select(d => d.id));
+            for (long seed = 5000; seed < 5100; seed++)
+            {
+                var picked = NodeEvents.PickDevice(new Rng(seed), 1, rareIds);
+                t.True(picked != null && !rareIds.Contains(picked.id), $"[pickDevice] rare 전부보유(seed={seed}): non-rare로 폴백(rare 미포함)");
+            }
+
+            // 전부(16종 모두) 보유 → null(§2-F 결정: 웹의 owned-포함 3차 폴백을 재현하지 않는다).
+            var allIds = new HashSet<string>(Devices.All.Select(d => d.id));
+            var pickedNone = NodeEvents.PickDevice(new Rng(1L), 1, allIds);
+            t.True(pickedNone == null, "[pickDevice] 전부 보유(16/16) → null(호출측이 코인 폴백 처리)");
+        }
+
+        private static void BothBranchesReachableAtLowStage(TestCtx t)
+        {
+            bool sawRare = false, sawNonRare = false;
+            var emptyOwned = new HashSet<string>();
+            for (long seed = 1; seed <= 200 && !(sawRare && sawNonRare); seed++)
+            {
+                var picked = NodeEvents.PickDevice(new Rng(seed), 1, emptyOwned);
+                if (picked.rare) sawRare = true; else sawNonRare = true;
+            }
+            t.True(sawRare, "[pickDevice] stage1: 200시드 내 rare 경로 관측(양쪽 다 도달 가능함을 확인)");
+            t.True(sawNonRare, "[pickDevice] stage1: 200시드 내 non-rare 경로 관측");
         }
     }
 
@@ -891,6 +1035,54 @@ namespace JackpotRun.EngineTests
         }
     }
 
+    // ── WEB_PARITY P1 ③ Opus 1차검수 수정A(2026-08-07) — dev_bell POST_SPIN 즉시강제클리어 ──────────
+    // DeviceActions.Handle(run,"dev_bell",null)을 POST_SPIN 단계에서 직접 호출(웹 emergencyBell(),
+    // game.js:1326-1331 대응) — 칸 선택 없이 StageExp를 quota로 채워 곧바로 클리어, 장치 파괴.
+    internal static class Tests_S4_DevBellPostSpin
+    {
+        public static void Run(TestCtx t)
+        {
+            SuccessDestroysDeviceAndClears(t);
+            RejectedWhenDeficitTooHigh(t);
+        }
+
+        private static void SuccessDestroysDeviceAndClears(TestCtx t)
+        {
+            var run = S4TestHelpers.NewRun(7010L);
+            run.Device = "dev_bell";
+            run.Phase = RunPhase.PostSpin;
+            run.Stage = 1;
+            long quota = S4TestHelpers.HandQuota(run);
+            run.StageExp = quota - 25; // 부족분 정확히 25(경계, 포함 — deficit<=25)
+
+            var events = DeviceActions.Handle(run, "dev_bell", null);
+            t.Eq("STAGE_CLEARED", events[0].type, "[bell-postspin] 즉시 강제클리어");
+            t.Eq("dev_bell", events[0].deviceId, "[bell-postspin] deviceId=dev_bell");
+            t.Eq("", run.Device, "[bell-postspin] 장치 파괴(1회성, 웹 r.device=\"\")");
+            t.Eq(RunPhase.NodeSelect, run.Phase, "[bell-postspin] 클리어 → NodeSelect로 전이");
+            t.Eq(2, run.Stage, "[bell-postspin] 스테이지 진행");
+            t.True(events[0].clear != null, "[bell-postspin] clear 페이로드 존재");
+            t.Eq(quota, events[0].spin.newExp, "[bell-postspin] newExp=quota(정확히 채움, 웹 r.stageExp=r.quota)");
+        }
+
+        private static void RejectedWhenDeficitTooHigh(TestCtx t)
+        {
+            var run = S4TestHelpers.NewRun(7011L);
+            run.Device = "dev_bell";
+            run.Phase = RunPhase.PostSpin;
+            run.Stage = 1;
+            long quota = S4TestHelpers.HandQuota(run);
+            run.StageExp = quota - 26; // 부족분 26 > 25 → 거부(SPIN단계 HandleDevBell과 동일 사유 재사용)
+
+            var events = DeviceActions.Handle(run, "dev_bell", null);
+            t.Eq("REJECTED", events[0].type, "[bell-postspin] 부족분>25 → 거부");
+            t.Eq("DEV_BELL_DEFICIT_TOO_HIGH", events[0].reason, "[bell-postspin] 거부 사유");
+            t.Eq("dev_bell", run.Device, "[bell-postspin] 거부 시 장치 유지(파괴 안 됨)");
+            t.Eq(RunPhase.PostSpin, run.Phase, "[bell-postspin] 거부 시 Phase 유지");
+            t.Eq(quota - 26, run.StageExp, "[bell-postspin] 거부 시 StageExp 불변");
+        }
+    }
+
     // ── Opus 회귀 보강 ⑥ 확률 실측 3종: 티어 확률표·10% 티어업·EVENT_PRISM_RATE(12%) ────────────────
     internal static class Tests_S4_ProbabilityTables
     {
@@ -1014,6 +1206,7 @@ namespace JackpotRun.EngineTests
             "DEVICE_MANIP_RESULT", "NODE_RESOLVED", "PERK_OFFER", "PERK_GRANTED", "PERK_HELD",
             "RETAKE_EMPTY", "SHOP_OFFER", "SHOP_PURCHASED", "SHOP_REROLLED", "SHOP_LEFT",
             "ITEM_USED", "DEVICE_ARMED", "DEVICE_PEEK", "RUN_STARTED",
+            "DEVICE_OFFER", // WEB_PARITY P1 ④: DEVICE 노드 오퍼(RunPhase.DeviceNode 진입 이벤트)
         };
 
         // 결정론적 자동 플레이 정책: Spin(N) 반복 → NodeSelect는 항상 0번 선택 → 증강/유물 오퍼도 항상
@@ -1048,6 +1241,12 @@ namespace JackpotRun.EngineTests
                         expectSuccess = false; // 코인부족/가방가득 등 정상 거부 가능
                         if (shopStep == 0) { events = rc.Do(new BuyOffer(0)); shopStep = 1; }
                         else { events = rc.Do(new LeaveShop()); shopStep = 0; }
+                        break;
+                    // WEB_PARITY P1 ④: DEVICE 노드는 RollNextNodes가 항상 셔플된 3개 뒤(마지막 인덱스)에
+                    // 붙이므로 이 정책(항상 0번 선택)으로는 실전 도달 불가하지만, 방어적으로 처리해 둔다
+                    // (default 분기가 예외를 던지므로 미처리 상태로 남기지 않는다).
+                    case RunPhase.DeviceNode:
+                        events = rc.Do(new TakeDevice(true));
                         break;
                     default:
                         throw new InvalidOperationException("AutoPlay: 처리 불가 Phase=" + phase);
@@ -1123,6 +1322,11 @@ namespace JackpotRun.EngineTests
                         if (shopStep == 0) { actionName = "RerollShop"; events = rc.Do(new RerollShop()); shopStep = 1; }
                         else if (shopStep == 1) { actionName = "BuyOffer"; events = rc.Do(new BuyOffer(0)); shopStep = 2; }
                         else { actionName = "LeaveShop"; events = rc.Do(new LeaveShop()); shopStep = 0; }
+                        break;
+                    // WEB_PARITY P1 ④: 위 AutoPlay와 동일 이유로 실전 도달 불가하지만 방어적으로 처리.
+                    case RunPhase.DeviceNode:
+                        actionName = "TakeDevice";
+                        events = rc.Do(new TakeDevice(policyRng.Next(2) == 0));
                         break;
                     default:
                         throw new InvalidOperationException("AutoPlayRich: 처리 불가 Phase=" + phase);
@@ -1231,6 +1435,64 @@ namespace JackpotRun.EngineTests
                 foreach (var kv in buckets)
                     t.Report("[sim100] 구간별", $"S{kv.Key}~S{kv.Key + 4}: {kv.Value}건");
             }
+        }
+    }
+
+    // ── WEB_PARITY P1 ⑤(2026-08-07) — RunController.GiveUp() 자발적 포기 ────────────────────────────
+    // 웹 game.js:1228-1231 giveUp(voluntary=true) 대응. 스핀 잔여 상태(SPIN/POST_SPIN) 어디서든 호출
+    // 가능 → 즉시 GameOver 전이·기존 점수공식 그대로 결산·FailureOutcome.Voluntary=true. SPIN도 아니고
+    // POST_SPIN도 아닌 상태(NodeSelect 등)에서는 거부된다.
+    internal static class Tests_S4_GiveUp
+    {
+        public static void Run(TestCtx t)
+        {
+            FromSpinPhase(t);
+            FromPostSpinPhase(t);
+            RejectedOutsideSpinOrPostSpin(t);
+        }
+
+        private static RunController FreshController(long seed) =>
+            new RunController("novice", "basic", "", seed, S4TestHelpers.GenerousStat());
+
+        private static void FromSpinPhase(TestCtx t)
+        {
+            var rc = FreshController(9500L);
+            rc.Do(new Spin(SpinMode.N)); // 스핀 잔여 상태를 만들어 점수가 0이 아니게 함
+            long scoreBefore = rc.State.Score;
+            double expectedMod = StageFlow.ScoreModifierFor(rc.State.MachineId, rc.State.CharId);
+
+            var events = rc.GiveUp();
+            t.Eq(1, events.Count, "[giveup:spin] 이벤트 1개");
+            t.Eq("GAME_OVER", events[0].type, "[giveup:spin] type=GAME_OVER");
+            t.True(events[0].failure != null && events[0].failure.Voluntary, "[giveup:spin] failure.Voluntary=true");
+            t.Eq(0L, events[0].failure.deficitAtFailure, "[giveup:spin] deficitAtFailure=0(웹 shortBy=voluntary?0:short)");
+            t.Eq(RunPhase.GameOver, rc.State.Phase, "[giveup:spin] Phase → GameOver");
+            t.Eq((long)(scoreBefore * expectedMod), events[0].failure.finalScore,
+                "[giveup:spin] finalScore = 결산 시점 run.Score × scoreModifier(기존 공식 그대로)");
+        }
+
+        private static void FromPostSpinPhase(TestCtx t)
+        {
+            // MANIP 장치 없이 마지막 스핀에서 실패시켜 POST_SPIN 진입을 강제한다(dev_bell도 없음, deficit
+            // 도 15 초과로 fate_bell도 없음 → 통상적으로는 게임오버지만, 여기서는 POST_SPIN을 억지로
+            // 재현하기보다 State.Phase를 직접 PostSpin으로 세팅해 "그 상태에서 GiveUp이 허용되는지"만
+            // 검증한다 — GiveUp()은 Phase만 확인하므로 이 구성으로 충분하다.
+            var rc = FreshController(9501L);
+            rc.State.Phase = RunPhase.PostSpin;
+            var events = rc.GiveUp();
+            t.Eq("GAME_OVER", events[0].type, "[giveup:postspin] type=GAME_OVER");
+            t.True(events[0].failure.Voluntary, "[giveup:postspin] failure.Voluntary=true");
+            t.Eq(RunPhase.GameOver, rc.State.Phase, "[giveup:postspin] Phase → GameOver");
+        }
+
+        private static void RejectedOutsideSpinOrPostSpin(TestCtx t)
+        {
+            var rc = FreshController(9502L);
+            rc.State.Phase = RunPhase.NodeSelect;
+            var events = rc.GiveUp();
+            t.Eq("REJECTED", events[0].type, "[giveup:invalid-phase] NodeSelect 등에서는 거부");
+            t.Eq("PHASE_NOT_SPIN_OR_POST_SPIN", events[0].reason, "[giveup:invalid-phase] reason");
+            t.Eq(RunPhase.NodeSelect, rc.State.Phase, "[giveup:invalid-phase] Phase 변경 없음");
         }
     }
 

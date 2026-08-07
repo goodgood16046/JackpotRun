@@ -149,11 +149,15 @@ namespace JackpotRun.UI2
                 case NodeKind.Augment: return ("★", "증강", "증강 3종 중 1개를 선택합니다.");
                 case NodeKind.Relic: return ("◆", "유물", "유물 3종 중 1개를 선택합니다.");
                 case NodeKind.Shop: return ("▲", "상점", "코인으로 증강·유물·아이템을 구매합니다.");
-                case NodeKind.Rest: return ("☕", "휴식", "코인 +8을 즉시 받습니다.");
+                // WEB_PARITY P1 ④: 코인 8 → 12(웹 game.js:1633).
+                case NodeKind.Rest: return ("☕", "휴식", "코인 +12를 즉시 받습니다.");
                 case NodeKind.Gamble: return ("♠", "도박", "보유 코인 전부를 걸고 50% 확률로 2배 또는 전부를 잃습니다.");
                 case NodeKind.Event: return ("❓", "이벤트", "무작위 보상 이벤트가 발생합니다.");
-                case NodeKind.Curse: return ("●", "저주", "저주 1개를 받는 대신 코인 +15를 받습니다.");
+                // WEB_PARITY P1 ④: 코인 15 → 30(웹 game.js:1673).
+                case NodeKind.Curse: return ("●", "저주", "저주 1개를 받는 대신 코인 +30을 받습니다.");
                 case NodeKind.Risk: return ("⚠", "위험", "프리즘/골드 증강과 저주를 동시에 받습니다.");
+                // WEB_PARITY P1 ④: 보스 클리어 후에만 등장(RollNextNodes 신규 4번째 옵션).
+                case NodeKind.Device: return ("■", "장치", "무작위 미보유 장치 1개를 오퍼합니다 — 장착 또는 코인 +15.");
                 default: return ("❔", k.ToString(), "");
             }
         }

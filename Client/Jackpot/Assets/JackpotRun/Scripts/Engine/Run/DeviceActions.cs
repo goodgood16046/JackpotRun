@@ -33,9 +33,13 @@ namespace JackpotRun.Engine
             bool isSecondary = !isMain && run.Device2 == dev.id;
             if (!isMain && !isSecondary) return RunEvents.Rejected("DEVICE_NOT_EQUIPPED");
 
-            // POST_SPIN(§3-C 3단계 만회기회) — MANIP만 허용, 스핀 소모 없이 직전 결과 확정(fromPost=true).
+            // POST_SPIN(§3-C 3단계 만회기회) — MANIP은 스핀 소모 없이 직전 결과 확정(fromPost=true).
+            // WEB_PARITY P1 ③ Opus 1차검수 수정A(2026-08-07): dev_bell(kind=INSTANT)은 MANIP이 아니라
+            // StageFlow.HandleFailure의 bellReady 게이트(부족≤25)로 POST_SPIN에 도달하므로 별도 분기가
+            // 필요하다 — 웹 emergencyBell()(game.js:1326-1331)과 동일하게 칸 선택 없이 즉시 강제클리어.
             if (run.Phase == RunPhase.PostSpin)
             {
+                if (dev.id == "dev_bell") return HandlePostSpinBell(run);
                 if (dev.kind != "MANIP") return RunEvents.Rejected("POST_SPIN_ONLY_MANIP_OR_GAMBLER");
                 return HandleManip(run, dev, arg, fromPost: true);
             }
@@ -91,6 +95,38 @@ namespace JackpotRun.Engine
             run.ArmItems.Add("dev_bell");
             run.UsedCmds.Add("dev_bell");
             return RunEvents.One(new RunEvent { type = "DEVICE_ARMED", deviceId = "dev_bell" });
+        }
+
+        // ── dev_bell POST_SPIN 즉시강제클리어 — 웹 emergencyBell()(game.js:1326-1331) 대응 ──────────
+        // WEB_PARITY P1 ③ Opus 1차검수 수정A. SPIN 단계의 HandleDevBell(위)은 "다음 스핀에 반영"용
+        // ArmItems 예약이고, 이건 완전히 별개 경로다 — 스핀을 거치지 않고 StageExp를 quota로 채워
+        // 곧바로 클리어시킨다(ItemUse.cs의 grad_ring/gold_grad_bell 즉시클리어 패턴과 동일한 구성 —
+        // result=null인 SpinOutcome을 만들어 StageFlow.ClearStage를 그대로 재사용). 웹처럼 usedCmds
+        // 마커는 없다(성공하면 장치 자체가 파괴돼 재사용 자체가 불가능해지므로 불필요 — game.js 원문도
+        // 마커를 쓰지 않는다). 조건 미충족(부족>25)이면 SPIN 단계와 동일한 거부 사유를 재사용한다.
+        private static List<RunEvent> HandlePostSpinBell(RunState run)
+        {
+            var combinedPerks = new List<string>(run.Perks);
+            combinedPerks.AddRange(run.PhasePerks);
+            var mods = ModsBuilder.ApplyItemMods(
+                ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device),
+                run.PhaseItems);
+            long quota = SpinResolver.QuotaOf(run.Stage, mods);
+            long deficit = quota - run.StageExp;
+            if (deficit > DevBellMaxDeficit) return RunEvents.Rejected("DEV_BELL_DEFICIT_TOO_HIGH");
+
+            int spins = SpinResolver.EffSpins(run, mods);
+            run.StageExp = quota; // 웹 r.stageExp = r.quota
+            run.Device = "";      // 1회 파괴(웹 r.device = "")
+
+            var outcome = new SpinOutcome
+            {
+                rejected = false, mode = SpinMode.N, result = null, gained = 0,
+                newExp = run.StageExp, newScore = run.Score, newCoins = run.Coins,
+                newSpinIndex = run.SpinIndex, quota = quota, spins = spins, destroyDevice = true,
+            };
+            var clear = StageFlow.ClearStage(run, outcome);
+            return RunEvents.One(new RunEvent { type = "STAGE_CLEARED", spin = outcome, clear = clear, deviceId = "dev_bell" });
         }
 
         // ── dev_oracle/dev_syllabus 등 PEEK(🔮예언, 다음 스핀 확정) — Kotlin L1707-1717 ──

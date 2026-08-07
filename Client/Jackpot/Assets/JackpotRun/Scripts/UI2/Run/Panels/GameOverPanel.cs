@@ -52,9 +52,13 @@ namespace JackpotRun.UI2
             var run = session.State;
             var profile = session.Profile;
             long finalScore = failure?.finalScore ?? 0;
-            var (titleEmoji, titleLabel) = Formulas.ScoreTitle(finalScore);
 
-            if (titleScoreText != null) titleScoreText.text = $"{titleEmoji} {titleLabel}";
+            // WEB_PARITY P1 ⑤: 자발적 포기(voluntary)면 점수티어 플레이버 타이틀 대신 "포기 — 즉시 결산"
+            // 계열 문구로 실패 프레이밍을 생략한다(웹 game.js:2547 "🏁 스테이지 N에서 런을 종료했어요 —
+            // 지금까지 점수로 결산!" 대응. astral 이모지 금지·한글만).
+            bool voluntary = failure != null && failure.Voluntary;
+            var (titleEmoji, titleLabel) = Formulas.ScoreTitle(finalScore);
+            if (titleScoreText != null) titleScoreText.text = voluntary ? "포기 — 즉시 결산" : $"{titleEmoji} {titleLabel}";
             if (finalScoreText != null) finalScoreText.text = $"최종 점수 {NumberFormat.Comma(finalScore)}";
             if (stageReachedText != null) stageReachedText.text = $"도달 스테이지 {run.Stage}";
             if (recordsText != null)

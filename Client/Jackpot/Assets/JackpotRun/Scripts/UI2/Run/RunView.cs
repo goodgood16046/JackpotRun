@@ -17,6 +17,8 @@ namespace JackpotRun.UI2
     public sealed class RunView : MonoBehaviour
     {
         private static readonly SpinMode[] ModeOrder = { SpinMode.Focus, SpinMode.Allin, SpinMode.Pray, SpinMode.Last };
+        // UiSceneBuilder.cs가 굽는 정적 라벨("집중({CMD_COST_FOCUS})" 등)과 순서가 같아야 한다.
+        private static readonly string[] ModeBaseLabels = { "집중", "올인", "기도", "막판" };
 
         // ── S14 §B 차징(스핀 버튼 스쿼시) ────────────────────────────────────────────────
         private const float ChargeSquashDuration = 0.08f; // 설계 명시: "버튼 0.08s 스쿼시"
@@ -39,6 +41,8 @@ namespace JackpotRun.UI2
         [SerializeField] private Button bagButton;
         [SerializeField] private Text bagButtonLabel;
         [SerializeField] private RectTransform deviceRow;
+        // WEB_PARITY P1 ⑤: "게임 포기 (즉시 결산)" 진입점 — 웹 액션바 giveUpBtn() 대응(ui.js:849-871).
+        [SerializeField] private Button giveUpButton;
         [SerializeField] private RectTransform deviceButtonTemplate; // 자식 경로 계약: Label(Text)
 
         [Header("페이즈 패널 / 팝업")]
@@ -49,6 +53,10 @@ namespace JackpotRun.UI2
         [SerializeField] private GameOverPanel gameOverPanel;
         [SerializeField] private BagPopup bagPopup;
         [SerializeField] private ManipPickPopup manipPickPopup;
+        // WEB_PARITY P1 ⑤/④: 범용 확인 시트(ConfirmSheetPopup) 인스턴스 2개 — 포기 확인 / DEVICE 노드
+        // 오퍼(장착·코인) 선택. 동시에 뜰 일이 없는 별개 상황이라 각자 전용 인스턴스를 쓴다.
+        [SerializeField] private ConfirmSheetPopup giveUpConfirmPopup;
+        [SerializeField] private ConfirmSheetPopup deviceOfferPopup;
 
         private GameSession _session;
         private bool _busy;
@@ -86,6 +94,31 @@ namespace JackpotRun.UI2
             }
             if (bagButton != null)
                 bagButton.onClick.AddListener(() => bagPopup?.Show(_session.State, itemId => Send(new UseItem(itemId))));
+            if (giveUpButton != null)
+                giveUpButton.onClick.AddListener(OnGiveUpClicked);
+        }
+
+        // WEB_PARITY P1 ⑤: "게임 포기" 클릭 → 확인 시트(웹 ui.js:863-871 giveUpAsk) → 확정 시 즉시 결산.
+        // 오작동 방지를 위한 1회 확인만 하고, 확정 후에는 SendGiveUp()이 그대로 Send(RunAction)와 같은
+        // PlayRoutine(연출·HUD 갱신·GameOverPanel 표시)을 탄다.
+        private void OnGiveUpClicked()
+        {
+            if (_busy || _session == null) return;
+            var run = _session.State;
+            if (run.Phase != RunPhase.Spin && run.Phase != RunPhase.PostSpin) return;
+            long score = run.Score;
+            giveUpConfirmPopup?.Show(
+                "게임 포기",
+                $"지금까지 모은 점수 {NumberFormat.Comma(score)}점 · 스테이지 {run.Stage} 로 런을 즉시 종료·결산할까요?",
+                "결산하기", SendGiveUp,
+                "계속 플레이", null);
+        }
+
+        private void SendGiveUp()
+        {
+            if (_busy || _session == null) return;
+            var events = _session.DoGiveUp();
+            StartCoroutine(PlayRoutine(events));
         }
 
         /// <summary>S8 "전환 흐름": PlaySceneRoot.Awake → AppRoot.RegisterPlay → GameSession 생성 →
@@ -128,6 +161,12 @@ namespace JackpotRun.UI2
             HidePanels();
             SetControlsInteractable(true);
 
+            // WEB_PARITY P1 ②: 첫 판 즉시 시작 안내 토스트(웹 game.js:361 "🎮 첫 판은 바로 시작!...") —
+            // astral 이모지 금지(uGUI Text 렌더 제약), 한글만. NavButton이 StartRun(firstRunToast:true)로
+            // 세워 둔 플래그를 여기서 1회만 소비한다.
+            if (appRoot != null && appRoot.ConsumeFirstRunToast())
+                appRoot.Toast?.Show("첫 판은 바로 시작! (초보학생 + 기본 슬롯) — 다음 판부터 직접 선택해요");
+
             StartCoroutine(PlayRoutine(_session.Controller.LaunchEvents));
         }
 
@@ -159,6 +198,8 @@ namespace JackpotRun.UI2
             gameOverPanel?.Hide();
             bagPopup?.Hide();
             manipPickPopup?.Hide();
+            giveUpConfirmPopup?.Hide();
+            deviceOfferPopup?.Hide();
         }
 
         // ── 액션 전송 + 전체 갱신 ────────────────────────────────────────────────────────
@@ -200,10 +241,50 @@ namespace JackpotRun.UI2
 
             RefreshBagLabel();
             RefreshDeviceRow();
+            RefreshModeButtons();
             RefreshPhasePanel();
 
             SetControlsInteractable(true);
             _busy = false;
+        }
+
+        // ── WEB_PARITY P1 ①: 모드 4버튼 비용 라벨 — 웹 ui.js:809-819 cmdBtn 대응 ────────────────────
+        // 종류별 런 첫 사용이면 비용 대신 "무료" 표기 + 코인 0이어도 버튼 활성. 소진했으면 정가 표기
+        // (보스 스테이지 +1 서차지 반영). 기존 라벨 구성 방식(UiSceneBuilder "집중(1)" 류)을 그대로
+        // 확장해 런타임에 갱신한다.
+        private void RefreshModeButtons()
+        {
+            var run = _session?.State;
+            if (run == null || modeButtons == null) return;
+            bool boss = Bosses.For(run.Stage) != null;
+
+            for (int i = 0; i < modeButtons.Length && i < ModeOrder.Length; i++)
+            {
+                var mode = ModeOrder[i];
+                // SpinMode.Focus→"FOCUS" 등 — RunState.UsedCmds/CmdFreeUsed가 쓰는 마커와 동일 규약
+                // (SpinResolver.ResolveSpin의 CmdMarker와 일치, enum 이름 대문자화로 충분).
+                string marker = mode.ToString().ToUpperInvariant();
+                bool usedThisStage = run.UsedCmds.Contains(marker);
+                bool free = !run.CmdFreeUsed.Contains(marker);
+                int cost = SpinResolver.CmdCoinCost(mode, boss);
+
+                var btn = modeButtons[i];
+                if (btn == null) continue;
+                var label = btn.GetComponentInChildren<Text>();
+                if (label != null)
+                {
+                    string baseLabel = i < ModeBaseLabels.Length ? ModeBaseLabels[i] : mode.ToString();
+                    label.text = free ? $"{baseLabel}(무료)" : $"{baseLabel}({cost})";
+                }
+                bool affordable = free || run.Coins >= cost; // 무료면 코인 0이어도 활성
+                btn.interactable = !usedThisStage && affordable;
+            }
+
+            // Opus 1차검수 수정⑥②(2026-08-07): 포기는 SPIN/POST_SPIN 밖에서 눌러도 OnGiveUpClicked가
+            // 조용히 무시하기만 했다(클릭했는데 아무 반응 없음 — 나쁜 UX). Phase 기준으로
+            // interactable을 직접 반영해 "지금은 누를 수 없다"는 사실이 버튼 자체에서 보이게 한다.
+            if (giveUpButton != null)
+                giveUpButton.interactable = run.Phase == RunPhase.Spin || run.Phase == RunPhase.PostSpin;
         }
 
         // S14 §B — 스핀을 발동한 버튼 자체를 0.94로 스쿼시했다 되돌린다(릴 반동은 ReelView가 동시에
@@ -244,6 +325,7 @@ namespace JackpotRun.UI2
             if (phase != RunPhase.EventShop) shopPanel?.Hide();
             if (phase != RunPhase.PostSpin) postSpinPanel?.Hide();
             if (phase != RunPhase.GameOver) gameOverPanel?.Hide();
+            if (phase != RunPhase.DeviceNode) deviceOfferPopup?.Hide();
 
             switch (phase)
             {
@@ -264,9 +346,25 @@ namespace JackpotRun.UI2
                 case RunPhase.GameOver:
                     gameOverPanel?.Show(_session, _lastFailure, () => appRoot.EndRun());
                     break;
+                // WEB_PARITY P1 ④: DEVICE 노드 오퍼(웹 game.js:2523-2529 deviceNodeTake) — [장착하기]/
+                // [코인+15] 중 택1, 어느 쪽이든 장치는 영구 보유로 지급된다(TakeDevice).
+                case RunPhase.DeviceNode:
+                    ShowDeviceOffer(run);
+                    break;
                 default:
                     break; // Spin: 오버레이 없음 — 하단 조작부 그대로 노출.
             }
+        }
+
+        private void ShowDeviceOffer(RunState run)
+        {
+            var dev = Devices.ById(run.PendingDeviceDrop);
+            if (dev == null) { deviceOfferPopup?.Hide(); return; }
+            deviceOfferPopup?.Show(
+                $"{dev.emoji} {dev.name} 획득",
+                dev.desc,
+                "장착하기", () => Send(new TakeDevice(true)),
+                "코인 +15", () => Send(new TakeDevice(false)));
         }
 
         private void OpenManipPicker(DeviceDef dev)
@@ -413,6 +511,12 @@ namespace JackpotRun.UI2
                         notesFeed?.Append($"다음 스핀 확정: {PeekCellsText(e.peekCells)}");
                         break;
 
+                    // WEB_PARITY P1 ④: DEVICE 노드 오퍼 — 실제 장착/코인 결정은 NodePanel 팝업(TakeDevice)이
+                    // 처리하고, 여기서는 로그 한 줄만 남긴다.
+                    case "DEVICE_OFFER":
+                        notesFeed?.Append($"장치 오퍼: {DeviceLabel(e.deviceId)}");
+                        break;
+
                     case "PERK_GRANTED":
                         notesFeed?.Append($"✅ 획득: {PerkLabel(e.perkId)}");
                         break;
@@ -519,6 +623,12 @@ namespace JackpotRun.UI2
                     return $"⚠ 위험! {PerkLabel(e.augmentGrantedId)} + 저주 {PerkLabel(e.curseGrantedId)}";
                 case NodeKind.Event:
                     return EventTableText(e);
+                // WEB_PARITY P1 ④: DEVICE 노드 확정(TakeDevice) — coinsDelta>0이면 미장착(코인만),
+                // 0이면 장착(웹 game.js:2523-2529 deviceNodeTake).
+                case NodeKind.Device:
+                    return e.coinsDelta > 0
+                        ? $"장치 획득(미장착): {DeviceLabel(e.deviceGrantedId)} · 코인+{NumberFormat.Comma(e.coinsDelta)}"
+                        : $"장치 장착: {DeviceLabel(e.deviceGrantedId)}";
                 default:
                     return $"노드 결과: {e.node}";
             }
@@ -534,6 +644,8 @@ namespace JackpotRun.UI2
             if (!string.IsNullOrEmpty(e.relicGrantedId)) parts.Add(PerkLabel(e.relicGrantedId));
             if (!string.IsNullOrEmpty(e.augmentGrantedId)) parts.Add(PerkLabel(e.augmentGrantedId));
             if (!string.IsNullOrEmpty(e.curseRemovedId)) parts.Add($"정화: {PerkLabel(e.curseRemovedId)} 제거");
+            // WEB_PARITY P1 ④: EVENT 6번 분기(장치 획득) — 웹 game.js:2292.
+            if (!string.IsNullOrEmpty(e.deviceGrantedId)) parts.Add($"장치 {DeviceLabel(e.deviceGrantedId)}");
             return string.Join(" · ", parts);
         }
 
@@ -575,6 +687,9 @@ namespace JackpotRun.UI2
             { "PHASE_INVALID", "지금은 사용할 수 없습니다" },
             { "NOT_GAMBLER", "도박꾼 전용입니다" },
             { "UNKNOWN_ACTION", "처리할 수 없는 요청입니다" },
+            { "PHASE_NOT_SPIN_OR_POST_SPIN", "지금은 포기할 수 없습니다" },
+            { "PHASE_NOT_DEVICE_NODE", "지금은 장치를 선택할 수 없습니다" },
+            { "NO_PENDING_DEVICE_DROP", "받을 장치가 없습니다" },
         };
 
         private static string RejectReasonText(string reason)

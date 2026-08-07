@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -8,6 +9,26 @@ namespace JackpotRun.Engine
     // handleRetake(L1354-1369)/handlePerkPick(L1371-1388)를 전사. 02_service.md §5 그대로.
     public static class NodeEvents
     {
+        // ── WEB_PARITY P1 ④ Opus 1차검수 수정③(2026-08-07) — 장치 무작위 추첨(rare 가중) ──────────
+        // 웹 engine.js pickDevices(rng,stage,owned,n=1)(±L1296-1309)의 rare/non-rare 분리 로직을
+        // 단일 추첨(n=1, 이 엔진의 두 실사용처 EVENT-6·보스드랍 모두 n=1)에 맞게 이식:
+        //   rareChance = min(0.6, 0.15+stage*0.03) 확률로 rare 풀에서, 아니면 non-rare 풀에서 우선 시도
+        //   → 그 등급의 미보유 후보가 없으면 등급 무관 미보유 전체로 폴백.
+        // [WEB_PARITY_DESIGN.md §2-F 결정 — 웹과 의도적 차이] 웹 원문의 세 번째 폴백(그래도 없으면 owned
+        // 포함 전체 base에서 뽑아 허탕 나는 경우까지 허용)은 두 호출부(game.js:1438 보스드랍·2292
+        // EVENT-6) 모두 owned 인자에 실제 ownedDevices가 아니라 curses 집합을 잘못 넘기는 버그성
+        // 코드라 사실상 이 세 번째 폴백에 거의 도달하지 않는다 — Unity는 이 버그를 재현하지 않고,
+        // "미보유 후보가 하나도 없으면 null"로 끝내 호출측이 코인 폴백을 쓰게 한다(기존 P1 설계 그대로,
+        // 웹 회귀버그 예외 조항 적용).
+        internal static DeviceDef PickDevice(Rng rng, int stage, IReadOnlyCollection<string> owned)
+        {
+            double rareChance = Math.Min(0.6, 0.15 + stage * 0.03);
+            bool wantRare = rng.NextDouble() < rareChance;
+            var pool = Devices.All.Where(d => d.rare == wantRare && !owned.Contains(d.id)).ToList();
+            if (pool.Count == 0) pool = Devices.All.Where(d => !owned.Contains(d.id)).ToList();
+            return pool.Count > 0 ? rng.Pick(pool) : null;
+        }
+
         // ══════════════════════════════════════════════════════════════════
         // ChooseNode — NODE_SELECT의 3택 중 하나 선택. AUGMENT/RELIC/CURSE/RISK는 풀 소진 시
         // EVENT 10종 랜덤표로 폴백한다(§5 표 각주, Kotlin이 CURSE/RISK/AUGMENT/RELIC 모두 이 폴백 경로를
@@ -62,9 +83,10 @@ namespace JackpotRun.Engine
                 }
                 case NodeKind.Rest:
                 {
-                    run.Coins += 8;
+                    // WEB_PARITY P1 ④: 코인 8 → 12(웹 game.js:1633 "코인 +12").
+                    run.Coins += 12;
                     run.Phase = RunPhase.Spin;
-                    return RunEvents.One(new RunEvent { type = "NODE_RESOLVED", node = node, coinsDelta = 8 });
+                    return RunEvents.One(new RunEvent { type = "NODE_RESOLVED", node = node, coinsDelta = 12 });
                 }
                 case NodeKind.Gamble:
                 {
@@ -74,6 +96,18 @@ namespace JackpotRun.Engine
                 }
                 case NodeKind.Event:
                     break; // 바로 아래 공용 EVENT 테이블로
+                // WEB_PARITY P1 ④: DEVICE 노드 — 오퍼 확정은 TakeDevice(RunController.Do)가 담당.
+                // PendingDeviceDrop이 비어 있으면(이론상 도달 불가 — RollNextNodes가 드랍이 있을 때만
+                // 이 노드를 얹는다, StageFlow.ClearStage 참조) 방어적으로 EVENT 폴백.
+                case NodeKind.Device:
+                {
+                    if (!string.IsNullOrEmpty(run.PendingDeviceDrop))
+                    {
+                        run.Phase = RunPhase.DeviceNode;
+                        return RunEvents.One(new RunEvent { type = "DEVICE_OFFER", node = node, deviceId = run.PendingDeviceDrop });
+                    }
+                    break;
+                }
             }
 
             var evEvent = ResolveEventTable(run, stat);
@@ -160,9 +194,10 @@ namespace JackpotRun.Engine
             var curse = run.Rng.PickOrDefault(avail);
             if (curse == null) return null;
             run.Curses.Add(curse.id);
-            run.Coins += 15;
+            // WEB_PARITY P1 ④: 코인 15 → 30(웹 game.js:1673 "코인 +30").
+            run.Coins += 30;
             run.Phase = RunPhase.Spin;
-            return new RunEvent { type = "NODE_RESOLVED", node = NodeKind.Curse, curseGrantedId = curse.id, coinsDelta = 15 };
+            return new RunEvent { type = "NODE_RESOLVED", node = NodeKind.Curse, curseGrantedId = curse.id, coinsDelta = 30 };
         }
 
         // ── RISK 노드 (Kotlin L1160-1174) — 프리즘 증강(소진 시 골드 폴백) + 저주 동시 지급 ──
@@ -217,7 +252,28 @@ namespace JackpotRun.Engine
                     else { run.Coins += 15; ev.coinsDelta = 15; }
                     break;
                 }
-                case 6: run.Coins += 15; ev.coinsDelta = 15; break; // 구버전 장치드롭 자리, 코인으로 대체(레거시)
+                case 6:
+                {
+                    // WEB_PARITY P1 ④: 레거시 코인+15 → 웹처럼 장치 획득(game.js:2292 _randomEvent case6).
+                    // 미보유 장치 중 rare 가중 추첨 1개를 영구 보유로 지급(PickDevice, Opus 수정③ —
+                    // deviceGrantedId로 StatTracker가 PlayerProfile.OwnedDevices에 미러링). 웹은 미장착
+                    // 상태일 때만 자동 장착한다(`if (d && !r.device) r.device = d.id`) — 이미 뭔가 장착
+                    // 중이면 손대지 않는다. 전부 보유 중이면 코인+15 폴백(§2-F 결정 — 웹 원문 owned
+                    // 필터 버그를 재현하지 않고 "미보유 없으면 null" 규칙 그대로).
+                    var picked = PickDevice(run.Rng, run.Stage, run.OwnedDeviceIds);
+                    if (picked != null)
+                    {
+                        run.OwnedDeviceIds.Add(picked.id);
+                        if (string.IsNullOrEmpty(run.Device)) run.Device = picked.id;
+                        ev.deviceGrantedId = picked.id;
+                    }
+                    else
+                    {
+                        run.Coins += 15;
+                        ev.coinsDelta = 15;
+                    }
+                    break;
+                }
                 case 7:
                 {
                     var held = new HashSet<string>(run.Perks);
@@ -333,6 +389,31 @@ namespace JackpotRun.Engine
                 offerTier = picks[0].tier, offerBossPrism = bossClear, offerTierBumped = tierBumped,
                 offerSynergyPerkId = synPerkId, offerRetake = true,
             });
+        }
+
+        // ── WEB_PARITY P1 ④: DEVICE 노드 오퍼 확정(deviceNodeTake, 웹 game.js:2523-2529) ──────────
+        // equip=true → 현재 런의 Device 슬롯을 교체(장착). equip=false → 코인+15만. 어느 쪽이든 장치는
+        // 영구 보유로 지급(deviceGrantedId — StatTracker가 PlayerProfile.OwnedDevices에 반영).
+        public static List<RunEvent> TakeDevice(RunState run, bool equip)
+        {
+            if (run.Phase != RunPhase.DeviceNode) return RunEvents.Rejected("PHASE_NOT_DEVICE_NODE");
+            var devId = run.PendingDeviceDrop;
+            if (string.IsNullOrEmpty(devId)) return RunEvents.Rejected("NO_PENDING_DEVICE_DROP");
+
+            run.OwnedDeviceIds.Add(devId);
+            run.PendingDeviceDrop = "";
+            var ev = new RunEvent { type = "NODE_RESOLVED", node = NodeKind.Device, deviceGrantedId = devId, deviceId = devId };
+            if (equip)
+            {
+                run.Device = devId;
+            }
+            else
+            {
+                run.Coins += 15;
+                ev.coinsDelta = 15;
+            }
+            run.Phase = RunPhase.Spin;
+            return RunEvents.One(ev);
         }
     }
 }

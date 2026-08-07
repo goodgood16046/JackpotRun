@@ -455,6 +455,8 @@ namespace JackpotRun.EditorTools
             public Text bagButtonLabel;
             public RectTransform deviceRow;
             public RectTransform deviceButtonTemplate;
+            // WEB_PARITY P1 ⑤: "게임 포기" 액션바 진입점(웹 ui.js:849-871).
+            public Button giveUpButton;
         }
 
         // S12c §6 — BuildSheetChrome(...)이 반환하는 "시트" 골격 3요소. scrim(전체화면, 클릭 차단) →
@@ -478,6 +480,9 @@ namespace JackpotRun.EditorTools
             public UI2.GameOverPanel gameOverPanel;
             public UI2.BagPopup bagPopup;
             public UI2.ManipPickPopup manipPickPopup;
+            // WEB_PARITY P1 ⑤/④: 범용 확인 시트 2개 — 포기 확인 / DEVICE 노드 오퍼(장착·코인).
+            public UI2.ConfirmSheetPopup giveUpConfirmPopup;
+            public UI2.ConfirmSheetPopup deviceOfferPopup;
         }
 
         private sealed class DexBuildResult
@@ -1894,8 +1899,11 @@ namespace JackpotRun.EditorTools
             var controls = UiKit.VGroup(controlsRoot, 10, new RectOffset(20, 20, 10, 20), true, true);
             UiKit.Fill(controls);
 
-            // 특수모드 4버튼(순서: 집중/올인/기도/막판 — RunView.ModeOrder와 일치해야 함). 비용은 상수라
-            // 빌드 시점에 라벨을 굽는다(사용가능 조건은 엔진 거부 → 토스트로 안내, 여기서 사전 비활성화 안 함).
+            // 특수모드 4버튼(순서: 집중/올인/기도/막판 — RunView.ModeOrder와 일치해야 함). 여기(빌드
+            // 시점)에 굽는 라벨은 정적 기본값일 뿐이다 — WEB_PARITY P1 ①(2026-08-07) 이후
+            // RunView.RefreshModeButtons()가 매 액션 배치 처리 후 실제 라벨("무료"/정가)과
+            // interactable(무료가 아니고 코인 부족·이번 스테이지 이미 사용이면 비활성)을 런타임에
+            // 덮어쓴다 — "사전 비활성화 안 함"은 더 이상 사실이 아니다(빌드 시점 한정 이야기).
             // S8 항목⑤: astral 이모지(🎯🎲🙏⏰)는 렌더링되지 않는다 — 한글 라벨만 사용.
             var modeRow = UiKit.HGroup(controls, 8, new RectOffset(0, 0, 0, 0), true, true);
             UiKit.SizeHint(modeRow, preferredHeight: 68, flexibleHeight: 0);
@@ -1928,6 +1936,12 @@ namespace JackpotRun.EditorTools
             result.deviceRow = UiKit.HGroup(toolRow, 10, new RectOffset(0, 0, 0, 0), true, true);
             UiKit.SizeHint(result.deviceRow, flexibleWidth: 1, preferredHeight: 80, flexibleHeight: 0);
             result.deviceButtonTemplate = BuildLabeledButtonTemplate(result.deviceRow, panelSprite);
+
+            // WEB_PARITY P1 ⑤: "게임 포기" — 웹 액션바 giveUpBtn()과 같은 취지로 작고 눈에 덜 띄는
+            // 톤(Panel2/ghost) + 구석 배치(toolRow 맨 끝, 오작동 방지). 클릭 시 확인 시트를 거친다
+            // (RunView.OnGiveUpClicked).
+            result.giveUpButton = UiKit.Button(toolRow, "포기", new Vector2(0, 80), UiKit.Panel2, UiKit.TextSecondary, null, panelSprite);
+            UiKit.SizeHint(result.giveUpButton, preferredWidth: 110, preferredHeight: 80, flexibleWidth: 0, flexibleHeight: 0);
         }
 
         // 라벨 1개짜리 버튼 템플릿(장치열/PostSpin 만회/ManipPick 칸선택 등 공용) — 자식 경로 계약: "Label"(Text).
@@ -1965,6 +1979,7 @@ namespace JackpotRun.EditorTools
             so.FindProperty("bagButtonLabel").objectReferenceValue = r.bagButtonLabel;
             so.FindProperty("deviceRow").objectReferenceValue = r.deviceRow;
             so.FindProperty("deviceButtonTemplate").objectReferenceValue = r.deviceButtonTemplate;
+            so.FindProperty("giveUpButton").objectReferenceValue = r.giveUpButton;
             so.FindProperty("nodePanel").objectReferenceValue = overlay.nodePanel;
             so.FindProperty("perkOfferPanel").objectReferenceValue = overlay.perkOfferPanel;
             so.FindProperty("shopPanel").objectReferenceValue = overlay.shopPanel;
@@ -1972,6 +1987,8 @@ namespace JackpotRun.EditorTools
             so.FindProperty("gameOverPanel").objectReferenceValue = overlay.gameOverPanel;
             so.FindProperty("bagPopup").objectReferenceValue = overlay.bagPopup;
             so.FindProperty("manipPickPopup").objectReferenceValue = overlay.manipPickPopup;
+            so.FindProperty("giveUpConfirmPopup").objectReferenceValue = overlay.giveUpConfirmPopup;
+            so.FindProperty("deviceOfferPopup").objectReferenceValue = overlay.deviceOfferPopup;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
@@ -2087,6 +2104,12 @@ namespace JackpotRun.EditorTools
                 gameOverPanel = BuildGameOverPanel(overlay),
                 bagPopup = BuildBagPopup(overlay),
                 manipPickPopup = BuildManipPickPopup(overlay),
+                // 포기 확인은 취소 가능(스크림 탭=계속 플레이). DEVICE 오퍼는 NodeSelect/PerkOffer와
+                // 같은 "필수 결정" 모달이라 스크림 탭으로 빠져나갈 수 없다(NodePanel dismissOnScrimClick:
+                // false와 동일 관례) — 실수로 닫아도 다음 갱신에서 다시 뜨긴 하지만, 애초에 닫히지
+                // 않는 편이 UX상 명확하다.
+                giveUpConfirmPopup = BuildConfirmSheetPopup(overlay, "GiveUpConfirmPopup", dismissOnScrimClick: true),
+                deviceOfferPopup = BuildConfirmSheetPopup(overlay, "DeviceOfferPopup", dismissOnScrimClick: false),
             };
         }
 
@@ -2713,6 +2736,51 @@ namespace JackpotRun.EditorTools
             so.FindProperty("cellsContent").objectReferenceValue = cellsContent;
             so.FindProperty("cellButtonTemplate").objectReferenceValue = cellTemplate;
             so.FindProperty("cancelButton").objectReferenceValue = cancelButton;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // ── ConfirmSheetPopup(범용 2버튼 확인 시트) ─────────────────────────────────────
+        // WEB_PARITY P1 ⑤(포기 확인)·P1 ④(DEVICE 노드 오퍼) 공용 — ManipPickPopup과 동일 골격(제목+
+        // 설명+버튼 2개), 다만 칸 목록 대신 주/보조 버튼 각 1개뿐이다. 내용(제목/설명/버튼 라벨)은
+        // Show() 호출부가 그때그때 채우므로 여기서는 빈 텍스트로 짓는다.
+        private static UI2.ConfirmSheetPopup BuildConfirmSheetPopup(Transform overlay, string name, bool dismissOnScrimClick)
+        {
+            var chrome = BuildSheetChrome(overlay, name, 620f, dismissOnScrimClick);
+            var scrim = chrome.scrim;
+            var scrimButton = scrim.GetComponent<Button>();
+            var col = chrome.cardCol;
+
+            var headText = UiKit.Text(col, "", 26, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(headText, preferredHeight: 40, flexibleHeight: 0);
+            var descText = UiKit.Text(col, "", 18, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(descText, preferredHeight: 100, flexibleHeight: 0);
+
+            var spacer = UiKit.Panel(col, "Spacer", new Color(0, 0, 0, 0));
+            UiKit.SizeHint(spacer, flexibleHeight: 1);
+
+            // 주 액션(.bigbtn 골드) 위 · 보조/이탈 액션(.bigbtn.ghost) 아래 — PostSpinPanel 만회/포기
+            // 버튼 순서와 동일 관례.
+            var primaryButton = UiKit.Button(col, "", new Vector2(0, 88), UiKit.Accent, UiKit.Ink, null, UiSpriteGen.Load("w_gold_btn"));
+            UiKit.SizeHint(primaryButton, preferredHeight: 88, flexibleHeight: 0);
+            var primaryLabel = primaryButton.GetComponentInChildren<Text>();
+
+            var secondaryButton = UiKit.Button(col, "", new Vector2(0, 76), UiKit.Panel2, UiKit.TextPrimary, null, UiSpriteGen.Load("w_ghost_btn"));
+            UiKit.SizeHint(secondaryButton, preferredHeight: 76, flexibleHeight: 0);
+            UiKit.AddGlowOutline(secondaryButton.gameObject, UiKit.Bd2, 2f).enabled = true;
+            var secondaryLabel = secondaryButton.GetComponentInChildren<Text>();
+
+            var view = scrim.gameObject.AddComponent<UI2.ConfirmSheetPopup>();
+            var so = new SerializedObject(view);
+            so.FindProperty("scrimButton").objectReferenceValue = scrimButton;
+            so.FindProperty("cardRect").objectReferenceValue = chrome.card;
+            so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
+            so.FindProperty("headText").objectReferenceValue = headText;
+            so.FindProperty("descText").objectReferenceValue = descText;
+            so.FindProperty("primaryButton").objectReferenceValue = primaryButton;
+            so.FindProperty("primaryButtonLabel").objectReferenceValue = primaryLabel;
+            so.FindProperty("secondaryButton").objectReferenceValue = secondaryButton;
+            so.FindProperty("secondaryButtonLabel").objectReferenceValue = secondaryLabel;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
         }

@@ -35,10 +35,14 @@
 - Android 베이스라인 자동 적용: `Assets/JackpotRun/Editor/AndroidAppBaseline.cs` (패키지 `com.phigolf.jackpotrun`)
 - MCP: 에디터를 열면 stdio 브리지가 자동 시작된다(`Editor/McpBridgeAutoStart.cs`). 루트 `.mcp.json` 사용.
 
-## 밸런스 정답지 — `kotlin-reference/` 와 `Docs/EngineSpec/`
+## 밸런스 정답지 — ★2026-08-07 전환: `public/play/` 가 최신 원본
 
-게임 규칙의 원본은 구버전(v2) 엔진 Kotlin 스냅샷이다. **읽기 전용** — 수정 금지, 단독 빌드 불가.
-자세한 주의사항은 `kotlin-reference/README.md`.
+**Unity 앱은 웹 단독판(`public/play/`)과 동일하게 개편 중이다** — 마스터 플랜과 페이즈별 진행
+상황은 [Docs/WEB_PARITY_DESIGN.md](Docs/WEB_PARITY_DESIGN.md). 규칙·콘텐츠·흐름이 충돌하면
+**웹 단독판 채택이 기본**(예외는 그 문서 §2 결정 로그에 명시).
+
+`kotlin-reference/`(구버전 v2 Kotlin 스냅샷)는 웹에 없는 세부가 모호할 때의 참고로 강등.
+**읽기 전용** — 수정 금지, 단독 빌드 불가. 자세한 주의사항은 `kotlin-reference/README.md`.
 
 | 용도 | 볼 곳 |
 |---|---|

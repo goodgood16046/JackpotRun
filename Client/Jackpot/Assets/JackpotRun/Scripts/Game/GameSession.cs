@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using JackpotRun.Engine;
 
 namespace JackpotRun.Game
@@ -34,16 +35,30 @@ namespace JackpotRun.Game
             // seed는 이 파일(Unity 어댑터)에서만 시각 기반 생성 — 엔진(RunController/Rng)은 순수 유지
             // (ENGINE_PORT_DESIGN.md S6 지시 "seed=현재틱").
             long seed = DateTime.UtcNow.Ticks;
-            Controller = new RunController(charId, machineId, deviceId, seed, Profile.Stats);
+            // WEB_PARITY P1 ④ Opus 1차검수 수정④(2026-08-07): ownedDeviceIds — RunState.OwnedDeviceIds를
+            // 시드할 때 Profile.OwnedDevices(영구지급분)만이 아니라 Profile.UnlockedDevices()(=OwnedDevices
+            // ∪ 업적(lic_*)으로 해금된 장치, PlayerProfile.IsDeviceUnlocked 참조)를 기준으로 삼는다 —
+            // 장치 해금의 진짜 2원 판정과 일치시켜, 업적으로만 해금되고 아직 OwnedDevices에 등록되지 않은
+            // 장치까지 "미보유 추첨 풀"에서 정확히 제외한다(안 그러면 이미 쓸 수 있는 장치가 EVENT-6/
+            // DEVICE 노드에서 다시 뽑히는 허탕이 날 수 있다).
+            Controller = new RunController(charId, machineId, deviceId, seed, Profile.Stats, deviceId2: "",
+                ownedDeviceIds: Profile.UnlockedDevices().Select(d => d.id).ToList());
             StatTracker.Apply(Profile, Controller.State, Controller.LaunchEvents, _scratch);
         }
 
         // 모든 상호작용의 단일 진입점(RunScreen 전용) — RunController.Do를 감싸 StatTracker 공급 +
         // GAME_OVER 시 기록 갱신(StatTracker.ApplyGameOverTracking이 bestScore/bestStage/runs/totalScore를
         // 이미 갱신)·AchievementEngine.Evaluate·ProfileStore.Save까지 처리한다.
-        public IReadOnlyList<RunEvent> Do(RunAction action)
+        public IReadOnlyList<RunEvent> Do(RunAction action) => FinishAction(Controller.Do(action));
+
+        // WEB_PARITY P1 ⑤: RunController.GiveUp()은 RunAction이 아니라 별도 공개 메서드(자발적
+        // 포기 — SPIN/POST_SPIN 어느 시점이든 즉시 결산)라 Do(RunAction)를 그대로 못 태운다. 그래도
+        // 결과 후처리(StatTracker 반영·업적 평가·저장)는 Do(...)와 동일해야 하므로 같은 FinishAction을
+        // 공유한다.
+        public IReadOnlyList<RunEvent> DoGiveUp() => FinishAction(Controller.GiveUp());
+
+        private IReadOnlyList<RunEvent> FinishAction(IReadOnlyList<RunEvent> events)
         {
-            var events = Controller.Do(action);
             StatTracker.Apply(Profile, Controller.State, events, _scratch);
 
             LastNewAchievements = Array.Empty<AchDef>();

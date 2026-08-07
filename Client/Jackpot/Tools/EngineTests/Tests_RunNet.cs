@@ -699,6 +699,7 @@ namespace JackpotRun.EngineTests
             PrayRepresentative(t);
             LastRepresentative(t);
             RejectPaths(t);
+            CmdFreeUseFirstFree(t);
         }
 
         // QuotaOf(stage,mods) = (long)(Formulas.Quota(stage) × mods.quotaMul × Bosses.QuotaMulFor(stage) × prop),
@@ -850,8 +851,11 @@ namespace JackpotRun.EngineTests
             t.Eq(coinsBefore, (int)run2.Coins, "[reject] 거부 시 코인 차감 없음");
 
             // 3) INSUFFICIENT_COINS — 코인 부족(0 < CMD_COST_FOCUS=1).
+            // WEB_PARITY P1 ①(2026-08-07): 종류별 첫 사용은 무료라 코인검증 자체가 면제된다(cmdCost=0)
+            // — 이 경로가 진짜 "코인부족 거부"를 재현하려면 무료권을 먼저 소진시켜 둬야 한다.
             var run3 = FreshRun(52L, spinIndex: 1);
             run3.Coins = 0;
+            run3.CmdFreeUsed.Add("FOCUS");
             var step3 = StageFlow.ProcessSpin(run3, SpinMode.Focus);
             t.True(step3.spin.rejected, "[reject] INSUFFICIENT_COINS: rejected=true");
             t.Eq("INSUFFICIENT_COINS", step3.spin.rejectReason, "[reject] rejectReason=INSUFFICIENT_COINS");
@@ -868,6 +872,73 @@ namespace JackpotRun.EngineTests
             t.Eq("PHASE_NOT_SPIN", step4.spin.rejectReason, "[reject] rejectReason=PHASE_NOT_SPIN");
             t.Eq(RunPhase.NodeSelect, run4.Phase, "[reject] PHASE_NOT_SPIN: run.Phase 변경 없음(NodeSelect 유지)");
         }
+
+        // WEB_PARITY P1 ①(2026-08-07): 특수스핀 첫 사용 무료(런 단위, 종류별 1회, 웹 game.js:883-884
+        // cmdFreeUsed) — 첫 FOCUS는 코인이 0이어도 거부되지 않고 cmdCost=0(코인 불변), 발동 성공 시에만
+        // CmdFreeUsed에 소진 표시가 남는다. 같은 런의 두 번째 FOCUS(스테이지 클리어로 UsedCmds는 리셋된
+        // 뒤)는 정가로 청구된다(무료권은 리셋되지 않음, §2-E). 거부(LAST 타이밍 위반)는 무료권을
+        // 소진시키지 않는다.
+        private static void CmdFreeUseFirstFree(TestCtx t)
+        {
+            var run = FreshRun(80L, spinIndex: 1);
+            run.Coins = 0; // 무료가 아니면 코인부족으로 거부될 조건 — "진짜 무료"인지 가장 엄격히 검증
+            t.True(!run.CmdFreeUsed.Contains("FOCUS"), "[cmdFree] 사전조건: 아직 FOCUS 무료권 미사용");
+
+            var step1 = StageFlow.ProcessSpin(run, SpinMode.Focus);
+            t.True(!step1.spin.rejected, "[cmdFree] 코인 0이어도 첫 FOCUS는 거부되지 않음(무료)");
+            t.Eq(0, step1.spin.cmdCost, "[cmdFree] 첫 FOCUS cmdCost=0");
+            // CommonCells에 🪙coin 심볼이 섞여 있어 스핀 자체의 코인 수입(res.coins)은 0이 아니다 —
+            // "무료"의 의미는 그 수입에서 cmdCost가 추가로 깎이지 않는다는 것뿐이라, run.Coins는
+            // res.coins와 정확히 같아야 한다(0(시작) + res.coins - cmdCost(0)).
+            t.Eq(step1.spin.result.coins, run.Coins, "[cmdFree] 코인 = 이번 스핀 수입 그대로(cmdCost 0원 차감, 별도 소모 없음)");
+            t.True(run.CmdFreeUsed.Contains("FOCUS"), "[cmdFree] 발동 성공 → CmdFreeUsed[FOCUS] 소진");
+            t.True(step1.spin.notes.Contains("첫 사용 무료"), "[cmdFree] note: \"첫 사용 무료\"");
+
+            // 같은 스테이지 재시도 — 무료권과 무관하게 스테이지당 1회 제한(UsedCmds)이 그대로 막는다.
+            var stepAgainSameStage = StageFlow.ProcessSpin(run, SpinMode.Focus);
+            t.True(stepAgainSameStage.spin.rejected, "[cmdFree] 같은 스테이지 재시도는 거부");
+            t.Eq("MODE_ALREADY_USED", stepAgainSameStage.spin.rejectReason, "[cmdFree] rejectReason=MODE_ALREADY_USED");
+
+            // 스테이지 클리어(StageFlow.ClearStage가 UsedCmds는 리셋하되 CmdFreeUsed는 절대 건드리지 않음).
+            run.StageExp = 1_000_000; // 다음 스핀에서 확실한 클리어
+            var clearStep = StageFlow.ProcessSpin(run, SpinMode.N);
+            t.Eq(SpinStepKind.Cleared, clearStep.kind, "[cmdFree] 사전조건: 다음 스핀에서 클리어");
+            t.True(!run.UsedCmds.Contains("FOCUS"), "[cmdFree] 클리어 리셋으로 UsedCmds[FOCUS] 제거");
+            t.True(run.CmdFreeUsed.Contains("FOCUS"), "[cmdFree] 클리어 이후에도 CmdFreeUsed[FOCUS] 유지(런 스코프, 스테이지 리셋 대상 아님)");
+
+            // 새 스테이지에서 두 번째 FOCUS — 코인을 채워 발동 가능하게 하고, 이번엔 정가 청구를 확인.
+            // ClearStage는 Phase를 NodeSelect로 넘긴다(다음 노드 선택 대기) — 이 테스트는 노드 진행
+            // 자체가 관심사가 아니므로 Spin으로 직접 되돌려 다음 스핀을 이어간다.
+            run.Phase = RunPhase.Spin;
+            run.Coins = 100;
+            // Opus 1차검수 수정⑤(2026-08-07) — 순환 검증 제거: expectedCost를 테스트 대상 함수 자신인
+            // SpinResolver.CmdCoinCost로 계산하면 그 함수에 버그가 있어도 항상 통과해 버린다.
+            // Formulas.CMD_COST_FOCUS 리터럴로 손계산한다 — stage=2는 클리어 1회 직후 값이라 항상
+            // 비보스(5의 배수 아님)이므로 보스 서차지(+1)는 붙지 않는다.
+            t.True(!Formulas.IsBossStage(run.Stage), "[cmdFree] 사전조건: 클리어 후 stage=2는 비보스(서차지 없음)");
+            int expectedCost = Formulas.CMD_COST_FOCUS;
+            var step2 = StageFlow.ProcessSpin(run, SpinMode.Focus);
+            t.True(!step2.spin.rejected, "[cmdFree] 두 번째 FOCUS(새 스테이지): 코인 충분하면 거부 없음");
+            t.Eq(expectedCost, step2.spin.cmdCost, "[cmdFree] 두 번째 FOCUS는 정가 청구(무료 아님) — CMD_COST_FOCUS 리터럴=1");
+            t.True(!step2.spin.notes.Contains("첫 사용 무료"), "[cmdFree] 두 번째 FOCUS note에 \"첫 사용 무료\" 없음");
+
+            // Opus 1차검수 수정⑤ — 무료권 종류별 독립: FOCUS를 이미 소진했어도 ALLIN은 별개로 여전히
+            // 첫 사용 무료여야 한다(HashSet 키가 모드마다 독립이라는 규약의 직접 확인).
+            t.True(!run.CmdFreeUsed.Contains("ALLIN"), "[cmdFree-independent] 사전조건: ALLIN은 아직 무료권 보유");
+            run.Coins = 0; // 무료가 아니면 거부될 조건으로 엄격 검증
+            var stepAllin = StageFlow.ProcessSpin(run, SpinMode.Allin);
+            t.True(!stepAllin.spin.rejected, "[cmdFree-independent] FOCUS 소진과 무관하게 ALLIN은 여전히 무료(거부 없음)");
+            t.Eq(0, stepAllin.spin.cmdCost, "[cmdFree-independent] ALLIN cmdCost=0(첫 사용 무료, 종류별 독립)");
+            t.True(run.CmdFreeUsed.Contains("ALLIN"), "[cmdFree-independent] ALLIN 발동 성공 → CmdFreeUsed[ALLIN] 소진");
+            t.True(run.CmdFreeUsed.Contains("FOCUS"), "[cmdFree-independent] FOCUS도 여전히 소진 상태 유지(서로 독립적으로 공존)");
+
+            // 거부(LAST 타이밍 위반) 시 무료권 미소진 — 별도 신선한 run.
+            var runLast = FreshRun(81L, spinIndex: 0); // spins=5 기준 마지막 스핀 아님
+            var stepLastReject = StageFlow.ProcessSpin(runLast, SpinMode.Last);
+            t.True(stepLastReject.spin.rejected, "[cmdFree] LAST 타이밍 위반 → 거부");
+            t.Eq("LAST_NOT_FINAL_SPIN", stepLastReject.spin.rejectReason, "[cmdFree] rejectReason=LAST_NOT_FINAL_SPIN");
+            t.True(!runLast.CmdFreeUsed.Contains("LAST"), "[cmdFree] 거부 시 무료권 미소진(LAST 여전히 첫사용무료 가능)");
+        }
     }
 
     // ── ⑧ StageFlow: fate_bell 회생 경계·클리어 보상 수치·Growth/SnowStack 갱신·RollNextNodes 분기 ──────
@@ -881,6 +952,9 @@ namespace JackpotRun.EngineTests
             ClearRewardsInDebt(t);
             ClearRewardsBossAndSnowDecrement(t);
             RollNextNodesStageGate(t);
+            // WEB_PARITY P1 ③(2026-08-07): 실패 체인 웹 순서 재배열 회귀 어서션.
+            InsuranceBeforeFateBell(t);
+            BellReadyEntersPostSpin(t);
         }
 
         // fate_bell: HandleFailure §3-C step1 — deficit<=15 && !FateBellUsed && Perks.Contains("fate_bell")
@@ -919,6 +993,57 @@ namespace JackpotRun.EngineTests
             var stepC = StageFlow.ProcessSpin(runC, SpinMode.N);
             t.Eq(SpinStepKind.GameOver, stepC.kind, "[fate_bell] deficit=16(경계+1): 회생 실패 → 만회수단 없음 → GameOver");
             t.True(!runC.FateBellUsed, "[fate_bell] deficit=16: fate_bell 자체가 발동 안 해 FateBellUsed는 false 그대로");
+        }
+
+        // WEB_PARITY P1 ③: 보험증서와 fate_bell을 둘 다 보유한 채 실패하면 보험이 먼저 소진된다(웹
+        // game.js:1146-1157 순서 — ①보험 ②POST_SPIN ③fate_bell). deficit=10(<=15)이라 fate_bell도
+        // 조건상 발동 가능했겠지만, 새 순서에서는 보험 체크가 먼저라 fate_bell까지 도달하지 않는다.
+        private static void InsuranceBeforeFateBell(TestCtx t)
+        {
+            var run = RunTestHelpers.NewRun(90L);
+            run.Stage = 1; run.SpinIndex = 4; run.StageExp = 91; // deficit = 101-91 = 10
+            run.Survive = true;
+            run.Perks.Add("fate_bell");
+            run.LockedNext.AddRange(new[] { "coin", "coin", "coin", "coin", "coin" }); // gained=0
+
+            var step = StageFlow.ProcessSpin(run, SpinMode.N);
+
+            t.Eq(SpinStepKind.Revived, step.kind, "[insurance-vs-fatebell] 회생(Revived)");
+            t.Eq("INSURANCE_REVIVE", step.failure.kind, "[insurance-vs-fatebell] 보험이 먼저 소진(fate_bell 아님)");
+            t.Eq(10L, step.failure.deficitAtFailure, "[insurance-vs-fatebell] deficitAtFailure=10");
+            t.True(!run.Survive, "[insurance-vs-fatebell] 보험증서 소진(Survive=false)");
+            t.True(!run.FateBellUsed, "[insurance-vs-fatebell] fate_bell은 체크되지 않아 미소진(FateBellUsed=false)");
+            t.True(run.Perks.Contains("fate_bell"), "[insurance-vs-fatebell] fate_bell perk는 그대로 보유(다음 실패에 쓸 수 있음)");
+            t.Eq(2, run.StageBonusSpins, "[insurance-vs-fatebell] 보험 효과(+2 스핀) — fate_bell(+1)이 아님");
+            t.Eq(RunPhase.Spin, run.Phase, "[insurance-vs-fatebell] Phase는 Spin 유지(스핀 소진 없이 계속)");
+        }
+
+        // WEB_PARITY P1 ③: POST_SPIN 진입 조건(_canRecover 상당)에 dev_bell&부족≤25 신설 — MANIP 장치도
+        // 도박꾼도 없어도 dev_bell 하나만으로 POST_SPIN에 도달해야 한다. 경계 밖(부족>25)이면서 fate_bell도
+        // 없으면 그대로 게임오버(체인 4번째).
+        private static void BellReadyEntersPostSpin(TestCtx t)
+        {
+            var run = RunTestHelpers.NewRun(91L);
+            run.Stage = 1; run.SpinIndex = 4; run.StageExp = 78; // deficit = 101-78 = 23(<=25)
+            run.Device = "dev_bell";
+            run.LockedNext.AddRange(new[] { "coin", "coin", "coin", "coin", "coin" });
+
+            var step = StageFlow.ProcessSpin(run, SpinMode.N);
+
+            t.Eq(SpinStepKind.PostSpin, step.kind, "[bellReady] deficit=23(<=25): POST_SPIN 진입");
+            t.Eq("POST_SPIN", step.failure.kind, "[bellReady] failure.kind=POST_SPIN");
+            t.Eq(23L, step.failure.deficitAtFailure, "[bellReady] deficitAtFailure=23");
+            t.True(step.failure.manipHints.Contains("DEVICE:dev_bell"), "[bellReady] manipHints에 DEVICE:dev_bell 힌트 포함");
+            t.Eq(RunPhase.PostSpin, run.Phase, "[bellReady] Phase=PostSpin");
+
+            // 경계 밖(deficit=26>25) — dev_bell도 fate_bell(미보유)도 조건 미충족 → 게임오버.
+            var run2 = RunTestHelpers.NewRun(92L);
+            run2.Stage = 1; run2.SpinIndex = 4; run2.StageExp = 75; // deficit = 26
+            run2.Device = "dev_bell";
+            run2.LockedNext.AddRange(new[] { "coin", "coin", "coin", "coin", "coin" });
+
+            var step2 = StageFlow.ProcessSpin(run2, SpinMode.N);
+            t.Eq(SpinStepKind.GameOver, step2.kind, "[bellReady] deficit=26(>25): dev_bell 미충족 + 만회수단 전무 → GameOver");
         }
 
         // 공통: novice/basic/무퍽, stage1(quota=101), LockedNext=[cherry,book,star,gem,coin](gained=18,
@@ -1022,6 +1147,12 @@ namespace JackpotRun.EngineTests
             t.True(step.clear.nextNodeForcedPrism, "[clearE] 보스클리어 → 다음 노드 PRISM 확정");
             t.Eq(1, run.SnowStack, "[clearE] fastClear없이 boss만 → SnowStack 2→1(순감소)");
             t.Eq(1, run.GrowthStack, "[clearE] GrowthStack 0→1(보스 무관 공통 규칙)");
+
+            // WEB_PARITY P1 ④: 보스 클리어 → DEVICE 노드 신설(웹 game.js:1438,1493-1494). 신규 런이라
+            // OwnedDeviceIds가 비어 있어 드랍이 항상 성사된다 — AUGMENT+무작위2에 "추가"되는 4번째 옵션.
+            t.Eq(4, step.clear.nodeOptions.Count, "[clearE] 보스클리어: 노드 옵션 4개(AUGMENT+2+DEVICE)");
+            t.True(step.clear.nodeOptions.Contains(NodeKind.Device), "[clearE] 노드 옵션에 DEVICE 포함");
+            t.True(!string.IsNullOrEmpty(run.PendingDeviceDrop), "[clearE] PendingDeviceDrop에 오퍼 장치id 세팅됨");
         }
 
         // RollNextNodes: nextStage<6이면 CURSE/RISK가 풀 자체에 없어(구조적 보장) 어떤 시드로도 절대 등장
@@ -1051,8 +1182,11 @@ namespace JackpotRun.EngineTests
                 run.Stage = 5; run.StageExp = 1_000_000; // clearedStage=5 → nextStage=6(>=6 분기 진입)
                 var step = StageFlow.ProcessSpin(run, SpinMode.N);
                 if (step.kind != SpinStepKind.Cleared) continue;
-                t.Eq(3, step.clear.nodeOptions.Count, "[rollNodes] nextStage>=6: 노드 옵션 항상 3개");
+                // WEB_PARITY P1 ④: stage5는 보스 스테이지라 신규 런(OwnedDeviceIds 항상 빈 상태)에서는
+                // DEVICE 노드가 매번 추가되어 4개(AUGMENT+2+DEVICE)가 된다(3개였던 기존 어서션을 갱신).
+                t.Eq(4, step.clear.nodeOptions.Count, "[rollNodes] nextStage>=6(보스클리어): 노드 옵션 4개(AUGMENT+2+DEVICE)");
                 t.True(step.clear.nodeOptions.Contains(NodeKind.Augment), "[rollNodes] nextStage>=6: AUGMENT 필수 포함");
+                t.True(step.clear.nodeOptions.Contains(NodeKind.Device), "[rollNodes] 보스클리어: DEVICE 필수 포함(신규 런 = 미보유 장치 항상 존재)");
                 if (step.clear.nodeOptions.Contains(NodeKind.Curse) || step.clear.nodeOptions.Contains(NodeKind.Risk))
                     sawCurseOrRiskHighStage = true;
             }

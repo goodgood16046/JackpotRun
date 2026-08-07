@@ -48,9 +48,13 @@ namespace JackpotRun.UI2
             public string machineId;
             public string deviceId;
             public bool valid;
+            // WEB_PARITY P1 ②: 첫 판 즉시 시작(runs==0) 경로로 들어왔는지 — Play 씬 RunView가 최초
+            // 갱신 시 안내 토스트를 1회만 띄우도록 ConsumeFirstRunToast()로 소비한다(웹 game.js:361 토스트 대응).
+            public bool firstRunToast;
         }
 
         private PendingLaunchInfo _pending;
+        private bool _firstRunToastPending;
 
         private CanvasGroup _fadeGroup;
         private bool _transitioning;
@@ -111,6 +115,7 @@ namespace JackpotRun.UI2
                 charId = _pending.charId;
                 machineId = _pending.machineId;
                 deviceId = _pending.deviceId;
+                _firstRunToastPending = _pending.firstRunToast;
                 _pending.valid = false;
             }
             else
@@ -147,7 +152,7 @@ namespace JackpotRun.UI2
         /// <summary>PickView "시작" → 실제 런 시작(구 JackpotRunApp.ShowRun/AppRoot.StartRun 계승).
         /// PendingLaunch를 저장하고 페이드아웃 → Play 씬 로드 → PlaySceneRoot가 세션을 만들어
         /// 이어받는다(설계 S8 "전환 흐름").</summary>
-        public void StartRun(string charId, string machineId, string deviceId)
+        public void StartRun(string charId, string machineId, string deviceId, bool firstRunToast = false)
         {
             if (_transitioning) return;
             _pending = new PendingLaunchInfo
@@ -156,8 +161,18 @@ namespace JackpotRun.UI2
                 machineId = machineId,
                 deviceId = deviceId ?? string.Empty,
                 valid = true,
+                firstRunToast = firstRunToast,
             };
             StartCoroutine(TransitionToScene(PlaySceneName));
+        }
+
+        /// <summary>WEB_PARITY P1 ②: Play 씬 RunView가 런 시작 직후 1회만 소비하는 안내 토스트 플래그
+        /// (첫 판 즉시시작 경로로 진입했을 때만 true) — 소비하면 즉시 false로 되돌아간다.</summary>
+        public bool ConsumeFirstRunToast()
+        {
+            bool v = _firstRunToastPending;
+            _firstRunToastPending = false;
+            return v;
         }
 
         /// <summary>런 종료(GameOverPanel "메뉴로") — 세션을 비우고 프로필을 디스크에서 다시 읽은 뒤

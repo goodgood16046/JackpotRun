@@ -19,6 +19,9 @@ namespace JackpotRun.Engine
         EventAugment,
         EventRelic,
         EventShop,
+        // WEB_PARITY P1 ④: DEVICE 노드 선택 후 [장착하기]/[코인+15] 결정을 기다리는 상태(웹 PHASE.DEVICE_NODE,
+        // game.js:1696 `case "DEVICE": r.phase = PHASE.DEVICE_NODE;`) — NodeEvents.TakeDevice가 해소한다.
+        DeviceNode,
         GameOver,
     }
 
@@ -36,6 +39,9 @@ namespace JackpotRun.Engine
         Event,
         Curse,
         Risk,
+        // WEB_PARITY P1 ④: 보스 클리어 직후에만 등장(웹 game.js:1438,1493 — drops.length일 때만 노드에
+        // 추가되는 4번째 옵션). 선택 시 RunState.PendingDeviceDrop을 오퍼로 보여주고 장착/코인 중 택1.
+        Device,
     }
 
     // 표시 모드 — SlotV2RunRow.displayMode. UI 연출 선택일 뿐 수치 로직에 영향 없음(카톡 전용 요소 아님 —
@@ -166,6 +172,25 @@ namespace JackpotRun.Engine
 
         public bool RunUsedCmd = false;  // 이번 런 특수 스핀명령(집중/올인/기도/최후) 사용 여부
         public bool RunRerolled = false; // 이번 런 재굴림/조작 장치 사용 여부
+
+        // ── WEB_PARITY P1 ①: 특수스핀 첫 사용 무료 (웹 game.js:347 cmdFreeUsed) ──────────────────
+        // 런 단위(종류별 "FOCUS"/"ALLIN"/"PRAY"/"LAST" 첫 1회) — StageFlow.ClearStage의 스테이지 스코프
+        // 리셋(UsedCmds.RemoveWhere 등)에서 절대 건드리지 않는다. 발동이 실제로 성공했을 때만
+        // SpinResolver.ResolveSpin이 추가한다(코인부족/타이밍 등으로 거부되면 미소진 — 웹과 동일, §2-E).
+        public readonly HashSet<string> CmdFreeUsed = new HashSet<string>();
+
+        // ── WEB_PARITY P1 ④: DEVICE 노드 / EVENT 장치획득 — 런 스코프 "영구보유 장치" 캐시 ──────────
+        // PlayerProfile.OwnedDevices(Engine/Profile, 이 어셈블리 밖 상위 계층)의 미러. RunController
+        // 생성 시 호출측(GameSession)이 프로필의 보유 목록으로 채워 넣고, 런 중 EVENT 10분기표 6번/
+        // DEVICE 노드로 새로 얻은 장치도 즉시 여기 추가한다(같은 런 안에서 중복 지급 방지). 실제
+        // 프로필 영속화는 이 필드가 아니라 RunEvent.deviceGrantedId를 관찰하는 StatTracker가 담당
+        // (엔진은 Engine/Profile을 참조하지 않는다 — 설계 원칙 6).
+        public readonly HashSet<string> OwnedDeviceIds = new HashSet<string>();
+
+        // 보스 클리어 직후 DEVICE 노드에 오퍼할 장치 id("" = 이번 클리어에 드랍 없음/이미 소비됨) —
+        // 웹 r._drop(game.js:1438,1493-1494) 대응. NodeKind.Device 선택 시(NodeEvents.TakeDevice)
+        // 이 값을 소비하고 다시 ""로 리셋한다.
+        public string PendingDeviceDrop = "";
 
         public RunState(long seed)
         {

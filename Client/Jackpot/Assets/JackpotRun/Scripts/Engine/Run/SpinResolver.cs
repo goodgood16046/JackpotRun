@@ -670,6 +670,12 @@ namespace JackpotRun.Engine
 
             bool bossStage = Bosses.For(run.Stage) != null;
             int cmdCost = CmdCoinCost(mode, bossStage);
+            // ── WEB_PARITY P1 ①: 특수스핀 첫 사용 무료(런 단위 종류별 1회, 웹 game.js:883-884) ──────
+            // 코인 0이어도 발동(검증 자체를 면제) — 실제 발동이 "성공"했을 때만(거부 3경로 통과 후)
+            // 아래 상태 반영부에서 CmdFreeUsed에 추가한다(§2-E: 거부 시 미소진). 기존 CmdCoinCost 표
+            // (1/2/3/4, 보스+1, 상한5)는 불변 — 무료는 그 위에 얹는 오버레이일 뿐이다.
+            bool isFreeUse = mode != SpinMode.N && !run.CmdFreeUsed.Contains(CmdMarker(mode));
+            if (isFreeUse) cmdCost = 0;
             if (mode != SpinMode.N)
             {
                 if (mode == SpinMode.Last && run.SpinIndex != spins - 1)
@@ -718,6 +724,9 @@ namespace JackpotRun.Engine
                     outcomeNotes.Add("⏰최후 EXP ×1.75");
                     break;
             }
+            // WEB_PARITY P1 ①: 무료 발동 배너(웹 game.js:1141 "🆓첫 사용 무료") — astral 이모지 금지,
+            // 한글만(uGUI Text 렌더 제약, 이 파일 CLAUDE.md 지시).
+            if (isFreeUse) outcomeNotes.Add("첫 사용 무료");
 
             if (run.PendingNextExpMul != 1.0)
             {
@@ -775,7 +784,14 @@ namespace JackpotRun.Engine
             run.FlameNext = res.flameNext;
             run.SeedNext = res.seedNext;
             run.ArmItems.Clear();
-            if (mode != SpinMode.N) run.UsedCmds.Add(CmdMarker(mode));
+            if (mode != SpinMode.N)
+            {
+                run.UsedCmds.Add(CmdMarker(mode));
+                // WEB_PARITY P1 ①: 무료권은 "발동 성공" 시에만 소진(위에서 거부 3경로를 이미 통과한
+                // 뒤라 여기 도달 = 성공). 스테이지 클리어 리셋(StageFlow.ClearStage)은 이 필드를
+                // 건드리지 않으므로 런 끝까지 종류별 1회만 유지된다.
+                if (isFreeUse) run.CmdFreeUsed.Add(CmdMarker(mode));
+            }
             if (destroyDevice) run.Device = "";
             run.LastCells.Clear(); run.LastCells.AddRange(rawIds);
             run.LastGain = gained;

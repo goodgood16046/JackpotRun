@@ -298,6 +298,58 @@ namespace JackpotRun.EngineTests
         }
     }
 
+    // ── WEB_PARITY P1 ④ Opus 1차검수 수정②(2026-08-07) — 장치 영구 보유 왕복 ──────────────────────
+    // NODE_RESOLVED(deviceGrantedId)(DEVICE 노드/EVENT-6) → StatTracker.Apply → PlayerProfile.
+    // OwnedDevices 반영 → ProfileDto 저장/로드 후에도 유지되는지 확인한다. GameSession(RunController→
+    // StatTracker 브릿지 호출부)은 Unity 어셈블리(Assets/JackpotRun/Scripts/Game)라 순수 C# EngineTests
+    // 프로젝트에서 직접 인스턴스화할 수 없다 — 대신 NodeEvents가 실제로 만드는 RunEvent 형태(EVENT-6/
+    // DEVICE 노드 둘 다 type="NODE_RESOLVED", deviceGrantedId 채움)를 그대로 손으로 구성해 StatTracker
+    // 레벨부터 DTO 왕복까지 검증한다 — GameSession.Do/DoGiveUp은 이 StatTracker.Apply를 그대로 호출할
+    // 뿐이라(GameSession.cs 참조) 이 레벨 검증으로 실질 커버리지는 동일하다.
+    internal static class Tests_S5_DeviceGrantPersistence
+    {
+        public static void Run(TestCtx t)
+        {
+            EventNodeGrantPersistsThroughDto(t);
+            DeviceNodeGrantPersistsThroughDto(t);
+        }
+
+        // EVENT 10분기표 6번 분기(NodeEvents.ResolveEventTable case 6)의 실제 결과 형태를 재현.
+        private static void EventNodeGrantPersistsThroughDto(TestCtx t)
+        {
+            var profile = new PlayerProfile();
+            var run = S4TestHelpers.NewRun(8001L);
+            var scratch = new StatTracker.RunScratch();
+            t.True(!profile.OwnedDevices.Contains("dev_flame"), "[device-persist:event] 사전조건: 미보유");
+
+            var ev = new RunEvent { type = "NODE_RESOLVED", node = NodeKind.Event, eventRoll = 6, deviceGrantedId = "dev_flame" };
+            StatTracker.Apply(profile, run, new List<RunEvent> { ev }, scratch);
+            t.True(profile.OwnedDevices.Contains("dev_flame"), "[device-persist:event] StatTracker가 OwnedDevices에 반영");
+
+            var dto = ProfileDto.ToDto(profile);
+            var restored = ProfileDto.FromDto(dto);
+            t.True(restored.OwnedDevices.Contains("dev_flame"), "[device-persist:event] DTO 저장/로드 왕복 후에도 유지");
+        }
+
+        // DEVICE 노드 확정(NodeEvents.TakeDevice)의 실제 결과 형태를 재현 — 장착/미장착 어느 쪽이든
+        // deviceGrantedId는 채워진다(NodeEvents.cs TakeDevice 참조).
+        private static void DeviceNodeGrantPersistsThroughDto(TestCtx t)
+        {
+            var profile = new PlayerProfile();
+            var run = S4TestHelpers.NewRun(8002L);
+            var scratch = new StatTracker.RunScratch();
+
+            var ev = new RunEvent { type = "NODE_RESOLVED", node = NodeKind.Device, deviceGrantedId = "dev_seal", deviceId = "dev_seal" };
+            StatTracker.Apply(profile, run, new List<RunEvent> { ev }, scratch);
+            t.True(profile.OwnedDevices.Contains("dev_seal"), "[device-persist:node] StatTracker가 OwnedDevices에 반영(장착/미장착 무관)");
+
+            var dto = ProfileDto.ToDto(profile);
+            var restored = ProfileDto.FromDto(dto);
+            t.True(restored.OwnedDevices.Contains("dev_seal"), "[device-persist:node] DTO 저장/로드 왕복 후에도 유지");
+            t.Eq(1, restored.OwnedDevices.Count, "[device-persist:node] 정확히 1개만 보유(중복/누락 없음)");
+        }
+    }
+
     // ── ⑤ 계정 레벨 연동(Formulas.AccountExp/ExpToLevel) — 손 계산 골든값 ──────────────────────────
     internal static class Tests_S5_AccountLevelIntegration
     {
