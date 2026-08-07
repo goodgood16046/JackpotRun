@@ -24,13 +24,21 @@ namespace JackpotRun.Engine
         public bool lastSpinClear;    // newSpinIndex >= spins
         public bool closeClear;       // leftover <= 10
         public bool fastClear;        // leftSpins >= 2
-        public long overPct;          // newExp*100/quota (정수 나눗셈), quota<=0이면 100
-        public string grade;          // "✅합격".."💥슬롯파괴자"
-        public long gradeBonus;
-        public long closeBonus;       // 턱걸이/아슬아슬/막판클리어/연승 합
-        public long clearScore;       // Formulas.StageClearScore(...)
-        public long gainedScore;      // inDebt면 0, 아니면 clearScore+closeBonus+gradeBonus
-        public long clearCoin;        // inDebt면 0, 아니면 (boss?BOSS_COIN:CLEAR_COIN)+mods.clearCoinBonus
+        public long overPct;          // newExp*100/quota (정수 나눗셈), quota<=0이면 100 — 업적/통계 전용(StatTracker), 점수와 무관.
+        // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B / 항목1): 등급은 연출 전용 — 점수에 가산되지 않는다.
+        // 웹 ui.js:1684-1698 clearGrade()의 6단계(1~5 + exact=PERFECT)를 한글 라벨로 옮겼다(astral
+        // 이모지 금지 — 웹 sub 문구를 그대로 사용). 옛 gradeBonus 필드는 폐기(더 이상 점수에 안 더함).
+        public string grade;          // "클리어 성공!".."전설적인 대폭발!!" / "딱 맞춤 — 완벽 클리어!"
+        // Opus 검수 반영(2026-08-07) 항목3: 웹 clearGrade()가 반환하는 tier 값 그대로(1~5, PERFECT=6).
+        // P4 연출이 grade 문자열을 역파싱하지 않도록 등급을 숫자로도 노출 — grade 문자열은 그대로 유지.
+        public int gradeTier;         // 1~5 + PERFECT=6 (웹 ui.js:1685 `tier: 6, key: "perfect"`)
+        public long streakBonus;      // Formulas.StreakBonus(clearedStage) — 웹 game.js:1412 streak 가산분
+        public long clearScore;       // Formulas.StageClearScore(...) — 웹 stage×50+leftover×2+leftSpins×100+(boss?500:0)
+        public long gainedScore;      // inDebt면 0, 아니면 clearScore+streakBonus
+        // Opus 검수 반영(2026-08-07): inDebt와 무관하게 항상 CLEAR_COIN+(boss?BOSS_COIN:0)+mods.clearCoinBonus
+        // 지급 — 웹 game.js:1416-1420은 gain(점수)만 debt로 0 처리하고 clearCoin 지급줄은 그 조건문
+        // 바깥에서 무조건 실행된다(코인은 빚과 무관).
+        public long clearCoin;        // CLEAR_COIN+(boss?BOSS_COIN:0)+mods.clearCoinBonus (inDebt 무관, 항상 지급)
         public bool inDebt;
         public List<NodeKind> nodeOptions; // 항상 3개(AUGMENT 필수 + 무작위 2개)
         public bool nextNodeForcedPrism;   // 보스 클리어 직후 = 다음 AUGMENT/RELIC 노드 PRISM 확정(§3-F)
@@ -139,25 +147,57 @@ namespace JackpotRun.Engine
             var mods = ModsBuilder.ApplyItemMods(
                 ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device),
                 run.PhaseItems);
-            long clearCoin = inDebt ? 0 : (boss ? Formulas.BOSS_COIN : Formulas.CLEAR_COIN) + mods.clearCoinBonus;
+            // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B, 웹 game.js:1419 `C.CLEAR_COIN + (boss ? C.BOSS_COIN : 0)
+            // + clearCoinBonus`): 옛 코드(및 kotlin-reference SlotV2Service.kt:843)는 boss일 때 CLEAR_COIN
+            // 대신 BOSS_COIN으로 "교체"했지만(삼항 replace), 웹은 보스여도 CLEAR_COIN을 유지한 채
+            // BOSS_COIN을 "가산"한다 — 웹 채택 원칙(§0)에 따라 가산식으로 수정(보스 클리어 코인이
+            // 12→17로 늘어남).
+            // Opus 검수 반영(2026-08-07): inDebt 게이트 제거 — 웹 game.js:1416-1420은 `if
+            // (r.debtStages > 0) { gain = 0; ...; debt = true; }` 로 점수(gain)만 0 처리하고, 바로 다음 줄
+            // `const clearCoin = ...; r.coins += clearCoin;` 은 그 if문 밖에 있어 debt 여부와 무관하게
+            // 항상 실행된다 — 빚문서 상태에서도 클리어 코인은 정상 지급.
+            long clearCoin = Formulas.CLEAR_COIN + (boss ? Formulas.BOSS_COIN : 0) + mods.clearCoinBonus;
 
-            long close = 0;
-            if (leftover <= 5) close += 300;
-            else if (leftover <= 10) close += 150;
-            if (newIdx >= spins) close += 200; // 위 조건과 배타적이지 않음(둘 다 성립 시 합산)
-            long streakB = Formulas.StreakBonus(clearedStage);
-            if (streakB > 0) close += streakB;
+            // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B / 항목1, 웹 game.js:1412-1418): 클리어 점수 =
+            // clearScore(=StageClearScore, 등급보너스/아슬아슬보너스/막판보너스/저주배수 전부 없음) +
+            // streakBonus(stage) 뿐이다. 옛 close(300/150/200 턱걸이·막판 보너스)는 웹에 대응 항목이
+            // 없어 완전히 제거 — 대신 streakBonus만 그대로 더한다(웹도 이 둘만 더함).
+            long streakBonus = Formulas.StreakBonus(clearedStage);
+            long gainedScore = inDebt ? 0 : clearScore + streakBonus;
 
+            // overPct(newExp*100/quota, 정수나눗셈)는 StatTracker의 bossOverkillClears/maxOverPct 등
+            // 업적 통계 전용 — 점수/등급 계산과 무관하게 그대로 유지한다(작업 지시: 통계는 기존대로 집계).
             long overPct = quota > 0 ? newExp * 100 / quota : 100;
-            string grade; long gradeBonus;
-            if (overPct >= 500) { grade = "💥슬롯파괴자"; gradeBonus = 1000; }
-            else if (overPct >= 300) { grade = "👹괴물"; gradeBonus = 500; }
-            else if (overPct >= 200) { grade = "🌟천재"; gradeBonus = 250; }
-            else if (overPct >= 150) { grade = "🎓장학생"; gradeBonus = 120; }
-            else if (overPct >= 120) { grade = "✨우수"; gradeBonus = 50; }
-            else { grade = "✅합격"; gradeBonus = 0; }
 
-            long gainedScore = inDebt ? 0 : clearScore + close + gradeBonus;
+            // 웹 파리티 P2(웹 ui.js:1684-1698 clearGrade): 등급은 순수 연출용 — 점수에 가산되지 않는다.
+            // exact(leftover==0)=PERFECT(웹 tier:6). 그 외는 초과율(leftover/quota, newExp가 아니라
+            // leftover 기준인 점에 주의 — overPct 필드와는 다른 계산식)로 tier 1~5, 보스는 +1단계(5 상한).
+            // astral 이모지 금지 — 웹 sub 문구(한글, ui.js 그대로)를 라벨로 사용.
+            // Opus 검수 반영(2026-08-07) 항목3: gradeTier를 웹 clearGrade()의 반환 tier 값 그대로 노출
+            // (1~5, PERFECT=6) — P4 연출 코드가 grade 문자열을 역파싱해 등급을 알아내지 않도록 선행 정리.
+            int gradeTier;
+            string grade;
+            if (leftover == 0)
+            {
+                gradeTier = 6; // 웹 ui.js:1685 `{ tier: 6, key: "perfect", ... }`
+                grade = "딱 맞춤 — 완벽 클리어!";
+            }
+            else
+            {
+                double overExcessPct = quota > 0 ? leftover / (double)quota * 100.0 : 0.0;
+                int tier = overExcessPct < 20.0 ? 1 : overExcessPct < 50.0 ? 2 : overExcessPct < 100.0 ? 3 : overExcessPct < 200.0 ? 4 : 5;
+                if (boss) tier = Math.Min(5, tier + 1);
+                gradeTier = tier;
+                grade = tier switch
+                {
+                    1 => "클리어 성공!",
+                    2 => "훌륭한 클리어!",
+                    3 => "엄청난 초과 달성!",
+                    4 => "압도적인 오버킬!",
+                    _ => "전설적인 대폭발!!",
+                };
+            }
+
             int nextStage = clearedStage + 1;
 
             var nodes = RollNextNodes(run.Rng, nextStage);
@@ -221,8 +261,8 @@ namespace JackpotRun.Engine
                 fastClear = fastClear,
                 overPct = overPct,
                 grade = grade,
-                gradeBonus = gradeBonus,
-                closeBonus = close,
+                gradeTier = gradeTier,
+                streakBonus = streakBonus,
                 clearScore = clearScore,
                 gainedScore = gainedScore,
                 clearCoin = clearCoin,

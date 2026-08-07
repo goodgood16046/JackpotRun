@@ -105,7 +105,8 @@ namespace JackpotRun.Engine
             int n = run.LastCells.Count;
             var newRaw = new List<Cell>(n);
             for (int i = 0; i < n; i++) newRaw.Add(SpinResolver.RollOne(run.Rng, pmods));
-            var res2 = SpinResolver.Evaluate(run.Rng, newRaw, pmods, run.LastSpinNo, spins, run.FlameNext, 0.0);
+            // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): Evaluate capMul 인자 제거(총배율 캡 폐지).
+            var res2 = SpinResolver.Evaluate(run.Rng, newRaw, pmods, run.LastSpinNo, spins, run.FlameNext);
 
             run.StageExp = Math.Max(run.StageExp - run.LastGain, 0) + res2.exp;
             run.Score = Math.Max(run.Score - run.LastScoreGain + res2.score, 0);
@@ -224,8 +225,9 @@ namespace JackpotRun.Engine
                     int spins = SpinResolver.EffSpins(run, pmods);
                     var a = SpinResolver.RollRaw(run.Rng, pmods, reel, run.SeedNext);
                     var b = SpinResolver.RollRaw(run.Rng, pmods, reel, run.SeedNext);
-                    var ea = SpinResolver.Evaluate(run.Rng, a, pmods, run.SpinIndex, spins, false, 0.0).exp;
-                    var eb = SpinResolver.Evaluate(run.Rng, b, pmods, run.SpinIndex, spins, false, 0.0).exp;
+                    // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): Evaluate capMul 인자 제거(총배율 캡 폐지).
+                    var ea = SpinResolver.Evaluate(run.Rng, a, pmods, run.SpinIndex, spins, false).exp;
+                    var eb = SpinResolver.Evaluate(run.Rng, b, pmods, run.SpinIndex, spins, false).exp;
                     var win = eb > ea ? b : a;
                     run.LockedNext.Clear();
                     run.LockedNext.AddRange(win.Select(c => c.sym.id));

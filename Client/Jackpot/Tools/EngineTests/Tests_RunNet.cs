@@ -12,7 +12,9 @@ namespace JackpotRun.EngineTests
     //   2) buildMods ctx 조건부 11종 중 Tests_Run.cs가 다루지 않은 나머지(sacrifice 제외 10종)
     //   3) ApplyItemMods 대표5종 + dev_coin(Devices.fx 단일소스) + ApplyPassiveDevice 4종 + ARMED 통과
     //   4) 저주 스택 임계 3/5/7 중첩, minimalist relic 3/4 경계, Mods.Clone() 딕셔너리 독립성
-    //   5) Evaluate() 세부 메커닉(폭탄/자석/세트3·4·잭팟/인접쌍/양끝/해골/총배율캡/rareBurst)
+    //   5) Evaluate() 세부 메커닉(폭탄/자석/세트3·4·잭팟/인접쌍/양끝/해골/rareBurst) — 총배율캡은 웹
+    //      파리티 P2(WEB_PARITY_DESIGN §2-B)로 제거되어 "캡이 더 이상 작동하지 않음"을 증명하는
+    //      부정 어서션으로 대체(EndsMatchNoCap)
     //   6) ApplyBoss 4종 각각의 정수 나눗셈(내림) 결과
     //   7) QuotaOf/EffSpins/CmdCoinCost + 특수 스핀모드 4종 대표경로 + 거부 3경로 + PHASE_NOT_SPIN 가드
     //   8) StageFlow: fate_bell 회생 경계, 클리어 보상 수치, Growth/SnowStack 갱신, RollNextNodes 분기
@@ -29,9 +31,11 @@ namespace JackpotRun.EngineTests
     //   못 잡는다 — S1 규칙과 동일하게 적용).
     //
     // 셀 구성 규약: Evaluate() 관련 테스트는 SpinResolver.Evaluate(rng, cells, mods, spinIndex, spinsPerStage,
-    // flamePenalty, capMul)를 직접 호출해 셀을 손으로 구성한다(RollRaw의 RNG 가중치 추첨을 우회) — 이러면
-    // "이 셀 조합이 나오면 정확히 이 숫자가 나온다"를 결정론적으로 고정할 수 있다. 대부분 capMul=0으로
-    // 넘겨 총배율 캡을 비활성화한 채 개별 메커닉만 분리 검증하고, 캡 자체는 전용 테스트에서 별도로 켠다.
+    // flamePenalty)를 직접 호출해 셀을 손으로 구성한다(RollRaw의 RNG 가중치 추첨을 우회) — 이러면
+    // "이 셀 조합이 나오면 정확히 이 숫자가 나온다"를 결정론적으로 고정할 수 있다.
+    // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): capMul 매개변수는 총배율 캡 제거로 시그니처에서 빠졌다 —
+    // 옛 "capMul=0으로 캡 비활성화" 관례는 이제 기본 동작이다(EndsMatchNoCap이 극단적 배율 스택에서도
+    // 클램프가 전혀 일어나지 않음을 직접 검증).
     // dice 심볼은 어떤 셀 구성에도 넣지 않았다(rng.Next(12) 소비가 결과에 섞이면 결정론이 깨짐).
     //
     // 스핀모드/StageFlow 테스트는 RunState.LockedNext(예언/타임라인 확정 경로, §2 step16)를 이용해
@@ -437,7 +441,7 @@ namespace JackpotRun.EngineTests
             Set4(t);
             Jackpot5(t);
             AdjacentPairs(t);
-            EndsMatchAndCap(t);
+            EndsMatchNoCap(t);
             SkullPenaltyAndBonus(t);
             RareBurst(t);
         }
@@ -448,7 +452,7 @@ namespace JackpotRun.EngineTests
         private static void Bomb(TestCtx t)
         {
             var cells = new List<Cell> { C("cherry"), C("bomb"), C("book"), C("star"), C("gem") };
-            var res = SpinResolver.Evaluate(UnusedRng, cells, new Mods(), spinIndex: 1, spinsPerStage: 5, flamePenalty: false, capMul: 0);
+            var res = SpinResolver.Evaluate(UnusedRng, cells, new Mods(), spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
 
             // exp = bomb(5) + star(8) + gem(1) + bombExp(16) = 30 (제거된 두 칸은 0)
             t.Eq(30L, res.exp, "[bomb] exp = bomb기본5 + star8 + gem1 + bombExp16 = 30");
@@ -462,7 +466,7 @@ namespace JackpotRun.EngineTests
         private static void Magnet(TestCtx t)
         {
             var cells = new List<Cell> { C("cherry"), C("magnet"), C("book"), C("gem"), C("star") };
-            var res = SpinResolver.Evaluate(UnusedRng, cells, new Mods(), spinIndex: 1, spinsPerStage: 5, flamePenalty: false, capMul: 0);
+            var res = SpinResolver.Evaluate(UnusedRng, cells, new Mods(), spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
 
             // cherry가 idx0,idx1(복사) 2개 → 세트2, 세트보너스 SetExp[2]=8,SetScore[2]=3.
             // exp = cherry3+cherry3+book6+gem1+star8 + 8(세트) = 29
@@ -479,7 +483,7 @@ namespace JackpotRun.EngineTests
         {
             var cells = new List<Cell> { C("cherry"), C("cherry"), C("cherry"), C("book"), C("star") };
             var mods = new Mods { set3ExpMul = 1.25 };
-            var res = SpinResolver.Evaluate(UnusedRng, cells, mods, spinIndex: 1, spinsPerStage: 5, flamePenalty: false, capMul: 0);
+            var res = SpinResolver.Evaluate(UnusedRng, cells, mods, spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
 
             // 기본합 9(cherry×3)+6(book)+8(star)=23, +세트3보너스18=41, ×set3ExpMul1.25=51.25→51(0방향절삭)
             t.Eq(51L, res.exp, "[set3] (23+세트보너스18)×1.25=51.25→51 (0방향 절삭, python 검산)");
@@ -492,7 +496,7 @@ namespace JackpotRun.EngineTests
         {
             var cells = new List<Cell> { C("cherry"), C("cherry"), C("cherry"), C("cherry"), C("book") };
             var mods = new Mods { set4ScoreMul = 1.20 };
-            var res = SpinResolver.Evaluate(UnusedRng, cells, mods, spinIndex: 1, spinsPerStage: 5, flamePenalty: false, capMul: 0);
+            var res = SpinResolver.Evaluate(UnusedRng, cells, mods, spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
 
             // exp = 12(cherry×4)+6(book)+세트4보너스42 = 60 (set4는 exp에 영향 없음, score만)
             t.Eq(60L, res.exp, "[set4] exp = 12+6+세트4보너스42 = 60(set4ScoreMul은 exp 무관)");
@@ -506,7 +510,7 @@ namespace JackpotRun.EngineTests
         private static void Jackpot5(TestCtx t)
         {
             var cells = new List<Cell> { C("crown"), C("crown"), C("crown"), C("crown"), C("crown") };
-            var res = SpinResolver.Evaluate(UnusedRng, cells, new Mods(), spinIndex: 1, spinsPerStage: 5, flamePenalty: false, capMul: 0);
+            var res = SpinResolver.Evaluate(UnusedRng, cells, new Mods(), spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
 
             // exp = 100(crown×5, 20each) + 세트5보너스100 + jackpotFixed520 = 720
             t.Eq(720L, res.exp, "[jackpot] exp = crown합100 + 세트5보너스100 + 잭팟고정520 = 720");
@@ -522,7 +526,7 @@ namespace JackpotRun.EngineTests
         {
             var cells = new List<Cell> { C("cherry"), C("cherry"), C("book"), C("book"), C("star") };
             var mods = new Mods { adjacentSameExp = 20 };
-            var res = SpinResolver.Evaluate(UnusedRng, cells, mods, spinIndex: 1, spinsPerStage: 5, flamePenalty: false, capMul: 0);
+            var res = SpinResolver.Evaluate(UnusedRng, cells, mods, spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
 
             // 기본합 6+12+8=26, +세트2(cherry) 보너스8=34, +인접쌍2×20=40 → 74
             t.Eq(74L, res.exp, "[adjacent] (26+세트보너스8)+인접쌍2×20=74");
@@ -530,26 +534,27 @@ namespace JackpotRun.EngineTests
             t.True(res.notes.Contains("🔗 인접 2쌍 +40"), "[adjacent] note: \"🔗 인접 2쌍 +40\"");
         }
 
-        // 양끝 + 총배율 캡 — mods.endsMatchExpMul=2.0. capBase는 "양끝" 배율 적용 *이전* expNoCenter를
-        // 기준으로 잡히므로(양끝은 exp만 곱하고 expNoCenter는 손대지 않음) capMul을 걸면 캡이 세게 작동하는
-        // 경계 케이스를 만든다 — 이 캡 예외적 baseline이 정확히 지켜지는지가 핵심 회귀 포인트.
-        private static void EndsMatchAndCap(TestCtx t)
+        // 양끝(+총배율 캡 부재 증명) — mods.endsMatchExpMul=2.0. 웹 파리티 P2(WEB_PARITY_DESIGN §2-B):
+        // Evaluate()가 갖고 있던 "총배율 캡"(capBase 대비 capMul 클램프)이 제거됐다 — 이 테스트는 옛
+        // "capMul=1.5로 캡을 강제 발동시켜 43으로 잘리는지" 검증을, "expMul=10처럼 극단적인 전역배수를
+        // 얹어도 전혀 클램프되지 않고 그대로 곱해지는지"로 뒤집어 새 규칙을 증명한다(부정 어서션).
+        private static void EndsMatchNoCap(TestCtx t)
         {
             var cells = new List<Cell> { C("cherry"), C("book"), C("star"), C("gem"), C("cherry") };
             var mods = new Mods { endsMatchExpMul = 2.0 };
 
-            // capMul=0(캡 비활성) — 순수 양끝배율만 관찰: (21+세트2보너스8)=29, ×2.0=58.
-            var resNoCap = SpinResolver.Evaluate(UnusedRng, cells, mods, spinIndex: 1, spinsPerStage: 5, flamePenalty: false, capMul: 0);
-            t.Eq(58L, resNoCap.exp, "[ends] capMul=0: (21+세트보너스8)×2.0=58 (양끝 EXP 2배)");
+            // 순수 양끝배율만 관찰(추가 배수 없음): (21+세트2보너스8)=29, ×2.0=58.
+            var resNoCap = SpinResolver.Evaluate(UnusedRng, cells, mods, spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
+            t.Eq(58L, resNoCap.exp, "[ends] (21+세트보너스8)×2.0=58 (양끝 EXP 2배)");
             t.Eq(18L, resNoCap.score, "[ends] score=gem15+세트보너스3=18");
 
-            // capMul=1.5 — capBase=29(양끝배율 적용 전 expNoCenter) 기준 ceiling=29×1.5=43.5.
-            // variable(58) > ceiling(43.5) → exp=43.5→43(절삭). capBase가 양끝배율을 반영하지 않는다는
-            // 사실 자체를 이 테스트가 고정한다(반영했다면 58<=58×1.5=87이 되어 캡이 발동하지 않았을 것).
-            var resCap = SpinResolver.Evaluate(UnusedRng, cells, mods, spinIndex: 1, spinsPerStage: 5, flamePenalty: false, capMul: 1.5);
-            t.Eq(43L, resCap.exp, "[ends+cap] capBase=29(양끝배율 미반영) × capMul1.5 = 43.5 → 43 (캡 발동, python 검산)");
-            t.True(resCap.notes.Any(n => n.Contains("총배율 캡")), "[ends+cap] note에 총배율 캡 표시 포함");
-            t.Eq(18L, resCap.score, "[ends+cap] score는 캡 영향 없음(캡은 exp 전용) — 18 그대로");
+            // 극단적 전역배수(expMul=10)를 추가로 얹는다 — 옛 시스템이었다면 capBase=29 기준으로 세게
+            // 클램프됐을 조합(29×capMul 수준으로 잘렸을 것)이지만, 캡이 없으므로 58×10=580 그대로 나온다.
+            var modsHuge = new Mods { endsMatchExpMul = 2.0, expMul = 10.0 };
+            var resNoClamp = SpinResolver.Evaluate(UnusedRng, cells, modsHuge, spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
+            t.Eq(580L, resNoClamp.exp, "[ends+huge] 58×expMul10=580 — 클램프 없이 그대로(옛 캡이었다면 이보다 훨씬 작았을 값)");
+            t.True(!resNoClamp.notes.Any(n => n.Contains("총배율 캡")), "[ends+huge] note에 '총배율 캡' 표시 없음(메커니즘 자체가 삭제됨)");
+            t.Eq(18L, resNoClamp.score, "[ends+huge] score는 expMul과 무관(exp 전용 배수) — 18 그대로");
         }
 
         // 해골 — mods 기본값(skullExp=0,perSkullExp=0)이면 페널티 분기: pen=skulls×SKULL_PENALTY(3)×1.0.
@@ -558,13 +563,13 @@ namespace JackpotRun.EngineTests
         {
             var cells = new List<Cell> { C("skull"), C("skull"), C("cherry"), C("book"), C("star") };
 
-            var resPenalty = SpinResolver.Evaluate(UnusedRng, cells, new Mods(), spinIndex: 1, spinsPerStage: 5, flamePenalty: false, capMul: 0);
+            var resPenalty = SpinResolver.Evaluate(UnusedRng, cells, new Mods(), spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
             // 기본합 0+0+3+6+8=17, 세트 미형성(cherry/book/star 각1개, bestCount1<2), 페널티 skulls2×3×1=6 → 11
             t.Eq(11L, resPenalty.exp, "[skull-] 기본17 - 페널티(2×3)=11");
             t.True(resPenalty.notes.Contains("☠ 2개 -6"), "[skull-] note: \"☠ 2개 -6\"");
 
             var modsBonus = new Mods { skullExp = 5 };
-            var resBonus = SpinResolver.Evaluate(UnusedRng, cells, modsBonus, spinIndex: 1, spinsPerStage: 5, flamePenalty: false, capMul: 0);
+            var resBonus = SpinResolver.Evaluate(UnusedRng, cells, modsBonus, spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
             // skull 셀 자체가 5씩 기여(2×5=10) → 기본합 5+5+3+6+8=27, 보너스분기(패널티 없음)
             t.Eq(27L, resBonus.exp, "[skull+] skullExp=5: skull 셀당 +5(×2)로 기본합27, 페널티 없음(해골빌드 보너스분기)");
             t.True(resBonus.notes.Contains("☠ 2개 +10 (해골빌드)"), "[skull+] note: \"☠ 2개 +10 (해골빌드)\"");
@@ -576,7 +581,7 @@ namespace JackpotRun.EngineTests
         {
             var cells = new List<Cell> { C("crown"), C("wild"), C("cherry"), C("book"), C("star") };
             var mods = new Mods { rareBurstExpMul = 1.8, rareBurstScoreMul = 1.5 };
-            var res = SpinResolver.Evaluate(UnusedRng, cells, mods, spinIndex: 1, spinsPerStage: 5, flamePenalty: false, capMul: 0);
+            var res = SpinResolver.Evaluate(UnusedRng, cells, mods, spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
 
             // 기본합 20(crown)+0(wild)+3(cherry)+6(book)+8(star)=37, wild가 cherry(최다,count1)에 합류→count2,
             // 세트2보너스8 → 45, ×rareBurstExpMul1.8=81.
@@ -589,7 +594,11 @@ namespace JackpotRun.EngineTests
         }
     }
 
-    // ── ⑥ ApplyBoss 4종 — 정수 나눗셈(내림) 결과 ─────────────────────────────────────────────────
+    // ── ⑥ ApplyBoss — 정수 나눗셈(내림) 결과 (웹 engine.js:1088-1104 applyBossExp) ──────────────────
+    // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B / 항목3): expectedPerSpin/augCount 매개변수가 시그니처에서
+    // 빠졌다 — grad(졸업심사)의 "pace" EXP 룰이 웹에는 없어서 제거됐기 때문(quotaMul 1.15만 유지,
+    // Bosses.cs). 옛 Grad(t) 테스트(pace/augCount 분기 검증)는 GradNoLongerAppliesPaceRule로 교체해
+    // "매우 낮은 gained·매우 이른 스핀에서도 grad는 아무 보정도 하지 않음"을 직접 증명한다.
     internal static class Tests_RunNet_ApplyBoss
     {
         public static void Run(TestCtx t)
@@ -597,7 +606,7 @@ namespace JackpotRun.EngineTests
             Finals(t);
             Strict(t);
             Luck(t);
-            Grad(t);
+            GradNoLongerAppliesPaceRule(t);
             UnknownBossDefault(t);
         }
 
@@ -607,19 +616,19 @@ namespace JackpotRun.EngineTests
         {
             var boss = Bosses.ById("finals");
 
-            var (gLast, nLast) = SpinResolver.ApplyBoss(boss, 100, null, spinIndex: 4, spins: 5, expectedPerSpin: 0, augCount: 0);
+            var (gLast, nLast) = SpinResolver.ApplyBoss(boss, 100, null, spinIndex: 4, spins: 5);
             t.Eq(200L, gLast, "[finals] 막스핀: 100×2=200");
             t.Eq(" · 📝기말 막스핀×2", nLast, "[finals] 막스핀 note 원문(TrimStart 이전)");
 
-            var (gFirst, nFirst) = SpinResolver.ApplyBoss(boss, 100, null, spinIndex: 0, spins: 5, expectedPerSpin: 0, augCount: 0);
+            var (gFirst, nFirst) = SpinResolver.ApplyBoss(boss, 100, null, spinIndex: 0, spins: 5);
             t.Eq(90L, gFirst, "[finals] 첫스핀: 100×9/10=90(정수나눗셈)");
             t.Eq(" · 📝기말 첫스핀-10%", nFirst, "[finals] 첫스핀 note 원문");
 
             // 절삭 확인: 15×9=135, /10=13.5 → 정수나눗셈 13(반올림 아님).
-            var (gFirstTrunc, _) = SpinResolver.ApplyBoss(boss, 15, null, spinIndex: 0, spins: 5, expectedPerSpin: 0, augCount: 0);
+            var (gFirstTrunc, _) = SpinResolver.ApplyBoss(boss, 15, null, spinIndex: 0, spins: 5);
             t.Eq(13L, gFirstTrunc, "[finals] 첫스핀 절삭: 15×9/10=13.5→13(내림, 반올림 아님)");
 
-            var (gMid, nMid) = SpinResolver.ApplyBoss(boss, 100, null, spinIndex: 2, spins: 5, expectedPerSpin: 0, augCount: 0);
+            var (gMid, nMid) = SpinResolver.ApplyBoss(boss, 100, null, spinIndex: 2, spins: 5);
             t.Eq(100L, gMid, "[finals] 중간스핀: 변화 없음");
             t.Eq("", nMid, "[finals] 중간스핀: note 없음");
         }
@@ -629,11 +638,11 @@ namespace JackpotRun.EngineTests
         {
             var boss = Bosses.ById("strict");
 
-            var (gLow, nLow) = SpinResolver.ApplyBoss(boss, 101, new SpinResult { bestSetCount = 2 }, spinIndex: 0, spins: 5, expectedPerSpin: 0, augCount: 0);
+            var (gLow, nLow) = SpinResolver.ApplyBoss(boss, 101, new SpinResult { bestSetCount = 2 }, spinIndex: 0, spins: 5);
             t.Eq(50L, gLow, "[strict] bestSetCount=2(<3): 101/2=50.5→50(내림)");
             t.Eq(" · 👨‍🏫콤보없음 ×0.5", nLow, "[strict] note 원문");
 
-            var (gHigh, nHigh) = SpinResolver.ApplyBoss(boss, 100, new SpinResult { bestSetCount = 3 }, spinIndex: 0, spins: 5, expectedPerSpin: 0, augCount: 0);
+            var (gHigh, nHigh) = SpinResolver.ApplyBoss(boss, 100, new SpinResult { bestSetCount = 3 }, spinIndex: 0, spins: 5);
             t.Eq(100L, gHigh, "[strict] bestSetCount=3(경계, >=3): 변화 없음");
             t.Eq("", nHigh, "[strict] bestSetCount=3: note 없음");
         }
@@ -645,42 +654,43 @@ namespace JackpotRun.EngineTests
             var rareCells = new List<Cell> { new Cell(Symbols.ById("star")), new Cell(Symbols.ById("cherry")), new Cell(Symbols.ById("cherry")), new Cell(Symbols.ById("cherry")), new Cell(Symbols.ById("cherry")) };
             var norareCells = Enumerable.Range(0, 5).Select(_ => new Cell(Symbols.ById("cherry"))).ToList();
 
-            var (gRare, nRare) = SpinResolver.ApplyBoss(boss, 101, new SpinResult { cells = rareCells }, spinIndex: 0, spins: 5, expectedPerSpin: 0, augCount: 0);
+            var (gRare, nRare) = SpinResolver.ApplyBoss(boss, 101, new SpinResult { cells = rareCells }, spinIndex: 0, spins: 5);
             t.Eq(181L, gRare, "[luck] 희귀 있음: 101×18/10=181.8→181(내림)");
             t.Eq(" · 🎲희귀 ×1.8", nRare, "[luck] note 원문(희귀)");
 
-            var (gNorare, nNorare) = SpinResolver.ApplyBoss(boss, 101, new SpinResult { cells = norareCells }, spinIndex: 0, spins: 5, expectedPerSpin: 0, augCount: 0);
+            var (gNorare, nNorare) = SpinResolver.ApplyBoss(boss, 101, new SpinResult { cells = norareCells }, spinIndex: 0, spins: 5);
             t.Eq(80L, gNorare, "[luck] 희귀 없음: 101×8/10=80.8→80(내림)");
             t.Eq(" · 🎲노희귀 ×0.8", nNorare, "[luck] note 원문(노희귀)");
         }
 
-        // grad: pace=expectedPerSpin*0.7. expectedPerSpin>0 && gained<pace 일 때만: augCount<3 →
-        // gained*75/100, augCount>=3 → gained*85/100 (둘 다 정수나눗셈). expectedPerSpin<=0이면 항상 무효.
-        private static void Grad(TestCtx t)
+        // 웹 파리티 P2 부정 어서션: grad는 "pace" 룰이 사라졌으니 gained가 얼마나 낮든(빌드가 얼마나
+        // 빈약하든) 어떤 스핀 위치든 절대 손대지 않는다 — default 분기(변화 없음)로 완전히 떨어진다는
+        // 것을 직접 증명(옛 Grad(t)가 검증하던 "×0.75/×0.85 페널티"가 이제 전혀 발동하지 않음).
+        private static void GradNoLongerAppliesPaceRule(TestCtx t)
         {
             var boss = Bosses.ById("grad");
 
-            var (gWeak, nWeak) = SpinResolver.ApplyBoss(boss, 50, null, spinIndex: 0, spins: 5, expectedPerSpin: 100, augCount: 2);
-            t.Eq(37L, gWeak, "[grad] pace=70,gained50<70,augCount2(<3): 50×75/100=37.5→37(내림)");
-            t.Eq(" · 🎓빈약빌드 ×0.75", nWeak, "[grad] note 원문(빈약빌드)");
+            // 옛 코드였다면 "매우 빈약한 빌드(augCount 없음) + 매우 낮은 gained"로 ×0.75가 걸렸을 조합.
+            var (g1, n1) = SpinResolver.ApplyBoss(boss, 1, null, spinIndex: 0, spins: 5);
+            t.Eq(1L, g1, "[grad] gained=1(극단적으로 낮음)이어도 변화 없음(옛 코드라면 0으로 깎였을 값)");
+            t.Eq("", n1, "[grad] note 없음(빈약빌드 페널티 문구 자체가 발생하지 않음)");
 
-            var (gMid, nMid) = SpinResolver.ApplyBoss(boss, 50, null, spinIndex: 0, spins: 5, expectedPerSpin: 100, augCount: 5);
-            t.Eq(42L, gMid, "[grad] pace=70,gained50<70,augCount5(>=3): 50×85/100=42.5→42(내림)");
-            t.Eq(" · 🎓꾸준함부족 ×0.85", nMid, "[grad] note 원문(꾸준함부족)");
+            // 옛 코드였다면 "빌드 충분(augCount>=3)"이라도 여전히 ×0.85가 걸렸을 조합.
+            var (g2, n2) = SpinResolver.ApplyBoss(boss, 50, null, spinIndex: 2, spins: 5);
+            t.Eq(50L, g2, "[grad] gained=50, 중간스핀: 변화 없음(옛 코드라면 42로 깎였을 값)");
+            t.Eq("", n2, "[grad] note 없음(꾸준함부족 페널티 문구 자체가 발생하지 않음)");
 
-            var (gOk, nOk) = SpinResolver.ApplyBoss(boss, 80, null, spinIndex: 0, spins: 5, expectedPerSpin: 100, augCount: 0);
-            t.Eq(80L, gOk, "[grad] gained80>=pace70: 변화 없음");
-            t.Eq("", nOk, "[grad] gained>=pace: note 없음");
-
-            var (gNoExpected, _) = SpinResolver.ApplyBoss(boss, 10, null, spinIndex: 0, spins: 5, expectedPerSpin: 0, augCount: 0);
-            t.Eq(10L, gNoExpected, "[grad] expectedPerSpin<=0: 조건 자체가 무효라 gained 변화 없음");
+            // 막스핀·큰 gained 조합에서도 동일 — finals와 달리 grad는 spinIndex를 아예 보지 않는다.
+            var (g3, n3) = SpinResolver.ApplyBoss(boss, 9999, null, spinIndex: 4, spins: 5);
+            t.Eq(9999L, g3, "[grad] 막스핀·큰 gained: 변화 없음(finals 전용 규칙과 섞이지 않음)");
+            t.Eq("", n3, "[grad] note 없음");
         }
 
         // 알 수 없는 boss.id — default 분기, 변화 없음(구조적 방어 확인).
         private static void UnknownBossDefault(TestCtx t)
         {
             var fakeBoss = new Boss { id = "no_such_boss" };
-            var (g, n) = SpinResolver.ApplyBoss(fakeBoss, 123, null, spinIndex: 0, spins: 5, expectedPerSpin: 0, augCount: 0);
+            var (g, n) = SpinResolver.ApplyBoss(fakeBoss, 123, null, spinIndex: 0, spins: 5);
             t.Eq(123L, g, "[default] 미지 boss.id: 변화 없음");
             t.Eq("", n, "[default] 미지 boss.id: note 없음");
         }
@@ -951,6 +961,7 @@ namespace JackpotRun.EngineTests
             ClearRewardsHalfCloseAndGrade(t);
             ClearRewardsInDebt(t);
             ClearRewardsBossAndSnowDecrement(t);
+            ClearGradeBoundariesAndTiers(t);
             RollNextNodesStageGate(t);
             // WEB_PARITY P1 ③(2026-08-07): 실패 체인 웹 순서 재배열 회귀 어서션.
             InsuranceBeforeFateBell(t);
@@ -1057,8 +1068,78 @@ namespace JackpotRun.EngineTests
             return run;
         }
 
-        // A: leftover=3(<=5→+300) & lastSpinClear(newIdx5>=spins5→+200) 동시 — close=500.
-        // clearCoinBonus 검증도 겸함(piggy_bank: clearCoinBonus+2 → clearCoin=5+2=7).
+        // Opus 검수 항목2(2026-08-07) 지원 헬퍼: StageFlow.ClearStage(internal)를 SpinOutcome을 직접
+        // 구성해 호출 — quota를 100으로 고정해 leftover/quota 퍼센트가 정수로 딱 떨어지게 만든다(캐릭터
+        // quotaMul 등 실제 스핀 파이프라인의 부동소수 잡음을 배제하고 등급(grade/gradeTier) 산식만
+        // 분리 검증하기 위함). spins=5·leftSpins=0로 고정(등급 산식은 leftover/quota/boss만 본다 —
+        // clearScore/streakBonus 값은 이 테스트의 관심사가 아님).
+        private static ClearOutcome DirectClear(RunState run, long quota, long leftover)
+        {
+            var outcome = new SpinOutcome
+            {
+                rejected = false,
+                mode = SpinMode.N,
+                newExp = quota + leftover,
+                newScore = run.Score,
+                newCoins = run.Coins,
+                newSpinIndex = 5,
+                quota = quota,
+                spins = 5,
+            };
+            return StageFlow.ClearStage(run, outcome);
+        }
+
+        // 웹 파리티 P2 등급 회귀 보강(Opus 1차검수 항목2, 2026-08-07): PERFECT(leftover==0)·tier3·tier4
+        // 라벨·보스 +1이 실제로 비클램프 승급하는 케이스(tier2→3)·정확한 임계 경계(20/50/100/200%) 각
+        // 1건 이상. 기대값은 웹 ui.js:1684-1698 clearGrade()를 손으로 재산출했다(구현 실행 결과 복사
+        // 아님) — overPct=leftover/quota×100(실수), tier: <20→1,<50→2,<100→3,<200→4,else→5, boss는
+        // tier+1(5 상한), leftover==0이면 boss와 무관하게 항상 tier6=PERFECT.
+        private static void ClearGradeBoundariesAndTiers(TestCtx t)
+        {
+            RunState NonBoss(long seed) { var r = RunTestHelpers.NewRun(seed); r.Stage = 1; return r; } // stage1: 비보스
+            RunState Boss(long seed) { var r = RunTestHelpers.NewRun(seed); r.Stage = 5; return r; }     // stage5: finals 보스
+
+            // PERFECT — leftover=0. 웹은 exact 분기를 boss 승급보다 먼저 검사하므로 보스여도 그대로 tier6.
+            var perfectNonBoss = DirectClear(NonBoss(200L), quota: 100, leftover: 0);
+            t.Eq(6, perfectNonBoss.gradeTier, "[grade-perfect] leftover=0(비보스): gradeTier=6(PERFECT)");
+            t.Eq("딱 맞춤 — 완벽 클리어!", perfectNonBoss.grade, "[grade-perfect] leftover=0(비보스): PERFECT 라벨");
+
+            var perfectBoss = DirectClear(Boss(201L), quota: 100, leftover: 0);
+            t.Eq(6, perfectBoss.gradeTier, "[grade-perfect] leftover=0(보스): gradeTier=6(PERFECT, 보스 +1 미적용)");
+            t.Eq("딱 맞춤 — 완벽 클리어!", perfectBoss.grade, "[grade-perfect] leftover=0(보스): PERFECT 라벨(승급 없음)");
+
+            // 임계 경계 — 정확히 20/50/100/200%는 각각 "미만(<)" 조건을 만족하지 못해 다음 tier로 넘어간다
+            // (웹 `overPct < 20 ? 1 : overPct < 50 ? 2 : ...` — 경계값 자체는 항상 상위 tier에 속함).
+            var t20 = DirectClear(NonBoss(210L), quota: 100, leftover: 20); // 20.0% : <20 거짓 → tier2
+            t.Eq(2, t20.gradeTier, "[grade-boundary] leftover20/quota100=정확히20%: <20 거짓 → tier2(경계는 상위 tier)");
+            t.Eq("훌륭한 클리어!", t20.grade, "[grade-boundary] 20% 경계 라벨: 훌륭한 클리어!(tier2)");
+
+            var t50 = DirectClear(NonBoss(211L), quota: 100, leftover: 50); // 50.0% : <50 거짓 → tier3
+            t.Eq(3, t50.gradeTier, "[grade-boundary] leftover50/quota100=정확히50%: <50 거짓 → tier3");
+            t.Eq("엄청난 초과 달성!", t50.grade, "[grade-boundary] 50% 경계 라벨: 엄청난 초과 달성!(tier3)");
+
+            var t100 = DirectClear(NonBoss(212L), quota: 100, leftover: 100); // 100.0% : <100 거짓 → tier4
+            t.Eq(4, t100.gradeTier, "[grade-boundary] leftover100/quota100=정확히100%: <100 거짓 → tier4");
+            t.Eq("압도적인 오버킬!", t100.grade, "[grade-boundary] 100% 경계 라벨: 압도적인 오버킬!(tier4)");
+
+            var t200 = DirectClear(NonBoss(213L), quota: 100, leftover: 200); // 200.0% : <200 거짓 → tier5(상한)
+            t.Eq(5, t200.gradeTier, "[grade-boundary] leftover200/quota100=정확히200%: <200 거짓 → tier5(상한)");
+            t.Eq("전설적인 대폭발!!", t200.grade, "[grade-boundary] 200% 경계 라벨: 전설적인 대폭발!!(tier5)");
+
+            // 보스 비클램프 승급 — leftover30/quota100=30%(tier2)를 비보스/보스 양쪽에서 비교해 실제로
+            // 2→3으로 올라가는지 직접 증명(5 상한에는 안 걸리는 값이라 "클램프 없이 그대로 승급"을 본다).
+            var tier2NonBoss = DirectClear(NonBoss(220L), quota: 100, leftover: 30);
+            t.Eq(2, tier2NonBoss.gradeTier, "[grade-boss-promote] 비보스 leftover30/100=30%: tier2");
+            t.Eq("훌륭한 클리어!", tier2NonBoss.grade, "[grade-boss-promote] 비보스 tier2 라벨");
+            var tier2ToBoss = DirectClear(Boss(221L), quota: 100, leftover: 30);
+            t.Eq(3, tier2ToBoss.gradeTier, "[grade-boss-promote] 보스, 동일 leftover30/100=30%: tier2+1=tier3(비클램프 승급 실증)");
+            t.Eq("엄청난 초과 달성!", tier2ToBoss.grade, "[grade-boss-promote] 승급된 tier3 라벨: 엄청난 초과 달성!");
+        }
+
+        // A: leftover=3, lastSpinClear(newIdx5>=spins5) 동시. 웹 파리티 P2(WEB_PARITY_DESIGN §2-B/항목1):
+        // 옛 close(턱걸이/막판 보너스 300/150/200)는 완전히 제거 — streakBonus(stage1)=0뿐이라 gainedScore
+        // 는 clearScore 그대로다. clearCoinBonus 검증도 겸함(piggy_bank: clearCoinBonus+2 → clearCoin=5+2=7,
+        // 이 항목은 P2 무관이라 불변).
         private static void ClearRewardsCloseAndLast(TestCtx t)
         {
             var run = ClearSetup(70L, stageExp: 86, spinIndex: 4, perks: new[] { "piggy_bank" }); // 101-18+3=86
@@ -1068,12 +1149,12 @@ namespace JackpotRun.EngineTests
             t.Eq(SpinStepKind.Cleared, step.kind, "[clearA] leftover3+막판 → 클리어");
             t.Eq(3L, step.clear.leftover, "[clearA] leftover=104-101=3");
             t.True(step.clear.lastSpinClear, "[clearA] lastSpinClear=true(newIdx5>=spins5)");
-            t.True(step.clear.closeClear, "[clearA] closeClear=true(leftover3<=10)");
-            t.Eq(500L, step.clear.closeBonus, "[clearA] close=300(leftover<=5)+200(막판)=500(stage1 streak=0)");
-            t.Eq(56L, step.clear.clearScore, "[clearA] StageClearScore(1,3,0,curses0,boss false)=50+6+0=56");
-            t.Eq("✅합격", step.clear.grade, "[clearA] overPct=104×100/101=102(<120) → ✅합격");
-            t.Eq(0L, step.clear.gradeBonus, "[clearA] ✅합격 gradeBonus=0");
-            t.Eq(556L, step.clear.gainedScore, "[clearA] gainedScore=56+500+0=556");
+            t.True(step.clear.closeClear, "[clearA] closeClear=true(leftover3<=10, 통계 전용 — 점수 무관하게 계속 집계)");
+            t.Eq(0L, step.clear.streakBonus, "[clearA] streakBonus=StreakBonus(stage1)=0");
+            t.Eq(56L, step.clear.clearScore, "[clearA] StageClearScore(1,3,0,curses0,boss false)=50+6+0=56(옛 턱걸이/막판보너스 없음)");
+            t.Eq("클리어 성공!", step.clear.grade, "[clearA] leftover3/quota101=2.97%(<20%) → tier1(웹 ui.js clearGrade)");
+            t.Eq(102L, step.clear.overPct, "[clearA] overPct=104×100/101=102 — 통계 전용 필드는 새 규칙과 무관하게 그대로");
+            t.Eq(56L, step.clear.gainedScore, "[clearA] gainedScore=clearScore56+streakBonus0=56(옛 556 아님)");
             t.Eq(7L, step.clear.clearCoin, "[clearA] clearCoin=CLEAR_COIN5+piggy_bank clearCoinBonus2=7");
             t.True(!step.clear.inDebt, "[clearA] inDebt=false(DebtStages=0)");
             t.Eq(1, run.GrowthStack, "[clearA] GrowthStack 0→1(클리어마다 +1, 상한5)");
@@ -1081,7 +1162,8 @@ namespace JackpotRun.EngineTests
             t.Eq(stageBefore + 1, run.Stage, "[clearA] Stage+1");
         }
 
-        // B: leftover=8(5<leftover<=10→+150), 막판 아님(leftSpins=3>=2 → fastClear) → SnowStack+1.
+        // B: leftover=8, 막판 아님(leftSpins=3>=2 → fastClear) → SnowStack+1. 웹 파리티 P2: streakBonus만
+        // 반영되고(stage1=0) 옛 close(150) 보너스는 사라진다.
         private static void ClearRewardsHalfCloseAndGrade(TestCtx t)
         {
             var run = ClearSetup(71L, stageExp: 91, spinIndex: 1); // 101-18+8=91, newIdx=2,leftSpins=3
@@ -1091,38 +1173,46 @@ namespace JackpotRun.EngineTests
             t.Eq(8L, step.clear.leftover, "[clearB] leftover=109-101=8");
             t.True(!step.clear.lastSpinClear, "[clearB] lastSpinClear=false(newIdx2<spins5)");
             t.True(step.clear.fastClear, "[clearB] fastClear=true(leftSpins3>=2)");
-            t.Eq(150L, step.clear.closeBonus, "[clearB] close=150(5<leftover8<=10), 막판아님이라 +200 없음, streak(stage1)=0");
+            t.Eq(0L, step.clear.streakBonus, "[clearB] streakBonus=StreakBonus(stage1)=0(옛 close150 아님)");
             t.Eq(366L, step.clear.clearScore, "[clearB] StageClearScore(1,8,3,curses0,boss false)=50+16+300=366");
+            t.Eq(366L, step.clear.gainedScore, "[clearB] gainedScore=clearScore366+streakBonus0=366");
             t.Eq(1, run.SnowStack, "[clearB] fastClear → SnowStack 0→1");
             t.Eq(1, run.GrowthStack, "[clearB] GrowthStack 0→1(공통)");
         }
 
-        // C: leftover=30(>10, 막판아님) → close=0(순수 클리어보상만). overPct=129(120<=..<150) → ✨우수(+50).
+        // C: leftover=30(>10, 막판아님). 웹 파리티 P2: 등급은 이제 leftover/quota 초과율 기준 6단계
+        // 연출(점수 무가산) — overPct(newExp*100/quota) 기반 옛 6단계 gradeBonus 체계는 폐기.
         private static void ClearRewardsInDebt(TestCtx t)
         {
-            // C-1: 등급 경계 확인 (close=0 분기 겸용)
+            // C-1: 등급 경계 확인 (streakBonus=0 분기 겸용)
             var runGrade = ClearSetup(72L, stageExp: 113, spinIndex: 2); // 101-18+30=113 → newExp131
             var stepGrade = StageFlow.ProcessSpin(runGrade, SpinMode.N);
             t.Eq(30L, stepGrade.clear.leftover, "[clearC] leftover=131-101=30(>10)");
-            t.Eq(0L, stepGrade.clear.closeBonus, "[clearC] close=0(leftover>10 & 막판아님, stage1 streak=0)");
-            t.Eq("✨우수", stepGrade.clear.grade, "[clearC] overPct=131×100/101=129(120<=129<150) → ✨우수");
-            t.Eq(50L, stepGrade.clear.gradeBonus, "[clearC] ✨우수 gradeBonus=50");
+            t.Eq(0L, stepGrade.clear.streakBonus, "[clearC] streakBonus=StreakBonus(stage1)=0");
+            t.Eq("훌륭한 클리어!", stepGrade.clear.grade, "[clearC] leftover30/quota101=29.7%(<50%) → tier2(웹 clearGrade, 옛 ✨우수 아님)");
+            t.Eq(129L, stepGrade.clear.overPct, "[clearC] overPct=131×100/101=129 — 통계 전용 필드 불변(옛 gradeBonus 판정 기준이었던 값)");
             t.Eq(310L, stepGrade.clear.clearScore, "[clearC] StageClearScore(1,30,leftSpins2,curses0,false)=50+60+200=310");
-            t.Eq(360L, stepGrade.clear.gainedScore, "[clearC] gainedScore=310+0+50=360");
+            t.Eq(310L, stepGrade.clear.gainedScore, "[clearC] gainedScore=clearScore310+streakBonus0=310(옛 360 아님, gradeBonus50 제거)");
 
-            // C-2: inDebt=true — gainedScore/clearCoin은 0으로 강제되지만 clearScore 자체는 그대로 계산됨.
+            // C-2: inDebt=true — gainedScore(점수)만 0으로 강제되고 clearScore/clearCoin은 그대로 계산됨.
+            // Opus 검수 반영(2026-08-07) 항목1: 웹 game.js:1416-1420은 `if (r.debtStages > 0) { gain = 0;
+            // ...; debt = true; }` 로 gain(점수)만 0 처리하고, 바로 다음 줄의 `const clearCoin = ...;
+            // r.coins += clearCoin;` 은 그 if문 바깥이라 debt와 무관하게 항상 실행된다 — 코인은 무보상이
+            // 아니다(옛 "clearCoin=0 강제" 어서션은 회귀 버그였다).
             var runDebt = ClearSetup(73L, stageExp: 86, spinIndex: 4); // clearRewardsA와 동일 수치(leftover3,막판)
             runDebt.DebtStages = 1;
             var stepDebt = StageFlow.ProcessSpin(runDebt, SpinMode.N);
             t.True(stepDebt.clear.inDebt, "[clearD] DebtStages=1(>0) → inDebt=true");
             t.Eq(56L, stepDebt.clear.clearScore, "[clearD] clearScore는 inDebt와 무관하게 그대로 56(원시 계산값)");
-            t.Eq(0L, stepDebt.clear.gainedScore, "[clearD] inDebt → gainedScore=0(강제)");
-            t.Eq(0L, stepDebt.clear.clearCoin, "[clearD] inDebt → clearCoin=0(강제)");
+            t.Eq(0L, stepDebt.clear.gainedScore, "[clearD] inDebt → gainedScore=0(점수만 강제)");
+            t.Eq(5L, stepDebt.clear.clearCoin, "[clearD] inDebt여도 clearCoin=CLEAR_COIN5+0(비보스)+0(무퍽)=5, 정상 지급(옛 0 아님)");
             t.Eq(0, runDebt.DebtStages, "[clearD] 클리어 후 DebtStages 1→0(1회 소모)");
         }
 
-        // E: 보스 스테이지(5, finals) 클리어 — StreakBonus/BOSS_COIN/grade/등급별 배수 + nextNodeForcedPrism
-        // + SnowStack 보스감소(fastClear 없이 순수 감소만 관찰).
+        // E: 보스 스테이지(5, finals) 클리어 — StreakBonus/BOSS_COIN/grade + nextNodeForcedPrism +
+        // SnowStack 보스감소(fastClear 없이 순수 감소만 관찰). 웹 파리티 P2: clearScore(=StageClearScore,
+        // 저주배수 없음)에 등급보너스 없이 streakBonus만 더해진다 — grade는 leftover/quota 초과율+보스
+        // 가산으로 산정되는 순수 연출(웹 ui.js clearGrade).
         private static void ClearRewardsBossAndSnowDecrement(TestCtx t)
         {
             var run = RunTestHelpers.NewRun(74L);
@@ -1138,12 +1228,16 @@ namespace JackpotRun.EngineTests
             t.Eq(555L, step.clear.leftover, "[clearE] leftover=720-165=555");
             t.True(!step.clear.lastSpinClear, "[clearE] lastSpinClear=false(newIdx5<spins6)");
             t.True(!step.clear.fastClear, "[clearE] fastClear=false(leftSpins=6-5=1<2)");
-            t.Eq(100L, step.clear.closeBonus, "[clearE] close=streakBonus(stage5>=4)=100(leftover>10,막판아님)");
+            t.Eq(100L, step.clear.streakBonus, "[clearE] streakBonus=StreakBonus(stage5>=4)=100");
             t.Eq(1960L, step.clear.clearScore, "[clearE] StageClearScore(5,555,1,curses0,boss true)=250+1110+100+500=1960");
-            t.Eq("👹괴물", step.clear.grade, "[clearE] overPct=720×100/165=436(300<=436<500) → 👹괴물");
-            t.Eq(500L, step.clear.gradeBonus, "[clearE] 👹괴물 gradeBonus=500");
-            t.Eq(2560L, step.clear.gainedScore, "[clearE] gainedScore=1960+100+500=2560");
-            t.Eq(12L, step.clear.clearCoin, "[clearE] clearCoin=BOSS_COIN(12)+0=12");
+            t.Eq(436L, step.clear.overPct, "[clearE] overPct=720×100/165=436 — 통계 전용 필드는 새 등급식과 별개로 그대로 유지");
+            // leftover555/quota165=336.4%(>=200%) → tier5, boss라 min(5,5+1)=5(상한) → 최고단계 그대로.
+            t.Eq("전설적인 대폭발!!", step.clear.grade, "[clearE] leftover555/quota165=336%(>=200%)→tier5, boss+1도 5 상한(웹 clearGrade, 옛 👹괴물 아님)");
+            t.Eq(2060L, step.clear.gainedScore, "[clearE] gainedScore=clearScore1960+streakBonus100=2060(옛 2560 아님, gradeBonus500 제거)");
+            // 웹 파리티 P2(웹 game.js:1419): clearCoin=CLEAR_COIN(5)+BOSS_COIN(12)+0=17 — 옛 코드(및
+            // kotlin-reference)는 boss일 때 CLEAR_COIN 대신 BOSS_COIN으로 "교체"해 12였지만, 웹은
+            // "가산"이라 17이 맞다(StageFlow.cs §2-B 근거 주석 참조, 웹 채택 원칙).
+            t.Eq(17L, step.clear.clearCoin, "[clearE] clearCoin=CLEAR_COIN5+BOSS_COIN12+0=17(옛 12 아님)");
             t.True(step.clear.nextNodeForcedPrism, "[clearE] 보스클리어 → 다음 노드 PRISM 확정");
             t.Eq(1, run.SnowStack, "[clearE] fastClear없이 boss만 → SnowStack 2→1(순감소)");
             t.Eq(1, run.GrowthStack, "[clearE] GrowthStack 0→1(보스 무관 공통 규칙)");

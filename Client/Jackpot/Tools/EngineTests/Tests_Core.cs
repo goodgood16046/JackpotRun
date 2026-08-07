@@ -123,61 +123,53 @@ namespace JackpotRun.EngineTests
         }
     }
 
-    // ── stageClearScore — 01_engine.md §1.4 ─────────────────────────────────────
+    // ── stageClearScore — 웹 파리티 P2(WEB_PARITY_DESIGN §2-B, 웹 engine.js:73-80) ─────────────────
+    // s = stage*50 + leftoverExp*2 + leftSpins*100 (+500 if boss); toLong()(0-방향 절삭). 저주 배수
+    // (옛 s*=(1+0.05*curses))는 웹에 대응 항목이 없어 제거됐다 — curses 인자는 시그니처 호환용으로만
+    // 남는다(웹도 동일). 아래 A/B/E/H는 일부러 curses에 큰 값(99/50/7/42)을 넣어 "결과에 전혀 영향이
+    // 없음"을 직접 증명한다(옛 코드였다면 값이 달라졌을 것 — 새 규칙이 옛 보너스를 더하지 않음을 검증).
     internal static class Tests_Core_StageClearScore
     {
-        // s = stage*50 + leftoverExp*2 + leftSpins*100 (+500 if boss); s *= (1+0.05*curses); toLong()(0-방향 절삭).
-        // 각 케이스는 독립 계산기(파이썬)로 곱셈까지 그대로 재현해 검산했다(순환 검증 금지 규칙 준수).
         public static void Run(TestCtx t)
         {
-            // A: stage=1,leftover=0,leftSpins=0,curses=0,boss=false
-            //   s=1*50=50; +0+0=50; boss없음; *(1+0)=50.0 -> 50
-            t.Eq(50L, Formulas.StageClearScore(1, 0, 0, 0, false), "case A");
+            // A: stage=1,leftover=0,leftSpins=0,curses=99(고의로 큰 값),boss=false
+            //   s=1*50=50; +0+0=50; boss없음 -> 50 (curses=99라도 무관)
+            t.Eq(50L, Formulas.StageClearScore(1, 0, 0, 99, false), "case A (curses=99 무시)");
 
-            // B: stage=5,leftover=20,leftSpins=2,curses=0,boss=true
-            //   s=5*50=250; +20*2=40->290; +2*100=200->490; +500(boss)->990; *(1+0)=990.0 -> 990
-            t.Eq(990L, Formulas.StageClearScore(5, 20, 2, 0, true), "case B");
+            // B: stage=5,leftover=20,leftSpins=2,curses=50(고의로 큰 값),boss=true
+            //   s=5*50=250; +20*2=40->290; +2*100=200->490; +500(boss)->990 (curses=50이라도 무관)
+            t.Eq(990L, Formulas.StageClearScore(5, 20, 2, 50, true), "case B (curses=50 무시)");
 
             // C: stage=10,leftover=0,leftSpins=5,curses=2,boss=false
-            //   s=10*50=500; +0->500; +5*100=500->1000; boss없음; *(1+0.10)=1100.0 -> 1100
-            t.Eq(1100L, Formulas.StageClearScore(10, 0, 5, 2, false), "case C");
+            //   s=10*50=500; +0->500; +5*100=500->1000; boss없음 -> 1000(옛 코드라면 curses2×0.05=1100이었을 값)
+            t.Eq(1000L, Formulas.StageClearScore(10, 0, 5, 2, false), "case C (옛 1100 아님)");
 
             // D: stage=15,leftover=100,leftSpins=3,curses=5,boss=true
-            //   s=15*50=750; +100*2=200->950; +3*100=300->1250; +500->1750; *(1+0.25)=2187.5
-            //   toLong()은 0-방향 절삭(반올림 아님) -> 2187 (.5 경계에서 반올림과 다름을 보이는 케이스)
-            t.Eq(2187L, Formulas.StageClearScore(15, 100, 3, 5, true), "case D (.5 truncation)");
+            //   s=15*50=750; +100*2=200->950; +3*100=300->1250; +500->1750 (옛 코드라면 ×1.25=2187이었을 값)
+            t.Eq(1750L, Formulas.StageClearScore(15, 100, 3, 5, true), "case D (옛 2187 아님)");
 
-            // E: stage=20,전부0,boss=false -> s=1000*(1)=1000
-            t.Eq(1000L, Formulas.StageClearScore(20, 0, 0, 0, false), "case E");
+            // E: stage=20,leftover0,leftSpins0,curses=7(고의로 큰 값),boss=false -> s=1000 (curses 무관)
+            t.Eq(1000L, Formulas.StageClearScore(20, 0, 0, 7, false), "case E (curses=7 무시)");
 
             // F: stage=8,leftover=55,leftSpins=1,curses=7,boss=false
-            //   s=8*50=400; +55*2=110->510; +1*100=100->610; boss없음; *(1+0.35)=823.5 -> 823
-            t.Eq(823L, Formulas.StageClearScore(8, 55, 1, 7, false), "case F");
+            //   s=8*50=400; +55*2=110->510; +1*100=100->610; boss없음 -> 610(옛 코드라면 ×1.35=823이었을 값)
+            t.Eq(610L, Formulas.StageClearScore(8, 55, 1, 7, false), "case F (옛 823 아님)");
 
             // G: stage=25,leftover=12,leftSpins=8,curses=1,boss=true
-            //   s=25*50=1250; +12*2=24->1274; +8*100=800->2074; +500->2574; *(1.05)=2702.7 -> 2702
-            t.Eq(2702L, Formulas.StageClearScore(25, 12, 8, 1, true), "case G");
+            //   s=25*50=1250; +12*2=24->1274; +8*100=800->2074; +500->2574 (옛 코드라면 ×1.05=2702이었을 값)
+            t.Eq(2574L, Formulas.StageClearScore(25, 12, 8, 1, true), "case G (옛 2702 아님)");
 
-            // H: stage=0, 전부 0 -> s=0
-            t.Eq(0L, Formulas.StageClearScore(0, 0, 0, 0, false), "case H (stage 0 edge)");
+            // H: stage=0, leftover/leftSpins=0, curses=42(고의로 큰 값) -> s=0 (curses 무관)
+            t.Eq(0L, Formulas.StageClearScore(0, 0, 0, 42, false), "case H (stage 0 edge, curses=42 무시)");
         }
     }
 
-    // ── capMulFor — 01_engine.md §1.3 ───────────────────────────────────────────
-    internal static class Tests_Core_CapMulFor
-    {
-        public static void Run(TestCtx t)
-        {
-            t.Eq(4.0, Formulas.CapMulFor(5, false), "stage=5(boss) hasPrism=false");
-            t.Eq(5.0, Formulas.CapMulFor(5, true), "stage=5(boss) hasPrism=true");
-            t.Eq(4.0, Formulas.CapMulFor(10, false), "stage=10(boss) hasPrism=false");
-            t.Eq(5.0, Formulas.CapMulFor(10, true), "stage=10(boss) hasPrism=true");
-            t.Eq(5.0, Formulas.CapMulFor(1, false), "stage=1(non-boss) hasPrism=false");
-            t.Eq(8.0, Formulas.CapMulFor(1, true), "stage=1(non-boss) hasPrism=true (MAX_SPIN_EXP_MUL)");
-            t.Eq(5.0, Formulas.CapMulFor(7, false), "stage=7(non-boss) hasPrism=false");
-            t.Eq(8.0, Formulas.CapMulFor(7, true), "stage=7(non-boss) hasPrism=true");
-        }
-    }
+    // ── capMulFor — 웹 파리티 P2로 삭제(WEB_PARITY_DESIGN §2-B) ─────────────────────────────────
+    // 웹 engine.js에는 스핀 총배율 상한이 없다(Formulas.cs 주석 근거) — Formulas.CapMulFor 자체를
+    // 삭제했으므로 이 클래스가 하던 단위 테스트도 함께 삭제한다. "캡이 실제로 더 이상 작동하지 않음"을
+    // 증명하는 부정 어서션은 Evaluate() 레벨에서 더 의미가 크므로 Tests_RunNet.cs
+    // Tests_RunNet_EvaluateMechanics.EndsMatchNoCap로 옮겨 확장했다(옛 이 클래스의 8개 어서션은
+    // 그쪽의 새 어서션들로 상쇄).
 
     // ── tierForClearedStage / tierUp — 01_engine.md §1.5 ────────────────────────
     internal static class Tests_Core_TierCurve

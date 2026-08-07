@@ -102,7 +102,10 @@ namespace JackpotRun.UI2
             if (bannerSubText != null)
             {
                 // S8 항목⑤: 🎉/🌈(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
-                string debt = clear.inDebt ? " (빚 상환 중·무보상)" : "";
+                // Opus 검수 반영(2026-08-07): 빚문서는 점수(gainedScore)만 0이고 코인(clearCoin)은
+                // 정상 지급된다(웹 game.js:1416-1420) — "무보상"이라고 하면 코인도 안 나오는 것처럼
+                // 오해되므로 "점수 보상 0"으로 문구를 좁혔다.
+                string debt = clear.inDebt ? " (빚 상환 중·점수 보상 0)" : "";
                 string prism = clear.nextNodeForcedPrism ? " · 다음 프리즘 확정" : "";
                 bannerSubText.text = $"스테이지 {clear.clearedStage} 클리어 · 코인+{NumberFormat.Comma(clear.clearCoin)}{debt}{prism}";
             }

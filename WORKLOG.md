@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-08-07 - 웹 파리티 P2 완료: 점수·배율캡·보스 웹화
+
+- **클리어 점수 웹 공식 채택**(`game.js:1412-1419`): `stage×50 + leftover×2 + leftSpins×100 +
+  boss500 + streak` — 등급 보너스(50~1000)·closeBonus(150/300)·막판 보너스(200)·저주 배수 전부 제거.
+  등급은 **연출 전용 6단계**로 전환(웹 `ui.js` clearGrade 임계 20/50/100/200%·exact 선처리·보스 +1
+  승급·한글 라벨 1:1 + `gradeTier` 정수 필드). 클리어 코인은 웹이 **가산식**(`5 + 보스12 + 보너스`)
+  임을 확인해 보스 클리어 12→17로 수정, **빚문서는 점수만 0이고 코인은 지급**(웹 대조로 잡은 2건).
+- **총배율 캡 제거**: 웹 일반 모드에 캡 없음을 grep으로 확정(`capMul` 0건, `MAX_SPIN_EXP_MUL`은
+  심화 specialMul 전용) → `Formulas.CapMulFor`·Evaluate capBase/expNoCenter·`lastSpinExpMul` 상한
+  5.0 삭제. Evaluate/ApplyBoss 시그니처 정리(호출부 8곳 전수 갱신).
+- **보스 정리**: grad(졸업심사) pace 룰 제거 — 웹은 EXP 룰 없음, quotaMul 1.15만. finals 분기 순서
+  웹 정렬. finals/strict/luck 수치·정수처리 일치 확인(음수 방어로 C# 정수나눗셈 == JS floor 증명).
+- 파이프라인: Fable 설계 → Sonnet 구현 → Opus 검수(웹 인용 라인 전수 실물 확인, 인용 오류 0 —
+  필수 2건: 빚문서 코인 분리·등급 회귀 보강) → Sonnet 반영 → Fable 최종.
+- 검증: EngineTests 전체 통과(HEAD 기준선 교차 실행으로 의도 외 골든 파손 0, 기대값 전부
+  웹 공식 수기 재산출 — 순환 검증 0). `WEB_PARITY_DESIGN.md` §2-B (I)(J)(K) 근거 라인 추가, P2 완료.
+
 ## 2026-08-07 - 웹 파리티 전환 착수 + P1 완료 (Unity ← `public/play/`)
 
 - 지시 "유니티 게임을 웹페이지에 있는 게임처럼 다 뜯어고쳐줘" — 양측 전수 인벤토리 조사(웹 20개

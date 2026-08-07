@@ -17,6 +17,10 @@ namespace JackpotRun.Engine
         public const int SKULL_PENALTY = 3;
         public const int BOMB_EXP_PER = 8;
         public const int KEY_COIN_PER = 4;
+        // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): 이 상수는 이제 이 엔진 안에서 CapMulFor(제거됨, 아래
+        // 주석) 용도로는 쓰이지 않는다. 웹 engine.js:582 comment("누적 특수배수(럭키7/검은초/불안정폭탄/
+        // 프리즘) — 전역배 직전 C.MAX_SPIN_EXP_MUL(8.0)로 캡")와 동일하게, 심화모드 specialMul 캡
+        // 전용으로 데이터만 보존한다(심화모드 이식은 P7 — 아직 이 상수를 쓰는 코드가 없다).
         public const double MAX_SPIN_EXP_MUL = 8.0;
         public const int UNLUCKY_MAX = 5;
 
@@ -66,21 +70,27 @@ namespace JackpotRun.Engine
         // Core는 Content(Bosses)에 의존하지 않도록 이 동치 관계로 직접 구현한다(디렉터리 의존 방향 유지).
         public static bool IsBossStage(int stage) => stage % 5 == 0;
 
-        // ── 1.3 capMulFor — 스핀 총배율 상한 (SlotV2Engine.kt L70-76) ──────────
-        public static double CapMulFor(int stage, bool hasPrism)
-        {
-            if (IsBossStage(stage)) return hasPrism ? 5.0 : 4.0;
-            return hasPrism ? MAX_SPIN_EXP_MUL : 5.0;
-        }
+        // ── 1.3 capMulFor — 웹 파리티 P2로 제거(WEB_PARITY_DESIGN §2-B) ──────────
+        // 웹 engine.js에는 스핀 총배율(=위치/불꽃/첫막스핀/전역배수 곱) 상한이 없다(grep 결과: 웹
+        // MAX_SPIN_EXP_MUL(8.0)은 럭키7/검은초/불안정폭탄/프리즘의 specialMul 누적에만 쓰이는 별개
+        // 캡이고, engine.js:1009-1011에서만 등장 — SpinResolver.Evaluate가 하던 "총배율 캡"과는 다른
+        // 메커니즘이며 그 specialMul 캡 자체는 아직 이식되지 않음, P7 심화모드 범위). Kotlin 원본에만
+        // 있던 이 함수와 SpinResolver.Evaluate의 capMul 클램프·ResolveSpin의 lastSpinExpMul 5.0 상한을
+        // 함께 제거했다 — 원본 함수/테스트는 git 이력으로만 남는다.
 
-        // ── 1.4 stageClearScore (SlotV2Engine.kt L87-95) ────────────────────────
+        // ── 1.4 stageClearScore (웹 engine.js:73-80 stageClearScore) ────────────
+        // 웹 파리티 P2: 저주 배수(옛 Kotlin s*=(1+0.05*curses)) 제거 — 웹은 저주에 클리어 점수 보너스가
+        // 없다("저주는 패널티 전용" 주석, engine.js:79). curses 매개변수는 웹 함수 시그니처와 그대로
+        // 맞추기 위해 유지하되(웹도 동일하게 미사용 인자로 남겨둠) 계산에는 관여하지 않는다. streakBonus
+        // 는 이 함수에 포함되지 않는다 — 웹도 game.js:1412 실사용부에서 stageClearScore 동등 계산과
+        // streakBonus(stage)를 별도로 더한다(engine.js의 stageClearScore 자체는 streak 미포함 — 호출부가
+        // 전혀 없는 죽은 함수이지만 시그니처/동작을 그대로 이식). Formulas.StreakBonus를 별도로 더할 것.
         public static long StageClearScore(int stage, long leftoverExp, int leftSpins, int curses, bool boss)
         {
             double s = stage * 50.0;
             s += leftoverExp * SCORE_PER_LEFTOVER;
             s += leftSpins * SCORE_PER_LEFTSPIN;
             if (boss) s += BOSS_CLEAR_SCORE;
-            s *= 1.0 + 0.05 * curses;
             return (long)s;
         }
 

@@ -240,10 +240,12 @@ namespace JackpotRun.Engine
             return mods.perSymbolScore.TryGetValue(info.sym, out var v) ? v : 0;
         }
 
-        // ── evaluate() (Kotlin L2131-2356) — 원시 셀 → 폭탄/자석/세트/잭팟/위치/해골/신규16종/캡/전역배수.
+        // ── evaluate() (Kotlin L2131-2356) — 원시 셀 → 폭탄/자석/세트/잭팟/위치/해골/신규16종/전역배수.
+        // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): capMul 매개변수 제거 — 웹 engine.js에는 이 함수가 갖던
+        // "총배율 캡"(위치/불꽃/첫막스핀/전역배수 곱을 capBase 대비 클램프) 자체가 없다.
         public static SpinResult Evaluate(
             Rng rng, IReadOnlyList<Cell> raw, Mods mods, int spinIndex, int spinsPerStage,
-            bool flamePenalty, double capMul)
+            bool flamePenalty)
         {
             var notes = new List<string>();
             var cells = new List<Cell>(raw);
@@ -327,7 +329,6 @@ namespace JackpotRun.Engine
             // 기본 EXP/점수/코인 + 즉발 심볼효과 + 태그 집계
             double exp = 0.0, score = 0.0;
             int coins = 0;
-            double expNoCenter = 0.0;
             double jackpotFixed = 0.0;
             int symCoinGain = 0;
             int keyCount = 0;
@@ -346,7 +347,6 @@ namespace JackpotRun.Engine
                         cellExp += mods.tagExpBonus.TryGetValue(tag, out var teb) ? teb : 0;
                     }
                 }
-                expNoCenter += cellExp;
                 if (idx == reel / 2) cellExp *= mods.centerExpMul; // 가운데 칸 강화
                 exp += cellExp;
                 score += s.score + PerSymScoreBonus(mods, s.id);
@@ -355,12 +355,12 @@ namespace JackpotRun.Engine
                 {
                     case Sp.DICE:
                         int d = 1 + rng.Next(12); // Kotlin nextInt(1,13) == [1,12]
-                        exp += d; expNoCenter += d; notes.Add($"🎲 +{d}");
+                        exp += d; notes.Add($"🎲 +{d}");
                         break;
                     case Sp.SKULL:
                         skulls++;
                         double se = mods.skullExp + mods.perSkullExp;
-                        exp += se; expNoCenter += se; score += mods.skullScoreBonus;
+                        exp += se; score += mods.skullScoreBonus;
                         break;
                     case Sp.COIN:
                         symCoinGain += (int)s.coin;
@@ -370,7 +370,7 @@ namespace JackpotRun.Engine
                         break;
                 }
             }
-            exp += bombExp; expNoCenter += bombExp;
+            exp += bombExp;
 
             if (keyCount > 0)
             {
@@ -389,7 +389,7 @@ namespace JackpotRun.Engine
                 int n = Math.Min(bestCount, Symbols.SetExp.Length - 1);
                 double twoMul = bestCount == 2 ? mods.twoSetBonusMul : 1.0;
                 double add = Symbols.SetExp[n] * mods.setExpMul * twoMul;
-                exp += add; expNoCenter += add; score += Symbols.SetScore[n];
+                exp += add; score += Symbols.SetScore[n];
                 notes.Add($"{Symbols.ById(bestId).emoji}×{bestCount} 세트 +{(int)add}");
                 if (twoMul != 1.0) notes.Add($"👯짝맞춤 +{(int)((twoMul - 1.0) * 100)}%");
             }
@@ -418,7 +418,7 @@ namespace JackpotRun.Engine
                 }
                 if (pairs > 0)
                 {
-                    exp += pairs * mods.adjacentSameExp; expNoCenter += pairs * mods.adjacentSameExp;
+                    exp += pairs * mods.adjacentSameExp;
                     notes.Add($"🔗 인접 {pairs}쌍 +{pairs * mods.adjacentSameExp}");
                 }
             }
@@ -445,13 +445,10 @@ namespace JackpotRun.Engine
                 else
                 {
                     double pen = skulls * Formulas.SKULL_PENALTY * mods.skullPenaltyMul;
-                    exp -= pen; expNoCenter -= pen;
+                    exp -= pen;
                     if (pen > 0) notes.Add($"☠ {skulls}개 -{(int)pen}");
                 }
             }
-
-            // (C2) capBase — 위치/불꽃/전역배수/center 적용 전 가산 baseline. 총배율 캡 비교 기준.
-            double capBase = Math.Max(expNoCenter, 0.0);
 
             // 🔥 불꽃
             bool anyFlame = false;
@@ -463,7 +460,7 @@ namespace JackpotRun.Engine
             if (spinIndex == 0) exp *= mods.firstSpinExpMul;
             if (spinIndex == spinsPerStage - 1) exp *= mods.lastSpinExpMul;
 
-            // 신규 16종 per-spin 조건부 배수 (capBase 이후 · 전역배수 이전 → 총배율 캡 대상)
+            // 신규 16종 per-spin 조건부 배수 (전역배수 이전)
             int rareN = 0;
             for (int i = 0; i < cells.Count; i++) if (cells[i].sym.rare) rareN++;
             if (rareN >= 2 && mods.rareBurstExpMul != 1.0)
@@ -497,18 +494,10 @@ namespace JackpotRun.Engine
             long preMulExp = Math.Max((long)exp, 0);
             exp = exp * mods.expMul + mods.flatExp;
 
-            // (C2) 총배율 캡 — center/ends/flame/first·last/rareBurst/set3/perfectShape/global 곱을 합친
-            // 최종배율(=exp-flatExp)을 capBase 대비 capMul로 클램프. 잭팟 고정가산은 캡 예외(곱 밖).
-            if (capMul > 0.0 && capBase > 0.0)
-            {
-                double variable = exp - mods.flatExp;
-                double ceiling = capBase * capMul;
-                if (variable > ceiling)
-                {
-                    exp = ceiling + mods.flatExp;
-                    notes.Add($"🧯총배율 캡 ×{FmtMul1(capMul)}");
-                }
-            }
+            // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): 총배율 캡 제거 — 웹 engine.js에는 이 자리에서
+            // center/ends/flame/first·last/rareBurst/set3/perfectShape/global 곱을 클램프하는 로직이
+            // 없다(grep 결과: 웹 MAX_SPIN_EXP_MUL은 specialMul 캡 전용, Formulas.cs 주석 참조). 잭팟
+            // 고정가산은 원래도 캡 예외(곱 밖)였으므로 위치는 그대로 유지.
             exp += jackpotFixed;
 
             // 신규 16종 per-spin 점수 배수
@@ -550,12 +539,7 @@ namespace JackpotRun.Engine
             string s = v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
             return s.TrimEnd('0').TrimEnd('.');
         }
-        // capMul 표기는 Kotlin이 "%.1f"로 소수 1자리 포맷 후 끝0/점 제거(L2326).
-        private static string FmtMul1(double v)
-        {
-            string s = v.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
-            return s.TrimEnd('0').TrimEnd('.');
-        }
+        // 웹 파리티 P2: FmtMul1(옛 capMul 표기 전용, "%.1f")는 총배율 캡 제거로 호출부가 사라져 삭제.
 
         // ── spinsPerStage / effSpins / qOf / cmdCoinCost ────────────────────────
         public static int SpinsPerStage(Mods mods) => ModsBuilder.SpinsPerStage(mods);
@@ -573,16 +557,24 @@ namespace JackpotRun.Engine
 
         public static int CmdCoinCost(SpinMode mode, bool boss) => ModsBuilder.CmdCoinCost(mode, boss);
 
-        // ── applyBoss (Kotlin L92-106) — 정수 나눗셈(내림)을 그대로 유지 ──
+        // ── applyBoss (웹 engine.js:1088-1104 applyBossExp) — 정수 나눗셈(내림)을 그대로 유지 ──
+        // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B / 항목3): grad(졸업심사)의 "pace" EXP 룰(expectedPerSpin/
+        // augCount 매개변수로 빌드 빈약 여부에 따라 ×0.75/×0.85 페널티를 주던 규칙)을 제거했다 — 웹
+        // applyBossExp의 switch에는 finals/strict/luck 3개 case만 있고 grad는 default로 떨어져 아무
+        // 보정도 하지 않는다(quotaMul 1.15만 적용, Bosses.cs QuotaMulFor). 그 결과 expectedPerSpin/
+        // augCount 매개변수 자체가 더 이상 필요 없어 시그니처에서도 제거했다(웹 함수 시그니처와 동일하게
+        // boss/exp/result/spinIndex/spins만 받음 — 원문: exp, boss, spinIndex, spins, result).
         public static (long gained, string note) ApplyBoss(
-            Boss boss, long gained, SpinResult res, int spinIndex, int spins,
-            double expectedPerSpin, int augCount)
+            Boss boss, long gained, SpinResult res, int spinIndex, int spins)
         {
             switch (boss.id)
             {
                 case "finals":
-                    if (spinIndex == spins - 1) return (gained * 2, " · 📝기말 막스핀×2");
+                    // Opus 검수 반영(2026-08-07) 항목4: 웹 engine.js:1091-1094는 첫스핀(spinIndex===0)
+                    // 검사를 막스핀(spinIndex===spins-1)보다 먼저 한다 — 순서만 맞춰 파리티 정렬(MIN_SPINS=3
+                    // 이라 spins-1==0이 되는 경우가 없어 실질 분기 결과는 이전과 동일, 도달 불가 케이스).
                     if (spinIndex == 0) return (gained * 9 / 10, " · 📝기말 첫스핀-10%");
+                    if (spinIndex == spins - 1) return (gained * 2, " · 📝기말 막스핀×2");
                     return (gained, "");
                 case "strict":
                     return res.bestSetCount < 3 ? (gained / 2, " · 👨‍🏫콤보없음 ×0.5") : (gained, "");
@@ -596,18 +588,8 @@ namespace JackpotRun.Engine
                     }
                     return hasRare ? (gained * 18 / 10, " · 🎲희귀 ×1.8") : (gained * 8 / 10, " · 🎲노희귀 ×0.8");
                 }
-                case "grad":
-                {
-                    double pace = expectedPerSpin * 0.7;
-                    if (expectedPerSpin > 0.0 && gained < pace)
-                    {
-                        return augCount < 3
-                            ? (gained * 75 / 100, " · 🎓빈약빌드 ×0.75")
-                            : (gained * 85 / 100, " · 🎓꾸준함부족 ×0.85");
-                    }
-                    return (gained, "");
-                }
                 default:
+                    // grad(졸업심사)도 여기로 떨어진다 — 웹과 동일하게 무보정(quotaMul 1.15만 적용).
                     return (gained, "");
             }
         }
@@ -654,17 +636,9 @@ namespace JackpotRun.Engine
             var devEq = Devices.ById(run.Device);
             if (devEq != null && devEq.kind == "PASSIVE") mods = ModsBuilder.ApplyPassiveDevice(mods, devEq.id);
 
-            // (C2) 배율 상한 — hasPrism은 영구 perks만(phasePerks 미반영). [원본 버그 유지] 02_service.md §2-12.
-            bool hasPrism = false;
-            for (int i = 0; i < run.Perks.Count; i++)
-            {
-                var p = Perks.ById(run.Perks[i]);
-                if (p != null && p.tier == Tier.PRISM) { hasPrism = true; break; }
-            }
-            double capMul = Formulas.CapMulFor(run.Stage, hasPrism);
-            if (mods.expMul > capMul) mods.expMul = capMul;
-            if (mods.lastSpinExpMul > 5.0) mods.lastSpinExpMul = 5.0;
-
+            // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): 배율 상한(hasPrism 기반 capMul 클램프 + lastSpinExpMul
+            // 5.0 상한) 제거 — 웹 engine.js에는 이 자리에 해당하는 캡이 없다(Formulas.cs 주석/§2-B 근거
+            // 참조). mods.expMul/mods.lastSpinExpMul은 이제 ModsBuilder가 만든 값 그대로 쓰인다.
             int spins = EffSpins(run, mods);
             long quota = QuotaOf(run.Stage, mods);
 
@@ -693,7 +667,7 @@ namespace JackpotRun.Engine
             ApplyCellOps(raw, arm, run.Rng);
             var rawIds = raw.Select(c => c.sym.id).ToList();
 
-            var res = Evaluate(run.Rng, raw, mods, run.SpinIndex, spins, run.FlameNext, capMul);
+            var res = Evaluate(run.Rng, raw, mods, run.SpinIndex, spins, run.FlameNext);
             long gained = res.exp;
             var outcomeNotes = new List<string>(res.notes);
             bool prayMiracle = false;
@@ -737,8 +711,7 @@ namespace JackpotRun.Engine
             var boss = Bosses.For(run.Stage);
             if (boss != null)
             {
-                double expPerSpin = spins > 0 ? quota / (double)spins : 0.0;
-                var (g2, bn) = ApplyBoss(boss, gained, res, run.SpinIndex, spins, expPerSpin, run.Perks.Count);
+                var (g2, bn) = ApplyBoss(boss, gained, res, run.SpinIndex, spins);
                 gained = g2;
                 if (!string.IsNullOrEmpty(bn)) outcomeNotes.Add(bn.TrimStart(' ', '·'));
             }
@@ -884,7 +857,8 @@ namespace JackpotRun.Engine
         //   4) run.LastCells를 CellsFromIds로 복원 → 고정(N번 칸 유지·나머지 RollOne 재굴림) / 복사(N번 칸을
         //      오른쪽 인접 칸에, 오른쪽 끝이면 왼쪽으로) / 교체(N번 칸을 bestValueId 최다종류로, 동점/없음
         //      이면 "star" 폴백) / 전체 재굴림 중 하나로 새 raw 구성.
-        //   5) Evaluate(rng, newRaw, mods, run.SpinIndex-1, spins, flamePenalty=false, capMul)로 재평가
+        //   5) Evaluate(rng, newRaw, mods, run.SpinIndex-1, spins, flamePenalty=false)로 재평가(웹 파리티
+        //      P2: capMul 인자 제거됨 — WEB_PARITY_DESIGN §2-B)
         //      (mods는 이 스핀 시점과 동일 조건으로 재구성 — ResolveSpin의 step1-14를 재사용).
         //   6) EXP -10% 페널티(MANIP만, 도박꾼 무료재굴림은 페널티 없음) 적용 후 gained 재산출.
         //   7) net-adjust: run.Score/run.Coins/run.RunSet4/run.RunAdjPairs에서 run.LastGain(EXP는

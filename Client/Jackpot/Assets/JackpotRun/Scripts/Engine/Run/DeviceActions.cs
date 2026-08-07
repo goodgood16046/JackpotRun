@@ -200,13 +200,13 @@ namespace JackpotRun.Engine
                     return RunEvents.Rejected("DEVICE_NOT_SUPPORTED");
             }
 
-            bool hasPrism = run.Perks.Any(id => { var p = Perks.ById(id); return p != null && p.tier == Tier.PRISM; });
-            double capMul = Formulas.CapMulFor(run.Stage, hasPrism);
-            var res = SpinResolver.Evaluate(run.Rng, raw, mods, run.LastSpinNo, spins, false, capMul);
+            // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): hasPrism/capMul(총배율 캡) 제거 — 웹 engine.js에는
+            // 해당 캡이 없다. Evaluate/ApplyBoss 시그니처도 이에 맞춰 축소됨(SpinResolver.cs 주석 참조).
+            var res = SpinResolver.Evaluate(run.Rng, raw, mods, run.LastSpinNo, spins, false);
             long gained = res.exp;
             var boss = Bosses.For(run.Stage);
             if (boss != null)
-                gained = SpinResolver.ApplyBoss(boss, gained, res, run.LastSpinNo, spins, spins > 0 ? quota / (double)spins : 0.0, run.Perks.Count).gained;
+                gained = SpinResolver.ApplyBoss(boss, gained, res, run.LastSpinNo, spins).gained;
             gained = (long)(gained * 0.9); // MANIP 페널티 EXP -10%(공통 4종)
 
             long newExp = Math.Max(run.StageExp - run.LastGain + gained, 0);
@@ -281,13 +281,13 @@ namespace JackpotRun.Engine
             if (raw.Count == 0) return RunEvents.Rejected("LAST_CELLS_UNAVAILABLE");
             for (int i = 0; i < raw.Count; i++) raw[i] = SpinResolver.RollOne(run.Rng, mods);
 
-            bool hasPrism = run.Perks.Any(id => { var p = Perks.ById(id); return p != null && p.tier == Tier.PRISM; });
-            double capMul = Formulas.CapMulFor(run.Stage, hasPrism);
-            var res = SpinResolver.Evaluate(run.Rng, raw, mods, run.LastSpinNo, spins, false, capMul);
+            // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): hasPrism/capMul(총배율 캡) 제거 — 웹 engine.js에는
+            // 해당 캡이 없다. Evaluate/ApplyBoss 시그니처도 이에 맞춰 축소됨(SpinResolver.cs 주석 참조).
+            var res = SpinResolver.Evaluate(run.Rng, raw, mods, run.LastSpinNo, spins, false);
             long gained = res.exp;
             var boss = Bosses.For(run.Stage);
             if (boss != null)
-                gained = SpinResolver.ApplyBoss(boss, gained, res, run.LastSpinNo, spins, spins > 0 ? quota / (double)spins : 0.0, run.Perks.Count).gained;
+                gained = SpinResolver.ApplyBoss(boss, gained, res, run.LastSpinNo, spins).gained;
 
             long newExp = Math.Max(run.StageExp - run.LastGain + gained, 0);
             long newScore = Math.Max(run.Score - run.LastScoreGain + res.score, 0);

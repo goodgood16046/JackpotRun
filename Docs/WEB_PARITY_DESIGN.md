@@ -72,13 +72,44 @@
   `ProfileStore.Save`를 일괄 호출)를 그대로 따른다 — **런 도중 강제 종료(앱 킬 등) 시 그 런에서
   얻은 장치가 유실될 수 있음을 인지한 채 유지**(다른 런 중 획득물 전체와 동일한 저장 타이밍 정책,
   이 항목만 예외 처리하지 않는다).
+- **(I) P2 — 웹 총배율 캡 부재 확정 근거** (2026-08-07): `public/play/engine.js` 전수 grep 결과,
+  `capMul`/`MAX_SPIN_EXP_MUL` 문자열이 등장하는 곳은 딱 한 블록뿐이다 — `evaluate()` 내부의
+  "누적 특수배수(specialMul)" 캡(engine.js:582-583 주석 · 893 검은초 · 942 대폭발 · 962 에너지팩 ·
+  995 럭키7×7 · 1005 프리즘, 그리고 1009-1011 `if (specialMul !== 1) { specialMul =
+  Math.min(specialMul, C.MAX_SPIN_EXP_MUL); exp *= specialMul; }`). 이는 럭키7/검은초/불안정폭탄/
+  프리즘 4종의 "배수형 특수효과"끼리만 곱해 누적되는 별도 변수(specialMul)에 거는 캡으로, Unity
+  구버전이 갖고 있던 "위치/불꽃/첫막스핀/전역배수(mods.expMul) 전체를 클램프하는 총배율 캡"과는
+  완전히 다른 메커니즘이다 — 게다가 그 specialMul 캡 자체도 아직 Unity에 이식되지 않았다(심화모드
+  전용 4개 특수심볼 중 일부만 존재, 전면 이식은 P7 심화모드 슬라이스 범위). 일반 스핀 경로(전역
+  expMul·위치·첫막스핀 배수)에는 웹 어디에도 상한이 없다 — 이 근거로 `Formulas.CapMulFor`·
+  `SpinResolver.Evaluate`의 capBase/capMul 클램프·`mods.lastSpinExpMul` 5.0 상한을 전부 제거했다.
+- **(J) P2 — 클리어 점수 실사용부 확정**: `engine.js:73-80`의 `stageClearScore()` 함수는 저주 배수 없이
+  `stage×50+leftover×2+leftSpins×100+(boss?500:0)`만 계산하지만, grep 결과 이 함수를 호출하는
+  곳은 **웹 전체에 단 한 곳도 없다**(죽은 export). 실제 클리어 점수는 `game.js:1403-1418`의
+  `_clearStage()`가 동일한 4항을 직접 재계산(`sBase+sLeft+sSpins+sBoss`)한 뒤 `E.streakBonus(stage)`
+  (engine.js:69-71)를 별도로 더해 `gain`을 만든다 — Unity의 `Formulas.StageClearScore`는 이
+  죽은 함수와 시그니처·계산을 그대로 맞추고(curses 인자 존재하되 미사용), `StageFlow.ClearStage`가
+  실사용부(game.js)처럼 `Formulas.StreakBonus`를 별도로 더하는 2단 구조를 그대로 재현했다. 등급
+  6단계는 `ui.js:1684-1698 clearGrade()`(exact=PERFECT, 그 외 leftover/quota 초과율 1~5단계 + 보스
+  +1단계 5상한)를 한글 라벨(레이블 텍스트, astral 이모지 없이)로 그대로 옮겼다 — 점수 비가산.
+  부수 발견: 클리어 코인도 웹(`game.js:1419` `C.CLEAR_COIN + (boss ? C.BOSS_COIN : 0) + clearCoinBonus`,
+  가산식)과 옛 Unity·`kotlin-reference/game/SlotV2Service.kt:843`(boss일 때 CLEAR_COIN 대신 BOSS_COIN으로
+  교체하는 삼항식)가 갈라져 있었다 — 보스 클리어 코인이 12(옛) vs 17(웹) 차이. §0 웹 채택 원칙에 따라
+  가산식으로 수정(`StageFlow.ClearStage`).
+- **(K) P2 — 보스 grad pace 룰 부재 확정**: `engine.js:1088-1104 applyBossExp()`의 switch문에는
+  `finals`/`strict`/`luck` 3개 case만 있고 `grad`는 default로 떨어져 무보정이다(quotaMul 1.15만
+  `data.js:141`에 명시). Unity 구버전이 갖고 있던 "빈약빌드×0.75/꾸준함부족×0.85" pace 룰은 웹
+  어디에도 없어 `SpinResolver.ApplyBoss`에서 완전히 제거했다(expectedPerSpin/augCount 매개변수도
+  함께 삭제 — 웹 함수 시그니처와 동일하게 `(boss, gained, res, spinIndex, spins)`만 받음).
+  finals(첫스핀×0.9·막스핀×2.0, engine.js:1091-1095)·strict(3매치 미만×0.5, 1096-1098)·
+  luck(⭐👑🌀×1.8/없으면×0.8, 1099-1102)는 정수나눗셈(내림) 결과까지 Unity와 일치 확인(무변경).
 
 ## 3. 페이즈 로드맵
 
 | 페이즈 | 내용 | 상태 |
 |---|---|---|
 | **P1** | 룰 파리티 1차: 첫판 즉시시작 · 특수스핀 첫사용무료 · 실패체인 웹 순서 · 노드 보상 수치/DEVICE 노드 · 포기 | ✅ 2026-08-07 완료 |
-| P2 | 점수·캡 공식 웹화 + 보스 grad/finals 정리 + 골든 테스트 재산출 | 대기 |
+| **P2** | 점수·캡 공식 웹화 + 보스 grad/finals 정리 + 골든 테스트 재산출 | ✅ 2026-08-07 완료 |
 | P3 | 메타 웹화: XP/레벨/레벨보상 · 업적 34종 교체 · 숙련도 · 증강 레벨업 · 해금 OR · 콘텐츠 증보(+3캐릭/+3머신/+장치/+증강9/+유물12/+아이템5) | 대기 |
 | P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | 대기 |
 | P5 | 사운드(절차 합성 SFX 17 + BGM) | 대기 |
