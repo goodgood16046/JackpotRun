@@ -4,6 +4,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 import { CHARS, MACHINES, DEVICES, DIFF_LABEL, DIFF_COLOR, evaluate, recommend, unlockOrder } from "./meta.js";
+import { playReelSpin } from "./reel.js";
 
 // 독립 프로젝트 jackpotrun-web (모카봇 mokabot-8ed4d 에서 분리). 봇이 이 프로젝트 RTDB로 잭팟 데이터 push.
 const firebaseConfig = {
@@ -271,7 +272,9 @@ function refreshTabLabels() {
 }
 
 // ── 추천 조합 ────────────────────────────────────────
-function applyReco(kind) {
+let reelBusy = false; // 릴 연출 중 재진입 방지 — 오버레이는 포인터만 막고 키보드(Space/Enter)는 못 막는다
+async function applyReco(kind) {
+  if (reelBusy) return;
   const uc = [...state.unlockedChars], um = [...state.unlockedMacs], ud = [...state.ownedDevs];
   let combo;
   if (kind === "random") {
@@ -282,6 +285,21 @@ function applyReco(kind) {
     combo = recommend(kind, uc, um, ud);
   }
   if (!combo) return;
+  if (kind === "random") {
+    // 유니티 릴처럼: 결과를 먼저 확정하고 연출은 그 결과로 착지한다(결정론적 착지)
+    const asChar = (id) => ({ id, e: CHARS[id]?.e || "🎭", n: CHARS[id]?.n || id, imgKey: "char_" + id });
+    const asMac  = (id) => ({ id, e: MACHINES[id]?.e || "🎰", n: MACHINES[id]?.n || id, imgKey: "mac_" + id });
+    const asDev  = (id) => id ? { id, e: DEVICES[id]?.e || "🔧", n: DEVICES[id]?.n || id, imgKey: id }
+                              : { id: "", e: "🚫", n: "장치 없이", imgKey: null };
+    reelBusy = true;
+    try {
+      await playReelSpin([
+        { label: "캐릭터",   pool: uc.map(asChar), target: asChar(combo.char) },
+        { label: "슬롯머신", pool: um.map(asMac),  target: asMac(combo.machine) },
+        { label: "장치",     pool: ["", ...ud].map(asDev), target: asDev(combo.device || "") },
+      ]);
+    } finally { reelBusy = false; }
+  }
   state.selChar = combo.char; state.selMac = combo.machine; state.selDev = combo.device || "";
   state.advanced.char = state.advanced.mac = true;
   refreshTabLabels();
