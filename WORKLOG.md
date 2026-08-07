@@ -4,6 +4,35 @@
 
 ---
 
+## 2026-08-07 - 단독 웹게임(`public/play/`) 이관 — 모카봇 `web/slot` → 이 저장소
+
+"저장소를 클론하면 잭팟런이 돌아가야 한다"는 요구에 대응. **새로 만들지 않고 이미 존재하던
+브라우저 단독판을 옮겼다** — 사본을 늘리지 않기 위해 복사가 아니라 **이동**.
+
+- `public/play/` 신규 — 모카봇 `C:\dev\KakaoOpenChatBot\web\slot` 의 10파일(1.02MB).
+  data.js(카탈로그) · engine.js(순수엔진, `SlotV2Engine.kt` 공식 포팅) · game.js(런 상태머신) ·
+  ui.js(렌더) · rank.js · auth.js · sound.js · style.css · index.html · _harness.mjs(검증, 배포 제외).
+  **이미지 0장**(전부 이모지), 하위폴더 없음, 절대경로 의존 0건 → `/play/` 로 무수정 이식 가능했음.
+- Firebase 컷오버: `auth.js`·`rank.js` 의 config 를 `mokabot-8ed4d` → **`jackpotrun-web`**.
+  게임 로직은 Firebase 와 무관하게 동작하므로(지연 로드·실패 무시) 랭킹/로그인만 영향.
+- `database.rules.json`: 랭킹 3노드 추가 — `slotrank` · `slotrank_asc` · `slotrank_deep`.
+  `.indexOn: "score"` 부여(`orderByChild("score")` 쿼리가 인덱스 없이 전량 다운로드하는 문제 예방),
+  키 길이 6~64 검증(게스트 cid / 로그인 `u_<uid>` 양쪽 수용).
+- `firebase.json`: `/play/**` no-cache 헤더 + `**/_harness*.mjs` hosting 제외.
+- **구 주소 리다이렉트**: 모카봇 `web/slot/index.html` 을 리다이렉트 전용 페이지로 교체(게임 9파일 삭제).
+  localStorage 는 도메인 단위라 그냥 보내면 진행도가 끊기므로, **저장키 7개를 URL fragment(base64url)
+  에 실어 넘기고 새 페이지가 1회만 흡수**하도록 했다. fragment 는 서버로 전송되지 않는다.
+  수신측은 `public/play/index.html` 의 인라인 스크립트(module 보다 먼저 실행) — 기존 프로필이
+  있으면 덮어쓰지 않고, 실패해도 조용히 새 프로필로 시작한다.
+- 슬롯 개발 툴체인 경로 갱신(이관하면 깨지는 것들): `workflow/slotdev_rules.md`,
+  `.claude/workflows/slot-game-dev.js`(`WEB` 상수), `.claude/agents/slot-dev.md`.
+- 검증: `node --check` 7파일 통과 + **공식 하네스 `ok:true errorCount:0`**
+  (일반 300/300 · 심화 300/300 · 스트레스 200런 · NaN/음수/무한대 스캔).
+- 백업: `C:\dev\KakaoOpenChatBot\backups\web_slot_20260807_backup\` (원본 10파일).
+- ⚠️ **배포 순서 고정**: `jackpotrun-web` 먼저 → 모카봇 나중. 뒤집으면 리다이렉트가 없는 주소를 가리킨다.
+- 🔴 **수동 필요**: `jackpotrun-web` 콘솔에서 Google provider 사용설정 + 승인 도메인 등록.
+  미설정 시 로그인만 실패(게스트 플레이는 정상). 기존 `slotrank` 랭킹 기록은 이설하지 않아 초기화된다.
+
 ## 2026-07-30 - kotlin-reference 스냅샷 추가 (잭팟런 v2 원본 로직)
 
 직전 항목의 "Kotlin 게임 로직은 이 저장소에도 없음"을 해소. 사용자 지시로 봇 원본 소스를 스냅샷 반입.

@@ -21,6 +21,31 @@
     "jackpothall": {
       ".read": true,
       ".write": true
+    },
+
+    "slotrank": {
+      ".read": true,
+      ".indexOn": "score",
+      "$key": {
+        ".write": true,
+        ".validate": "$key.length >= 6 && $key.length <= 64"
+      }
+    },
+    "slotrank_asc": {
+      ".read": true,
+      ".indexOn": "score",
+      "$key": {
+        ".write": true,
+        ".validate": "$key.length >= 6 && $key.length <= 64"
+      }
+    },
+    "slotrank_deep": {
+      ".read": true,
+      ".indexOn": "score",
+      "$key": {
+        ".write": true,
+        ".validate": "$key.length >= 6 && $key.length <= 64"
+      }
     }
   }
 }

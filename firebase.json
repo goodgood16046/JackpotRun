@@ -4,7 +4,8 @@
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "**/_harness*.mjs"
     ],
     "headers": [
       {
@@ -15,6 +16,12 @@
       },
       {
         "source": "/jackpotdex/**/*.@(html|js|css|json)",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
+        ]
+      },
+      {
+        "source": "/play/**/*.@(html|js|css|json)",
         "headers": [
           { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
         ]

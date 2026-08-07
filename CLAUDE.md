@@ -6,7 +6,18 @@
 
 **잭팟런을 Unity 모바일 앱으로 재개발한다.** `unity-assets/` 가 데이터 출발점이고,
 Unity 프로젝트는 **`Client/Jackpot`** (2022.3.39f1, Android 타깃)이다.
-웹(`public/`)은 기존 카톡 봇용으로 계속 운영 중이므로 Unity 작업이 건드리지 않는다.
+웹(`public/`)은 계속 운영 중이므로 Unity 작업이 건드리지 않는다.
+
+### 현황 — Unity 는 아직 **UI 데모**다
+
+`Client/Jackpot` 은 메인메뉴 · 선택화면 · 도감 **UI 만** 있고 게임 엔진은 없다.
+`JackpotRunApp.Awake()` 가 `DemoData.Demo()` 하드코딩을 물고 있어 스핀·점수·보스가 전부 미구현이다.
+당시 작업 PC 에 Kotlin 원본이 없어 엔진을 못 옮긴 상태로 멈춘 것이며, 그 막힘은
+`kotlin-reference/` 반입(2026-07-30)으로 이미 해소됐다.
+
+> 💡 **엔진 이식은 `public/play/engine.js` 에서 출발하는 편이 빠르다.** Kotlin 원본은 코루틴·Room·봇
+> 클래스에 얽혀 있지만, `engine.js` 는 같은 공식을 **순수함수로 이미 포팅**해 뒀고 하네스로 검증돼 있다.
+> Kotlin 은 값·확률표의 최종 정답지로 대조용으로 쓰고, 구조는 JS 를 따라가면 된다.
 
 ## 모델 역할 분담 (필수)
 
@@ -56,9 +67,10 @@ Unity 프로젝트는 **`Client/Jackpot`** (2022.3.39f1, Android 타깃)이다.
 JackpotRun/
 ├─ Client/Jackpot/    # ★ Unity 앱 프로젝트 (2022.3.39f1, Android)
 ├─ Docs/              # 설계 문서 (UNITY_PORT_DESIGN.md 등)
-├─ public/            # Firebase Hosting 배포 대상 (웹, 기존 카톡용)
-│  ├─ jackpotpick/    # 시작 조합 선택 화면
-│  └─ jackpotdex/     # 도감/진행도 (img/*.png ×290)
+├─ public/            # Firebase Hosting 배포 대상
+│  ├─ play/           # ★ 단독 웹게임 (봇 불필요, JS 엔진 내장) — 2026-08-07 모카봇에서 이관
+│  ├─ jackpotpick/    # 시작 조합 선택 화면 (뷰어 — 봇 필요)
+│  └─ jackpotdex/     # 도감/진행도 (뷰어 — 봇 필요, img/*.png ×290)
 ├─ tools/             # 이미지 생성 스크립트 (배포 대상 아님)
 ├─ kotlin-reference/  # ★ 봇 원본 로직 스냅샷 (읽기 전용 — 확률·공식의 정답지)
 │  ├─ game/           # SlotV2Engine · SlotV2Service · SlotV2AchievementsExt · SlotV2WebService
@@ -85,9 +97,26 @@ JackpotRun/
 - `Sprites/` 의 PNG 는 `public/jackpotdex/img/` 와 같은 파일이다(git 이 동일 blob 을 한 번만 저장).
   **한쪽만 고치면 갈라진다** — 웹에도 반영해야 하면 양쪽 다 갱신할 것.
 
-## 웹(`public/`) 을 건드릴 때만 해당
+## `public/play/` — 단독 웹게임 (★ 이미 돌아가는 구현체)
 
-- 이 웹은 **자체 게임 로직이 없는 얇은 클라이언트**다. 봇(Kotlin)이 RTDB 로 push 하지 않으면 빈 화면.
+**"봇 없이 실행되는 잭팟런"은 이미 존재한다.** Unity 재개발과 별개로 `public/play/` 가 그것이다.
+2026-08-07 에 모카봇(`C:\dev\KakaoOpenChatBot\web\slot`)에서 이관했고, 구 경로엔 리다이렉트만 남았다.
+
+- `engine.js` 가 `SlotV2Engine.kt` 의 확률·점수·요구치 공식을 JS 로 **이미 포팅**해 뒀다.
+  → **Unity C# 이식의 실질적 출발점은 Kotlin 이 아니라 이쪽이다.** 순수함수라 코루틴·Room·봇 의존이 없다.
+- Firebase 는 랭킹(`slotrank`/`slotrank_asc`/`slotrank_deep`)과 구글 로그인에만 사용. 둘 다 실패해도 게임은 동작.
+- 저장: localStorage `slotweb_profile`(+ `slotweb_cid`/`_nick`/`_vol`/`_sound`/`_vibe`/`_seenlogin`).
+- 검증: `cd public/play && node _harness.mjs` → `{ok,errorCount,errors,notes}`. 일반300+심화300+스트레스200런.
+- 불변식(일반모드 격리·fmt2·패리티·랭킹 분리)의 단일 소스는
+  `C:\dev\KakaoOpenChatBot\workflow\slotdev_rules.md` — **수정 전 반드시 읽을 것**.
+
+> ⚠️ **카톡판의 상위집합이다** — 캐릭터 19/16 · 머신 19/16 · 장치 24/16 · 증강 89/80 · 유물 73/61 ·
+> 아이템 78/73. 테마빌드 25 · 심화모드 · 승천은 웹 전용. 게임플레이 캐논은 Kotlin판이고,
+> 공통 규칙을 고치면 양판 모두 반영해야 한다(한쪽만 고치면 갈라진다).
+
+## 웹 뷰어(`jackpotpick`·`jackpotdex`) 를 건드릴 때만 해당
+
+- 이 둘은 **자체 게임 로직이 없는 얇은 클라이언트**다. 봇(Kotlin)이 RTDB 로 push 하지 않으면 빈 화면.
 - 배포: `firebase deploy --only hosting,database --project jackpotrun-web`
 - `unity-assets/` 와 `tools/` 는 배포되지 않는다(`firebase.json` 의 hosting public = `public/`).
 - 🔴 **미해결 보안 이슈**: `database.rules.json` 이 전면 개방 상태다 — `jackpotcatalog` ·

@@ -5,6 +5,14 @@
 # 해시 대조가 불가능해지므로 LF 로 고정한다 — 참조 전용이라 컴파일 영향 없음.
 *.kt   text eol=lf
 
+# 웹 정적자산은 그대로 배포되는 산출물이다. 체크아웃 OS 에 따라 CRLF 가 섞이면
+# 배포본 바이트와 diff 가 흔들리므로 LF 로 고정한다.
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+
 *.png  binary
 *.jpg  binary
 *.jpeg binary
