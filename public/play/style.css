@@ -145,7 +145,7 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
 
 /* ── 슬롯 릴 ── */
 /* ★레이아웃 안정: 발광/스케일 펄스가 들어가도 슬롯 영역 높이가 변하지 않게 contain: layout.
-   각 셀은 box-sizing:border-box + aspect-ratio:1 로 항상 같은 크기(테두리 2px 고정, 발광은
+   각 셀은 box-sizing:border-box + aspect-ratio:2/3 로 항상 같은 크기(테두리 2px 고정, 발광은
    box-shadow/transform 합성 단계만 사용 → 셀 박스·주변 reflow 없음).
    ⚠️회귀수정: contain 에 'paint' 가 있으면 매치 글로우(box-shadow 0 0 22~100px)·m-3/4/5 scale
    펄스(~1.07)·잭팟 jpShake translateY 가 .reels 사각형 경계로 클리핑되어 "가장자리 셀의 글로우/
@@ -153,7 +153,7 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
    오버플로는 안 자름). 'align-items: center' 는 불필요(셀이 동일 aspect-ratio)라 제거. */
 .reels { display: flex; gap: calc(8px * var(--sc)); justify-content: center; margin: calc(16px * var(--sc)) 2px; perspective: 600px;
   contain: layout; }
-.reel { flex: 1 1 0; max-width: calc(94px * var(--sc)); aspect-ratio: 1; position: relative; border-radius: var(--r-xl); overflow: hidden;
+.reel { flex: 1 1 0; max-width: calc(94px * var(--sc)); aspect-ratio: 2 / 3; position: relative; border-radius: var(--r-xl); overflow: hidden;
   background: linear-gradient(165deg, #2a3354 0%, #1a2038 48%, #10162a 100%);
   border: 2px solid var(--bd2); display: flex; align-items: center; justify-content: center;
   box-shadow: inset 0 3px 10px rgba(0,0,0,.6), inset 0 -2px 8px rgba(0,0,0,.5), 0 4px 14px rgba(0,0,0,.4); }
@@ -161,10 +161,23 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
   background: linear-gradient(180deg, rgba(255,255,255,.14), transparent); pointer-events: none; }
 .reel .sym { font-size: clamp(30px, 12vw, calc(50px * var(--sc))); line-height: 1; filter: drop-shadow(0 4px 8px rgba(0,0,0,.55)); position: relative; z-index: 1; }
 .reel .tag { position: absolute; bottom: 4px; right: 6px; font-size: calc(12px * var(--sc)); z-index: 2; }
-.reel.spinning { animation: rblur .1s linear infinite; }
-.reel.spinning .sym { animation: rspin .14s linear infinite; }
-@keyframes rspin { 0% { transform: translateY(-6px); opacity: .5; } 50% { opacity: 1; } 100% { transform: translateY(6px); opacity: .5; } }
-@keyframes rblur { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
+/* Unity ReelView S14 §A — 이웃 칸 상시 노출 스트립. rstrip 높이는 뷰포트(.reel)의 5슬롯분(=500%/1.5),
+   rslot 은 그 1/5(20%) → 슬롯 실높이 = 구 셀 높이와 동일(66.67%H = 1.5W ÷ 1.5 = W). translateY(-35%)
+   는 rstrip 자기 높이(=5S) 기준 -35% = -1.75S = BASE — JS 트윈의 px 초기값과 동일 지점(첫 스핀 점프 없음). */
+.rstrip { position: absolute; left: 0; right: 0; top: 0; will-change: transform;
+  height: calc(500% / 1.5); transform: translateY(-35%); }
+.rslot { height: 20%; display: flex; align-items: center; justify-content: center;
+  position: relative; opacity: .38; transform: scale(.85); transition: opacity .12s, transform .12s; }
+.rslot.center { opacity: 1; transform: scale(1); }
+/* 이웃 슬롯은 drop-shadow 를 끈다(성능) — 항상 5개×릴수 만큼 상주하던 필터를 중앙 1개로 축소. */
+.rslot:not(.center) .sym { filter: none; }
+.reel.spinning .rslot { opacity: .8; transform: scale(1.02); }
+.reel.spinning .rstrip { filter: blur(1px); }
+/* 이웃 슬롯 상하단 페이드 — jackpotpick .reel::before/::after 와 동일 취지(여기선 ::before 가 이미
+   하이라이트로 사용 중이라 실요소로 도입). 위/아래 33.33%씩만 덮어 이웃 심볼이 경계에서 딱 잘리지
+   않고 자연스럽게 스며들게 한다. 색은 .reel 배경 그라디언트의 가장 어두운 끝(#10162a)에 맞춤. */
+.rfade { position: absolute; inset: 0; pointer-events: none; z-index: 2;
+  background: linear-gradient(180deg, rgba(16,22,42,.85), transparent 26%, transparent 74%, rgba(16,22,42,.85)); }
 .reel.settle { animation: settle .34s cubic-bezier(.18,1.5,.4,1); }
 @keyframes settle { 0% { transform: translateY(-14px) scale(.7); } 60% { transform: translateY(2px) scale(1.06); } 100% { transform: translateY(0) scale(1); } }
 /* 다중 매치 발광 — ★일회성화: 매치 직후 ~2초 동안 화려하게 "터졌다가" 잦아든다.
@@ -189,7 +202,7 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
    ① 빛 스윕(shimmer): 셀을 가로지르는 사선 광선이 반복으로 지나감.
    ② 반짝이 입자(sparkle): JS 가 .mspark 를 몇 개 흩뿌림(개수=매치단계, m-2부터 보임).
    성능: transform/opacity 합성만 사용. 셀 overflow:hidden 안에서 클립되어 레이아웃 무영향. */
-.mshine { position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit; overflow: hidden; }
+.mshine { position: absolute; left: 0; right: 0; top: 33.33%; bottom: 33.33%; z-index: 3; pointer-events: none; border-radius: inherit; overflow: hidden; }
 .mshine::before { content: ""; position: absolute; top: -40%; left: 0; width: 50%; height: 180%;
   background: linear-gradient(100deg, transparent, rgba(255,255,255,.85), transparent);
   animation: mshineSweep 2.2s ease-in-out 1 both; }
@@ -220,7 +233,7 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
   box-shadow: inset 0 0 28px rgba(255,170,70,.5), 0 0 34px rgba(255,150,90,.85);
   animation: matchP4 1.05s ease-in-out 2 both; }
 .reel.m-4::after { background: radial-gradient(circle at 50% 45%, rgba(255,200,120,.5), transparent 62%); }
-.reel.m-4 .sym { animation: matchSym4 1.05s ease-in-out 2 both; }
+.reel.m-4 .rslot.center .sym { animation: matchSym4 1.05s ease-in-out 2 both; }
 @keyframes matchP4 { 50% { transform: scale(1.05); border-color: #ff9bd0; } }
 @keyframes matchSym4 { 50% { transform: scale(1.08); } }
 
@@ -234,7 +247,7 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
   height: auto; background: var(--prism); background-size: 220% 100%; animation: prism 2s linear 1 both;
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
 .reel.m-5::after { background: radial-gradient(circle at 50% 45%, rgba(255,210,140,.6), rgba(255,120,200,.25) 45%, transparent 70%); }
-.reel.m-5 .sym { z-index: 2; animation: matchSym5 .9s ease-in-out 2 both; }
+.reel.m-5 .rslot.center .sym { z-index: 2; animation: matchSym5 .9s ease-in-out 2 both; }
 @keyframes matchP5 { 50% { transform: scale(1.07); } }
 @keyframes matchSym5 { 50% { transform: scale(1.1); } }
 
@@ -246,11 +259,11 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
 @keyframes multiThrob { 0%,100% { transform: translateY(0) scale(1); } 30% { transform: translateY(-2px) scale(1.008); } 65% { transform: translateY(1px); } }
 /* 폭탄 폭발 */
 .reel.blast { border-color: #ff8a3d; animation: blastF .42s ease; }
-.reel.blast .sym { animation: blastS .42s ease; }
+.reel.blast .rslot.center .sym { animation: blastS .42s ease; }
 @keyframes blastF { 0% { box-shadow: inset 0 0 8px #000; } 30% { box-shadow: inset 0 0 30px #ffcf6e, 0 0 34px #ff7a2d; border-color: #fff; } 100% { box-shadow: inset 0 0 8px #000; } }
 @keyframes blastS { 30% { transform: scale(1.4); filter: brightness(2.2); } 100% { transform: scale(1); } }
 .reel.empty { background: linear-gradient(165deg, #1a1224, #120e1c); border-color: #2a2238; }
-.reel.empty .sym { opacity: .5; filter: grayscale(.4); }
+.reel.empty .rslot.center .sym { opacity: .5; filter: grayscale(.4); }
 .reels.win .reel { border-color: rgba(255,210,63,.6); }
 .reels.jackpot { animation: jpShake .5s ease; }
 .reels.jackpot .reel { border-color: var(--pink); box-shadow: 0 0 26px rgba(255,110,199,.7), inset 0 0 22px rgba(255,110,199,.4); }
@@ -659,7 +672,11 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
   .tier.t-PRISM, .bigcard.t-PRISM::before, .deck-card.t-PRISM::before, .jackpot-fx .jptxt span,
   .tut-spot, .tut-spot.action, .tut-hl, .tut-finger { animation: none; }
   /* .tut-spot 은 animation 만 정지(box-shadow 오버레이·left/top transition 은 존치 → 하이라이트 추적 유지).
-     릴 회전(.reel.spinning rspin/rblur)·클리어(clear-fx)·매치(mshine/mspark) 연출은 기능이므로 불변. */
+     클리어(clear-fx)·매치(mshine/mspark) 연출은 기능이므로 불변. 릴 스핀 자체(JS 노치 트윈)는 doSpin 이
+     reduced-motion 감지 시 건너뛰므로(§C) 여기선 정지 상태의 잔여 트랜지션/블러 + 착지 바운스(.settle)만 끈다. */
+  .rslot { transition: none; }
+  .reel.spinning .rstrip { filter: none; }
+  .reel.settle { animation: none; }
 }
 
 /* ── 랭킹 ── */
@@ -1299,6 +1316,7 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
   .clear-scr { padding-top: 12px; }
   .clear-title { font-size: 26px; }
   /* 항목1: 플레이화면 압축 — 릴 영역 가시 확보(320~414px 높이 가로폰 대응). 세로(>560px) 무영향. */
+  .reel { max-width: calc(72px * var(--sc)); }   /* aspect-ratio 2/3 상속 → 릴 높이 141px→108px 수준으로 억제 */
   .actionbar { padding-top: calc(5px * var(--sc)); padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
   .spinbtn { padding: calc(10px * var(--sc)); font-size: calc(15px * var(--sc)); }
   .iconbtn { width: calc(54px * var(--sc)); font-size: calc(19px * var(--sc)); }

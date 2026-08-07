@@ -253,30 +253,114 @@ function renderBeat(fallbackDelay = 0) {
 }
 
 // ── 스핀(애니메이션 + 이펙트) ──
+// Unity ReelView(S13/S14) 노치 스크롤 이식 — jackpotpick/reel.js 와 동일 메커니즘의 게임판.
+// 반복 플레이 리듬을 위해 Unity 명시값 대비 소폭 단축(가속 .25→.22 등).
+const R_ACCEL = 0.22;                    // 0→최고속 가속
+const R_NOTCH_MAX = 0.055;               // 최고속 노치(초)
+const R_NOTCH_START = 0.14;              // 가속 시작 노치
+const R_HOLD = 0.28;                     // 스태거 시작 전 유지
+const R_STAGGER = 0.09;                  // 릴별 정지 지연
+const R_DECEL = [0.09, 0.14, 0.20];      // 감속 3노치(outCubic) — 타깃은 idx0 주입(D-3 공식)
+const R_OVERSHOOT_RATIO = 0.085, R_OVERSHOOT_DUR = 0.14; // 착지 튕김(outBack) — 오버슈트 픽셀은 슬롯 크기(S) 비례
+
+// ── 이징/트윈(rAF 기반) — jackpotpick/reel.js 와 동일 공식 ──
+const linear = (t) => t;
+const outQuad = (t) => t * (2 - t);
+const outCubic = (t) => 1 - (1 - t) ** 3;
+const outBack = (t) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2; };
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const lerp = (a, b, t) => a + (b - a) * t;
+function rTween(dur, ease, fn) {
+  return new Promise((resolve) => {
+    if (dur <= 0) { fn(1); resolve(); return; }
+    const t0 = performance.now();
+    function frame(now) {
+      const t = Math.min(1, (now - t0) / (dur * 1000));
+      fn(ease(t));
+      if (t >= 1) { resolve(); return; }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  });
+}
+function randSpinCell() { return { sym: { e: SPIN_EMOJIS[Math.floor(Math.random() * SPIN_EMOJIS.length)] }, tag: "" }; }
+
+// 릴 1개 시퀀스: 결과(landCell)는 이미 확정된 상태로 진입 — 연출은 그 결과에 착지할 뿐(결정론).
+async function spinReelOne(reelEl, idx, landCell) {
+  const strip = reelEl.querySelector(".rstrip");
+  const S = reelEl.clientHeight / 1.5;   // 뷰포트 높이 = 1.5×슬롯(§D)
+  const BASE = -1.75 * S;
+  const overshoot = S * R_OVERSHOOT_RATIO;
+  reelEl.classList.add("spinning");
+  reelEl.classList.remove("settle", "match", "m-2", "m-3", "m-4", "m-5", "blast", "empty");
+  [...strip.children].forEach((s) => s.classList.remove("center"));
+  reelEl.querySelectorAll(".mshine, .mspark").forEach((n) => n.remove());
+
+  const advance = (dur, ease, cell) => rTween(dur, ease, (p) => {
+    strip.style.transform = `translateY(${BASE + S * p}px)`;
+  }).then(() => {
+    const recycled = strip.lastElementChild;
+    strip.insertBefore(recycled, strip.firstElementChild);
+    recycled.innerHTML = reelInner(cell);
+    strip.style.transform = `translateY(${BASE}px)`;
+  });
+
+  let t = 0;
+  const stopAt = R_ACCEL + R_HOLD + idx * R_STAGGER;
+  while (true) {
+    const nd = lerp(R_NOTCH_START, R_NOTCH_MAX, outQuad(clamp01(t / R_ACCEL)));
+    if (t + nd >= stopAt) break;
+    await advance(nd, linear, randSpinCell());
+    t += nd;
+  }
+  await advance(R_NOTCH_MAX, linear, randSpinCell());   // 유지 마지막 노치
+
+  reelEl.classList.remove("spinning");
+  for (let k = 0; k < 3; k++) {
+    // 감속 3노치(outCubic) — idx0 에서 타깃 주입(D-3 공식): 마지막 노치 종료 시 정확히 중앙 도착
+    await advance(R_DECEL[k], outCubic, k === 0 ? landCell : randSpinCell());
+  }
+
+  strip.style.transform = `translateY(${BASE - overshoot}px)`;
+  await rTween(R_OVERSHOOT_DUR, outBack, (p) => {
+    strip.style.transform = `translateY(${BASE - overshoot + overshoot * p}px)`;
+  });
+
+  strip.children[2].classList.add("center");
+  reelEl.classList.add("settle");
+  strip.style.transform = "";   // outBack 종료 지점(BASE)은 CSS 기본값(-35%)과 동일 지점 — 인라인 px 를 걷어내 리사이즈/브레이크포인트 전환 시 어긋남 방지
+  // 착지한 이웃 장식(0,1,3,4)을 memo 에 반영 — 다음 재렌더(setReels/renderPlay)가 지금 보이는 모습 그대로 복원(깜빡임 방지).
+  stripMemo.set(idx, [0, 1, 3, 4].map((k) => strip.children[k].querySelector(".sym")?.textContent || ""));
+  snd.sfx("reel");
+}
+
 async function doSpin(mode) {
   if (busy || st.phase !== PHASE.SPIN) return;
   busy = true; uiManip = null; snd.sfx("spin");
   const spinBtn = $("spinbtn"); if (spinBtn) spinBtn.disabled = true; updateExtras();
   const reelsBox = $("reels");
-  const reelEls = [...reelsBox.querySelectorAll(".reel")];
+  let reelEls = [...reelsBox.querySelectorAll(".reel")];
   reelsBox.classList.remove("win", "jackpot");
   reelsBox.classList.remove("multi-2", "multi-3", "multi-4", "multi-5");
-  const timers = reelEls.map((c) => { c.classList.add("spinning"); c.classList.remove("settle", "match", "m-2", "m-3", "m-4", "m-5", "blast", "empty");
-    return setInterval(() => { const s = c.querySelector(".sym"); if (s) s.textContent = SPIN_EMOJIS[Math.floor(Math.random() * SPIN_EMOJIS.length)]; }, 70); });
-  await sleep(360);
-  const out = g.spin(mode);
+  const out = g.spin(mode);   // 결과를 먼저 확정 — 연출은 이 결과에 착지할 뿐
   if (!out || !out.cells) {   // 조기 반환(예: 이미 쓴 특수스핀) — 애니 안전 복구
-    timers.forEach((tm) => clearInterval(tm));
     st = out || g.state(); busy = false; drainToasts(); renderPlay(); return;
   }
   const finalCells = out.cells;
   const landCells = out.preCells || finalCells;   // 폭탄 폭발 전(착지) 모습
-  for (let i = 0; i < reelEls.length; i++) {
-    await sleep(85);
-    clearInterval(timers[i]);
-    reelEls[i].classList.remove("spinning"); reelEls[i].classList.add("settle");
-    reelEls[i].innerHTML = reelInner(landCells[i] || finalCells[i]);
-    snd.sfx("reel");
+  const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduced) {
+    setReels(landCells);
+    reelEls = [...reelsBox.querySelectorAll(".reel")];   // setReels 가 DOM 을 새로 그렸으므로 재조회
+    await sleep(150);
+  } else {
+    try {
+      await Promise.all(reelEls.map((el, i) => spinReelOne(el, i, landCells[i] || finalCells[i])));
+    } catch (err) {
+      // 연출 예외에도 결과는 반드시 반영한다(g.spin 은 이미 상태를 바꿨다) — 최종 상태로 강제 스냅
+      setReels(landCells);
+      reelEls = [...reelsBox.querySelectorAll(".reel")];
+    }
   }
   await sleep(110);
   if (out.bomb) await blastBomb(reelEls, out.bomb, finalCells);   // 다 등장 후 폭발 → 비우기
@@ -347,7 +431,7 @@ function addMatchSparkle(el, n) {
   const sc = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sc")) || 1;
   let html = "";
   for (let i = 0; i < cnt; i++) {
-    const left = (8 + Math.random() * 78).toFixed(0), top = (8 + Math.random() * 76).toFixed(0);
+    const left = (8 + Math.random() * 78).toFixed(0), top = (34 + Math.random() * 28).toFixed(0);   // 중앙 밴드(대략 34~62%)로 한정 — 이웃 칸까지 번지지 않게
     const fs = ((9 + n + Math.random() * 4) * sc).toFixed(0), dly = (Math.random() * dlySpan).toFixed(2);
     html += `<div class="mspark" style="left:${left}%;top:${top}%;font-size:${fs}px;animation-duration:${tw}s;animation-delay:${dly}s;animation-iteration-count:2;animation-fill-mode:both">${set[i % set.length]}</div>`;
   }
@@ -360,7 +444,7 @@ async function blastBomb(reelEls, bomb, finalCells) {
   bombIdxs.forEach((j) => spawnExplosion(reelEls[j])); bomb.removed.forEach((j) => spawnExplosion(reelEls[j]));
   shake("sm"); snd.sfx("bomb");
   await sleep(440);
-  bomb.removed.forEach((j) => { const el = reelEls[j]; if (el) { el.classList.remove("blast"); el.classList.add("empty"); el.innerHTML = reelInner(finalCells[j]); } });
+  bomb.removed.forEach((j) => { const el = reelEls[j]; if (el) { el.classList.remove("blast"); el.classList.add("empty"); setCenterCell(el, finalCells[j]); } });
   bombIdxs.forEach((j) => reelEls[j] && reelEls[j].classList.remove("blast"));
   await sleep(150);
 }
@@ -587,6 +671,26 @@ function buildBadge() {
   return `<span>✨${st.perks.filter((id) => D.AUG_BY_ID[id] || D.REL_BY_ID[id]).length}</span>${st.curses.length ? `<span>🌑${st.curses.length}</span>` : ""}${dev ? `<span>${dev.e}</span>` : ""}`;
 }
 function reelInner(c) { return `<span class="sym">${c.sym.e}</span>${c.tag ? `<span class="tag">${esc(c.tag)}</span>` : ""}`; }
+// Unity ReelView(S13/S14) 노치 스크롤 이식 — jackpotpick/reel.js 와 동일 메커니즘의 게임판(§A).
+// 이웃 장식 캐시 — 인덱스(릴 순번)별 4칸을 최초 1회만 추첨해 재사용(재렌더할 때마다 다시 뽑으면 깜빡임).
+// spinReelOne 착지 후 실제 DOM 모습으로 갱신되어 다음 재렌더가 착지 상태 그대로를 복원한다.
+const stripMemo = new Map();
+// 셀 1개의 스트립 마크업 — center 에 실제 셀, 이웃 4칸은 무작위 이모지(정지 상태 장식, memo 캐시)
+function reelStrip(c, i) {
+  let nb = stripMemo.get(i);
+  if (!nb) { nb = [0, 1, 2, 3].map(() => randSpinCell().sym.e); stripMemo.set(i, nb); }
+  const deco = (e) => reelInner({ sym: { e }, tag: "" });
+  return `<div class="rstrip">
+    <div class="rslot">${deco(nb[0])}</div><div class="rslot">${deco(nb[1])}</div>
+    <div class="rslot center">${reelInner(c)}</div>
+    <div class="rslot">${deco(nb[2])}</div><div class="rslot">${deco(nb[3])}</div>
+  </div><div class="rfade"></div>`;
+}
+// 중앙 슬롯 내용만 교체(스트립 구조 보존) — blastBomb/변형 공개용
+function setCenterCell(reelEl, c) {
+  const center = reelEl.querySelector(".rslot.center");
+  if (center) center.innerHTML = reelInner(c);
+}
 function renderPlay() {
   if (st.stage !== curStage) { lastGain = null; curStage = st.stage; if (st.boss) snd.sfx("boss"); }
   if (soundOn) snd.bgmStart();
@@ -613,7 +717,7 @@ function renderPlay() {
       <div class="unlucky" id="unlucky"></div>
     </div>
     ${boss ? `<div class="boss-rule"><b>보스 룰</b> · ${esc(boss.desc)}</div>` : ""}
-    <div class="reels" id="reels">${cells.map((c, i) => `<div class="reel" data-act="cellinfo" data-arg="${i}">${reelInner(c)}</div>`).join("")}</div>
+    <div class="reels" id="reels">${cells.map((c, i) => `<div class="reel" data-act="cellinfo" data-arg="${i}">${reelStrip(c, i)}</div>`).join("")}</div>
     <div class="gain" id="gain"></div>
     <div class="logbox" id="logbox"></div>
     <div class="actionbar">
@@ -639,7 +743,7 @@ function renderLog() {
 }
 function setReels(cells) {
   const box = $("reels"); if (!box) return;
-  box.innerHTML = cells.map((c, i) => `<div class="reel settle" data-act="cellinfo" data-arg="${i}">${reelInner(c)}</div>`).join("");
+  box.innerHTML = cells.map((c, i) => `<div class="reel settle" data-act="cellinfo" data-arg="${i}">${reelStrip(c, i)}</div>`).join("");
 }
 function updateHud() {
   if (!$("expbar")) return;
