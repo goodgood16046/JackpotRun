@@ -30,6 +30,10 @@
   (일반 300/300 · 심화 300/300 · 스트레스 200런 · NaN/음수/무한대 스캔).
 - 백업: `C:\dev\KakaoOpenChatBot\backups\web_slot_20260807_backup\` (원본 10파일).
 - ⚠️ **배포 순서 고정**: `jackpotrun-web` 먼저 → 모카봇 나중. 뒤집으면 리다이렉트가 없는 주소를 가리킨다.
+- **[E드라이브 PC] 1단계 배포 완료**: pull(fast-forward, 충돌 0) 후 `firebase deploy --only hosting,database`.
+  라이브 검증 — `/play/` 200 · `_harness.mjs` 배포 제외 확인(404) · 헤드리스 실플레이로
+  인트로→게스트→홈→런 시작→첫 스핀까지 EXP/코인/불운게이지 정산 정상, 콘솔 에러 0.
+  링크: <https://jackpotrun-web.web.app/play/>. 모카봇 쪽 리다이렉트 배포(2단계)는 모카봇 PC에서.
 - 🔴 **수동 필요**: `jackpotrun-web` 콘솔에서 Google provider 사용설정 + 승인 도메인 등록.
   미설정 시 로그인만 실패(게스트 플레이는 정상). 기존 `slotrank` 랭킹 기록은 이설하지 않아 초기화된다.
 ## 2026-08-07 - 웹 "시작 버튼 무반응" 조사 → 결과 모달 추가 + 전체 배포
