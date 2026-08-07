@@ -83,8 +83,10 @@ namespace JackpotRun.Engine
     //     prayFails                                                   inc 1 (usedCmds PRAY로 게임오버 — RunScratch)
     //   goSetMax L2018-2027
     //     devicesOwned                                                setMax(해금+영구보유 장치 수, L2012/2019 —
-    //       ComputeDevicesOwned가 AchievedIds/OwnedDevices뿐 아니라 "지금 이 시점 Stats로 lic_* req가
-    //       충족되는지"도 함께 본다 — M4, Opus 1차 검수 반영, 이번 런 취득분 1런 지연 버그 수정)
+    //       ComputeDevicesOwned가 AchievedIds/OwnedDevices뿐 아니라 "지금 이 시점 Stats로 해당 장치의
+    //       unlockAch 업적 req가 충족되는지"도 함께 본다 — M4, Opus 1차 검수 반영, 이번 런 취득분 1런
+    //       지연 버그 수정. WEB_PARITY P3-2부터 unlockAch는 업적 id를 직접 가리킨다(구 lic_* 접두
+    //       특례 제거) — ComputeDevicesOwned 함수 각주 참조)
     //     curseMax / relicsMax                                        setMax(현재 보유수)
     //     cstage_<charId> / mstage_<machineId> / bc_<char>_<machine>  setMax(run.stage)
     //     maxRunJackpots                                               setMax(runJackpots)
@@ -162,10 +164,12 @@ namespace JackpotRun.Engine
     // "RUNORACLE"는 ClearStage가 필터링에서 제외해 주므로 RunState.UsedCmds에서 바로 읽어도 안전하다).
     //
     // ── 커버리지 요약 (전체 156 고유 key, 03_meta §5.3 알파벳순 기준) ───────────────────────────────
-    // 156개 전부 관측 가능한 사건에 연결했다 — 12종(lic_dev_*)은 저장하지 않고 AchievementEngine.ComposeStat이
-    // 매 호출 즉석 파생(distinctCharS10/bldCat_*/bldTotal/bldAllBasic/bldAllMaster/accountLevel도 동일 방식,
-    // Kotlin composeStat과 동일 설계 — 위 "커버리지" 안내 참조), 나머지 144개는 이 파일이 StatTracker.Apply
-    // 호출마다 직접 inc/setMax한다.
+    // 156개 전부 관측 가능한 사건에 연결했다 — 이 파일이 StatTracker.Apply 호출마다 직접 inc/setMax
+    // 한다(482종 Kotlin 스냅샷 시절엔 그중 12종(lic_dev_*)·bldCat_*/bldTotal/bldAllBasic/bldAllMaster를
+    // AchievementEngine.ComposeStat이 즉석 파생했었지만, WEB_PARITY P3-2 업적 34종 교체로 그 파생 소비처
+    // 자체가 사라져 ComposeStat에서 제거됐다 — AchievementEngine.cs 헤더 각주 참조, 원시 카운터 수집
+    // 자체는 이 파일에서 계속 그대로 한다). 새로 추가된 "graduations"/"playerLevel"도 이 파일이 직접
+    // 기록한다(웹 파리티 P3-2, ApplyClearTracking/ApplyGameOverTracking 각 절 참조).
     //
     // ── seen_<perkId> (Shop.PerkUnlocked 1순위 게이트, 156-key 사전 밖이지만 해금 동작에 실질적 영향) ──
     // 156-key 사전은 "업적 판정" 키만 나열한 목록이라 seen_*를 포함하지 않지만, Shop.PerkUnlocked(Shop.cs
@@ -446,6 +450,11 @@ namespace JackpotRun.Engine
             if (clear.lastSpinClear) p.Inc("lastSpinClears");
             if (spin != null && spin.newExp == spin.quota) p.Inc("exactClears");
             if (clear.boss) p.Inc("bossClears");
+            // WEB_PARITY P3-2(업적 34종 "grad1") — 웹 game.js:1401 "if (stage === 15) r.graduatedThisRun
+            // = true" 대응. 웹은 이 플래그를 게임오버 시점에 카운터로 승격하지만(game.js:2562-2563),
+            // Unity는 승천(asc) 개념이 아직 없어(P6 미착수) "스테이지 15 클리어" 자체를 곧바로 졸업
+            // 카운터로 집계한다 — 승천이 이식되면 asc>0 분기를 얹을 자리다(현재는 항상 asc==0과 동치).
+            if (stage == 15) p.Inc("graduations");
 
             // ── clearInc (L895-913) ──
             int relicN = run.Perks.Count(id => Perks.ById(id)?.cat == PCat.RELIC);
@@ -558,6 +567,15 @@ namespace JackpotRun.Engine
             long finalScore = failure?.finalScore ?? 0L;
             long priorBest = p.GetStat("bestScore");
 
+            // WEB_PARITY P3-2(작업 지시 3번) — 웹 game.js:2578 "cnt.playerLevel = p.playerLevel || 1"
+            // (XP 부여 *직전* 스냅샷, "후반 업적용... playerLevel 은 1런 지연" 웹 주석 그대로). Unity 호출
+            // 순서(GameSession.FinishAction: StatTracker.Apply → AchievementEngine.Evaluate →
+            // PlayerLevelTracker.ApplyRunEnd)가 이 대입을 PlayerLevelTracker보다 먼저 실행하므로, 여기서
+            // 직접 대입하는 것만으로 웹과 동일한 "이번 런 XP 반영 전" 1런 지연이 재현된다(lv20/lv40 업적 대상).
+            // Opus 1차 검수(P3-2): 원재료 Dictionary에 직접 인덱서로 쓰던 걸 PlayerProfile.SetStat(공개
+            // 계약, Inc/SetMax와 나란한 세 번째 조작 방식)으로 승격.
+            p.SetStat("playerLevel", p.PlayerLevel);
+
             p.Inc("runs");
             p.SetMax("bestStage", run.Stage);
             p.SetMax("bestScore", finalScore);
@@ -617,16 +635,23 @@ namespace JackpotRun.Engine
             scratch.ResetStage();
         }
 
-        // M4(Opus 1차 검수): devicesOwned가 "이번 런에서 막 충족된 lic_* 면허"를 누락하던 1런 지연 버그
-        // 수정 — Kotlin gameOver의 devCount = equipableDeviceList(prev, composeStat(prevAch, prev)).size는
-        // prevAch가 "이번 런 도중의 이전 clearStage들이 이미 반영한" 최신 DB 읽기이므로, 이번 런의 앞선
-        // 클리어에서 이미 충족된 면허는 포함되지만 이번 gameOver 자체가 막 충족시킨 면허는 원본에서도
-        // 포함되지 않는다(자기참조 없음, bumpAch 계산 이전 시점 읽기). 우리 엔진은 AchievementEngine.Evaluate를
-        // "호출측이 언제 부르는가"에 따라 이미 반영된 lic_* 여부가 달라지므로, 여기서는 Kotlin과 동등하게
-        // "이미 AchievedIds에 있는 면허" OR "그 면허 업적의 req가 *지금 이 시점의* 원재료 Stats(이 함수가
-        // 위에서 이미 갱신한 runs/bestStage/bestScore 등 포함)로 파생 계산 시 충족"을 함께 판정한다 —
-        // AchievementEngine.Evaluate가 아직 호출되지 않았어도(즉 AchievedIds가 아직 갱신되지 않았어도)
-        // "이번 런 취득분"이 devicesOwned에 누락되지 않는다.
+        // M4(Opus 1차 검수, S5): devicesOwned가 "이번 런에서 막 충족된 업적 해금 장치"를 누락하던 1런
+        // 지연 버그 수정 — Kotlin gameOver의 devCount = equipableDeviceList(prev, composeStat(prevAch,
+        // prev)).size는 prevAch가 "이번 런 도중의 이전 clearStage들이 이미 반영한" 최신 DB 읽기이므로,
+        // 이번 런의 앞선 클리어에서 이미 충족된 업적은 포함되지만 이번 gameOver 자체가 막 충족시킨
+        // 업적은 원본에서도 포함되지 않는다(자기참조 없음, bumpAch 계산 이전 시점 읽기). 우리 엔진은
+        // AchievementEngine.Evaluate를 "호출측이 언제 부르는가"에 따라 이미 반영된 AchievedIds 여부가
+        // 달라지므로, 여기서는 Kotlin과 동등하게 "이미 AchievedIds에 있는 업적" OR "그 업적의 req가
+        // *지금 이 시점의* 원재료 Stats(이 함수가 위에서 이미 갱신한 runs/bestStage/bestScore 등 포함)로
+        // 충족"을 함께 판정한다 — AchievementEngine.Evaluate가 아직 호출되지 않았어도(즉 AchievedIds가
+        // 아직 갱신되지 않았어도) "이번 런 취득분"이 devicesOwned에 누락되지 않는다.
+        //
+        // WEB_PARITY P3-2(Opus 2차 검수, Fable 결정 4번) — dev_syllabus/dev_holdfile/dev_retake/
+        // dev_major(unlockAch="", 웹에 없는 Unity 전용 드랍 전용 장치, Devices.cs 헤더 각주)는 업적
+        // 경로로는 절대 충족되지 않지만, 런 중 드랍으로 이미 OwnedDevices에 들어있다면 devicesOwned에
+        // 여전히 포함돼야 한다 — "OwnedDevices 소속 여부" 체크를 unlockAch 공백 체크보다 먼저 둬서,
+        // 드랍 전용 장치도 보유 시 정상 카운트되게 한다(이전엔 unlockAch가 비면 무조건 continue라
+        // 드랍으로 얻어도 devicesOwned에서 누락됐다).
         private static long ComputeDevicesOwned(PlayerProfile p)
         {
             var composed = AchievementEngine.ComposeStat(p);
@@ -634,8 +659,9 @@ namespace JackpotRun.Engine
             for (int i = 0; i < Devices.All.Length; i++)
             {
                 var d = Devices.All[i];
-                if (string.IsNullOrEmpty(d.unlockAch)) continue;
-                if (p.OwnedDevices.Contains(d.id) || p.AchievedIds.Contains(d.unlockAch)) { count++; continue; }
+                if (p.OwnedDevices.Contains(d.id)) { count++; continue; }
+                if (string.IsNullOrEmpty(d.unlockAch)) continue; // 드랍 전용 장치 — 업적 경로 없음(OwnedDevices만 유효)
+                if (p.AchievedIds.Contains(d.unlockAch)) { count++; continue; }
 
                 var achDef = Achievements.ById(d.unlockAch);
                 if (achDef?.req == null || achDef.req.Length == 0) continue;

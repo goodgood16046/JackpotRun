@@ -138,7 +138,17 @@ namespace JackpotRun.UI2
                 row.name = "Ach_" + a.id;
                 result.Add(row);
                 var label = row.Find("Label")?.GetComponent<Text>();
-                if (label != null) label.text = $"{a.emoji} {a.name} — {a.desc}";
+                // WEB_PARITY P3-2 — 웹 업적 이모지가 astral이면 Achievements.cs가 emoji=""로 대체한다
+                // (S8 항목⑤ 선례 그대로, Achievements.cs 헤더 각주 참조) — 빈 이모지일 때 앞 공백이
+                // 남지 않도록 분기한다. name/desc는 데이터 원문을 그대로 보존하므로(웹 문장 중간에
+                // 박힌 이모지, 예: "체리 계열(🍒+🍑)") TextSanitize.StripAstral로 표시 직전에만 걸러낸다
+                // (Opus 2차 검수 저⑤, Core/TextSanitize.cs 헤더 참조 — 데이터는 미수정).
+                if (label != null)
+                {
+                    string name = TextSanitize.StripAstral(a.name);
+                    string desc = TextSanitize.StripAstral(a.desc);
+                    label.text = string.IsNullOrEmpty(a.emoji) ? $"{name} — {desc}" : $"{a.emoji} {name} — {desc}";
+                }
             }
             return result;
         }

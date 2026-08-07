@@ -351,6 +351,10 @@ namespace JackpotRun.UI2
             {
                 var entry = EntryOf(tab, id);
                 var m = (entry != null && entry.hasPick) ? entry.pick : null;
+                // WEB_PARITY P3-2(Fable 결정 4번 확인) — dev_syllabus/dev_holdfile/dev_retake/dev_major
+                // (드랍 전용 장치, Devices.cs 헤더 각주)는 catalog.json에 pick이 애초에 없어(manifest.json
+                // 원본 데이터, 시작 장착 후보로 큐레이션된 적 없음) 여기서 카드 자체가 생성되지 않는다
+                // — 시작 조합 선택 화면에는 뜨지 않고, 런 중 드랍으로만 만나는 게 원래도 의도된 동작.
                 if (m == null) return;
 
                 name = m.name;

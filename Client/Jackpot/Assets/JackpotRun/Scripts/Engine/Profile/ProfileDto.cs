@@ -21,9 +21,11 @@ namespace JackpotRun.Engine
         // PlayerProfile.AchievedIds(달성 업적 id 집합) — Kotlin SlotV2AchRow.unlocked CSV 대응.
         public string[] achievedIds = Array.Empty<string>();
 
-        // PlayerProfile.OwnedDevices(면허와 무관하게 영구 보유로 인정된 장치 id) — Kotlin
-        // SlotV2ScoreRow.ownedDevices CSV 대응("grandfathered" 포함 개념이나 이 포팅은 순수 신규 저장이라
-        // 실질적으로 lic_* 업적 달성 시 AchievementEngine이 여기 추가하는 용도로만 쓰인다).
+        // PlayerProfile.OwnedDevices(영구 보유로 인정된 장치 id) — Kotlin SlotV2ScoreRow.ownedDevices
+        // CSV 대응("grandfathered" 포함 개념이나 이 포팅은 순수 신규 저장). 두 경로로 채워진다:
+        // 업적 달성 시 AchievementEngine.Evaluate가 unlockAch 매칭 장치를 추가(WEB_PARITY P3-2부터
+        // lic_* 접두 특례 없이 범용화), 또는 런 중 장치 노드 드랍으로 StatTracker가 직접 추가
+        // (PlayerProfile.cs OwnedDevices 필드 각주 참조).
         public string[] ownedDevices = Array.Empty<string>();
 
         // SlotV2ScoreRow 잔여 필드(03_meta §3.3) — achievement 판정에 쓰이지 않는 "기록/표시" 전용 필드.
@@ -39,6 +41,10 @@ namespace JackpotRun.Engine
         public long playerXp;
         public int playerLevel = 1;
         public bool playerXpSeeded; // 웹 profile._xpInit 대응 — 이력 XP 시딩(seedXpFromHistory) 1회성 플래그.
+
+        // WEB_PARITY_DESIGN.md §2-(L) — 업적 34종 교체 XP 재시딩(1회) 완료 여부. PlayerProfile.
+        // PlayerXpReseed34 대응, Unity 전용(웹에 직접 대응물 없음).
+        public bool playerXpReseed34;
     }
 
     public static class ProfileDto
@@ -79,6 +85,7 @@ namespace JackpotRun.Engine
                 playerXp = p.PlayerXp,
                 playerLevel = p.PlayerLevel,
                 playerXpSeeded = p.PlayerXpSeeded,
+                playerXpReseed34 = p.PlayerXpReseed34,
             };
         }
 
@@ -124,6 +131,32 @@ namespace JackpotRun.Engine
                     p.PlayerXp = Formulas.PlayerSeedXpFromHistory(p.Runs, p.TotalScore, p.GetStat("bossClears"), p.BestStage);
                 p.PlayerXpSeeded = true;
             }
+
+            // ── §2-(L) XP 재시딩 마이그레이션(업적 34종 교체 인플레이션 정정, 1회) ─────────────────────
+            // 웹에는 직접 대응물이 없다 — 웹은 애초에 34종 체계로 시작해 "신규업적×25" 인플레이션이
+            // 없었다(Unity 전용 마이그레이션). 482종이 살아 있던 동안의 세이브는 런XP의 신규업적×25 항이
+            // 34종 대비 크게 부풀어 있을 수 있다(WEB_PARITY_DESIGN.md §2-(L), P3-1 Opus 1차 검수 지적).
+            // 시딩 공식(PlayerSeedXpFromHistory — 웹 seedXpFromHistory와 동일식)으로 현재 이력 기준
+            // "정상 시딩값"을 재산출해, 그 값이 현재 playerXp보다 *작을 때만* 덮어쓴다.
+            // Opus 2차 검수·Fable 결정(2026-08-08, §2-(L)) — 이 조건은 "482종 시절 세이브만 골라 정정"이
+            // 아니라 **이력 기반 재산출로 통일**한 것이다(재산출값이 작을 때만 적용). 실제로는 런XP
+            // 적립 공식(PlayerRunXp — 스핀마다 정밀 가산)이 이력 시딩 근사식(PlayerSeedXpFromHistory —
+            // runs×30+... 거친 평균)보다 항상 크거나 같으므로, 정상적으로 플레이해 쌓은 세이브에서도
+            // 이 마이그레이션은 사실상 항상 발동해 playerXp를 시딩값으로 낮춘다("작을 때만 덮어쓴다"는
+            // 조건 자체는 정확하지만, 대상을 "인플레이션된 세이브만"으로 좁히지 못하는 블랭킷 정정이다).
+            // 앱이 아직 미출시라 실사용 세이브가 0건인 지금 단계에서는 그 부작용이 실질적으로 없으므로,
+            // 표적 정정(예: 마이그레이션 시점 기록·달성 업적 이력 대조)을 새로 설계하는 대신 단순
+            // 통일을 그대로 채택한다 — §2-(L) 문언("재산출값이 작을 때만 덮어써라")을 문자 그대로 구현.
+            // 위 playerXpSeeded 마이그레이션과 별개의 독립 1회성 플래그(PlayerXpReseed34)라, 이미
+            // seeded된 세이브에도 정확히 한 번만 적용된다.
+            p.PlayerXpReseed34 = dto.playerXpReseed34;
+            if (!p.PlayerXpReseed34)
+            {
+                long reseeded = Formulas.PlayerSeedXpFromHistory(p.Runs, p.TotalScore, p.GetStat("bossClears"), p.BestStage);
+                if (reseeded < p.PlayerXp) p.PlayerXp = reseeded;
+                p.PlayerXpReseed34 = true;
+            }
+
             p.PlayerLevel = Formulas.PlayerLevelFromXp(p.PlayerXp); // 웹 game.js:193 — 로드마다 XP로부터 재산출.
 
             return p;

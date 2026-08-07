@@ -756,25 +756,30 @@ namespace JackpotRun.EngineTests
         };
 
         // ── 장치 16종 exact (kind, rare, unlockAch) ──
+        // WEB_PARITY P3-2(업적 34종 교체) — 12종의 unlockAch가 구 lic_* 면허 업적 id에서 웹
+        // ACH_DEVICE_REWARD(data.js:818-828) 매핑값으로 바뀌었다(Devices.cs 헤더 각주 참조). 나머지
+        // 4종(dev_syllabus/dev_holdfile/dev_retake/dev_major)은 Opus 2차 검수·Fable 결정(2026-08-08,
+        // 필수④)으로 드랍 전용 장치로 확정돼 unlockAch=""로 바뀌었다(업적 해금 경로 없음 — 런 중
+        // 장치 드랍으로만 영구 획득, Devices.cs 헤더 각주 참조).
         private static readonly Dictionary<string, (string kind, bool rare, string unlockAch)> ExpectedDeviceExact =
             new Dictionary<string, (string, bool, string)>
         {
-            ["dev_flame"] = ("PASSIVE", true, "lic_flame"),
-            ["dev_seal"] = ("PASSIVE", false, "lic_seal"),
-            ["dev_safe"] = ("PASSIVE", false, "lic_safe"),
-            ["dev_overheat"] = ("PASSIVE", true, "lic_overheat"),
-            ["dev_subreel"] = ("PASSIVE", true, "lic_subreel"),
-            ["dev_coin"] = ("ARMED", false, "lic_coin"),
-            ["dev_reroll"] = ("MANIP", false, "lic_reroll"),
-            ["dev_pin"] = ("MANIP", false, "lic_pin"),
-            ["dev_copy"] = ("MANIP", true, "lic_copy"),
-            ["dev_swap"] = ("MANIP", true, "lic_swap"),
-            ["dev_oracle"] = ("PEEK", true, "lic_oracle"),
-            ["dev_bell"] = ("INSTANT", true, "lic_bell"),
-            ["dev_syllabus"] = ("PEEK", false, "prismPick1"),
-            ["dev_holdfile"] = ("ARMED", false, "item10"),
-            ["dev_retake"] = ("ARMED", true, "shop50"),
-            ["dev_major"] = ("PASSIVE", false, "runs50"),
+            ["dev_flame"] = ("PASSIVE", true, "score50k"),
+            ["dev_seal"] = ("PASSIVE", false, "crown10"),
+            ["dev_safe"] = ("PASSIVE", false, "cherry100"),
+            ["dev_overheat"] = ("PASSIVE", true, "lastclear5"),
+            ["dev_subreel"] = ("PASSIVE", true, "jackpot1"),
+            ["dev_coin"] = ("ARMED", false, "score10k"),
+            ["dev_reroll"] = ("MANIP", false, "boss1"),
+            ["dev_pin"] = ("MANIP", false, "exact1"),
+            ["dev_copy"] = ("MANIP", true, "prism5"),
+            ["dev_swap"] = ("MANIP", true, "boss5"),
+            ["dev_oracle"] = ("PEEK", true, "stage10"),
+            ["dev_bell"] = ("INSTANT", true, "runs20"),
+            ["dev_syllabus"] = ("PEEK", false, ""),
+            ["dev_holdfile"] = ("ARMED", false, ""),
+            ["dev_retake"] = ("ARMED", true, ""),
+            ["dev_major"] = ("PASSIVE", false, ""),
         };
 
         // ── 장치 16종 fx 스냅샷 해시 ──

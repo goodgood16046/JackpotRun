@@ -39,19 +39,25 @@ namespace JackpotRun.Engine
     // [이 슬라이스 범위 밖 — 구현하지 않음, 보고 대상]
     //   - PinnedChallenge/LastCombo는 스키마 필드만 보존했다(DTO 왕복 대상). "도전판 고정"(allChallenges/
     //     reqProgress/bottleneck, 03_meta §2.4·§6-9) 자체의 진행률 계산 로직은 SlotV2Engine.kt 미포함 함수가
-    //     많아 이 슬라이스(프로필·스탯트래킹·업적판정) 범위 밖이다 — 작업 지시서에 명시된 "면허(lic_*) 달성 시
-    //     장치 해금"만 AchievementEngine이 구현한다.
+    //     많아 이 슬라이스(프로필·스탯트래킹·업적판정) 범위 밖이다 — "업적 달성 시 unlockAch가 가리키는
+    //     장치 해금"만 AchievementEngine이 구현한다(WEB_PARITY P3-2부터 lic_* 접두 특례 없이 범용화 —
+    //     Devices.cs의 unlockAch가 업적 id를 직접 담는다, AchievementEngine.cs 헤더 각주 참조).
     public sealed class PlayerProfile
     {
         // 156개 고유 stat key(03_meta §5.3) + StatTracker가 쓰는 파생-원천 키(bld_<id> 25종 등) 통합 저장소.
-        // 키가 없으면 0(Kotlin `stat[key] ?: 0L`과 동일 관례) — GetStat/Inc/SetMax로만 조작할 것.
+        // 키가 없으면 0(Kotlin `stat[key] ?: 0L`과 동일 관례) — GetStat/Inc/SetMax/SetStat으로만 조작할 것
+        // (SetStat은 누적/최댓값 규칙 없는 직접 대입 — 웹 "cnt[key]=value" 스냅샷 대입에 대응, 아래 참조).
         public readonly Dictionary<string, long> Stats = new Dictionary<string, long>();
 
         // 달성한 업적 id 집합 — Kotlin SlotV2AchRow.unlocked CSV 대응.
         public readonly HashSet<string> AchievedIds = new HashSet<string>();
 
-        // 면허(lic_*) 달성 등으로 영구 보유가 인정된 장치 id 집합 — Kotlin SlotV2ScoreRow.ownedDevices 대응.
-        // AchievementEngine.Evaluate가 lic_* 업적 신규 달성 시 여기 추가한다(작업 지시 3번 요구사항).
+        // 업적 달성 등으로 영구 보유가 인정된 장치 id 집합 — Kotlin SlotV2ScoreRow.ownedDevices 대응.
+        // 두 경로로 채워진다: ① AchievementEngine.Evaluate가 "unlockAch==방금 달성한 업적 id"인 장치를
+        // 범용으로 찾아 여기 추가(WEB_PARITY P3-2, 구 lic_* 접두 특례 제거). ② 런 중 장치 노드 드랍
+        // (P1, NODE_RESOLVED.deviceGrantedId → StatTracker가 직접 추가) — unlockAch가 빈 문자열인
+        // 드랍 전용 장치(dev_syllabus/dev_holdfile/dev_retake/dev_major, Devices.cs 헤더 각주)는 이
+        // ②번 경로로만 영구 보유가 인정된다(①은 unlockAch가 비어 있으면 매치될 업적이 없어 자연히 스킵됨).
         public readonly HashSet<string> OwnedDevices = new HashSet<string>();
 
         // SlotV2ScoreRow 잔여 필드(achievement 판정 무관, 표시/기록 전용) — 03_meta §3.3.
@@ -73,6 +79,12 @@ namespace JackpotRun.Engine
         // 웹 profile._xpInit(game.js:189-192) 대응 — 기존 세이브에 이력 XP를 1회만 시딩했는지 플래그.
         // ProfileDto.FromDto가 로드 시점에 관리한다(직접 조작하지 말 것).
         public bool PlayerXpSeeded;
+
+        // WEB_PARITY_DESIGN.md §2-(L) — 업적 34종 교체(P3-2)로 런XP의 "신규업적×25" 항 인플레이션이
+        // 정정되면서, 교체 이전(482종 시절) 세이브의 playerXp가 부풀어 있을 수 있어 1회 재시딩하는
+        // Unity 전용 마이그레이션 플래그(웹에는 직접 대응물이 없다 — 웹은 처음부터 34종이라 이 인플레이션
+        // 자체가 없었음). ProfileDto.FromDto가 로드 시점에 관리한다(직접 조작하지 말 것).
+        public bool PlayerXpReseed34;
 
         // ── bestScore/bestStage/runs 읽기 별칭 (Stats 딕셔너리가 단일 진실 공급원) ──────────────────
         public long BestScore => GetStat("bestScore");
@@ -101,6 +113,17 @@ namespace JackpotRun.Engine
             else if (!Stats.ContainsKey(key)) Stats[key] = cur; // 최초 기록(0으로라도 키를 만들어 존재를 표시)
         }
 
+        // 직접 대입(Inc/SetMax와 달리 누적/최댓값 규칙 없이 그대로 덮어씀) — 웹의 "cnt[key] = value"
+        // 스냅샷 대입(예: game.js:2578 playerLevel 1런 지연 기록)에 대응하는 세 번째 조작 방식.
+        // Opus 1차 검수(P3-2) — StatTracker가 Stats 딕셔너리에 직접 인덱서로 대입하던 지점을
+        // (Inc/SetMax와 나란한) 공개 계약으로 승격했다: "Stats는 GetStat/Inc/SetMax/SetStat으로만
+        // 조작할 것"(Stats 필드 각주 갱신).
+        public void SetStat(string key, long value)
+        {
+            if (string.IsNullOrEmpty(key)) return;
+            Stats[key] = value;
+        }
+
         // ── 해금 조회 — 기존 API 재사용만(Unlocks.Meets·Schools·Shop.PerkUnlocked), 재정의 금지 ──────
         // 캐릭터/머신은 공유 StatReq 계약(01_engine.md §9.1)이라 Unlocks.Meets를 직접 재사용.
         // M1(Opus 1차 검수, 2026-07-31): 원재료 Stats가 아니라 AchievementEngine.ComposeStat(this)로 판정한다
@@ -115,9 +138,14 @@ namespace JackpotRun.Engine
         // "Schools.cs의 ... 단일 소스로 결합만 한다") — 그 로직을 그대로 재사용한다(중복 구현 금지).
         public bool IsPerkUnlocked(Perk p) => Shop.PerkUnlocked(p, Stats);
 
-        // 장치 해금 — Kotlin deviceUnlocked(dev,stat) = achieved(dev.unlockAch) ∪ 영구보유(ownedDevices).
-        // lic_* 업적 자체의 판정(면허 조건 AND)은 AchievementEngine.ComposeStat의 파생키(lic_dev_<id>)가
-        // 담당하고, 여기서는 "이미 달성된 업적 id 집합"만 본다(달성 여부 자체의 판정 로직은 재구현하지 않음).
+        // 장치 해금 = 영구보유(ownedDevices) ∪ achieved(dev.unlockAch). WEB_PARITY P3-2부터 unlockAch는
+        // 업적 id를 직접 담는다(구 lic_dev_<id> 파생키 경유 판정은 제거됨 — AchievementEngine.cs 헤더
+        // 각주) — 그 업적 자체가 신규 달성됐는지 여부(단일 key>=threshold)는 AchievementEngine.Evaluate가
+        // 판정해 AchievedIds에 반영하고, 여기서는 "이미 달성된 업적 id 집합"만 본다(재구현하지 않음).
+        // unlockAch가 빈 문자열인 드랍 전용 장치(dev_syllabus/dev_holdfile/dev_retake/dev_major, Devices.cs
+        // 헤더 각주 — 웹에 대응 없는 Unity 전용, 업적 해금 없이 런 중 장치 드랍으로만 영구 획득)는
+        // `AchievedIds.Contains("")`가 항상 false이므로(HashSet에 빈 문자열이 들어갈 일이 없음) 이 절이
+        // 자연히 안전하게 false로 떨어진다 — OwnedDevices 경로만 유효하다.
         public bool IsDeviceUnlocked(DeviceDef d)
         {
             if (d == null) return false;

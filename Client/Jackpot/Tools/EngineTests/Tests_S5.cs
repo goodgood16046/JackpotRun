@@ -178,65 +178,130 @@ namespace JackpotRun.EngineTests
     }
 
     // ── ② 업적 트리거 — 임계 직전(불충족)→직후(충족) ────────────────────────────────────────────
+    // WEB_PARITY P3-2(업적 34종 교체) — 구 테스트가 쓰던 intro_firstSpin/spin100(key=totalSpins)는
+    // 새 34종에 없다(totalSpins를 req.key로 쓰는 업적이 웹에 없음). 같은 "한 키·다른 임계값" 패턴을
+    // 유지하도록 jackpot1(key=jackpots,th=1)/jackpot10(key=jackpots,th=10)으로 교체했다.
     internal static class Tests_S5_AchievementTrigger
     {
         public static void Run(TestCtx t)
         {
             var profile = new PlayerProfile();
 
-            // intro_firstSpin: key=totalSpins, threshold=1.
-            profile.Stats["totalSpins"] = 0;
+            // jackpot1: key=jackpots, threshold=1.
+            profile.Stats["jackpots"] = 0;
             var newlyBefore = AchievementEngine.Evaluate(profile);
-            t.True(!newlyBefore.Any(a => a.id == "intro_firstSpin"), "[ach-trigger] totalSpins=0 — intro_firstSpin 미달성");
-            t.True(!profile.AchievedIds.Contains("intro_firstSpin"), "[ach-trigger] totalSpins=0 — AchievedIds에 없음");
+            t.True(!newlyBefore.Any(a => a.id == "jackpot1"), "[ach-trigger] jackpots=0 — jackpot1 미달성");
+            t.True(!profile.AchievedIds.Contains("jackpot1"), "[ach-trigger] jackpots=0 — AchievedIds에 없음");
 
-            profile.Stats["totalSpins"] = 1;
+            profile.Stats["jackpots"] = 1;
             var newlyAt = AchievementEngine.Evaluate(profile);
-            t.True(newlyAt.Any(a => a.id == "intro_firstSpin"), "[ach-trigger] totalSpins=1 — intro_firstSpin 신규 달성 목록에 포함");
-            t.True(profile.AchievedIds.Contains("intro_firstSpin"), "[ach-trigger] totalSpins=1 — AchievedIds에 추가됨");
+            t.True(newlyAt.Any(a => a.id == "jackpot1"), "[ach-trigger] jackpots=1 — jackpot1 신규 달성 목록에 포함");
+            t.True(profile.AchievedIds.Contains("jackpot1"), "[ach-trigger] jackpots=1 — AchievedIds에 추가됨");
 
-            // 재평가 시 이미 달성한 업적은 newly에 다시 나오지 않아야 함(bumpAch의 "id !in before" 필터).
+            // 재평가 시 이미 달성한 업적은 newly에 다시 나오지 않아야 함(웹 "!p.unlocked.includes(a.id)" 필터).
             var newlyAgain = AchievementEngine.Evaluate(profile);
-            t.True(!newlyAgain.Any(a => a.id == "intro_firstSpin"), "[ach-trigger] 재평가 시 중복 신규달성 없음");
+            t.True(!newlyAgain.Any(a => a.id == "jackpot1"), "[ach-trigger] 재평가 시 중복 신규달성 없음");
 
-            // 문턱값이 다른 두 번째 업적(spin100, threshold=100)으로 동일 패턴 재확인.
-            profile.Stats["totalSpins"] = 99;
-            var newly99 = AchievementEngine.Evaluate(profile);
-            t.True(!newly99.Any(a => a.id == "spin100"), "[ach-trigger] totalSpins=99 — spin100 미달성");
-            profile.Stats["totalSpins"] = 100;
-            var newly100 = AchievementEngine.Evaluate(profile);
-            t.True(newly100.Any(a => a.id == "spin100"), "[ach-trigger] totalSpins=100 — spin100 신규 달성");
+            // 문턱값이 다른 두 번째 업적(jackpot10, threshold=10, 같은 key)으로 동일 패턴 재확인.
+            profile.Stats["jackpots"] = 9;
+            var newly9 = AchievementEngine.Evaluate(profile);
+            t.True(!newly9.Any(a => a.id == "jackpot10"), "[ach-trigger] jackpots=9 — jackpot10 미달성");
+            profile.Stats["jackpots"] = 10;
+            var newly10 = AchievementEngine.Evaluate(profile);
+            t.True(newly10.Any(a => a.id == "jackpot10"), "[ach-trigger] jackpots=10 — jackpot10 신규 달성");
         }
     }
 
-    // ── ③ 면허(lic_*) 달성 → 장치 영구해금 반영 ─────────────────────────────────────────────────
-    internal static class Tests_S5_LicenseUnlocksDevice
+    // ── ③ 업적 달성 → 장치 영구해금 반영(웹 ACH_DEVICE_REWARD) ─────────────────────────────────
+    // WEB_PARITY P3-2 — 구 lic_safe(AND 조건 2개, 파생키 lic_dev_safe 경유) 체계를 웹 방식(단일
+    // key>=threshold, Devices.cs의 unlockAch가 업적 id를 직접 가리킴)으로 교체했다. cherry100
+    // (key=cherryTotal,th=100) → dev_safe로 동일한 검증 뼈대를 재사용한다.
+    internal static class Tests_S5_AchievementDeviceReward
     {
         public static void Run(TestCtx t)
         {
             var devSafe = Devices.ById("dev_safe");
-            t.True(devSafe != null && devSafe.unlockAch == "lic_safe",
-                "[lic-unlock] dev_safe.unlockAch == \"lic_safe\" (Devices.cs 전제 확인)");
+            t.True(devSafe != null && devSafe.unlockAch == "cherry100",
+                "[ach-device] dev_safe.unlockAch == \"cherry100\" (Devices.cs 전제 확인, 웹 ACH_DEVICE_REWARD)");
 
             var profile = new PlayerProfile();
-            profile.Stats["closeClears"] = 4; // lic_safe 조건: closeClears>=5 && bestStage>=6
-            profile.Stats["bestStage"] = 6;
+            profile.Stats["cherryTotal"] = 99; // cherry100 조건: cherryTotal>=100
             AchievementEngine.Evaluate(profile);
-            t.True(!profile.AchievedIds.Contains("lic_safe"), "[lic-unlock] closeClears=4<5 — lic_safe 미달성");
-            t.True(!profile.OwnedDevices.Contains("dev_safe"), "[lic-unlock] 미달성 상태에서 dev_safe 미보유");
-            t.True(!profile.IsDeviceUnlocked(devSafe), "[lic-unlock] IsDeviceUnlocked == false");
+            t.True(!profile.AchievedIds.Contains("cherry100"), "[ach-device] cherryTotal=99<100 — cherry100 미달성");
+            t.True(!profile.OwnedDevices.Contains("dev_safe"), "[ach-device] 미달성 상태에서 dev_safe 미보유");
+            t.True(!profile.IsDeviceUnlocked(devSafe), "[ach-device] IsDeviceUnlocked == false");
 
-            profile.Stats["closeClears"] = 5;
+            profile.Stats["cherryTotal"] = 100;
             var newly = AchievementEngine.Evaluate(profile);
-            t.True(profile.AchievedIds.Contains("lic_safe"), "[lic-unlock] closeClears=5>=5 && bestStage=6>=6 — lic_safe 달성");
-            t.True(newly.Any(a => a.id == "lic_safe"), "[lic-unlock] lic_safe가 신규달성 목록에 포함");
-            t.True(profile.OwnedDevices.Contains("dev_safe"), "[lic-unlock] AchievementEngine.Evaluate가 dev_safe를 OwnedDevices에 반영");
-            t.True(profile.IsDeviceUnlocked(devSafe), "[lic-unlock] IsDeviceUnlocked == true (면허 달성 반영 후)");
+            t.True(profile.AchievedIds.Contains("cherry100"), "[ach-device] cherryTotal=100>=100 — cherry100 달성");
+            t.True(newly.Any(a => a.id == "cherry100"), "[ach-device] cherry100이 신규달성 목록에 포함");
+            t.True(profile.OwnedDevices.Contains("dev_safe"), "[ach-device] AchievementEngine.Evaluate가 dev_safe를 OwnedDevices에 반영");
+            t.True(profile.IsDeviceUnlocked(devSafe), "[ach-device] IsDeviceUnlocked == true (업적 달성 반영 후)");
 
-            // ComposeStat의 파생키 lic_dev_safe도 1로 계산되는지 직접 확인(AchievementEngine.Evaluate가
-            // 참조하는 것과 동일한 함수를 호출 — 내부 판정 자체를 다시 검증).
-            var composed = AchievementEngine.ComposeStat(profile);
-            t.Eq(1L, composed["lic_dev_safe"], "[lic-unlock] ComposeStat 파생키 lic_dev_safe == 1");
+            // 대응 장치가 없는 업적(예: jackpot10엔 매핑이 없다 — jackpot1만 dev_subreel과 매핑됨)은
+            // OwnedDevices에 아무것도 추가하지 않아야 한다(회귀 확인 — 범용화된 Evaluate가 무관한
+            // 업적까지 장치를 지급하지 않는지).
+            var profile2 = new PlayerProfile();
+            profile2.Stats["jackpots"] = 10; // jackpot1(th1)·jackpot10(th10) 둘 다 충족, jackpot1→dev_subreel만 지급돼야 함
+            AchievementEngine.Evaluate(profile2);
+            t.True(profile2.OwnedDevices.Contains("dev_subreel"), "[ach-device] jackpot1 달성 → dev_subreel 지급");
+            t.Eq(1, profile2.OwnedDevices.Count, "[ach-device] jackpot10에는 매핑된 장치가 없어 정확히 1개만 지급됨");
+        }
+    }
+
+    // ── ③b 드랍 전용 장치(unlockAch="") — 업적 경로로는 절대 해금되지 않고, OwnedDevices 직접 추가
+    // (런 중 장치 드랍)로만 해금된다(Opus 2차 검수·Fable 결정 4번, Devices.cs 헤더 각주) ───────────
+    internal static class Tests_S5_DropOnlyDevicesNeverAchievementUnlocked
+    {
+        private static readonly string[] DropOnlyIds = { "dev_syllabus", "dev_holdfile", "dev_retake", "dev_major" };
+
+        public static void Run(TestCtx t)
+        {
+            foreach (var id in DropOnlyIds)
+            {
+                var dev = Devices.ById(id);
+                t.True(dev != null && string.IsNullOrEmpty(dev.unlockAch), $"[drop-only] {id}.unlockAch == \"\" (Devices.cs 전제 확인)");
+                if (dev == null) continue;
+
+                // 34종 업적 전부를 큰 여유로 만족시키는 "전지전능" 스탯을 채워도(업적 경로로는) 드랍
+                // 전용 장치는 해금되면 안 된다 — unlockAch가 빈 문자열이라 어떤 업적 id와도 매치되지 않는다.
+                var profile = new PlayerProfile();
+                foreach (var a in Achievements.All)
+                {
+                    if (a.req == null || a.req.Length == 0) continue;
+                    profile.Stats[a.req[0].key] = a.req[0].value + 1000;
+                }
+                var newly = AchievementEngine.Evaluate(profile);
+                t.True(newly.Count > 0, $"[drop-only] {id} 사전조건: 전지전능 스탯으로 실제 업적들이 신규 달성됨(테스트 전제 확인)");
+                t.True(!profile.OwnedDevices.Contains(id), $"[drop-only] {id}: 34종 업적을 전부 만족해도 업적 경로로는 OwnedDevices에 추가되지 않음");
+                t.True(!profile.IsDeviceUnlocked(dev), $"[drop-only] {id}: IsDeviceUnlocked == false (업적 경로 없음)");
+
+                // 런 중 드랍(NODE_RESOLVED.deviceGrantedId → StatTracker → OwnedDevices 직접 추가)과
+                // 동일한 최종 상태 — OwnedDevices에 들어가면 그것만으로 해금된다.
+                profile.OwnedDevices.Add(id);
+                t.True(profile.IsDeviceUnlocked(dev), $"[drop-only] {id}: OwnedDevices 직접 추가(드랍 경로) 후 IsDeviceUnlocked == true");
+            }
+        }
+    }
+
+    // ── ③c 드랍으로 보유한 드랍 전용 장치도 devicesOwned 스탯에 정상 카운트된다 ──────────────────
+    // (StatTracker.ComputeDevicesOwned의 "OwnedDevices 소속 여부"를 unlockAch 공백 체크보다 먼저
+    // 보게 한 순서수정 회귀 확인, Opus 2차 검수 필수④ 부수 발견)
+    internal static class Tests_S5_DropOnlyDeviceCountsTowardDevicesOwned
+    {
+        public static void Run(TestCtx t)
+        {
+            var profile = new PlayerProfile();
+            var run = S4TestHelpers.NewRun(41L);
+            var scratch = new StatTracker.RunScratch();
+            profile.OwnedDevices.Add("dev_holdfile"); // 런 중 드랍으로 이미 보유했다고 가정
+
+            long before = profile.GetStat("devicesOwned");
+            StatTracker.Apply(profile, run,
+                new List<RunEvent> { new RunEvent { type = "GAME_OVER", failure = new FailureOutcome { kind = "GAME_OVER", finalScore = 0 } } },
+                scratch);
+            t.True(profile.GetStat("devicesOwned") > before,
+                "[drop-only] 드랍으로 보유한 dev_holdfile(unlockAch=\"\")이 devicesOwned에 정상 카운트됨");
         }
     }
 
@@ -351,35 +416,41 @@ namespace JackpotRun.EngineTests
     }
 
     // ── ⑤ 계정 레벨 연동(Formulas.AccountExp/ExpToLevel) — 손 계산 골든값 ──────────────────────────
+    // WEB_PARITY P3-2 — ComposeStat은 더 이상 "accountLevel" 파생키를 계산하지 않는다(아무 소비처가
+    // 없어 제거, AchievementEngine.cs 헤더 각주). Formulas.AccountExp/AccountLevel 함수 자체는 그대로
+    // 살아 있으므로(작업 지시 6번), 이 테스트는 ComposeStat 대신 그 함수를 직접 호출해 ④ 컴포넌트가
+    // 새 34종 테이블로도 여전히 정확히 동작하는지 확인한다. 구 테스트가 쓰던 totalSpins 키는 새 34종
+    // 어디에도 없어(req.key 목록에 없음) jackpots 키(jackpot1 th1·jackpot10 th10, 같은 손계산 합계 40이
+    // 나오도록)로 교체했다.
     internal static class Tests_S5_AccountLevelIntegration
     {
         public static void Run(TestCtx t)
         {
             var profile = new PlayerProfile();
-            profile.Stats["totalSpins"] = 100; // 그 외 키는 전부 비움(파생키만 ComposeStat이 채움)
+            profile.Stats["jackpots"] = 10; // 그 외 키는 전부 비움
 
             var composed = AchievementEngine.ComposeStat(profile);
+            t.True(!composed.ContainsKey("accountLevel"), "[account-level] ComposeStat이 더 이상 accountLevel 파생키를 채우지 않음(소비처 없어 제거)");
 
             // 손 계산 (Formulas.AccountExp, Core/Formulas.cs L150-207 그대로):
             //  ① 마일스톤(bestStage 없음=0): 0
             //  ② bossClears*8 상한120 (bossClears 없음=0): 0
             //  ③ runs*3 상한90 (runs 없음=0): 0
-            //  ④ 업적 tier합 — totalSpins 키를 쓰는 482종 중 threshold<=100인 것만 기여:
-            //     intro_firstSpin(threshold=1,브론즈=20) + spin100(threshold=100,브론즈=20) = 40
-            //     (spin500=500/spin1000=1000/spin5000=5000/rp_spin2000=2000/rp_spin10000=10000은
-            //      전부 threshold>100이라 미충족 — Achievements.cs 전수 grep으로 확인된 totalSpins 사용처 6종 중 나머지 4종)
+            //  ④ 업적 tier합 — jackpots=10인 상태에서 새 34종 중 key=="jackpots"인 것만 기여:
+            //     jackpot1(threshold=1,브론즈=20) + jackpot10(threshold=10,브론즈=20) = 40
+            //     (34종 전부 tier="브론즈" 균일값이라 AchTierExp=20 — Achievements.cs 헤더 각주 참조)
             //  ⑤ bld_/bc_ 접두 키 없음: 0   ⑥ cstage_/mstage_ 접두 키 없음: 0
             //  합계 accountExp = 0+0+0+40+0+0 = 40
             //  level = 1 + floor(sqrt(40/22.0)) = 1 + floor(sqrt(1.8181...)) = 1 + floor(1.3484...) = 1 + 1 = 2
             var achievementExpTable = Achievements.All.Select(a => (a.req[0].key, a.req[0].value, a.tier)).ToList();
             long exp = Formulas.AccountExp(composed, achievementExpTable);
-            t.Eq(40L, exp, "[account-level] totalSpins=100 → accountExp = 40 (손계산: intro_firstSpin 20 + spin100 20)");
+            t.Eq(40L, exp, "[account-level] jackpots=10 → accountExp = 40 (손계산: jackpot1 20 + jackpot10 20)");
             t.Eq(2, Formulas.ExpToLevel(exp), "[account-level] exp=40 → level = 1+floor(sqrt(40/22)) = 2 (손계산)");
-            t.Eq(2L, composed["accountLevel"], "[account-level] ComposeStat 파생키 accountLevel == 2 (독립 재계산과 일치)");
+            t.Eq(2, Formulas.AccountLevel(composed, achievementExpTable), "[account-level] Formulas.AccountLevel(직접호출) == 2 (독립 재계산과 일치)");
 
             // 빈 프로필(전부 0)은 레벨 1(하한)이어야 한다.
             var empty = AchievementEngine.ComposeStat(new PlayerProfile());
-            t.Eq(1L, empty["accountLevel"], "[account-level] 빈 프로필 accountLevel == 1 (하한)");
+            t.Eq(1, Formulas.AccountLevel(empty, achievementExpTable), "[account-level] 빈 프로필 AccountLevel == 1 (하한)");
         }
     }
 
@@ -624,6 +695,36 @@ namespace JackpotRun.EngineTests
             ZeroCoinAndDebtBoss(t);
             GameOver_Regressions(t);
             ItemsUsed_M2_InstantClearSkip(t);
+            GraduationsCounter_Stage15Only(t);
+        }
+
+        // WEB_PARITY P3-2(업적 34종 "grad1") — 웹 game.js:1401 "if (stage === 15) r.graduatedThisRun =
+        // true"를 StatTracker.ApplyClearTracking이 곧바로 "graduations" 카운터 증분으로 이식했는지
+        // 확인한다. 14/16 등 인접 스테이지에서는 증분되지 않아야 하고(정확히 15), 보스 여부와 무관하게
+        // stage==15면 증분된다(웹 원본도 boss 플래그를 따로 보지 않는다).
+        private static void GraduationsCounter_Stage15Only(TestCtx t)
+        {
+            var profile14 = new PlayerProfile();
+            var run14 = S4TestHelpers.NewRun(21L);
+            var scratch14 = new StatTracker.RunScratch();
+            StatTracker.Apply(profile14, run14, new List<RunEvent> { new RunEvent { type = "STAGE_CLEARED", spin = NewSpin(result: null), clear = NewClear(14, boss: false) } }, scratch14);
+            t.Eq(0L, profile14.GetStat("graduations"), "[grad1] stage=14 클리어는 graduations 미증분");
+
+            var profile15 = new PlayerProfile();
+            var run15 = S4TestHelpers.NewRun(22L);
+            var scratch15 = new StatTracker.RunScratch();
+            StatTracker.Apply(profile15, run15, new List<RunEvent> { new RunEvent { type = "STAGE_CLEARED", spin = NewSpin(result: null), clear = NewClear(15, boss: true) } }, scratch15);
+            t.Eq(1L, profile15.GetStat("graduations"), "[grad1] stage=15 클리어(웹 game.js:1401) → graduations +1");
+
+            var profile16 = new PlayerProfile();
+            var run16 = S4TestHelpers.NewRun(23L);
+            var scratch16 = new StatTracker.RunScratch();
+            StatTracker.Apply(profile16, run16, new List<RunEvent> { new RunEvent { type = "STAGE_CLEARED", spin = NewSpin(result: null), clear = NewClear(16, boss: false) } }, scratch16);
+            t.Eq(0L, profile16.GetStat("graduations"), "[grad1] stage=16 클리어는 graduations 미증분(정확히 15만)");
+
+            // AchievementEngine.Evaluate와 연동해 grad1 업적 자체가 실제로 달성되는지도 확인.
+            var achieved = AchievementEngine.Evaluate(profile15);
+            t.True(achieved.Any(a => a.id == "grad1"), "[grad1] graduations=1 → grad1 업적 신규 달성");
         }
 
         private static ClearOutcome NewClear(int stage, bool boss = false, long leftover = 0, bool lastSpinClear = false, long overPct = 100, bool inDebt = false) =>
@@ -741,18 +842,24 @@ namespace JackpotRun.EngineTests
 
         // M4: devicesOwned가 "이번 게임오버 자체가 막 충족시킨" 조건을 즉시 반영하는지.
         // L1: BestChar/BestMachine이 동점(>=)에도 갱신되는지.
+        // WEB_PARITY P3-2 — dev_safe의 unlockAch가 구 lic_safe(closeClears>=5 && bestStage>=6, AND
+        // 2조건)에서 웹 cherry100(cherryTotal>=100, 단일조건)으로 바뀌었다. "이번 이벤트가 막 조건을
+        // 채운다"는 시나리오를 유지하려고, GAME_OVER 이벤트 자체가 실어 온 마지막 스핀(🍒체리 1개)이
+        // cherryTotal을 99→100으로 채우게 구성한다 — ApplySpinIncrements(같은 이벤트 처리 안에서 먼저
+        // 실행)가 cherryTotal을 갱신한 *뒤에* ApplyGameOverTracking의 ComputeDevicesOwned가 읽으므로,
+        // AchievedIds에 cherry100이 아직 없어도 devicesOwned에 dev_safe가 즉시 반영돼야 한다.
         private static void GameOver_Regressions(TestCtx t)
         {
             var profile = new PlayerProfile();
-            profile.Stats["closeClears"] = 5; // dev_safe 조건(closeClears>=5 && bestStage>=6)의 절반은 사전 충족
+            profile.Stats["cherryTotal"] = 99; // cherry100 조건(cherryTotal>=100) 직전 상태
             var run = S4TestHelpers.NewRun(9L);
-            run.Stage = 6; // 이번 게임오버로 bestStage>=6이 "지금 막" 충족(사전엔 없었음)
             var scratch = new StatTracker.RunScratch();
-            t.True(!profile.AchievedIds.Contains("lic_safe"), "[game-over] 사전 lic_safe 미달성 상태 확인");
-            StatTracker.Apply(profile, run, new List<RunEvent> { new RunEvent { type = "GAME_OVER", failure = new FailureOutcome { kind = "GAME_OVER", finalScore = 777 } } }, scratch);
-            t.Eq(6L, profile.GetStat("bestStage"), "[game-over] bestStage가 이번 런의 run.Stage로 setMax됨");
+            t.True(!profile.AchievedIds.Contains("cherry100"), "[game-over] 사전 cherry100 미달성 상태 확인");
+            var spin = NewSpin(result: NewResult(0, "cherry"));
+            StatTracker.Apply(profile, run, new List<RunEvent> { new RunEvent { type = "GAME_OVER", spin = spin, failure = new FailureOutcome { kind = "GAME_OVER", finalScore = 777 } } }, scratch);
+            t.Eq(100L, profile.GetStat("cherryTotal"), "[game-over] cherryTotal이 이번 GAME_OVER 이벤트의 스핀으로 100 도달");
             t.True(profile.GetStat("devicesOwned") >= 1,
-                "[game-over] M4: AchievedIds에 lic_safe가 없어도 방금 충족된 조건(closeClears+bestStage)만으로 devicesOwned에 dev_safe 포함");
+                "[game-over] M4: AchievedIds에 cherry100이 없어도 방금 충족된 조건(cherryTotal)만으로 devicesOwned에 dev_safe 포함");
 
             var profile2 = new PlayerProfile();
             var run2 = S4TestHelpers.NewRun(10L, "gambler", "magnet");
@@ -1005,7 +1112,9 @@ namespace JackpotRun.EngineTests
         }
     }
 
-    // ── ④ ComposeStat 파생키 5종 (distinctCharS10/bldCat_*/bldTotal/bldAllBasic/bldAllMaster) ──────
+    // ── ④ ComposeStat 파생키 — distinctCharS10만 남았다(WEB_PARITY P3-2, AchievementEngine.cs 헤더
+    // 각주) — bldCat_*/bldTotal/bldAllBasic/bldAllMaster/accountLevel은 소비처가 없어 제거됐다(아래
+    // Tests_S5_ComposeStatRemovedDerivedKeys가 그 제거 자체를 회귀 확인한다).
     internal static class Tests_S5_ComposeStatDerivedKeys
     {
         public static void Run(TestCtx t)
@@ -1017,33 +1126,37 @@ namespace JackpotRun.EngineTests
             var composed = AchievementEngine.ComposeStat(profile);
             t.Eq(2L, composed["distinctCharS10"], "[compose-derived] distinctCharS10 == 2 (novice·scholar만 >=10)");
 
-            var p2 = new PlayerProfile();
-            p2.Stats["bld_fast_start"] = 1;
-            p2.Stats["bld_model_growth"] = 1; // 성장형 2/5
-            p2.Stats["bld_fate_hand"] = 1;    // 운명형 1/5
-            var c2 = AchievementEngine.ComposeStat(p2);
-            t.Eq(2L, c2["bldCat_성장형"], "[compose-derived] bldCat_성장형 == 2");
-            t.Eq(1L, c2["bldCat_운명형"], "[compose-derived] bldCat_운명형 == 1");
-            t.Eq(0L, c2["bldCat_역전형"], "[compose-derived] bldCat_역전형 == 0(미보유)");
-            t.Eq(3L, c2["bldTotal"], "[compose-derived] bldTotal == 3(전체 합)");
-            t.Eq(2L, c2["bldAllBasic"], "[compose-derived] bldAllBasic == 2(1개+ 보유 카테고리 수 — 성장형/운명형)");
-            t.Eq(0L, c2["bldAllMaster"], "[compose-derived] bldAllMaster == 0(5/5 완성 카테고리 없음)");
-
-            var p3 = new PlayerProfile();
-            foreach (var id in StatTracker.ThemeBuildCategoryIds["성장형"]) p3.Stats[id] = 1;
-            var c3 = AchievementEngine.ComposeStat(p3);
-            t.Eq(5L, c3["bldCat_성장형"], "[compose-derived] bldCat_성장형 == 5(전부 완성)");
-            t.Eq(1L, c3["bldAllMaster"], "[compose-derived] bldAllMaster == 1(성장형 5/5 마스터)");
-            t.Eq(1L, c3["bldAllBasic"], "[compose-derived] bldAllBasic == 1");
-
-            // 빈 프로필은 5개 파생키 전부 0.
+            // 빈 프로필은 distinctCharS10 == 0.
             var empty = AchievementEngine.ComposeStat(new PlayerProfile());
             t.Eq(0L, empty["distinctCharS10"], "[compose-derived] 빈 프로필 distinctCharS10 == 0");
-            t.Eq(0L, empty["bldTotal"], "[compose-derived] 빈 프로필 bldTotal == 0");
-            t.Eq(0L, empty["bldAllBasic"], "[compose-derived] 빈 프로필 bldAllBasic == 0");
-            t.Eq(0L, empty["bldAllMaster"], "[compose-derived] 빈 프로필 bldAllMaster == 0");
-            foreach (var cat in StatTracker.ThemeBuildCategoryIds.Keys)
-                t.Eq(0L, empty["bldCat_" + cat], $"[compose-derived] 빈 프로필 bldCat_{cat} == 0");
+        }
+    }
+
+    // ── 제거된 구 파생키 회귀 확인 — WEB_PARITY P3-2로 lic_dev_*/bldCat_*/bldTotal/bldAllBasic/
+    // bldAllMaster/accountLevel이 ComposeStat 반환값에서 전부 빠졌는지 직접 확인한다(각 키가 여전히
+    // 남아있다면 "실제로 안 쓰이는 파생만 제거" 지시를 어긴 것 — 작업 지시 2번).
+    internal static class Tests_S5_ComposeStatRemovedDerivedKeys
+    {
+        public static void Run(TestCtx t)
+        {
+            var p = new PlayerProfile();
+            p.Stats["bld_fast_start"] = 1;
+            p.Stats["closeClears"] = 5;
+            p.Stats["bestStage"] = 6; // 구 lic_safe AND 조건(closeClears>=5 && bestStage>=6) 충족 상태로도 확인
+            var composed = AchievementEngine.ComposeStat(p);
+
+            t.True(!composed.ContainsKey("lic_dev_safe"), "[compose-removed] lic_dev_safe 파생키 제거 확인");
+            t.True(!composed.ContainsKey("bldCat_성장형"), "[compose-removed] bldCat_성장형 파생키 제거 확인");
+            t.True(!composed.ContainsKey("bldTotal"), "[compose-removed] bldTotal 파생키 제거 확인");
+            t.True(!composed.ContainsKey("bldAllBasic"), "[compose-removed] bldAllBasic 파생키 제거 확인");
+            t.True(!composed.ContainsKey("bldAllMaster"), "[compose-removed] bldAllMaster 파생키 제거 확인");
+            t.True(!composed.ContainsKey("accountLevel"), "[compose-removed] accountLevel 파생키 제거 확인");
+
+            // 반면 원재료로 넣어둔 bld_fast_start/closeClears/bestStage는 그대로 통과돼야 한다
+            // (ComposeStat이 profile.Stats를 복사만 하고 값을 지우지는 않는다는 계약 확인).
+            t.Eq(1L, composed["bld_fast_start"], "[compose-removed] 원재료 bld_fast_start는 그대로 통과");
+            t.Eq(5L, composed["closeClears"], "[compose-removed] 원재료 closeClears는 그대로 통과");
+            t.Eq(6L, composed["bestStage"], "[compose-removed] 원재료 bestStage는 그대로 통과");
         }
     }
 

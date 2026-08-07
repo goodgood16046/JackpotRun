@@ -6,7 +6,7 @@ using UnityEngine.UI;
 namespace JackpotRun.UI2
 {
     // 메인 메뉴 화면 = 웹 단독판 renderHome 이식 — ENGINE_PORT_DESIGN.md S12 §4. scr-title(타이틀+
-    // 부제) → hud 카드(칭호 + 최고점수/최고스테이지/플레이 3칸) → "업적 n/482 · 장치 n/16 해금" 요약줄
+    // 부제) → hud 카드(칭호 + 최고점수/최고스테이지/플레이 3칸) → "업적 n/34 · 장치 n/16 해금" 요약줄
     // → 게임 시작(골드) + 랭킹/도감(고스트 2개) → 설명 2줄. 레이아웃은 UiSceneBuilder가 정적으로 짓고
     // [SerializeField]로 이 컴포넌트에 와이어링한다 — 이 클래스는 "화면을 열 때마다 최신 프로필로
     // 갱신"만 담당한다(런타임 코드생성 없음).
@@ -26,7 +26,7 @@ namespace JackpotRun.UI2
         [SerializeField] private Text statScoreValue;  // hud-stats "최고 점수"
         [SerializeField] private Text statStageValue;  // hud-stats "최고 스테이지"
         [SerializeField] private Text statPlaysValue;  // hud-stats "플레이"
-        [SerializeField] private Text summaryText;      // "업적 n/482 · 장치 n/16 해금"
+        [SerializeField] private Text summaryText;      // "업적 n/34 · 장치 n/16 해금"
         [SerializeField] private Button rankButton;     // 랭킹(S15: RankView로 이동)
         [SerializeField] private RectTransform mainButtonRect; // S13 §E — fx_ui_aura 앵커("▶ 게임 시작" 버튼)
 

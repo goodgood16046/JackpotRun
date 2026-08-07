@@ -115,10 +115,13 @@ namespace JackpotRun.UI2
 
             // jackpotdex/style.css .card.masked 재해석 — 잠긴 카드는 이름/설명을 "❓ ???"로 가린다
             // (해금 조건은 Lock 오버레이 하단에 별도 표시).
+            // Opus 2차 검수 저⑤ — catalog.json descKo(웹 원문 유래, 예: "🍒체리 누적 100개")는 문장
+            // 중간에 astral 이모지가 박혀 있을 수 있어 표시 직전 TextSanitize.StripAstral로 거른다
+            // (Core/TextSanitize.cs 헤더 참조 — catalog 데이터 자체는 미수정).
             var nameText = card.Find("Content/Name")?.GetComponent<Text>();
-            if (nameText != null) nameText.text = unlocked ? e.nameKo : "❓ ???";
+            if (nameText != null) nameText.text = unlocked ? TextSanitize.StripAstral(e.nameKo) : "❓ ???";
             var descText = card.Find("Content/Desc")?.GetComponent<Text>();
-            if (descText != null) descText.text = unlocked ? e.descKo : "미해금 — 조건을 확인하세요";
+            if (descText != null) descText.text = unlocked ? TextSanitize.StripAstral(e.descKo) : "미해금 — 조건을 확인하세요";
 
             string sub = unlocked ? BuildSubline(e) : "";
             var subText = card.Find("Content/Sub")?.GetComponent<Text>();
@@ -133,8 +136,7 @@ namespace JackpotRun.UI2
             {
                 lockRoot.gameObject.SetActive(!unlocked);
                 var hintText = lockRoot.Find("Content/Hint")?.GetComponent<Text>();
-                if (hintText != null)
-                    hintText.text = "해금: " + ((e.hasPick && e.pick != null && !string.IsNullOrEmpty(e.pick.unlock)) ? e.pick.unlock : "조건 미정");
+                if (hintText != null) hintText.text = "해금: " + BuildLockHint(e);
             }
 
             var button = card.GetComponent<Button>();
@@ -143,6 +145,20 @@ namespace JackpotRun.UI2
                 button.onClick.RemoveAllListeners();
                 button.onClick.AddListener(() => detailPopup?.Show(e, unlocked));
             }
+        }
+
+        // WEB_PARITY P3-2(Fable 결정 4번) — 장치는 unlockAch가 비어 있으면(dev_syllabus/dev_holdfile/
+        // dev_retake/dev_major, Devices.cs 헤더 각주) 업적 해금 경로 자체가 없는 드랍 전용 장치다.
+        // 그 4종은 catalog.json의 pick도 항상 null이라(같은 이유로 애초에 PickView 카드가 안 뜬다)
+        // 방치하면 "조건 미정"으로만 보였다 — 고정 문구로 실제 획득 경로를 안내한다.
+        private string BuildLockHint(CatalogEntry e)
+        {
+            if (_cat == JackpotCatalog.CatDev)
+            {
+                var dev = Devices.ById(e.id);
+                if (dev != null && string.IsNullOrEmpty(dev.unlockAch)) return "런 중 장치 드랍으로 획득";
+            }
+            return (e.hasPick && e.pick != null && !string.IsNullOrEmpty(e.pick.unlock)) ? e.pick.unlock : "조건 미정";
         }
 
         private bool IsUnlocked(CatalogEntry e)
@@ -216,7 +232,8 @@ namespace JackpotRun.UI2
             if (iconImage != null) { iconImage.sprite = sprite; iconImage.enabled = sprite != null; }
             if (iconEmojiText != null) { iconEmojiText.text = e.emoji; iconEmojiText.gameObject.SetActive(sprite == null); }
 
-            if (titleText != null) titleText.text = $"{e.emoji} {e.nameKo}";
+            // Opus 2차 검수 저⑤ — 카탈로그 원문(웹 유래) 표시 직전 astral 새니타이즈(TextSanitize 헤더 참조).
+            if (titleText != null) titleText.text = $"{e.emoji} {TextSanitize.StripAstral(e.nameKo)}";
 
             var metaParts = new List<string>();
             if (!string.IsNullOrEmpty(e.categoryLabel)) metaParts.Add(e.categoryLabel);
@@ -227,7 +244,7 @@ namespace JackpotRun.UI2
             if (!unlocked) metaParts.Add("[미해금]");
             if (metaText != null) metaText.text = string.Join(" · ", metaParts);
 
-            if (descText != null) descText.text = e.descKo ?? "";
+            if (descText != null) descText.text = TextSanitize.StripAstral(e.descKo ?? "");
 
             if (unlockText != null)
             {

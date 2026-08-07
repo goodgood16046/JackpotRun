@@ -54,6 +54,63 @@
 - **(A) 불운 게이지**: 웹 구현(해골+1/무해골-1, 보상 연동 없음)은 자체 UI 문구("가득차면 다음 보상 희귀↑")조차 미이행한 회귀로 판정. **Unity 현행(나쁜스핀 적립, 만땅 시 forceRare+리셋 — kotlin 규칙) 유지.** 단 표기는 웹 문구를 따른다.
 - **(B) 클리어 점수/캡**: 웹 채택(P2). Unity의 등급보너스·closeBonus·capMulFor 는 제거하되 등급 "연출"(6단계 배지)은 웹처럼 유지.
 - **(C) 업적/게이트**: 웹 채택(P3). 482종 자산은 삭제가 아니라 `Engine/Content/Achievements.cs`를 웹 34종으로 교체하고 구파일은 git 이력으로만 남긴다.
+  - **(C-1) 2026-08-08 완료 세부(P3-2 "업적 34종 교체" 슬라이스)**: `Achievements.cs`를 웹 `data.js:774-817`
+    ACHIEVEMENTS 34종(기본16+후반5+심화13, id/emoji/name/desc/key/threshold/deep 데이터 그대로 — 단 astral
+    이모지는 레거시 uGUI Text가 렌더링하지 못해 5종(⏰⭐⚠️☠️⚖️, 전부 BMP)만 남기고 나머지는 빈 문자열로
+    대체, S8 항목⑤ 선례)로 전량 교체. 웹에 없는 cat/tier/hidden/reward 4필드는 구 "기본 16"과 동일한
+    균일 기본값(cat="기타"/tier="브론즈"/hidden=false/reward="")으로 채웠다(tier="브론즈"는 Formulas.
+    AccountExp ④ 컴포넌트가 계속 동작하게 하는 안전한 폴백이기도 함).
+  - **장치 보상 매핑(웹 ACH_DEVICE_REWARD, data.js:818-828) 적용/보류**: 기본 12건은 Devices.cs 12종의
+    `unlockAch`를 구 `lic_*` 면허 업적 id에서 새 34종 id로 직접 갱신해 적용(jackpot1→dev_subreel,
+    boss1→dev_reroll, crown10→dev_seal, cherry100→dev_safe, exact1→dev_pin, lastclear5→dev_overheat,
+    score10k→dev_coin, stage10→dev_oracle, prism5→dev_copy, boss5→dev_swap, runs20→dev_bell,
+    score50k→dev_flame). `AchievementEngine.Evaluate`는 "unlockAch==방금 달성한 업적 id"를 범용으로
+    찾아 지급하도록 일반화했다(구 `lic_` 접두 특례 제거). 심화 9건(d_ach_compress1→dev_compress_gauge
+    등)은 대응 장치 자체가 Devices.cs에 없어(전부 P7 심화 전용 신규 장치) **데이터/주석만 보존, 미적용**
+    (Achievements.cs 헤더 각주). ACH_SYMBOL_UNLOCK 13건(data.js:834-848)은 심화 전용(P7, 주머니/심볼
+    시스템 자체가 Unity에 없음)이라 데이터도 옮기지 않았다.
+  - **(C-2) 2026-08-08 Opus 2차 검수·Fable 결정 — 장치 4종 드랍 전용화 확정**: `dev_syllabus`/
+    `dev_holdfile`/`dev_retake`/`dev_major`(§1-B "웹에 없음 — 유지, P3에서 정리 판단" 유예 항목)를 P3-2
+    슬라이스에서 확정했다 — **드랍 전용 장치로 전환**. `unlockAch`를 빈 문자열로 바꿔 업적 해금 경로를
+    없앴다(구 확장업적 id prismPick1/item10/shop50/runs50는 새 34종에 존재하지 않아 어차피 영구
+    미달성이었다 — 죽은 참조를 정리). 대신 P1에서 이미 구현된 런 중 장치 드랍(DEVICE 노드/EVENT-6)
+    만으로 영구 획득한다. `PlayerProfile.IsDeviceUnlocked`는 unlockAch가 비면 `OwnedDevices` 소속
+    여부만 보므로 안전(별도 코드 변경 불필요, 회귀 테스트 `Tests_S5_DropOnlyDevicesNeverAchievementUnlocked`
+    로 확인). 부수 발견: `StatTracker.ComputeDevicesOwned`가 `unlockAch` 공백 체크를 `OwnedDevices` 소속
+    체크보다 먼저 해서, 드랍으로 이미 보유한 장치까지 `devicesOwned` 스탯에서 누락시키던 순서 버그를
+    함께 고쳤다(`Tests_S5_DropOnlyDeviceCountsTowardDevicesOwned`). `DexView`의 장치 잠금 카드 힌트도
+    이 4종에서 "런 중 장치 드랍으로 획득"으로 고정 안내하도록 조정했다 — `PickView`는 이 4종의
+    `catalog.json` pick이 원래 `null`이라 애초에 카드 자체가 렌더링되지 않는다(확인만, 코드 변경 없음).
+  - **파생키 정리**: `AchievementEngine.ComposeStat`에서 `lic_dev_*`(12) · `bldCat_*`/`bldTotal`/
+    `bldAllBasic`/`bldAllMaster`(구 "빌드도감" 업적 전용) · `accountLevel`(소비처가 테스트뿐이라 제거)을
+    없앴다. `distinctCharS10`만 유지(Characters.cs "prodigy" unlockReq가 여전히 참조). StatTracker의
+    원시 카운터 수집(bld_&lt;id&gt; 25종 포함)은 전부 그대로 유지 — 다음 슬라이스/도감/통계가 계속 쓴다.
+    `Formulas.AccountExp`/`AccountLevel` 함수 자체는 그대로 살아있다(Shop.PerkGate가 원재료 Stats로 직접
+    호출 중, 퍽 게이트/전공 폐기는 다음 슬라이스).
+  - **새 카운터**: `graduations`(웹 game.js:1401 "stage===15 클리어 = 졸업" 그대로 이식 — StatTracker.
+    ApplyClearTracking이 stage==15 클리어 시 +1, grad1 업적용) · `playerLevel`(웹 game.js:2578 "XP 부여
+    직전 1런 지연 스냅샷" — StatTracker.ApplyGameOverTracking이 PlayerLevelTracker 실행 *전에*
+    `Stats["playerLevel"] = profile.PlayerLevel`를 직접 대입, lv20/lv40 업적용). `ascMax`는 승천(P6)이
+    아직 없어 원시 카운터 자체를 추가하지 않았다(GetStat 기본값 0이 자연히 asc3/asc5를 영구 미달성으로
+    둔다 — 별도 코드 불필요).
+  - **XP 재시딩 마이그레이션(§2-(L))**: `PlayerProfile.PlayerXpReseed34`(신규 플래그) + `ProfileDto`
+    왕복 필드로 구현. `ProfileDto.FromDto`가 로드마다 `PlayerSeedXpFromHistory`로 재산출한 값이 현재
+    `PlayerXp`보다 작을 때만 1회 덮어쓴다. 부수 발견: `ProfileStore.Load()`가 "파일 없음"(최초 실행)일 때
+    `new PlayerProfile()`을 직접 반환하던 기존 코드는 이 마이그레이션과 만나면 신규 플레이어의 첫 런
+    직후 XP를 잘못 깎을 수 있었다(Runs=0/PlayerXp=0 상태로 플래그가 먼저 안전하게 true 확정될 기회가
+    없었음) — `ProfileStore.Load()`도 "파일 없음"을 `ProfileDto.FromDto(new PlayerProfileDto())` 경유로
+    바꿔 재발을 막았다(EngineTests `Tests_PlayerLevel_XpReseed34Migration`으로 검증). 같은 이유로
+    `ProfileStore.Load()`의 catch 폴백(JSON 파싱 실패 등)도 동일 경유로 통일했다(2026-08-08 Opus 2차
+    검수 필수①).
+  - **(L-1) 2026-08-08 Opus 2차 검수·Fable 결정 — 블랭킷 재시딩 현행 유지**: 재시딩 조건("재산출값이
+    작을 때만 덮어쓴다")은 실제로는 "482종 시절 세이브만 골라 정정"이 아니라 **이력 기반 재산출로
+    통일**한 것이다 — 런XP 적립 공식(`PlayerRunXp`, 스핀마다 정밀 가산)이 이력 시딩 근사식
+    (`PlayerSeedXpFromHistory`, runs×30+... 거친 평균)보다 항상 크거나 같아, 정상적으로 플레이해 쌓은
+    세이브에서도 이 마이그레이션이 사실상 항상 발동해 playerXp를 시딩값으로 낮춘다. 앱이 아직
+    미출시라 실사용 세이브가 0건인 지금 단계에서는 이 블랭킷 정정의 부작용이 실질적으로 없으므로,
+    표적 정정(마이그레이션 시점 기록·달성 업적 이력 대조 등)을 새로 설계하는 대신 단순 통일을 그대로
+    채택한다 — §2-(L) 문언("재산출값이 작을 때만 덮어써라")을 문자 그대로 구현한 현재 코드를 유지한다
+    (`ProfileDto.cs` 마이그레이션 블록 주석에 이 결정과 실동작을 그대로 기록).
 - **(D) RNG**: Unity 단일시드 유지(웹은 Math.random 비재현 — 품질상 Unity 방식이 우위, 결과 분포 동일).
 - **(E) 첫 사용 무료 소진 시점**: 웹과 동일 — **발동 성공 시에만** 소진, `_beginStage` 리셋 금지(런 단위).
 - **(F) 장치 추첨(EVENT-6·보스드랍) owned 필터**: 웹은 이미 보유한 장치도 다시 뽑혀 허탕이 나는
@@ -115,7 +172,7 @@
 |---|---|---|
 | **P1** | 룰 파리티 1차: 첫판 즉시시작 · 특수스핀 첫사용무료 · 실패체인 웹 순서 · 노드 보상 수치/DEVICE 노드 · 포기 | ✅ 2026-08-07 완료 |
 | **P2** | 점수·캡 공식 웹화 + 보스 grad/finals 정리 + 골든 테스트 재산출 | ✅ 2026-08-07 완료 |
-| P3 | 메타 웹화: XP/레벨/레벨보상 · 업적 34종 교체 · 숙련도 · 증강 레벨업 · 해금 OR · 콘텐츠 증보(+3캐릭/+3머신/+장치/+증강9/+유물12/+아이템5) | 진행 중(1/4: XP/레벨 코어 완료) |
+| P3 | 메타 웹화: XP/레벨/레벨보상 · 업적 34종 교체 · 숙련도 · 증강 레벨업 · 해금 OR · 콘텐츠 증보(+3캐릭/+3머신/+장치/+증강9/+유물12/+아이템5) | 진행 중(2/4: 업적 34종 완료) |
 | P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | 대기 |
 | P5 | 사운드(절차 합성 SFX 17 + BGM) | 대기 |
 | P6 | 승천 A1~A10 + 승천 랭킹 분리 | 대기 |

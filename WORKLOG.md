@@ -4,6 +4,60 @@
 
 ---
 
+## 2026-08-08 - 웹 파리티 P3-2: 업적 34종 교체
+
+- **`Achievements.cs` 482→34종 전량 교체**(웹 `data.js:774-817` 기본16+후반5+심화13, id/name/desc/
+  key/threshold/deep 그대로 — astral 이모지(대부분)는 렌더링 불가라 BMP 5종만 남기고 빈 문자열로
+  대체, S8 항목⑤ 선례). 웹에 없는 cat/tier/hidden/reward는 구 "기본 16"과 동일 균일값으로 채움.
+- **장치 보상**: Devices.cs 12종의 `unlockAch`를 구 `lic_*` 면허 id에서 웹 ACH_DEVICE_REWARD
+  매핑(jackpot1→dev_subreel 등)으로 직접 교체, `AchievementEngine.Evaluate`는 lic_ 접두 특례
+  없이 범용화(unlockAch==달성id 매칭). 심화 9건은 대응 장치가 없어 데이터/주석만 보존(P7).
+  `dev_syllabus`/`dev_holdfile`/`dev_retake`/`dev_major` 4종은 범위 밖이라 구 id 유지(§1-B).
+- **파생키 축소**: `ComposeStat`에서 `lic_dev_*`·`bldCat_*`/`bldTotal`/`bldAllBasic`/`bldAllMaster`·
+  `accountLevel`(소비처 없음) 제거, `distinctCharS10`만 유지(Characters.cs "prodigy" 참조 중).
+  StatTracker 원시 카운터 수집은 전부 유지. `Formulas.AccountExp`/`AccountLevel`은 그대로 살아있음
+  (퍽 게이트 폐기는 다음 슬라이스).
+- **새 카운터 2종**: `graduations`(웹 game.js:1401 stage===15 클리어=졸업 그대로, grad1용) ·
+  `playerLevel`(웹 game.js:2578 XP 부여 직전 1런 지연 스냅샷, lv20/lv40용 — StatTracker.
+  ApplyGameOverTracking이 PlayerLevelTracker보다 먼저 실행되는 호출 순서로 지연이 자연히 재현됨).
+- **XP 재시딩 마이그레이션(§2-(L))**: `PlayerXpReseed34` 플래그 — 재산출값이 더 작을 때만 1회
+  덮어씀. 구현 중 `ProfileStore.Load()`의 "파일없음→new PlayerProfile() 직행" 경로가 신규
+  플레이어의 첫 런 XP를 다음 로드에서 잘못 깎을 수 있는 엣지케이스를 발견해 `FromDto(빈 DTO)`
+  경유로 수정(Runs=0 상태에서 플래그를 미리 안전하게 true 확정).
+- **테스트**: `Tests_Ach.cs` 전면 재작성(개수/중복/카탈로그 교차/deep플래그/장치매핑 무결성),
+  `Tests_S5.cs`(업적 트리거·장치보상·계정레벨 연동·ComposeStat 제거 회귀), `Tests_PlayerLevel.cs`
+  (재시딩 마이그레이션 4종 + playerLevel 1런지연 신규), `Tests_Fx.cs`(장치 unlockAch 골든값) 갱신.
+- **Opus 검수 반영**(34종 전사·매핑·카운터 연결 전수 대조 오류 0): ProfileStore catch 폴백 통일
+  (JSON 손상 시 XP 오삭감 방지), 34행 골든 테이블 어서션(전사 회귀망), 장치 4종
+  (`dev_syllabus`/`holdfile`/`retake`/`major`) **드랍 전용화**(unlockAch="" — 웹에 없는 Unity 전용,
+  검수가 잡은 devicesOwned 집계 누락 버그 동반 수정), 업적 텍스트 astral 새니타이저
+  (`Core/TextSanitize`), SetStat 헬퍼·스테일 주석 정리. 재시딩은 블랭킷 유지 결정(미출시 —
+  §2-(L-1)), 업적 분모 34 유지(deep/asc는 P6/P7에서 도달 가능해짐).
+- 검증: EngineTests **18,315 통과**(골든 테이블 +194). Unity 배치 컴파일 0에러.
+  P3 로드맵 "진행 중(2/4)".
+
+### Opus 2차 검수 반영 (같은 날 후속)
+
+- **[필수]** `ProfileStore.Load()` catch 폴백도 `FromDto(빈 DTO)` 경유로 통일(나머지 3경로와 일관 —
+  JSON 손상 시에도 §2-(L) 오삭감 위험 차단).
+- **[필수]** `Tests_Ach.cs`에 웹 `data.js` 손전사 34행 골든 테이블 추가(id/name/desc/key/th/deep
+  전항목 양방향 대조 — 전사 슬라이스 핵심 회귀망, `Achievements.All` id 집합과 완전 일치 검증).
+- **[Fable 결정]** 블랭킷 재시딩 현행 유지(앱 미출시, §2-(L) 문언 그대로) — 단 `ProfileDto.cs` 주석을
+  "482종 세이브만 선별 정정"이 아니라 "이력 기반 재산출로 통일(적립식이 시딩식보다 항상 커서
+  실질적으로 항상 발동)"으로 실동작대로 정정. `WEB_PARITY_DESIGN.md` §2-(L-1)에 결정 기록.
+- **[Fable 결정]** `dev_syllabus`/`dev_holdfile`/`dev_retake`/`dev_major` 4종을 **드랍 전용 장치로
+  확정**(`unlockAch=""`) — 업적 해금 없음, 런 중 장치 드랍(P1)으로만 영구 획득. `ComputeDevicesOwned`의
+  순서 버그(드랍 보유분 누락)도 함께 수정. `DexView` 잠금 힌트를 "런 중 장치 드랍으로 획득"으로
+  고정 안내(`PickView`는 이 4종의 catalog pick이 원래 null이라 카드 자체가 안 뜸 — 확인만).
+- **[저]** `Core/TextSanitize.StripAstral` 신설 — GameOverPanel/DexView(카드+상세팝업)의 업적/카탈로그
+  name·desc를 Text에 넣기 직전 astral 문자만 제거(ReelView.TagTranslate 선례를 문장 중간 이모지까지
+  일반화). 데이터(Achievements.cs/catalog.json)는 웹 원문 그대로 유지.
+- **[저]** `PlayerProfile.SetStat(key,value)` 신설 — `StatTracker`가 원재료 Dictionary에 인덱서로
+  직접 쓰던 지점(playerLevel 스냅샷)을 Inc/SetMax와 나란한 공개 계약으로 승격.
+- **[저]** `PlayerProfile.cs`/`ProfileDto.cs`/`GameSession.cs`/`StatTracker.cs`/`MenuView.cs`의
+  스테일 주석(삭제된 lic_* 파생키 메커니즘을 현재형으로 서술하던 곳들, 하드코딩된 "n/482") 정정.
+- 검증: EngineTests **18,315 통과**(0 실패) — 골든 테이블·드랍전용 장치 회귀 2종 추가로 +194.
+
 ## 2026-08-07 - 웹 파리티 P3-1: 플레이어 XP/레벨 코어
 
 - 웹 공식 이식(`game.js:107-120, 2617-2625`): `PlayerXpReq=120+(lvl-1)×60`(순차 차감 누적,

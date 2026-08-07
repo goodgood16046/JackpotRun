@@ -13,12 +13,14 @@ namespace JackpotRun.Game
     {
         public RunController Controller { get; }
 
-        // Kotlin composeStat과 달리 파생키(accountLevel 등)를 미리 얹지 않고 profile.Stats를 "참조"로
-        // 그대로 넘긴다(RunController.cs 헤더 "UI 계약 주의" 2번 — 런 중 StatTracker가 같은 딕셔너리를
-        // 갱신해야 원본처럼 같은 런 안에서 해금 판정이 최신 상태를 본다). Shop.PerkGate가 쓰는
+        // Kotlin composeStat과 달리 파생키를 미리 얹지 않고 profile.Stats를 "참조"로 그대로 넘긴다
+        // (RunController.cs 헤더 "UI 계약 주의" 2번 — 런 중 StatTracker가 같은 딕셔너리를 갱신해야
+        // 원본처럼 같은 런 안에서 해금 판정이 최신 상태를 본다). Shop.PerkGate가 쓰는
         // Formulas.AccountLevel(stat)은 achievements 인자 없이 호출되므로(Shop.cs 확인) bestStage/
-        // bossClears/runs/bld_*/bc_*/cstage_*/mstage_* 원시 키만으로 충분히 계산되고, lic_*/accountLevel
-        // 같은 파생키 사전계산은 필요 없다 — ComposeStat을 매 런마다 새로 만들 필요가 없다.
+        // bossClears/runs/bld_*/bc_*/cstage_*/mstage_* 원시 키만으로 충분히 계산된다 — ComposeStat이
+        // 얹는 유일한 파생키(distinctCharS10, WEB_PARITY P3-2로 lic_dev_*/bldCat_*/accountLevel은
+        // 제거됨, AchievementEngine.cs 헤더 각주 참조)의 사전계산도 필요 없어 ComposeStat을 매 런마다
+        // 새로 만들 필요가 없다.
         public PlayerProfile Profile { get; }
 
         public RunState State => Controller.State;
@@ -37,7 +39,7 @@ namespace JackpotRun.Game
             long seed = DateTime.UtcNow.Ticks;
             // WEB_PARITY P1 ④ Opus 1차검수 수정④(2026-08-07): ownedDeviceIds — RunState.OwnedDeviceIds를
             // 시드할 때 Profile.OwnedDevices(영구지급분)만이 아니라 Profile.UnlockedDevices()(=OwnedDevices
-            // ∪ 업적(lic_*)으로 해금된 장치, PlayerProfile.IsDeviceUnlocked 참조)를 기준으로 삼는다 —
+            // ∪ 업적으로 해금된 장치, PlayerProfile.IsDeviceUnlocked 참조)를 기준으로 삼는다 —
             // 장치 해금의 진짜 2원 판정과 일치시켜, 업적으로만 해금되고 아직 OwnedDevices에 등록되지 않은
             // 장치까지 "미보유 추첨 풀"에서 정확히 제외한다(안 그러면 이미 쓸 수 있는 장치가 EVENT-6/
             // DEVICE 노드에서 다시 뽑히는 허탕이 날 수 있다).

@@ -23,18 +23,34 @@ namespace JackpotRun.Game
             try
             {
                 string path = FilePath;
-                if (!File.Exists(path)) return new PlayerProfile();
+                // WEB_PARITY P3-2(§2-(L)) — 최초 실행(파일 없음)도 ProfileDto.FromDto(기본값 DTO)를
+                // 거치게 한다. new PlayerProfile()을 직접 반환하면 PlayerXpSeeded/PlayerXpReseed34 같은
+                // "1회성 마이그레이션 완료" 플래그가 false인 채로 시작해, 이 세션의 첫 런이 끝난 뒤
+                // 저장된 파일을 "다음" 로드에서 처음 FromDto가 보게 된다 — 그 시점엔 이미 Runs>0·
+                // PlayerXp>0(정당하게 번 값)이라 마이그레이션이 "기존 세이브"로 오인해 재시딩값(작을
+                // 확률이 높은 이력 근사치)으로 잘못 깎을 수 있다. 빈 DTO를 한 번 통과시켜 두면 두
+                // 플래그 모두 Runs=0/PlayerXp=0 상태에서 안전하게 true로 확정되고(가드 조건이
+                // 자연히 no-op), 이후 실제 플레이로 쌓은 XP는 다시는 재시딩 대상이 되지 않는다.
+                if (!File.Exists(path)) return ProfileDto.FromDto(new PlayerProfileDto());
 
                 string json = File.ReadAllText(path);
-                if (string.IsNullOrWhiteSpace(json)) return new PlayerProfile();
+                if (string.IsNullOrWhiteSpace(json)) return ProfileDto.FromDto(new PlayerProfileDto());
 
                 var dto = JsonUtility.FromJson<PlayerProfileDto>(json);
-                return dto != null ? ProfileDto.FromDto(dto) : new PlayerProfile();
+                return dto != null ? ProfileDto.FromDto(dto) : ProfileDto.FromDto(new PlayerProfileDto());
             }
             catch (Exception ex)
             {
                 Debug.LogWarning($"[ProfileStore] 프로필 로드 실패 — 새 프로필로 시작합니다: {ex.Message}");
-                return new PlayerProfile();
+                // Opus 2차 검수(P3-2, 필수①) — 이 catch 폴백도 위 3개 경로(파일없음/빈파일/파싱실패)와
+                // 동일하게 FromDto(빈 DTO) 경유로 통일한다. 손상된 JSON 자체의 이력은 이미 파싱 단계에서
+                // 유실되므로 여기서 무엇을 반환해도 그 이력을 복구할 수는 없지만, new PlayerProfile()로
+                // 직행하면 PlayerXpSeeded/PlayerXpReseed34 마이그레이션 플래그가 "한 번도 FromDto를 거치지
+                // 않은 채" false로 남는다 — 위 "파일없음" 경로를 고친 것과 똑같은 이유로, 이 복구 프로필이
+                // 첫 런을 마친 뒤 다음 로드에서 §2-(L) 재시딩이 뒤늦게 발동해 방금 정당하게 번 XP를
+                // 깎을 수 있다. FromDto(빈 DTO)를 거치면 Runs=0/PlayerXp=0 상태에서 두 플래그가 미리
+                // 안전하게 true로 확정돼 그 위험이 사라진다.
+                return ProfileDto.FromDto(new PlayerProfileDto());
             }
         }
 

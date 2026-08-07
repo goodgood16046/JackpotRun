@@ -4,85 +4,40 @@ using System.Linq;
 
 namespace JackpotRun.Engine
 {
-    // 업적 판정 — kotlin-reference\game\SlotV2Service.kt의 private fun composeStat(...)(L2208-2250) 이식
-    // + Achievements.All(482종) 전수 판정. Kotlin composeStat은 "AchRow(전용컬럼+counters CSV) + ScoreRow"를
-    // 합쳐 파생키(distinctCharS10/lic_dev_*/bldCat_*/accountLevel)까지 계산한 stat 맵을 만드는데, 이
-    // 파생키들은 DB에 저장되지 않고 호출마다 즉석 계산된다(원본 그대로) — 그래서 PlayerProfile.Stats에는
-    // StatTracker가 실제로 setMax/inc한 "원재료" 키만 있고, 이 파일이 매 호출 그 위에 파생키를 얹는다.
+    // 업적 판정 — WEB_PARITY_DESIGN.md P3-2(§1-A #10, §2-C) 이식: 웹 판정 방식(game.js:2569-2613,
+    // "런 종료 시 counters[a.key] >= a.th 일괄 평가")과 이 파일의 Evaluate를 일치시킨다. Achievements.cs가
+    // 482종(구 Kotlin 스냅샷)에서 웹 34종으로 교체되며 파생키 계산도 함께 축소했다 — 아래 ComposeStat 각주 참조.
+    //
+    // [이 슬라이스에서 제거한 구 파생키] lic_dev_*(12종, 구 "면허" 업적 전용) · bldCat_*/bldTotal/
+    // bldAllBasic/bldAllMaster(구 "빌드도감" 업적 전용) · accountLevel(ComposeStat 반환값 자체를 읽는
+    // 곳이 이 파일 자신의 옛 테스트뿐이었다 — Shop.cs의 Formulas.AccountLevel(stat) 호출은 achievements
+    // 인자 없이 별도로 이뤄져 이 값을 쓰지 않는다, GameSession.cs 헤더 주석 참조). 새 34종 중 어느
+    // req.key도 이 파생키들을 가리키지 않고(전수 확인), Character/Machine unlockReq도 마찬가지라 안전하게
+    // 제거했다 — Formulas.AccountExp/AccountLevel 함수 자체는 그대로 살아있다(Shop.PerkGate가 원재료
+    // Stats로 직접 호출 중, 전공/퍽 게이트 폐기는 다음 슬라이스).
+    // [유지한 구 파생키] distinctCharS10 — Characters.cs "prodigy" unlockReq가 여전히 참조한다(웹에
+    // 대응 없는 Unity 자체 캐릭터 해금 조건, 이 슬라이스 범위 밖이라 손대지 않음).
     public static class AchievementEngine
     {
-        // Formulas.AccountExp ④ 컴포넌트가 필요로 하는 (key,threshold,tier) 튜플 — Achievements.All에서
-        // 1회만 뽑아 재사용(482종을 매 ComposeStat 호출마다 다시 Select하지 않도록).
-        // L4(Opus 1차 검수): req가 null/빈 배열인 AchDef가 섞여도(계약 위반이지만 방어적으로) 여기서
-        // 죽지 않도록 미리 걸러낸다 — Achievements.cs는 우리 소유 파일이 아니라 재정의/수정 불가.
-        private static readonly (string key, long threshold, string tier)[] AchievementExpTable =
-            Achievements.All.Where(a => a.req != null && a.req.Length > 0)
-                .Select(a => (a.req[0].key, a.req[0].value, a.tier)).ToArray();
-
-        // 12 메인 장치 면허(lic_dev_<id>) 판정 — Kotlin composeStat L2230-2242, 조건 원문 그대로.
-        private static readonly (string deviceId, Func<IReadOnlyDictionary<string, long>, bool> cond)[] LicenseConditions =
-        {
-            ("dev_safe",     s => G(s, "closeClears") >= 5 && G(s, "bestStage") >= 6),
-            ("dev_seal",     s => G(s, "skullTotal") >= 200 && G(s, "bestStage") >= 8),
-            ("dev_reroll",   s => G(s, "bossClears") >= 3 && G(s, "lastSpinClears") >= 3),
-            ("dev_pin",      s => G(s, "exactClears") >= 3 && G(s, "bestStage") >= 8),
-            ("dev_coin",     s => G(s, "coinTotal") >= 500 && G(s, "shopBuys") >= 15),
-            ("dev_subreel",  s => G(s, "jackpots") >= 5 && G(s, "set4Plus") >= 10),
-            ("dev_overheat", s => G(s, "lastSpinClears") >= 10 && G(s, "bestScore") >= 20000),
-            ("dev_oracle",   s => G(s, "prayClears") >= 3 && G(s, "bestStage") >= 15),
-            ("dev_copy",     s => G(s, "prismPicks") >= 10 && G(s, "set4Plus") >= 10),
-            ("dev_swap",     s => G(s, "bossClears") >= 10 && G(s, "bestStage") >= 15),
-            ("dev_bell",     s => G(s, "closeClears") >= 30 && G(s, "bossClears") >= 8),
-            ("dev_flame",    s => G(s, "bestScore") >= 50000 && G(s, "bestStage") >= 20),
-        };
-
-        private static long G(IReadOnlyDictionary<string, long> s, string key) => s.TryGetValue(key, out var v) ? v : 0L;
-
-        // ── composeStat 이식 — PlayerProfile.Stats(원재료) 위에 파생키를 얹은 새 딕셔너리를 반환한다.
-        // PlayerProfile.Stats 자체는 건드리지 않는다(Kotlin도 파생키를 DB에 쓰지 않음, 03_meta §6-4 취지). ──
+        // ── composeStat 이식(축소판) — PlayerProfile.Stats(원재료) 위에 distinctCharS10 파생키만 얹은
+        // 새 딕셔너리를 반환한다. PlayerProfile.Stats 자체는 건드리지 않는다. ──
         public static Dictionary<string, long> ComposeStat(PlayerProfile profile)
         {
             var stat = new Dictionary<string, long>(profile.Stats);
 
-            // 파생키: 서로다른 캐릭 N명 S10 (Kotlin L2225).
+            // 파생키: 서로다른 캐릭 N명 S10.
             long distinctCharS10 = 0;
             foreach (var kv in profile.Stats)
                 if (kv.Key.StartsWith("cstage_", StringComparison.Ordinal) && kv.Value >= 10) distinctCharS10++;
             stat["distinctCharS10"] = distinctCharS10;
 
-            // 파생키: 장치 면허 12종 (Kotlin L2229-2242) — lic_<deviceId> = AND 조건 0/1.
-            for (int i = 0; i < LicenseConditions.Length; i++)
-            {
-                var (deviceId, cond) = LicenseConditions[i];
-                stat["lic_" + deviceId] = cond(stat) ? 1L : 0L;
-            }
-
-            // 파생키: 빌드도감 집계(themeBuildStats, Kotlin L1327-1344) — StatTracker가 setMax한 bld_<id>
-            // raw 플래그(25종)를 카테고리별/총합/전공(≥1)/마스터(전부)로 환산.
-            long bldTotal = 0, bldAllBasic = 0, bldAllMaster = 0;
-            foreach (var kv in StatTracker.ThemeBuildCategoryIds)
-            {
-                var ids = kv.Value;
-                long done = ids.Count(id => G(stat, id) > 0);
-                stat["bldCat_" + kv.Key] = done;
-                bldTotal += done;
-                if (done >= 1) bldAllBasic++;
-                if (done == ids.Length) bldAllMaster++;
-            }
-            stat["bldTotal"] = bldTotal;
-            stat["bldAllBasic"] = bldAllBasic;
-            stat["bldAllMaster"] = bldAllMaster;
-
-            // 파생키: 졸업레벨 — lic_*/bldCat_* 등 위 파생키가 전부 채워진 *뒤*에 계산해야 정확하다
-            // (Kotlin 주석 "⚠️ lic_* 보다 뒤에 둠 — accountExp가 면허 업적을 tier 합산하므로", L2246-2248).
-            stat["accountLevel"] = Formulas.AccountLevel(stat, AchievementExpTable);
-
             return stat;
         }
 
-        // ── 신규 달성 업적 판정 — Kotlin bumpAch의 "achValue(row,key)>=threshold && id !in before" 필터
-        // (L1959) 이식. 새로 달성된 AchDef를 profile.AchievedIds에 반영하고, lic_* 업적이면 대응 장치를
-        // profile.OwnedDevices에 영구 등록한다(작업 지시 3번 "면허 달성 시 장치 해금 반영"). ──
+        // ── 신규 달성 업적 판정 — 웹 game.js:2604-2612 "if (!p.unlocked.includes(a.id) &&
+        // (cnt[a.key]||0) >= a.th)" 이식. 새로 달성된 AchDef를 profile.AchievedIds에 반영하고, 대응
+        // 장치가 있으면(웹 ACH_DEVICE_REWARD, Achievements.cs 헤더 각주) profile.OwnedDevices에 영구
+        // 등록한다. ──
         public static List<AchDef> Evaluate(PlayerProfile profile)
         {
             var composed = ComposeStat(profile);
@@ -101,11 +56,11 @@ namespace JackpotRun.Engine
                 profile.AchievedIds.Add(a.id);
                 newly.Add(a);
 
-                if (a.id.StartsWith("lic_", StringComparison.Ordinal))
-                {
-                    var dev = Array.Find(Devices.All, d => d.unlockAch == a.id);
-                    if (dev != null) profile.OwnedDevices.Add(dev.id);
-                }
+                // 웹 ACH_DEVICE_REWARD(data.js:818-828) 대응 — Devices.cs의 unlockAch가 이미 "달성
+                // 시 지급할 업적 id"를 직접 담고 있다(웹의 역방향 매핑과 동일 관계) — lic_ 접두 특례
+                // 없이 범용으로 찾는다. 매칭되는 장치가 없으면(대부분의 34종) 아무 일도 하지 않는다.
+                var dev = Array.Find(Devices.All, d => d.unlockAch == a.id);
+                if (dev != null) profile.OwnedDevices.Add(dev.id);
             }
 
             return newly;
