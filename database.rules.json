@@ -25,26 +25,26 @@
 
     "slotrank": {
       ".read": true,
-      ".indexOn": "score",
+      ".indexOn": ["score"],
       "$key": {
-        ".write": true,
-        ".validate": "$key.length >= 6 && $key.length <= 64"
+        ".write": "$key.beginsWith('u_') ? (auth != null && $key === ('u_' + auth.uid)) : true",
+        ".validate": "newData.hasChildren(['nick','score']) && newData.child('score').isNumber() && newData.child('nick').isString() && newData.child('nick').val().length <= 16"
       }
     },
     "slotrank_asc": {
       ".read": true,
-      ".indexOn": "score",
+      ".indexOn": ["score"],
       "$key": {
-        ".write": true,
-        ".validate": "$key.length >= 6 && $key.length <= 64"
+        ".write": "$key.beginsWith('u_') ? (auth != null && $key === ('u_' + auth.uid)) : true",
+        ".validate": "newData.hasChildren(['nick','score']) && newData.child('score').isNumber() && newData.child('nick').isString() && newData.child('nick').val().length <= 16"
       }
     },
     "slotrank_deep": {
       ".read": true,
-      ".indexOn": "score",
+      ".indexOn": ["score"],
       "$key": {
-        ".write": true,
-        ".validate": "$key.length >= 6 && $key.length <= 64"
+        ".write": "$key.beginsWith('u_') ? (auth != null && $key === ('u_' + auth.uid)) : true",
+        ".validate": "newData.hasChildren(['nick','score']) && newData.child('score').isNumber() && newData.child('nick').isString() && newData.child('nick').val().length <= 16"
       }
     }
   }
