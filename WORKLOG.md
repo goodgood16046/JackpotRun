@@ -4,6 +4,53 @@
 
 ---
 
+## 2026-08-08 - 웹 파리티 P3-3: 숙련도 + 증강 레벨업
+
+- **숙련도(mastery)**: `PlayerProfile.Mastery`(kind="char"/"mac"/"dev" → id → runs/bestStage/
+  bossClears/bestScore/ascMax) + `BumpMastery`/`MasteryOf` 신설. 마일스톤 판정(`Formulas.
+  MasteryLevel`/`MasteryTotal`)은 웹 `MASTERY` 표(game.js:143-165) 그대로 — 5개를 `else-if`
+  순차 게이트가 아니라 매번 독립 판정 후 카운트한다(웹 masteryLevel L166-170과 동일 규칙).
+  갱신은 런 종료(GAME_OVER) 시점(신규 `MasteryTracker.ApplyRunEnd`, PlayerLevelTracker와 동일
+  패턴 — GameSession이 그 다음 순서로 호출). ascMax는 승천(P6) 미구현이라 필드만 두고 영구
+  -1(코드 변경 불필요). ProfileDto는 (kind,id) 조합당 1행 병렬 배열 7개로 왕복. `PickView`/
+  `DexView` 카드에 ★☆ 표기(웹 ui.js:1886 literal 그대로) — 기존 텍스트 필드 재사용, 최소 침습.
+- **증강 레벨업(AUG_LEVELS)**: 신규 `Content/AugLevels.cs` 12종(study/greed/polymath/cherry_up/
+  book_up/star_up/diligence/set_sense/coin_luck/skull_study/gem_polish/lucky) Lv2/Lv3 델타를
+  웹 engine.js:19-33 그대로 이식 — 기존 `Perks.cs` fx와 동일한 점표기 포맷이라 `ModsBuilder.
+  ApplyFx` 해석기를 재사용(새 해석기 없음). `ModsBuilder.Build`에 `levels` 매개변수 추가,
+  실제 게임플레이 mods를 계산하는 17개 호출부(SpinResolver·StageFlow·ItemUse·DeviceActions·
+  RunController·GameSession) 전수에 `run.PerkLevels`를 연결 — 한 곳이라도 빠지면 그 경로만
+  레벨업 미반영이라 전수 갱신했다.
+- **레벨 표시(작업 지시 B.4)**: `run.Perks`를 그리는 화면이 기존 UI2에 하나도 없었다(grep 결과
+  전무 — 작업 지시가 후보로 짚은 `BagPopup`뿐). 새 화면을 만드는 대신 `BagPopup`(아이템 전용
+  팝업)을 최소 침습으로 확장 — 기존 행 템플릿을 그대로 재사용해 레벨업 가능한 보유 증강(`AugLevels.
+  IsLevelable`)을 아이템 목록 아래에 "{이름} Lv.N"으로 추가 표시(사용 버튼은 숨김, 증강은 소모형이
+  아니므로).
+- **AUGLEVEL 노드**: `RunState.PerkLevels`/`AugLevelChance`(pity, 기본10%)/`AugLevelBoost`(촉매
+  후크, 대응 아이템 없어 항상 0) 신설. `StageFlow.ClearStage`가 노드 확정 직후 웹과 동일한 확률식
+  (10%+pity, 미발동 +2%p 누적 상한20%, 발동 시 리셋)으로 AUGMENT를 AUGLEVEL로 교체(3택 개수는
+  그대로 유지 — DEVICE처럼 "추가"가 아니라 "대체"). 신규 `RunPhase.EventAugLevel` + `NodeEvents.
+  ChooseNode`/`PickOffer` 분기(PickOffer는 새 퍽 add 대신 `PerkLevels[id]+1`, 신규 이벤트
+  `PERK_LEVELED`). UI는 기존 `PerkOfferPanel`(헤더 "증강 강화", 카드에 "Lv.N → Lv.N+1" 배지) ·
+  `NodePanel`("⬆ 증강 강화" 카드) 재사용. 부수 발견: 기존 범용 자동플레이 하네스(Tests_S4.cs
+  AutoPlay/AutoPlayRich, Tests_S5.cs 2곳)가 신규 phase를 몰라 예외를 던지던 회귀를
+  100시드 시뮬레이션이 실제로 잡아내 PickOffer(0) 라우팅으로 함께 수정.
+- **테스트**: `Tests_P3_AugLevel.cs`(AUG_LEVELS 12종 골든 델타·Lv3 클램프·미등록id 무영향·
+  Lv1vsLv3 스핀 델타·AUGLEVEL pity 불변식(2시드×40회)·게이트 미보유 시 영구 미등장·ChooseNode→
+  PickOffer 흐름·Lv3 이후 방어적 무보상) + `Tests_P3_Mastery.cs`(char/mac/dev 마일스톤 경계값
+  전수·레벨=독립 카운트 확인·BumpMastery 누적규칙·MasteryTracker 3축(dev 미장착 스킵)·null가드·
+  ProfileDto 왕복·자동플레이 2시드 교차검증) 신규.
+- **Opus 1차검수 필수 반영(같은 날) — AUGLEVEL 오퍼 3장 캡**: 웹은 레벨업 가능 증강을 전량
+  오퍼하지만(CSS 그리드 래핑) Unity `PerkOfferPanel`은 320px 고정 카드 3장 전용이라 4장 이상이면
+  화면 밖으로 잘리는 문제를 발견 — `NodeEvents.ChooseNode`의 AUGLEVEL 분기에서 3장 이하는 전량,
+  4장 이상은 `run.Rng.Shuffle`로 섞은 뒤 앞 3장만 선발하도록 캡(RNG는 4장 이상일 때만 소비해
+  기존 시드 스트림 영향 최소화). 테스트 3종 추가(3장 이하 전량 유지·2/3개 경계·5장 보유 시 3장
+  선발+고정시드 재현성+선발결과 전부 레벨업가능 대상 확인+다른시드 분산 확인).
+- 검증: EngineTests **18,315→18,803 통과**(+488 어서션, 0 실패). Unity UI2(PickView/DexView/
+  PerkOfferPanel/NodePanel/RunView/BagPopup) 컴파일은 이번 세션에 연결된 Unity 에디터 인스턴스가
+  없어 MCP `read_console`로 실측하지 못했다 — 코드 리뷰로 대체(다음 에디터 세션에서 1회 확인 권장).
+  P3 로드맵 "진행 중(3/4)".
+
 ## 2026-08-08 - 웹 파리티 P3-2: 업적 34종 교체
 
 - **`Achievements.cs` 482→34종 전량 교체**(웹 `data.js:774-817` 기본16+후반5+심화13, id/name/desc/

@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using JackpotRun.Core;
@@ -175,13 +176,25 @@ namespace JackpotRun.UI2
         {
             if (_cat == JackpotCatalog.CatRel) return $"가격 {NumberFormat.Comma(e.price)}";
             if (_cat == JackpotCatalog.CatItem) return $"코인 {NumberFormat.Comma(e.coinCost)}";
-            if (_cat == JackpotCatalog.CatMac && e.scoreMod >= 0f) return $"점수보정 ×{NumberFormat.Fmt(e.scoreMod)}";
+            // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #11, 웹 ui.js:1886 masteryStars) — char/mac/dev는
+            // IsUnlocked와 동일하게 char/mac은 e.key, dev는 e.id를 컨텐츠 id로 쓴다(JackpotCatalog.CatChar/
+            // CatMac/CatDev 문자열이 mastery kind와 그대로 1:1이라 별도 매핑 불필요).
+            if (_cat == JackpotCatalog.CatChar) return MasteryStarsText(JackpotCatalog.CatChar, e.key);
+            if (_cat == JackpotCatalog.CatMac)
+            {
+                string stars = MasteryStarsText(JackpotCatalog.CatMac, e.key);
+                if (e.scoreMod < 0f) return stars;
+                string scoreMod = $"점수보정 ×{NumberFormat.Fmt(e.scoreMod)}";
+                return string.IsNullOrEmpty(stars) ? scoreMod : scoreMod + " · " + stars;
+            }
             if (_cat == JackpotCatalog.CatDev)
             {
                 var parts = new List<string>();
                 if (!string.IsNullOrEmpty(e.command)) parts.Add($"명령 .{e.command}");
                 parts.Add($"쿨다운 {(e.cooldown == -1 ? "-" : NumberFormat.Comma(e.cooldown))}");
                 if (e.rare) parts.Add("희귀");
+                string stars = MasteryStarsText(JackpotCatalog.CatDev, e.id);
+                if (!string.IsNullOrEmpty(stars)) parts.Add(stars);
                 return string.Join(" · ", parts);
             }
             if (_cat == JackpotCatalog.CatAch)
@@ -191,6 +204,17 @@ namespace JackpotRun.UI2
                 return achieved ? "✅ 달성" : "미달성";
             }
             return "";
+        }
+
+        // 웹 파리티 P3-3 — 숙련도 별 표기(웹 ui.js:1886 그대로: ★채움/☆빈칸 5개 중 충족수). Total<=0
+        // (mastery 미대상 kind)이거나 id 없음이면 빈 문자열(줄 자체를 만들지 않음).
+        private string MasteryStarsText(string kind, string id)
+        {
+            var profile = appRoot != null ? appRoot.Profile : null;
+            if (profile == null || string.IsNullOrEmpty(id)) return "";
+            var info = profile.MasteryOf(kind, id);
+            if (info.Total <= 0) return "";
+            return new string('★', info.Level) + new string('☆', Math.Max(0, info.Total - info.Level));
         }
     }
 

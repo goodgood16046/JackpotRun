@@ -624,12 +624,15 @@ namespace JackpotRun.Engine
             var curses = run.Curses;
 
             // step 3-8: 3단계 mods 재계산(ctx조건부 증강 평가용) — 02_service.md §10-2 주의사항 그대로.
-            var preMods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device);
+            // 웹 파리티 P3-3: run.PerkLevels(증강 레벨업)를 3단계 전부에 동일하게 전달 — 웹은 단일
+            // buildMods 호출(game.js:445)이라 이 3단계 재계산 자체가 Unity 고유 구조지만, 어느 단계든
+            // levels를 빠뜨리면 그 단계에서만 레벨업 미반영 값이 섞여 다음 단계 재계산이 오염된다.
+            var preMods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, levels: run.PerkLevels);
             var preCtx = RunCtxOf(run, run.SpinIndex, SpinsPerStage(preMods0), QuotaOf(run.Stage, preMods0));
-            var preMods = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, preCtx);
+            var preMods = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, preCtx, run.PerkLevels);
             int preEffSpins = EffSpins(run, preMods);
             var runCtx = RunCtxOf(run, run.SpinIndex, preEffSpins, QuotaOf(run.Stage, preMods));
-            var baseMods = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, runCtx);
+            var baseMods = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, runCtx, run.PerkLevels);
             if (mode == SpinMode.Focus) baseMods.rareWeightMul *= 0.5; // 안정화: 고점 억제
 
             var mods = ModsBuilder.ApplyItemMods(baseMods, Concat(arm, phase));

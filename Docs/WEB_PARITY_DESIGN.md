@@ -165,6 +165,67 @@
   함께 삭제 — 웹 함수 시그니처와 동일하게 `(boss, gained, res, spinIndex, spins)`만 받음).
   finals(첫스핀×0.9·막스핀×2.0, engine.js:1091-1095)·strict(3매치 미만×0.5, 1096-1098)·
   luck(⭐👑🌀×1.8/없으면×0.8, 1099-1102)는 정수나눗셈(내림) 결과까지 Unity와 일치 확인(무변경).
+- **(M) 2026-08-08 완료 세부(P3-3 "숙련도 + 증강 레벨업" 슬라이스)**:
+  - **숙련도(mastery)**: `PlayerProfile.Mastery`(kind="char"/"mac"/"dev" → id → `MasteryStats{Runs,
+    BestStage,BossClears,BestScore,AscMax}`, 웹 `profile.mastery` 그대로) 신규. `PlayerProfile.
+    BumpMastery`(웹 `_bumpMastery` L217-227 — runs+1/bestStage·bestScore setMax/bossClears 누적, ascMax는
+    승천(P6) 미구현이라 갱신 로직 자체를 두지 않아 영구 -1)와 `MasteryOf`(레벨=충족 마일스톤 수 조회)를
+    추가하고, 마일스톤 판정(`Formulas.MasteryLevel`/`MasteryTotal`)은 웹 `MASTERY` 표(game.js:143-165)를
+    그대로 옮겼다 — 5개 마일스톤은 `else-if` 순차 게이트가 아니라 매번 독립 판정 후 카운트(웹
+    `masteryLevel` L166-170 그대로, 예: bossClears가 낮아도 bestScore만 높으면 그 마일스톤만 별도 인정).
+    갱신 시점은 웹과 동일하게 런 종료(GAME_OVER) 시점 — 신규 `MasteryTracker.ApplyRunEnd`(PlayerLevelTracker
+    와 동일 패턴)를 `GameSession.FinishAction`이 PlayerLevelTracker.ApplyRunEnd 다음 순서로 호출한다(웹
+    game.js:2627 playerXp 계산 직후 위치 그대로). ProfileDto는 JsonUtility Dictionary 미지원 제약 때문에
+    (kind,id) 조합당 1행으로 펼친 병렬 배열 7개(`masteryKind/Id/Runs/BestStage/BossClears/BestScore/
+    AscMax`)로 왕복한다. UI는 `PickView`(카드 role 텍스트에 ` · ★★☆☆☆` 접미)·`DexView`(Sub 텍스트에
+    별 또는 "점수보정×N · 별" 병기)에 기존 필드를 최소 침습으로 재사용 — 웹 ui.js:1886(★채움/☆빈칸
+    literal, `.pcard-mast`의 CSS 스타일링 방식이 아니라 이쪽 표기를 그대로 따랐다) 그대로.
+  - **증강 레벨업(AUG_LEVELS)**: 신규 `Content/AugLevels.cs`가 12종(study/greed/polymath/cherry_up/
+    book_up/star_up/diligence/set_sense/coin_luck/skull_study/gem_polish/lucky) Lv2/Lv3 델타를 웹
+    engine.js:19-33 그대로(수치 손계산 골든 테이블 — Tests_P3_AugLevel.cs) 담는다. 델타는 기존
+    `Perks.cs` fx와 동일한 점표기 딕셔너리 포맷이라 `ModsBuilder.ApplyFx` 해석기를 그대로 재사용했다
+    (새 해석기 없음). `ModsBuilder.Build`에 `levels`(`IReadOnlyDictionary<string,int>`, 기본 null=전부
+    Lv1) 매개변수를 추가하고 perkIds 루프 직후 Lv2(있으면)+Lv3(있으면, 둘 다 누적 적용 — 웹 buildMods
+    L370-375 `if(lv>=2)...if(lv>=3)...`와 동일, "최종값 교체"가 아니라 "추가 델타 누적")를 적용한다.
+    실제 게임플레이 mods를 계산하는 **모든** 호출부(SpinResolver 3단계·StageFlow.ClearStage·ItemUse
+    4곳·DeviceActions 7곳·RunController.HandleContinue·GameSession.PreviewQuotaSpins, 총 17곳)에
+    `run.PerkLevels`(RunState 신규 필드, `Dictionary<string,int>`, 웹 `r.perkLevels` 대응)를 함께
+    전달하도록 갱신했다 — 한 곳이라도 빠뜨리면 그 경로에서만 레벨업이 무반영되는 값이 섞여 나갈 수
+    있어 전수 갱신했다(웹은 UI 라벨용 "단일 퍽 격리 설명" 호출(engine.js:2735/2752/2754)에선 levels를
+    안 넘기지만, Unity `ModsBuilder.Build` 호출부 17곳은 전부 실제 게임플레이 경로라 그런 격리형
+    호출이 애초에 없다 — 예외 없이 전수 적용).
+  - **레벨 표시(작업 지시 B.4)**: `run.Perks`(보유 증강/유물)를 그리는 화면이 기존 UI2에 하나도
+    없었다(전수 grep 결과 전무 — 작업 지시가 후보로 짚은 `BagPopup`뿐). 새 화면을 신설하는 대신
+    `BagPopup`(원래 아이템 전용 팝업)을 최소 침습으로 확장했다 — 기존 행 템플릿(Icon/Name/Desc/
+    UseButton)을 그대로 재사용해 레벨업 가능한 보유 증강(`AugLevels.IsLevelable`)을 아이템 목록
+    아래에 "{이름} Lv.N"으로 추가 표시하고 UseButton은 숨긴다(증강은 소모형 아이템과 달리 "사용"
+    동작이 없는 상시 효과).
+  - **AUGLEVEL 노드**: `RunState`에 `PerkLevels`/`AugLevelChance`(pity, 기본0.10)/`AugLevelBoost`(촉매
+    후크, 항상 0 — 웹 🖍형광펜/🧪증강촉매 동형 아이템이 Unity 콘텐츠에 없어 부스트를 걸 수단 자체가
+    없다) 3필드를 추가했다. `StageFlow.ClearStage`가 노드 목록 확정 직후(DEVICE 노드 포함 이후) 웹
+    game.js:1501-1507과 동일한 확률식(`min(0.6, chance+boost)`, 미발동 시 +2%p 누적 상한20%, 발동 시
+    10%로 리셋)으로 `NodeKind.Augment`를 `NodeKind.AugLevel`로 교체한다(3택 개수는 그대로 — DEVICE처럼
+    "추가" 옵션이 아니라 "대체"). 게이트는 `AugLevels.LevelableHeld(run)`(보유 & Lv<3, 함수 자체는
+    캡 없이 전량 반환 — 웹 game.js:1622 `r.options = this._levelableHeld().map(...)`). 오퍼 최종
+    카드 수는 **Unity 전용으로 3장 캡**(Opus 1차검수 필수, 2026-08-08 — `PerkOfferPanel`이 320px
+    고정 카드 3장 전용 레이아웃이라 웹처럼 전량 오퍼하면 4장 이상일 때 화면 밖으로 잘린다): 3장
+    이하면 전량, 4장 이상이면 `NodeEvents.ChooseNode`가 `run.Rng.Shuffle`로 섞은 뒤 앞 3장만
+    선발(RNG는 4장 이상일 때만 소비 — 기존 시드 스트림 영향 최소화). 신규 `RunPhase.
+    EventAugLevel`을 두고 `NodeEvents.ChooseNode`/`PickOffer`가 이 phase를 EventAugment/EventRelic과
+    나란히 처리하되, PickOffer는 "새 퍽 add" 대신 `PerkLevels[id]=min(3,cur+1)`로 분기한다(신규 RunEvent
+    타입 `PERK_LEVELED`, `perkLevelBefore`/`perkLevelAfter` 필드). 후보가 0개인 방어적 경우(이론상 도달
+    불가 — 롤 시점과 선택 시점 사이 후보가 바뀔 수단이 없음)는 EVENT 테이블 폴백이 아니라 웹처럼
+    무보상 즉시 종료로 처리했다(AUGMENT/RELIC 풀 소진 폴백과는 다른 케이스). UI는 기존 `PerkOfferPanel`
+    을 재사용 — 헤더 "증강 강화", 카드 Badges 텍스트에 "Lv.N → Lv.N+1"(dev_retake/dev_holdfile 액션은
+    AugLevel에 성립하지 않는 개념이라 숨김), `NodePanel`에 "⬆ 증강 강화" 노드 카드 추가. 기존 범용
+    자동플레이 하네스(`Tests_S4.cs` AutoPlay/AutoPlayRich, `Tests_S5.cs` 2곳)가 신규 phase를 몰라
+    예외를 던지던 걸 발견해 `PickOffer(0)`으로 라우팅하도록 함께 고쳤다(회귀 발견 — Tests_S4_
+    RunControllerAutoplay 100시드 시뮬레이션이 실제로 이 phase를 뽑아서 잡아냈다).
+  - **테스트**: `Tests_P3_AugLevel.cs`(AUG_LEVELS 12종 골든 델타·Lv3 클램프·미등록id 무영향·Lv1vs Lv3
+    스핀 델타 손계산·AUGLEVEL pity 불변식 2시드×40회·게이트 미보유 시 영구 미등장·ChooseNode→PickOffer
+    흐름·Lv3 이후 방어적 무보상) + `Tests_P3_Mastery.cs`(char/mac/dev 마일스톤 경계값 전수·레벨=독립
+    카운트 확인·BumpMastery 누적규칙·MasteryTracker 3축(dev는 미장착 스킵)·null가드·ProfileDto 왕복·
+    자동플레이 2시드 교차검증) — 어서션 18315→18787(+472), 0 실패.
 
 ## 3. 페이즈 로드맵
 
@@ -172,7 +233,7 @@
 |---|---|---|
 | **P1** | 룰 파리티 1차: 첫판 즉시시작 · 특수스핀 첫사용무료 · 실패체인 웹 순서 · 노드 보상 수치/DEVICE 노드 · 포기 | ✅ 2026-08-07 완료 |
 | **P2** | 점수·캡 공식 웹화 + 보스 grad/finals 정리 + 골든 테스트 재산출 | ✅ 2026-08-07 완료 |
-| P3 | 메타 웹화: XP/레벨/레벨보상 · 업적 34종 교체 · 숙련도 · 증강 레벨업 · 해금 OR · 콘텐츠 증보(+3캐릭/+3머신/+장치/+증강9/+유물12/+아이템5) | 진행 중(2/4: 업적 34종 완료) |
+| P3 | 메타 웹화: XP/레벨/레벨보상 · 업적 34종 교체 · 숙련도 · 증강 레벨업 · 해금 OR · 콘텐츠 증보(+3캐릭/+3머신/+장치/+증강9/+유물12/+아이템5) | 진행 중(3/4: 업적 34종 완료 · 숙련도+증강 레벨업 완료) |
 | P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | 대기 |
 | P5 | 사운드(절차 합성 SFX 17 + BGM) | 대기 |
 | P6 | 승천 A1~A10 + 승천 랭킹 분리 | 대기 |

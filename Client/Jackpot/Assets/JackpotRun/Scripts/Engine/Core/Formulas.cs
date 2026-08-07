@@ -310,5 +310,43 @@ namespace JackpotRun.Engine
             if (stage >= MEDAL_BRONZE_S) return 20L;
             return 0L;
         }
+
+        // ── 9.4 숙련도(mastery, P3, WEB_PARITY_DESIGN.md §1-A #11 — 웹 game.js:143-165 MASTERY 그대로) ──
+        // kind: "char"/"mac"/"dev". 5개 마일스톤 각각 독립 판정 후 충족 개수를 레벨로 삼는다(웹
+        // masteryLevel L166-170: `for (const d of defs) { if (d.test(s)) lv++; ... }` — else-if 게이트가
+        // 아니라 매 마일스톤을 항상 개별 평가한다. 예: bossClears가 낮아도 bestScore만 높으면 그
+        // 마일스톤만 별도로 인정된다). ascMax는 승천(P6) 미구현이라 항상 -1로 들어와 char[4]가 영구
+        // 미충족이다(코드 변경 불필요 — 기본값 자체가 자연히 막는다).
+        public static int MasteryTotal(string kind) => kind == "char" || kind == "mac" || kind == "dev" ? 5 : 0;
+
+        public static int MasteryLevel(string kind, int runs, int bestStage, int bossClears, long bestScore, int ascMax)
+        {
+            int lv = 0;
+            switch (kind)
+            {
+                case "char": // 웹 game.js:144-150
+                    if (bestStage >= 3) lv++;
+                    if (bossClears >= 3) lv++;
+                    if (bestStage >= 15) lv++;
+                    if (bestScore >= 50000) lv++;
+                    if (ascMax >= 5) lv++;
+                    break;
+                case "mac": // 웹 game.js:151-157
+                    if (runs >= 3) lv++;
+                    if (bestStage >= 8) lv++;
+                    if (bossClears >= 5) lv++;
+                    if (bestScore >= 40000) lv++;
+                    if (bestStage >= 15) lv++;
+                    break;
+                case "dev": // 웹 game.js:158-164
+                    if (runs >= 5) lv++;
+                    if (runs >= 15) lv++;
+                    if (runs >= 30) lv++;
+                    if (runs >= 60) lv++;
+                    if (runs >= 100) lv++;
+                    break;
+            }
+            return lv;
+        }
     }
 }

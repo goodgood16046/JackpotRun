@@ -78,6 +78,9 @@ namespace JackpotRun.Game
                 // Evaluate(신규업적수 확정) 다음 순서로 런 종료 XP를 부여한다(웹과 동일 순서). 자발적
                 // 포기(FailureOutcome.Voluntary)도 웹처럼 예외 없이 XP를 받는다.
                 PlayerLevelTracker.ApplyRunEnd(Profile, Controller.State, gameOverEvent.failure, LastNewAchievements.Count);
+                // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #11, 웹 game.js:2627 — playerXp/레벨업 계산
+                // 직후, _saveProfile() 직전) — 이번 런에서 사용한 캐릭/머신/장치 숙련도 누적.
+                MasteryTracker.ApplyRunEnd(Profile, Controller.State, gameOverEvent.failure);
                 ProfileStore.Save(Profile);
             }
 
@@ -94,7 +97,7 @@ namespace JackpotRun.Game
             var combinedPerks = new List<string>(run.Perks);
             combinedPerks.AddRange(run.PhasePerks);
             var mods = ModsBuilder.ApplyItemMods(
-                ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device),
+                ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                 run.PhaseItems);
             long quota = SpinResolver.QuotaOf(run.Stage, mods);
             int spins = SpinResolver.EffSpins(run, mods);

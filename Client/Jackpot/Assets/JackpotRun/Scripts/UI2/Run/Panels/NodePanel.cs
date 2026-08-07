@@ -161,6 +161,9 @@ namespace JackpotRun.UI2
                 case NodeKind.Risk: return ("⚠", "위험", "프리즘/골드 증강과 저주를 동시에 받습니다.");
                 // WEB_PARITY P1 ④: 보스 클리어 후에만 등장(RollNextNodes 신규 4번째 옵션).
                 case NodeKind.Device: return ("■", "장치", "무작위 미보유 장치 1개를 오퍼합니다 — 장착 또는 코인 +15.");
+                // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12) — AUGMENT 노드가 확률(기본10%+pity)로
+                // 교체된 결과(웹 ui.js:1023 AUGLEVEL 헤더 "⬆️ 증강 강화").
+                case NodeKind.AugLevel: return ("⬆", "증강 강화", "보유 증강 1개를 레벨업합니다 (Lv3 상한).");
                 default: return ("❔", k.ToString(), "");
             }
         }

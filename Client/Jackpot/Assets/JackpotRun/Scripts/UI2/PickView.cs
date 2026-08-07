@@ -358,7 +358,9 @@ namespace JackpotRun.UI2
                 if (m == null) return;
 
                 name = m.name;
-                role = m.role;
+                // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #11, 웹 ui.js:648-651 masteryStars) — tab이
+                // 그대로 mastery kind("char"/"mac"/"dev")와 1:1이라 별도 매핑 없이 재사용한다.
+                role = m.role + MasteryStarsSuffix(tab, id);
                 effText = m.eff;
                 tags = m.tags;
                 icon = JackpotCatalog.LoadSprite(entry);
@@ -809,6 +811,17 @@ namespace JackpotRun.UI2
             if (tab == "char") return profile.IsCharUnlocked(Characters.ById(id));
             if (tab == "mac") return profile.IsMachineUnlocked(Machines.ById(id));
             return profile.IsDeviceUnlocked(Devices.ById(id));
+        }
+
+        // 웹 파리티 P3-3 — 숙련도 별 표기(웹 ui.js:1886 masteryStars 그대로: ★채움/☆빈칸 5개 중 충족수).
+        // 미기록(신규 프로필)이면 MasteryOf가 Level=0을 반환해 "☆☆☆☆☆"만 붙는다.
+        private string MasteryStarsSuffix(string tab, string id)
+        {
+            var profile = appRoot != null ? appRoot.Profile : null;
+            if (profile == null || string.IsNullOrEmpty(id)) return "";
+            var info = profile.MasteryOf(tab, id);
+            if (info.Total <= 0) return "";
+            return " · " + new string('★', info.Level) + new string('☆', Math.Max(0, info.Total - info.Level));
         }
 
         private List<string> UnlockedIds(string tab)

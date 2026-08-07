@@ -42,6 +42,26 @@ namespace JackpotRun.Engine
     //     많아 이 슬라이스(프로필·스탯트래킹·업적판정) 범위 밖이다 — "업적 달성 시 unlockAch가 가리키는
     //     장치 해금"만 AchievementEngine이 구현한다(WEB_PARITY P3-2부터 lic_* 접두 특례 없이 범용화 —
     //     Devices.cs의 unlockAch가 업적 id를 직접 담는다, AchievementEngine.cs 헤더 각주 참조).
+    // 숙련도(mastery, P3, WEB_PARITY_DESIGN.md §1-A #11 — 웹 game.js:143-165/217-232 그대로) 성과 누적
+    // 1건 — 웹 `{runs,bestStage,bossClears,bestScore,ascMax}`와 동일 필드. ascMax 기본값 -1은 웹
+    // `{...,ascMax:-1}`과 동일(승천 미졸업 표식) — 승천(P6) 미구현이라 영구 -1(갱신 코드 없음).
+    public sealed class MasteryStats
+    {
+        public int Runs;
+        public int BestStage;
+        public int BossClears;
+        public long BestScore;
+        public int AscMax = -1;
+    }
+
+    // PlayerProfile.MasteryOf(kind,id) 조회 결과 — Level(충족 마일스톤 수, 0~5)·Total(5)만 노출한다
+    // (PickView/DexView ★ 표기에 필요한 값만 — 원시 통계가 필요하면 MasteryStats를 별도로 조회할 것).
+    public sealed class MasteryInfo
+    {
+        public int Level;
+        public int Total;
+    }
+
     public sealed class PlayerProfile
     {
         // 156개 고유 stat key(03_meta §5.3) + StatTracker가 쓰는 파생-원천 키(bld_<id> 25종 등) 통합 저장소.
@@ -155,5 +175,43 @@ namespace JackpotRun.Engine
 
         // 현재 장착 가능한(해금된) 장치 목록 — devicesOwned 스탯과 동일한 모집합(unlockAch 있는 것만).
         public IEnumerable<DeviceDef> UnlockedDevices() => Devices.All.Where(IsDeviceUnlocked);
+
+        // ── 숙련도(mastery, P3, WEB_PARITY_DESIGN.md §1-A #11) — kind("char"/"mac"/"dev") -> id -> 성과.
+        // 웹 profile.mastery = {char:{},mac:{},dev:{}} 대응(웹 game.js:143 MASTERY 표/217-232 _bumpMastery/
+        // masteryOf). 최초엔 kind 3개가 비어 있고, BumpMastery가 처음 등장한 id를 그때그때 만든다(웹
+        // `bag[id] || (bag[id] = {...})`와 동일 관례 — 미리 3개 빈 dict를 만들어 둘 필요 없음, ProfileDto
+        // 왕복도 존재하는 (kind,id) 행만 직렬화한다).
+        public readonly Dictionary<string, Dictionary<string, MasteryStats>> Mastery = new Dictionary<string, Dictionary<string, MasteryStats>>();
+
+        // 런 종료(GAME_OVER) 시 사용한 캐릭/머신/장치 성과 누적 — 웹 game.js:217-227 `_bumpMastery` 그대로.
+        // 호출측(MasteryTracker.ApplyRunEnd)이 kind별로("char"/"mac"/"dev") 호출한다(장치는 장착 시만 —
+        // 웹 game.js:2627 `if (r.device) this._bumpMastery("dev", r.device)`).
+        public void BumpMastery(string kind, string id, int stage, int bossClearsThisRun, long finalScore)
+        {
+            if (string.IsNullOrEmpty(id)) return;
+            if (!Mastery.TryGetValue(kind, out var bag)) { bag = new Dictionary<string, MasteryStats>(); Mastery[kind] = bag; }
+            if (!bag.TryGetValue(id, out var s)) { s = new MasteryStats(); bag[id] = s; }
+            s.Runs += 1;
+            if (stage > s.BestStage) s.BestStage = stage;
+            s.BossClears += bossClearsThisRun;
+            if (finalScore > s.BestScore) s.BestScore = finalScore;
+            // ascMax: 승천(P6) 미구현 — 웹의 갱신 조건(r.graduatedThisRun) 자체가 Unity에 아직 없어
+            // 갱신 로직을 두지 않는다(항상 기본값 -1 그대로, MasteryStats 헤더 각주 참조).
+        }
+
+        // 조회 — PickView/DexView ★ 표기용(Level=충족 마일스톤 수 0~5, Total=5). 미기록 id는 빈
+        // MasteryStats(전부 0/-1) 기준으로 계산되어 자연히 Level=0을 반환한다(웹과 동일, masteryOf
+        // L228-232 `bag[id] || {runs:0,...}` 폴백).
+        public MasteryInfo MasteryOf(string kind, string id)
+        {
+            MasteryStats s = null;
+            if (!string.IsNullOrEmpty(id) && Mastery.TryGetValue(kind, out var bag)) bag.TryGetValue(id, out s);
+            if (s == null) s = new MasteryStats();
+            return new MasteryInfo
+            {
+                Level = Formulas.MasteryLevel(kind, s.Runs, s.BestStage, s.BossClears, s.BestScore, s.AscMax),
+                Total = Formulas.MasteryTotal(kind),
+            };
+        }
     }
 }

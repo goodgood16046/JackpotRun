@@ -122,10 +122,14 @@ namespace JackpotRun.Engine
         };
 
         // ── 1.5 buildMods (Kotlin L1730-2026) ──────────────────────────────────
+        // levels: 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12) — 웹 buildMods(...,levels) 7번째 인자
+        // (game.js:445 `E.buildMods(..., r.perkLevels)`) 대응. RunState.PerkLevels를 그대로 넘기면
+        // AUG_LEVELS(Content/AugLevels.cs) 등록 증강의 Lv2/Lv3 델타가 반영된다 — null/id 미존재는
+        // Lv1(무보정)과 동치(기존 호출부 호환, levels 생략 시 전부 Lv1로 취급).
         public static Mods Build(
             string machineId, string charId,
             IReadOnlyList<string> perkIds, IReadOnlyList<string> curseIds,
-            string deviceId, RunCtx ctx = null)
+            string deviceId, RunCtx ctx = null, IReadOnlyDictionary<string, int> levels = null)
         {
             perkIds ??= Array.Empty<string>();
             curseIds ??= Array.Empty<string>();
@@ -174,6 +178,22 @@ namespace JackpotRun.Engine
                 var perk = Perks.ById(id);
                 if (perk == null) continue; // Kotlin when(id){...}의 무명 case 무시(01_engine.md §11-12)
                 ApplyFx(m, perk.fx);
+            }
+
+            // ── 증강 레벨업 델타(Lv2/Lv3) — 웹 파리티 P3-3(engine.js:368-375 buildMods 증강 레벨업 델타
+            // 루프). AUG_LEVELS 미등록 id(프리즘 등)는 TryGetDelta가 false를 반환해 자동 스킵된다.
+            // Lv3는 Lv2+Lv3 델타를 모두 누적 적용(곱/가산 연산은 위치 무관이라 curses/sets 루프보다
+            // 앞뒤 어디에 둬도 최종 결과는 같다 — perkIds 원본 효과 바로 다음에 두는 게 가독성상 자연스럽다).
+            if (levels != null)
+            {
+                for (int i = 0; i < perkIds.Count; i++)
+                {
+                    var id = perkIds[i];
+                    int lv = levels.TryGetValue(id, out var lvv) ? lvv : 1;
+                    if (lv < 2) continue;
+                    if (AugLevels.TryGetDelta(id, 2, out var d2)) ApplyFx(m, d2);
+                    if (lv >= 3 && AugLevels.TryGetDelta(id, 3, out var d3)) ApplyFx(m, d3);
+                }
             }
 
             // ── 저주 (curseIds 루프, L1935-1951) — 전부 일반 fx(ctx 조건부 없음) ──

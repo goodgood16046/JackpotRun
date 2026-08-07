@@ -1207,6 +1207,7 @@ namespace JackpotRun.EngineTests
             "RETAKE_EMPTY", "SHOP_OFFER", "SHOP_PURCHASED", "SHOP_REROLLED", "SHOP_LEFT",
             "ITEM_USED", "DEVICE_ARMED", "DEVICE_PEEK", "RUN_STARTED",
             "DEVICE_OFFER", // WEB_PARITY P1 ④: DEVICE 노드 오퍼(RunPhase.DeviceNode 진입 이벤트)
+            "PERK_LEVELED", // 웹 파리티 P3-3: AUGLEVEL 노드 선택(PickOffer) 결과
         };
 
         // 결정론적 자동 플레이 정책: Spin(N) 반복 → NodeSelect는 항상 0번 선택 → 증강/유물 오퍼도 항상
@@ -1235,6 +1236,9 @@ namespace JackpotRun.EngineTests
                         break;
                     case RunPhase.EventAugment:
                     case RunPhase.EventRelic:
+                    // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12): AUGLEVEL 노드도 같은 PickOffer(0)
+                    // 진입점을 공유한다(NodeEvents.PickOffer가 phase로 분기).
+                    case RunPhase.EventAugLevel:
                         events = rc.Do(new PickOffer(0));
                         break;
                     case RunPhase.EventShop:
@@ -1314,6 +1318,9 @@ namespace JackpotRun.EngineTests
                         break;
                     case RunPhase.EventAugment:
                     case RunPhase.EventRelic:
+                    // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12): AUGLEVEL 노드도 같은 PickOffer(0)
+                    // 진입점을 공유한다(NodeEvents.PickOffer가 phase로 분기).
+                    case RunPhase.EventAugLevel:
                         actionName = "PickOffer";
                         events = rc.Do(new PickOffer(0));
                         break;

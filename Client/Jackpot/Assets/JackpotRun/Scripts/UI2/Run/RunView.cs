@@ -321,7 +321,7 @@ namespace JackpotRun.UI2
             var phase = run.Phase;
 
             if (phase != RunPhase.NodeSelect) nodePanel?.Hide();
-            if (phase != RunPhase.EventAugment && phase != RunPhase.EventRelic) perkOfferPanel?.Hide();
+            if (phase != RunPhase.EventAugment && phase != RunPhase.EventRelic && phase != RunPhase.EventAugLevel) perkOfferPanel?.Hide();
             if (phase != RunPhase.EventShop) shopPanel?.Hide();
             if (phase != RunPhase.PostSpin) postSpinPanel?.Hide();
             if (phase != RunPhase.GameOver) gameOverPanel?.Hide();
@@ -334,6 +334,7 @@ namespace JackpotRun.UI2
                     break;
                 case RunPhase.EventAugment:
                 case RunPhase.EventRelic:
+                case RunPhase.EventAugLevel:
                     perkOfferPanel?.Show(run, _lastOfferEvent,
                         idx => Send(new PickOffer(idx)), idx => Send(new HoldAugment(idx)), () => Send(new Retake()));
                     break;
@@ -525,6 +526,11 @@ namespace JackpotRun.UI2
                         notesFeed?.Append($"보류: {PerkLabel(e.perkId)}");
                         break;
 
+                    // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12) — AUGLEVEL 노드 선택 결과.
+                    case "PERK_LEVELED":
+                        notesFeed?.Append($"⬆ 강화: {PerkLabel(e.perkId)} Lv.{e.perkLevelBefore}→Lv.{e.perkLevelAfter}");
+                        break;
+
                     case "PERK_OFFER":
                         _lastOfferEvent = e;
                         break;
@@ -629,6 +635,9 @@ namespace JackpotRun.UI2
                     return e.coinsDelta > 0
                         ? $"장치 획득(미장착): {DeviceLabel(e.deviceGrantedId)} · 코인+{NumberFormat.Comma(e.coinsDelta)}"
                         : $"장치 장착: {DeviceLabel(e.deviceGrantedId)}";
+                // 웹 파리티 P3-3 — NodeEvents.ChooseNode의 방어적 "레벨업 후보 없음" 폴백(이론상 도달 불가).
+                case NodeKind.AugLevel:
+                    return "⬆ 강화할 증강이 없어요";
                 default:
                     return $"노드 결과: {e.node}";
             }

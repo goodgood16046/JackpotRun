@@ -26,7 +26,7 @@ namespace JackpotRun.Engine
             var combinedPerks = new List<string>(run.Perks);
             combinedPerks.AddRange(run.PhasePerks);
             var mods = ModsBuilder.ApplyItemMods(
-                ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device),
+                ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                 run.PhaseItems);
             return SpinResolver.QuotaOf(run.Stage, mods);
         }
@@ -70,7 +70,7 @@ namespace JackpotRun.Engine
                 var combinedPerks = new List<string>(run.Perks);
                 combinedPerks.AddRange(run.PhasePerks);
                 var mods = ModsBuilder.ApplyItemMods(
-                    ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device),
+                    ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                     run.PhaseItems);
                 int spins = SpinResolver.EffSpins(run, mods);
                 long quota = SpinResolver.QuotaOf(run.Stage, mods);
@@ -96,7 +96,7 @@ namespace JackpotRun.Engine
 
             var combinedPerks = new List<string>(run.Perks);
             combinedPerks.AddRange(run.PhasePerks);
-            var pmods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device);
+            var pmods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels);
             var pmods1 = ModsBuilder.ApplyItemMods(pmods0, run.PhaseItems);
             var devEq = Devices.ById(run.Device);
             var pmods = (devEq != null && devEq.kind == "PASSIVE") ? ModsBuilder.ApplyPassiveDevice(pmods1, devEq.id) : pmods1;
@@ -217,7 +217,7 @@ namespace JackpotRun.Engine
                 {
                     var combinedPerks = new List<string>(run.Perks);
                     combinedPerks.AddRange(run.PhasePerks);
-                    var pmods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device);
+                    var pmods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels);
                     var pmods1 = ModsBuilder.ApplyItemMods(pmods0, run.PhaseItems);
                     var devEq = Devices.ById(run.Device);
                     var pmods = (devEq != null && devEq.kind == "PASSIVE") ? ModsBuilder.ApplyPassiveDevice(pmods1, devEq.id) : pmods1;

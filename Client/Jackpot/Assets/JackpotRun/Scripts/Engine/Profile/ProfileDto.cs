@@ -45,6 +45,18 @@ namespace JackpotRun.Engine
         // WEB_PARITY_DESIGN.md §2-(L) — 업적 34종 교체 XP 재시딩(1회) 완료 여부. PlayerProfile.
         // PlayerXpReseed34 대응, Unity 전용(웹에 직접 대응물 없음).
         public bool playerXpReseed34;
+
+        // ── 숙련도(mastery, P3, WEB_PARITY_DESIGN.md §1-A #11) — PlayerProfile.Mastery(kind->id->
+        // MasteryStats) 대응. JsonUtility가 중첩 Dictionary를 직렬화하지 못해(헤더 각주 참조) (kind,id)
+        // 조합당 1행으로 완전히 펼친 병렬 배열 5+2개로 담는다 — 인덱스로 1:1 대응(statKeys/Values와
+        // 동일한 패턴을 컬럼 5개로 확장).
+        public string[] masteryKind = Array.Empty<string>();
+        public string[] masteryId = Array.Empty<string>();
+        public int[] masteryRuns = Array.Empty<int>();
+        public int[] masteryBestStage = Array.Empty<int>();
+        public int[] masteryBossClears = Array.Empty<int>();
+        public long[] masteryBestScore = Array.Empty<long>();
+        public int[] masteryAscMax = Array.Empty<int>();
     }
 
     public static class ProfileDto
@@ -70,6 +82,28 @@ namespace JackpotRun.Engine
             var owned = new string[p.OwnedDevices.Count];
             p.OwnedDevices.CopyTo(owned);
 
+            // 숙련도 — Mastery[kind][id]를 (kind,id)당 1행으로 펼친다(존재하는 조합만, 순서는 무관).
+            var mKind = new List<string>();
+            var mId = new List<string>();
+            var mRuns = new List<int>();
+            var mBestStage = new List<int>();
+            var mBossClears = new List<int>();
+            var mBestScore = new List<long>();
+            var mAscMax = new List<int>();
+            foreach (var kindBag in p.Mastery)
+            {
+                foreach (var kv in kindBag.Value)
+                {
+                    mKind.Add(kindBag.Key);
+                    mId.Add(kv.Key);
+                    mRuns.Add(kv.Value.Runs);
+                    mBestStage.Add(kv.Value.BestStage);
+                    mBossClears.Add(kv.Value.BossClears);
+                    mBestScore.Add(kv.Value.BestScore);
+                    mAscMax.Add(kv.Value.AscMax);
+                }
+            }
+
             return new PlayerProfileDto
             {
                 statKeys = keys,
@@ -86,6 +120,13 @@ namespace JackpotRun.Engine
                 playerLevel = p.PlayerLevel,
                 playerXpSeeded = p.PlayerXpSeeded,
                 playerXpReseed34 = p.PlayerXpReseed34,
+                masteryKind = mKind.ToArray(),
+                masteryId = mId.ToArray(),
+                masteryRuns = mRuns.ToArray(),
+                masteryBestStage = mBestStage.ToArray(),
+                masteryBossClears = mBossClears.ToArray(),
+                masteryBestScore = mBestScore.ToArray(),
+                masteryAscMax = mAscMax.ToArray(),
             };
         }
 
@@ -117,6 +158,28 @@ namespace JackpotRun.Engine
             p.LastPlayedAtUnixMs = dto.lastPlayedAtUnixMs;
             p.PinnedChallenge = dto.pinnedChallenge ?? "";
             p.LastCombo = dto.lastCombo ?? "";
+
+            // ── 숙련도(mastery) 왕복 — masteryKind[i]/masteryId[i]가 기준 행 개수. 나머지 컬럼은
+            // 길이가 짧아도(구버전 세이브 등 방어) 인덱스 초과분은 기본값(0/-1)으로 채운다.
+            if (dto.masteryKind != null && dto.masteryId != null)
+            {
+                int n = Math.Min(dto.masteryKind.Length, dto.masteryId.Length);
+                for (int i = 0; i < n; i++)
+                {
+                    var kind = dto.masteryKind[i];
+                    var id = dto.masteryId[i];
+                    if (string.IsNullOrEmpty(kind) || string.IsNullOrEmpty(id)) continue;
+                    if (!p.Mastery.TryGetValue(kind, out var bag)) { bag = new Dictionary<string, MasteryStats>(); p.Mastery[kind] = bag; }
+                    bag[id] = new MasteryStats
+                    {
+                        Runs = (dto.masteryRuns != null && i < dto.masteryRuns.Length) ? dto.masteryRuns[i] : 0,
+                        BestStage = (dto.masteryBestStage != null && i < dto.masteryBestStage.Length) ? dto.masteryBestStage[i] : 0,
+                        BossClears = (dto.masteryBossClears != null && i < dto.masteryBossClears.Length) ? dto.masteryBossClears[i] : 0,
+                        BestScore = (dto.masteryBestScore != null && i < dto.masteryBestScore.Length) ? dto.masteryBestScore[i] : 0,
+                        AscMax = (dto.masteryAscMax != null && i < dto.masteryAscMax.Length) ? dto.masteryAscMax[i] : -1,
+                    };
+                }
+            }
 
             // ── 플레이어 레벨/XP 마이그레이션 (웹 game.js:189-192 _loadProfile 그대로) ──────────────
             // 이 필드 도입 전 세이브(playerXp/playerXpSeeded가 DTO 기본값 0/false로 역직렬화됨)를

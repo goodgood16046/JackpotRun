@@ -18,6 +18,11 @@ namespace JackpotRun.Engine
         NodeSelect,
         EventAugment,
         EventRelic,
+        // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12) — AUGLEVEL 노드에서 레벨업 후보(보유 증강 중
+        // AugLevels.IsLevelable && Lv<3)를 오퍼하는 상태. 웹 PHASE.PERK_PICK + _pickKind==="LVL"에
+        // 대응(game.js:1622,2142-2145). NodeEvents.PickOffer가 이 phase일 때 perks에 새로 add하는 대신
+        // RunState.PerkLevels[id]를 +1한다.
+        EventAugLevel,
         EventShop,
         // WEB_PARITY P1 ④: DEVICE 노드 선택 후 [장착하기]/[코인+15] 결정을 기다리는 상태(웹 PHASE.DEVICE_NODE,
         // game.js:1696 `case "DEVICE": r.phase = PHASE.DEVICE_NODE;`) — NodeEvents.TakeDevice가 해소한다.
@@ -42,6 +47,10 @@ namespace JackpotRun.Engine
         // WEB_PARITY P1 ④: 보스 클리어 직후에만 등장(웹 game.js:1438,1493 — drops.length일 때만 노드에
         // 추가되는 4번째 옵션). 선택 시 RunState.PendingDeviceDrop을 오퍼로 보여주고 장착/코인 중 택1.
         Device,
+        // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12) — StageFlow.ClearStage가 AUGMENT 노드를 확률
+        // (기본10%+pity, 상한20%)로 이 노드로 교체한다(웹 game.js:1501-1507). 3택 규칙 중 "AUGMENT 필수
+        // 1개" 자리를 대체할 뿐 옵션 개수는 그대로 3개 — Device처럼 "추가" 옵션이 아니다.
+        AugLevel,
     }
 
     // 표시 모드 — SlotV2RunRow.displayMode. UI 연출 선택일 뿐 수치 로직에 영향 없음(카톡 전용 요소 아님 —
@@ -197,6 +206,18 @@ namespace JackpotRun.Engine
         // 웹 r._drop(game.js:1438,1493-1494) 대응. NodeKind.Device 선택 시(NodeEvents.TakeDevice)
         // 이 값을 소비하고 다시 ""로 리셋한다.
         public string PendingDeviceDrop = "";
+
+        // ── 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12, 웹 game.js:319 perkLevels/_augLevelChance/
+        // _augLevelBoost) — 증강 레벨업(Lv1~3). id -> 현재 레벨(딕셔너리에 없으면 Lv1, 웹
+        // `r.perkLevels[id] || 1`과 동일 관례 — Perks/RISK/EVENT로 새 증강을 얻어도 별도 초기화 불필요).
+        public readonly Dictionary<string, int> PerkLevels = new Dictionary<string, int>();
+
+        // AUGLEVEL 노드 등장 확률(pity) — 기본 10%, 미발동 시 +2%p 누적(상한 20%), 발동 시 10%로 리셋.
+        public double AugLevelChance = 0.10;
+        // 🖍형광펜/🧪증강촉매(aug_catalyst) 동형 부스트 — 해당 아이템이 Unity 콘텐츠에 아직 없어 항상 0인
+        // 후크만 존재(웹 game.js:791 `_augLevelBoost += 0.15`). 그 아이템이 추가되면 그 case에서 이
+        // 필드에 가산하기만 하면 StageFlow.ClearStage의 pity 계산이 자동으로 반영한다.
+        public double AugLevelBoost = 0.0;
 
         public RunState(long seed)
         {

@@ -92,7 +92,7 @@ namespace JackpotRun.Engine
     //
     // type 값 목록:
     //   REJECTED · SPIN_RESULT · STAGE_CLEARED · REVIVED · POST_SPIN · GAME_OVER · DEVICE_MANIP_RESULT
-    //   NODE_RESOLVED · PERK_OFFER · PERK_GRANTED · PERK_HELD · RETAKE_EMPTY
+    //   NODE_RESOLVED · PERK_OFFER · PERK_GRANTED · PERK_HELD · PERK_LEVELED · RETAKE_EMPTY
     //   SHOP_OFFER · SHOP_PURCHASED · SHOP_REROLLED · SHOP_LEFT
     //   ITEM_USED · DEVICE_ARMED · DEVICE_PEEK · RUN_STARTED
     //
@@ -137,6 +137,11 @@ namespace JackpotRun.Engine
         // 🔁 dev_retake 재추첨으로 생성된 오퍼 — 최초 노드 오퍼(false)와 구분(스탯 트래킹 deviceUses 귀속용).
         public bool offerRetake;
         public string perkId;
+        // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12) — PERK_LEVELED 전용(AUGLEVEL 노드 선택 결과).
+        // perkId가 레벨업된 증강 id, before/after가 레벨 전이(예: Lv1→Lv2). 웹 game.js:2143-2144
+        // `r.perkLevels[p.id] = Math.min(3, ...+1)` toast 문구(Lv.N → Lv.N+1 강화 완료) 대응.
+        public int perkLevelBefore;
+        public int perkLevelAfter;
 
         // 상점(SHOP_*).
         public IReadOnlyList<ShopEntry> shopOffer;
@@ -266,7 +271,7 @@ namespace JackpotRun.Engine
             // [원본 버그 유지] Kotlin GIVEUP 분기(L1897)는 buildMods에 device·phasePerks를 넣지 않는다
             // — deficit 표시값만 갈리는 생략이지만 DeviceActions의 동일 계열 보존과 일관되게 유지.
             var mods = ModsBuilder.ApplyItemMods(
-                ModsBuilder.Build(State.MachineId, State.CharId, State.Perks, State.Curses, ""),
+                ModsBuilder.Build(State.MachineId, State.CharId, State.Perks, State.Curses, "", levels: State.PerkLevels),
                 State.PhaseItems);
             long quota = SpinResolver.QuotaOf(State.Stage, mods);
             long deficit = quota - State.StageExp;

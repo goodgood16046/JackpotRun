@@ -61,6 +61,40 @@ namespace JackpotRun.Engine
                     }
                     break; // 풀 소진 → EVENT 테이블 폴백
                 }
+                // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12) — AUGLEVEL 노드: 레벨업 가능한 보유
+                // 증강(AugLevels.LevelableHeld) 전부를 후보로 오퍼한다(웹 game.js:1622 `r.options =
+                // this._levelableHeld().map(...)` — 웹은 전량 오퍼, CSS 그리드가 알아서 줄바꿈).
+                // Opus 1차검수 필수(2026-08-08, §2-(M) 결정) — Unity `PerkOfferPanel`은 320px 고정
+                // 카드 3장 전용 레이아웃이라 4장 이상이면 화면 밖으로 잘린다. 오퍼를 최대 3장으로
+                // 캡한다 — 3장 이하면 전량 그대로(RNG 미소비, 기존 시드 스트림 영향 없음), 4장
+                // 이상이면 `run.Rng.Shuffle`로 등록 순서 편향 없이 섞은 뒤 앞 3장만 선발한다
+                // (`RollNextNodes`의 "풀 셔플 후 GetRange" 관례와 동일 패턴 — RNG 소비는 4장 이상일
+                // 때만 발생). PickOffer가 EventAugLevel phase에서 perkId를 "새로 획득"이 아니라
+                // PerkLevels[id]+1로 해석한다.
+                case NodeKind.AugLevel:
+                {
+                    var candidates = AugLevels.LevelableHeld(run);
+                    if (candidates.Count > 0)
+                    {
+                        var offerIds = candidates;
+                        if (candidates.Count > 3)
+                        {
+                            offerIds = new List<string>(candidates);
+                            run.Rng.Shuffle(offerIds);
+                            offerIds = offerIds.GetRange(0, 3);
+                        }
+                        run.PerkOfferIds.Clear();
+                        run.PerkOfferIds.AddRange(offerIds);
+                        run.Phase = RunPhase.EventAugLevel;
+                        return RunEvents.One(new RunEvent { type = "PERK_OFFER", node = node, perkOfferIds = run.PerkOfferIds });
+                    }
+                    // 이론상 도달 불가 — StageFlow.ClearStage가 후보 있을 때만 이 노드를 생성하고, 노드
+                    // 롤과 선택 사이에 후보를 바꿀 수단이 없다(웹도 동일 전제, game.js:1622 else 분기가
+                    // EVENT 테이블이 아니라 "강화할 증강이 없어요" 무보상 종료다 — AUGMENT/RELIC 풀
+                    // 소진 폴백과는 다른 케이스라 아래 공용 EVENT 테이블로 떨어뜨리지 않는다).
+                    run.Phase = RunPhase.Spin;
+                    return RunEvents.One(new RunEvent { type = "NODE_RESOLVED", node = node });
+                }
                 case NodeKind.Curse:
                 {
                     var ev = TryGrantCurse(run);
@@ -334,11 +368,26 @@ namespace JackpotRun.Engine
         }
 
         // ── EVENT_AUGMENT/EVENT_RELIC 후보 선택 (handlePerkPick, Kotlin L1371-1388) ──
+        // 웹 파리티 P3-3: EventAugLevel(AUGLEVEL 노드 오퍼)도 이 진입점을 공유한다 — 웹 game.js:2142-2145
+        // `if (r._pickKind === "LVL") { r.perkLevels[p.id] = Math.min(3, ...+1); ... }`와 동일하게 "새
+        // 퍽 획득"이 아니라 "보유 증강 레벨+1"로 분기한다(perks에 중복 추가하지 않음).
         public static List<RunEvent> PickOffer(RunState run, int index)
         {
-            if (run.Phase != RunPhase.EventAugment && run.Phase != RunPhase.EventRelic) return RunEvents.Rejected("PHASE_NOT_PERK_OFFER");
+            if (run.Phase != RunPhase.EventAugment && run.Phase != RunPhase.EventRelic && run.Phase != RunPhase.EventAugLevel)
+                return RunEvents.Rejected("PHASE_NOT_PERK_OFFER");
             if (index < 0 || index >= run.PerkOfferIds.Count) return RunEvents.Rejected("INVALID_INDEX");
             var perkId = run.PerkOfferIds[index];
+
+            if (run.Phase == RunPhase.EventAugLevel)
+            {
+                int before = run.PerkLevels.TryGetValue(perkId, out var lv) ? lv : 1;
+                int after = Math.Min(3, before + 1);
+                run.PerkLevels[perkId] = after;
+                run.PerkOfferIds.Clear();
+                run.Phase = RunPhase.Spin;
+                return RunEvents.One(new RunEvent { type = "PERK_LEVELED", perkId = perkId, perkLevelBefore = before, perkLevelAfter = after });
+            }
+
             run.Perks.Add(perkId);
             run.PerkOfferIds.Clear();
             run.Phase = RunPhase.Spin;

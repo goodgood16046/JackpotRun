@@ -153,7 +153,7 @@ namespace JackpotRun.Engine
             var combinedPerks = new List<string>(run.Perks);
             combinedPerks.AddRange(run.PhasePerks);
             var mods = ModsBuilder.ApplyItemMods(
-                ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device),
+                ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                 run.PhaseItems);
             // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B, 웹 game.js:1419 `C.CLEAR_COIN + (boss ? C.BOSS_COIN : 0)
             // + clearCoinBonus`): 옛 코드(및 kotlin-reference SlotV2Service.kt:843)는 boss일 때 CLEAR_COIN
@@ -226,6 +226,26 @@ namespace JackpotRun.Engine
                     deviceDrop = picked.id;
                     nodes.Add(NodeKind.Device);
                 }
+            }
+
+            // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12, 웹 game.js:1501-1507) — 증강 레벨업 노드
+            // 확률(기본10%+pity, 상한20%). 레벨업 가능한 보유 증강(<Lv3)이 있을 때만 AUGMENT 노드를
+            // AUGLEVEL로 교체한다(3택 개수는 그대로 — DEVICE처럼 "추가" 옵션이 아니라 "대체"). 촉매/
+            // 형광펜 부스트는 해당 아이템이 Unity에 없어 run.AugLevelBoost가 항상 0인 후크로만 존재.
+            if (AugLevels.LevelableHeld(run).Count > 0)
+            {
+                double chance = Math.Min(0.6, run.AugLevelChance + run.AugLevelBoost);
+                if (run.Rng.NextDouble() < chance)
+                {
+                    int augIdx = nodes.IndexOf(NodeKind.Augment);
+                    if (augIdx >= 0) nodes[augIdx] = NodeKind.AugLevel;
+                    run.AugLevelChance = 0.10;
+                }
+                else
+                {
+                    run.AugLevelChance = Math.Min(0.20, run.AugLevelChance + 0.02);
+                }
+                run.AugLevelBoost = 0.0; // 촉매는 1회성(다음 기회에 소진, 웹 game.js:1506과 동일)
             }
 
             // ── 상태 반영 (Kotlin clearStage L872-892) ──

@@ -110,6 +110,45 @@ namespace JackpotRun.UI2
                     });
                 }
             }
+
+            BuildPerkLevelRows(run);
+        }
+
+        // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12, 작업 지시 B.4) — 레벨업 가능한 보유 증강에
+        // Lv 뱃지 표시. run.Perks를 그리는 화면이 UI2에 이 팝업 말고 없어(grep 결과 전무 — 작업 지시의
+        // "BagPopup?"이 유일한 후보였다) 최소 침습으로 기존 아이템 행 템플릿을 그대로 재사용한다(새
+        // 자식 노드 없음, Icon/Name/Desc만 채우고 UseButton은 숨김 — 증강은 소모형 아이템과 달리
+        // "사용" 동작이 없는 상시 효과). AUG_LEVELS 등록 증강(AugLevels.IsLevelable)만 대상 — 레벨
+        // 개념이 없는 나머지 증강/유물/저주는 여기 표시 대상이 아니다(뱃지 자체가 무의미).
+        private void BuildPerkLevelRows(RunState run)
+        {
+            if (rowsContent == null || rowTemplate == null) return;
+            for (int i = 0; i < run.Perks.Count; i++)
+            {
+                var perkId = run.Perks[i];
+                if (!AugLevels.IsLevelable(perkId)) continue;
+                var perk = Perks.ById(perkId);
+                if (perk == null) continue;
+                int lv = run.PerkLevels.TryGetValue(perkId, out var lvv) ? lvv : 1;
+
+                var row = Instantiate(rowTemplate, rowsContent);
+                row.gameObject.SetActive(true);
+                row.name = "PerkLevelRow_" + perkId;
+
+                var sprite = JackpotCatalog.LoadSprite(JackpotCatalog.Get("aug_" + perk.id));
+                var icon = row.Find("Content/IconSlot/Icon")?.GetComponent<Image>();
+                if (icon != null) { icon.sprite = sprite; icon.enabled = sprite != null; }
+                var iconEmoji = row.Find("Content/IconSlot/IconEmoji")?.GetComponent<Text>();
+                if (iconEmoji != null) { iconEmoji.text = perk.emoji; iconEmoji.gameObject.SetActive(sprite == null); }
+
+                var nameText = row.Find("Content/InfoCol/Name")?.GetComponent<Text>();
+                if (nameText != null) nameText.text = $"{perk.name} Lv.{lv}";
+                var descText = row.Find("Content/InfoCol/Desc")?.GetComponent<Text>();
+                if (descText != null) descText.text = perk.desc;
+
+                var useBtn = row.Find("Content/UseButton")?.GetComponent<Button>();
+                if (useBtn != null) useBtn.gameObject.SetActive(false); // 소모형 아님 — 사용 버튼 숨김
+            }
         }
     }
 }

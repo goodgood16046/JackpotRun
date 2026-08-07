@@ -56,7 +56,11 @@ namespace JackpotRun.UI2
             _closing = false;
 
             bool isAugment = run.Phase == RunPhase.EventAugment;
-            if (titleText != null) titleText.text = isAugment ? "증강 선택" : "유물 선택";
+            // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12) — AUGLEVEL 노드도 이 패널을 재사용한다
+            // (웹 ui.js:1023 AUGLEVEL 헤더 "⬆️ 증강 강화"). PerkOfferIds에는 "새로 얻을 후보"가 아니라
+            // "레벨업할 보유 증강"이 들어있다 — BuildCards가 카드에 Lv.N→Lv.N+1 배지로 구분해 보여준다.
+            bool isAugLevel = run.Phase == RunPhase.EventAugLevel;
+            if (titleText != null) titleText.text = isAugLevel ? "증강 강화" : (isAugment ? "증강 선택" : "유물 선택");
 
             var ids = run.PerkOfferIds;
             Tier maxTier = Tier.SILVER;
@@ -85,7 +89,9 @@ namespace JackpotRun.UI2
             if (subtitleText != null) subtitleText.text = string.Join(" · ", subtitleParts);
 
             bool canHold = isAugment && Shop.HasDevice(run, "dev_holdfile") && string.IsNullOrEmpty(run.HeldAug);
-            bool canRetake = Shop.HasDevice(run, "dev_retake") && !run.UsedCmds.Contains("RETAKE");
+            // AUGLEVEL은 보류/재추첨 대상이 아니다(웹에 대응 UI 없음 — dev_holdfile/dev_retake는 새 퍽
+            // 후보 오퍼 전용, "보유 증강 레벨업" 오퍼에는 개념이 성립하지 않는다).
+            bool canRetake = !isAugLevel && Shop.HasDevice(run, "dev_retake") && !run.UsedCmds.Contains("RETAKE");
             if (retakeButton != null)
             {
                 // retakeButton은 "하단 보조 행"의 유일한 자식 — 부모(BottomRow) 자체를 껐다 켜서
@@ -98,7 +104,7 @@ namespace JackpotRun.UI2
                 if (retakeButtonLabel != null) retakeButtonLabel.text = $"재추첨 ({Formulas.RETAKE_COIN_COST}코인)";
             }
 
-            var cards = BuildCards(run, offerEvent, onPick, canHold ? onHold : (Action<int>)null);
+            var cards = BuildCards(run, offerEvent, isAugLevel, onPick, canHold ? onHold : (Action<int>)null);
 
             if (firstShow) StartCoroutine(EnterRoutine(cards));
             else ShowCardsInstant(cards);
@@ -208,7 +214,7 @@ namespace JackpotRun.UI2
         }
 
         // ── 카드 채우기 ──────────────────────────────────────────────────────────────────
-        private List<(RectTransform rect, Color tier)> BuildCards(RunState run, RunEvent offerEvent, Action<int> onPick, Action<int> onHold)
+        private List<(RectTransform rect, Color tier)> BuildCards(RunState run, RunEvent offerEvent, bool isAugLevel, Action<int> onPick, Action<int> onHold)
         {
             var cardList = new List<(RectTransform rect, Color tier)>();
             StopCardAuras();
@@ -267,7 +273,16 @@ namespace JackpotRun.UI2
                 var badgesText = card.Find("Content/Badges")?.GetComponent<Text>();
                 if (badgesText != null)
                 {
-                    string badges = (heldBadge ? "[보류] " : "") + (synergyBadge ? "[시너지]" : "");
+                    // 웹 파리티 P3-3 — AUGLEVEL 카드는 "Lv.N → Lv.N+1" 배지로 레벨업임을 표시한다
+                    // (웹 ui.js:1050 `Lv.${p.curLevel} → Lv.${p.nextLevel}`, Perks.cs 데이터는 그대로
+                    // 재사용 — 별도 레벨별 설명 텍스트가 없어 Desc는 기존 perk.desc를 그대로 둔다).
+                    string levelBadge = "";
+                    if (isAugLevel)
+                    {
+                        int curLv = run.PerkLevels.TryGetValue(perk.id, out var lvNow) ? lvNow : 1;
+                        levelBadge = $"Lv.{curLv} → Lv.{Math.Min(3, curLv + 1)} ";
+                    }
+                    string badges = levelBadge + (heldBadge ? "[보류] " : "") + (synergyBadge ? "[시너지]" : "");
                     badgesText.text = badges;
                     badgesText.gameObject.SetActive(!string.IsNullOrEmpty(badges));
                 }

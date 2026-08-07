@@ -73,6 +73,9 @@ namespace JackpotRun.EngineTests
                             break;
                         case RunPhase.EventAugment:
                         case RunPhase.EventRelic:
+                        // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12): AUGLEVEL 노드도 같은
+                        // PickOffer(0) 진입점을 공유한다(NodeEvents.PickOffer가 phase로 분기).
+                        case RunPhase.EventAugLevel:
                             events = rc.Do(new PickOffer(0));
                             break;
                         case RunPhase.EventShop:
@@ -657,6 +660,9 @@ namespace JackpotRun.EngineTests
                             break;
                         case RunPhase.EventAugment:
                         case RunPhase.EventRelic:
+                        // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12): AUGLEVEL 노드도 같은
+                        // PickOffer(0) 진입점을 공유한다(NodeEvents.PickOffer가 phase로 분기).
+                        case RunPhase.EventAugLevel:
                             events = rc.Do(new PickOffer(0));
                             break;
                         case RunPhase.EventShop:

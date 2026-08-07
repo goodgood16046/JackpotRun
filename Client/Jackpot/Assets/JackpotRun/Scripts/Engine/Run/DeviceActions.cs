@@ -88,7 +88,7 @@ namespace JackpotRun.Engine
             // [원본 버그 유지] 이 임계값 확인용 mods는 device/phasePerks를 생략한다(Kotlin L1734-1735) —
             // 실제 스핀 시점 재계산(§2)과 다를 수 있으나 원문 그대로 이식(정보성 게이트일 뿐 최종 판정은
             // dev_bell 발동 시 SpinResolver가 실제 mods로 다시 계산함, S3 기이식).
-            var mods = ModsBuilder.ApplyItemMods(ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, ""), run.PhaseItems);
+            var mods = ModsBuilder.ApplyItemMods(ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", levels: run.PerkLevels), run.PhaseItems);
             long quota = SpinResolver.QuotaOf(run.Stage, mods);
             long shortfall = quota - run.StageExp;
             if (shortfall > DevBellMaxDeficit) return RunEvents.Rejected("DEV_BELL_DEFICIT_TOO_HIGH");
@@ -109,7 +109,7 @@ namespace JackpotRun.Engine
             var combinedPerks = new List<string>(run.Perks);
             combinedPerks.AddRange(run.PhasePerks);
             var mods = ModsBuilder.ApplyItemMods(
-                ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device),
+                ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                 run.PhaseItems);
             long quota = SpinResolver.QuotaOf(run.Stage, mods);
             long deficit = quota - run.StageExp;
@@ -134,7 +134,7 @@ namespace JackpotRun.Engine
         {
             // [원본 버그 유지 — 신규 발견] PEEK 미리보기는 device/phasePerks를 생략하고 REEL을 고정으로 쓴다
             // (dev_subreel의 6칸 확장을 무시) — SlotV2Service.kt L1709-1711 그대로.
-            var mods = ModsBuilder.ApplyItemMods(ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, ""), run.PhaseItems);
+            var mods = ModsBuilder.ApplyItemMods(ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", levels: run.PerkLevels), run.PhaseItems);
             var raw = SpinResolver.RollRaw(run.Rng, mods, Formulas.REEL, run.SeedNext);
             run.LockedNext.Clear();
             run.LockedNext.AddRange(raw.Select(c => c.sym.id));
@@ -161,9 +161,9 @@ namespace JackpotRun.Engine
             // phasePerkList(run) 없음). 도박꾼 무료재굴림(handleGamblerReroll)은 둘 다 포함해 대칭이 아니다.
             // 33종 세트 중 reqDevice가 MANIP 장치(dev_reroll/pin/copy/swap)를 가리키는 항목은 없어 device
             // 생략의 실질 영향은 없지만, phasePerks(broken_prism 임시 프리즘) 생략은 실제로 결과를 바꾼다.
-            var preModsM = ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "");
+            var preModsM = ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", levels: run.PerkLevels);
             var mCtx = BuildRunCtx(run, run.LastSpinNo, ModsBuilder.SpinsPerStage(preModsM), SpinResolver.QuotaOf(run.Stage, preModsM));
-            var mods0 = ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", mCtx);
+            var mods0 = ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", mCtx, run.PerkLevels);
             var mods = ModsBuilder.ApplyItemMods(mods0, run.PhaseItems);
             int spins = SpinResolver.EffSpins(run, mods);
             long quota = SpinResolver.QuotaOf(run.Stage, mods);
@@ -268,9 +268,9 @@ namespace JackpotRun.Engine
 
             var combinedPerks = new List<string>(run.Perks);
             combinedPerks.AddRange(run.PhasePerks);
-            var preMods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device);
+            var preMods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels);
             var rrCtx = BuildRunCtx(run, run.LastSpinNo, ModsBuilder.SpinsPerStage(preMods0), SpinResolver.QuotaOf(run.Stage, preMods0));
-            var mods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, rrCtx);
+            var mods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, rrCtx, run.PerkLevels);
             var mods = ModsBuilder.ApplyItemMods(mods0, run.PhaseItems);
             var devEq = Devices.ById(run.Device);
             if (devEq != null && devEq.kind == "PASSIVE") mods = ModsBuilder.ApplyPassiveDevice(mods, devEq.id);
