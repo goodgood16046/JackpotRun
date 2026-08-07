@@ -94,18 +94,20 @@ namespace JackpotRun.Data
             return Resources.Load<Sprite>(e.spritePath);
         }
 
+        // S8(2026-07-31) 이모지 정리: astral(서로게이트 페어) 이모지는 레거시 uGUI Text에서 렌더링되지
+        // 않는다(ENGINE_PORT_DESIGN.md S8 항목⑤) — 한글 라벨만으로 충분해 전부 제거했다.
         public static string CategoryTitle(string cat)
         {
             switch (cat)
             {
-                case CatChar: return "🎭 캐릭터";
-                case CatMac: return "🎰 슬롯머신";
-                case CatDev: return "🔧 장치";
-                case CatAug: return "✨ 증강";
-                case CatRel: return "🛡️ 유물";
-                case CatCur: return "🌑 저주";
-                case CatItem: return "🎁 아이템";
-                case CatAch: return "🏅 업적";
+                case CatChar: return "캐릭터";
+                case CatMac: return "슬롯머신";
+                case CatDev: return "장치";
+                case CatAug: return "증강";
+                case CatRel: return "유물";
+                case CatCur: return "저주";
+                case CatItem: return "아이템";
+                case CatAch: return "업적";
                 default: return cat;
             }
         }

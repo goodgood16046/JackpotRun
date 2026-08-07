@@ -23,6 +23,30 @@
       ".write": true
     },
 
+    "jackpotrank": {
+      ".read": true,
+      ".indexOn": ["score"],
+      "$pid": {
+        ".write": true,
+        ".validate": "$pid.length >= 8 && $pid.length <= 40 && newData.hasChildren(['nick', 'score', 'stage', 'ts'])",
+        "nick": {
+          ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 12"
+        },
+        "score": {
+          ".validate": "newData.isNumber()"
+        },
+        "stage": {
+          ".validate": "newData.isNumber()"
+        },
+        "ts": {
+          ".validate": "newData.isNumber()"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+
     "slotrank": {
       ".read": true,
       ".indexOn": ["score"],

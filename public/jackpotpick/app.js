@@ -4,6 +4,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 import { CHARS, MACHINES, DEVICES, DIFF_LABEL, DIFF_COLOR, evaluate, recommend, unlockOrder } from "./meta.js";
+import { playReelSpin } from "./reel.js";
 
 // 독립 프로젝트 jackpotrun-web (모카봇 mokabot-8ed4d 에서 분리). 봇이 이 프로젝트 RTDB로 잭팟 데이터 push.
 const firebaseConfig = {
@@ -271,7 +272,9 @@ function refreshTabLabels() {
 }
 
 // ── 추천 조합 ────────────────────────────────────────
-function applyReco(kind) {
+let reelBusy = false; // 릴 연출 중 재진입 방지 — 오버레이는 포인터만 막고 키보드(Space/Enter)는 못 막는다
+async function applyReco(kind) {
+  if (reelBusy) return;
   const uc = [...state.unlockedChars], um = [...state.unlockedMacs], ud = [...state.ownedDevs];
   let combo;
   if (kind === "random") {
@@ -282,6 +285,21 @@ function applyReco(kind) {
     combo = recommend(kind, uc, um, ud);
   }
   if (!combo) return;
+  if (kind === "random") {
+    // 유니티 릴처럼: 결과를 먼저 확정하고 연출은 그 결과로 착지한다(결정론적 착지)
+    const asChar = (id) => ({ id, e: CHARS[id]?.e || "🎭", n: CHARS[id]?.n || id, imgKey: "char_" + id });
+    const asMac  = (id) => ({ id, e: MACHINES[id]?.e || "🎰", n: MACHINES[id]?.n || id, imgKey: "mac_" + id });
+    const asDev  = (id) => id ? { id, e: DEVICES[id]?.e || "🔧", n: DEVICES[id]?.n || id, imgKey: id }
+                              : { id: "", e: "🚫", n: "장치 없이", imgKey: null };
+    reelBusy = true;
+    try {
+      await playReelSpin([
+        { label: "캐릭터",   pool: uc.map(asChar), target: asChar(combo.char) },
+        { label: "슬롯머신", pool: um.map(asMac),  target: asMac(combo.machine) },
+        { label: "장치",     pool: ["", ...ud].map(asDev), target: asDev(combo.device || "") },
+      ]);
+    } finally { reelBusy = false; }
+  }
   state.selChar = combo.char; state.selMac = combo.machine; state.selDev = combo.device || "";
   state.advanced.char = state.advanced.mac = true;
   refreshTabLabels();
@@ -354,5 +372,30 @@ async function submit() {
   } catch (e) { msgBad("실패: " + e.message); $("go").disabled = false; }
 }
 function msg(html, cls) { const el = $("msg"); el.innerHTML = html; el.className = cls || ""; }
-function msgOk(html) { msg(html, "ok"); $("summary").classList.add("open"); }
-function msgBad(html) { msg(html, "bad"); $("summary").classList.add("open"); }
+function msgOk(html) { msg(html, "ok"); $("summary").classList.add("open"); showResultModal("ok", html); }
+function msgBad(html) { msg(html, "bad"); $("summary").classList.add("open"); showResultModal("bad", html); }
+
+// 시작 버튼 결과를 화면 중앙 모달로도 보여준다 — 하단 바의 작은 #msg 만으로는
+// "무반응"으로 느껴진다는 실사용 피드백(2026-08-07). 탭(아무 곳)/확인 버튼으로 닫힘.
+function showResultModal(kind, html) {
+  document.querySelector(".msgov")?.remove();
+  const ov = document.createElement("div");
+  ov.className = "msgov";
+  const card = document.createElement("div");
+  card.className = "msgov-card";
+  const icon = document.createElement("div");
+  icon.className = "msgov-icon";
+  icon.textContent = kind === "ok" ? "✅" : "⚠️";
+  const body = document.createElement("div");
+  body.className = "msgov-body";
+  body.innerHTML = html; // 호출부 문자열은 meta.js 정적 상수 조합뿐(기존 #msg 와 동일 신뢰 수준)
+  const btn = document.createElement("button");
+  btn.className = "msgov-btn";
+  btn.textContent = "확인";
+  card.appendChild(icon);
+  card.appendChild(body);
+  card.appendChild(btn);
+  ov.appendChild(card);
+  ov.onclick = () => ov.remove();
+  document.body.appendChild(ov);
+}

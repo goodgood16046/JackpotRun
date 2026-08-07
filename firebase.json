@@ -21,6 +21,12 @@
         ]
       },
       {
+        "source": "/ranking/**/*.@(html|js|css|json)",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
+        ]
+      },
+      {
         "source": "/play/**/*.@(html|js|css|json)",
         "headers": [
           { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }

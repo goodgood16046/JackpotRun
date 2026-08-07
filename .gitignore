@@ -15,6 +15,10 @@ Client/Jackpot/*.sln
 Client/Jackpot/*.csproj
 Client/Jackpot/*.user
 
+# ── dotnet 테스트 하네스 산출물 ──
+Client/Jackpot/Tools/EngineTests/bin/
+Client/Jackpot/Tools/EngineTests/obj/
+
 # ── 로컬 도구/환경 (머신 종속 — 커밋 금지) ──
 Tools/unity-mcp/
 tools/unity-mcp/
@@ -24,3 +28,6 @@ CLAUDE.local.md
 
 # ── GitHub 원격 확보 이전의 이관용 번들 (더 이상 불필요) ──
 JackpotRunWeb.bundle
+
+# 에디터 로컬 설정
+.vscode/

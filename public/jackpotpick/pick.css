@@ -218,3 +218,89 @@ a { color: var(--amber); }
 @media (min-width: 560px) and (max-width: 939px) {
   .sd-cols { grid-template-columns: 1fr 1fr; }
 }
+
+/* ── 랜덤 릴 스핀 오버레이 ── */
+.reelov {
+  position: fixed; inset: 0; z-index: 90; padding: 16px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(11,13,21,.86); backdrop-filter: blur(6px);
+  cursor: pointer;
+}
+.reelov-box {
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border: 1px solid var(--bd2); border-radius: 18px; padding: 18px 20px;
+  max-width: 100%; /* 320px 뷰포트에서 릴 3개가 가로로 넘치지 않게 */
+  animation: reelov-in .18s ease-out;
+}
+@keyframes reelov-in {
+  from { opacity: 0; transform: scale(.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+.reelov-title { font-weight: 800; font-size: 16px; text-align: center; }
+.reelov.win .reelov-title { color: var(--gold); }
+.reelov-row { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
+.reelcol-label { font-size: 11px; color: var(--dim); text-align: center; margin-bottom: 6px; }
+.reel {
+  position: relative; width: clamp(88px, 26vw, 116px); height: calc(var(--rslot) * 1.5);
+  overflow: hidden; border: 2px solid var(--bd2); border-radius: 14px; background: #0e1019;
+  transition: border-color .15s, box-shadow .15s;
+}
+.reel::before, .reel::after {
+  content: ""; position: absolute; left: 0; right: 0; height: 22%; z-index: 2; pointer-events: none;
+}
+.reel::before { top: 0; background: linear-gradient(180deg, #0e1019, transparent); }
+.reel::after { bottom: 0; background: linear-gradient(0deg, #0e1019, transparent); }
+.reel.land { border-color: var(--gold); box-shadow: 0 0 14px rgba(255,210,63,.35); }
+.reel.win { animation: reelwin .35s ease-out 2; }
+@keyframes reelwin {
+  0%, 100% { box-shadow: 0 0 6px rgba(255,210,63,.18); }
+  50% { box-shadow: 0 0 22px rgba(255,210,63,.55); }
+}
+.strip { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
+.rslot {
+  height: var(--rslot); display: flex; align-items: center; justify-content: center;
+  opacity: .42; transform: scale(.88); transition: opacity .12s, transform .12s;
+}
+.rslot.center { opacity: 1; transform: scale(1); }
+.reel.spinning .rslot { opacity: .75; transform: scale(1.04); }
+.reel.spinning .strip { filter: blur(1px); }
+.rslot-ico { width: 64px; height: 64px; border-radius: 12px; object-fit: cover;
+  background: #0e1019; border: 1px solid var(--bd); }
+.rslot-ico.emoji { font-size: 34px; line-height: 64px; text-align: center; }
+.reelcol-name { text-align: center; font-size: 12px; font-weight: 700; min-height: 18px;
+  margin-top: 6px; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; /* 긴 이름이 착지 순간 박스를 키우지 않게 */ }
+.reelcol-name.show { color: var(--gold); }
+.reelov-hint { font-size: 11px; color: var(--dim2); text-align: center; margin-top: 10px; }
+@media (prefers-reduced-motion: reduce) {
+  .reelov-box { animation: none; }
+  .reel.win { animation: none; }
+  .reel, .rslot { transition: none; }
+}
+
+/* ── 시작 결과 모달 (msgOk/msgBad) ── */
+.msgov {
+  position: fixed; inset: 0; z-index: 95; padding: 16px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(11,13,21,.72); backdrop-filter: blur(5px);
+  cursor: pointer;
+}
+.msgov-card {
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border: 1px solid var(--bd2); border-radius: 18px; padding: 22px 24px 18px;
+  max-width: min(90vw, 420px); text-align: center;
+  box-shadow: 0 16px 48px rgba(0,0,0,.5);
+  animation: reelov-in .18s ease-out;
+}
+.msgov-icon { font-size: 40px; line-height: 1; }
+.msgov-body { font-size: 14px; line-height: 1.55; margin: 12px 0 14px; color: var(--txt); }
+.msgov-body b { color: var(--gold); }
+.msgov-btn {
+  width: 100%; background: linear-gradient(180deg, #ffdf6b, var(--amber)); color: #1a1726;
+  border: none; border-radius: 12px; padding: 11px 16px; font-weight: 900; font-size: 14px;
+  cursor: pointer; font-family: inherit;
+}
+/* 본체 규칙보다 뒤에 있어야 동일 특이도 캐스케이드에서 이긴다(릴 섹션의 미디어 블록과 별개) */
+@media (prefers-reduced-motion: reduce) {
+  .msgov-card { animation: none; }
+}

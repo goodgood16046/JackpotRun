@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9</LangVersion>
+    <RootNamespace>JackpotRun.EngineTests</RootNamespace>
+    <AssemblyName>EngineTests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 순수 C# 엔진 소스를 그대로 컴파일에 포함 (Unity 에디터 없이 dotnet으로 골든 테스트 실행). -->
+    <Compile Include="..\..\Assets\JackpotRun\Scripts\Engine\**\*.cs" />
+  </ItemGroup>
+
+</Project>
