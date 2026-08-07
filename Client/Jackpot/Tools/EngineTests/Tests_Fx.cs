@@ -218,12 +218,14 @@ namespace JackpotRun.EngineTests
             }
         }
 
-        // ═══════════════════════ ⑥ 캐릭터 16종 — scoreMod/startCoins/unlockReq (Kotlin 원본 직접대조) ═══════════════════════
-        // kotlin-reference\game\SlotV2Engine.kt CHARS(L316-363)와 1:1 대조한 명시값. 스냅샷이 아니라
-        // 원본 자체가 정답이므로 해시가 아닌 값으로 고정한다.
+        // ═══════════════════════ ⑥ 캐릭터 19종 — scoreMod/startCoins/unlock OR 5축 (웹 data.js 직접대조) ═══════════════════════
+        // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §0 "정답지 전환" — 원본이 kotlin-reference에서 public/play/
+        // data.js로 교체됨) — kotlin CHARS(L316-363) 대조값을 대체해 data.js:145-166 CHARS와 1:1 대조한
+        // 명시값으로 갱신했다. unlockReq(StatReq AND 리스트)는 폐기되고 OR 5축(unlockRuns/Score/Stage/
+        // Level/Ach)으로 바뀌었다(Characters.cs 헤더 각주).
         private static void CheckCharacterExactValues(TestCtx t)
         {
-            t.Eq(ExpectedCharacterExact.Count, Characters.All.Length, "캐릭터 exact 테이블 크기 == Characters.All.Length(16)");
+            t.Eq(ExpectedCharacterExact.Count, Characters.All.Length, "캐릭터 exact 테이블 크기 == Characters.All.Length(19)");
             foreach (var c in Characters.All)
             {
                 if (!ExpectedCharacterExact.TryGetValue(c.id, out var exp))
@@ -233,7 +235,11 @@ namespace JackpotRun.EngineTests
                 }
                 t.Eq(exp.scoreMod, c.scoreMod, $"Characters[{c.id}].scoreMod");
                 t.Eq(exp.startCoins, c.startCoins, $"Characters[{c.id}].startCoins");
-                CheckReq(t, $"Characters[{c.id}].unlockReq", exp.req, c.unlockReq);
+                t.Eq(exp.unlockRuns, c.unlockRuns, $"Characters[{c.id}].unlockRuns");
+                t.Eq(exp.unlockScore, c.unlockScore, $"Characters[{c.id}].unlockScore");
+                t.Eq(exp.unlockStage, c.unlockStage, $"Characters[{c.id}].unlockStage");
+                t.Eq(exp.unlockLevel, c.unlockLevel, $"Characters[{c.id}].unlockLevel");
+                t.Eq(exp.unlockAch, c.unlockAch ?? "", $"Characters[{c.id}].unlockAch");
             }
         }
 
@@ -285,7 +291,7 @@ namespace JackpotRun.EngineTests
             ["black_candle"] = 0xEF7E885CF200C07CUL,
             ["black_diploma"] = 0xAA574E6F0E3A64C8UL,
             ["black_report"] = 0xEF7E885CF200C07CUL,
-            ["blackout"] = 0x6866C3E85A7F315CUL,
+            ["blackout"] = 0x37A4E479D3A7AE96UL,
             ["bloody_coupon"] = 0x3BED882474C449ACUL,
             ["book_up"] = 0x5A5479D0B0766021UL,
             ["bookmark"] = 0xC383C8B1EA98D853UL,
@@ -315,12 +321,12 @@ namespace JackpotRun.EngineTests
             ["crown_stand"] = 0xC9F77BDCEF08EE2BUL,
             ["crumpled_coupon"] = 0x4B072F0CF395902CUL,
             ["crystal_ball"] = 0x9BF650E013A02A1CUL,
-            ["cursed_skulls"] = 0x47B82FE2F142C405UL,
+            ["cursed_skulls"] = 0xFE6CF479F4D9F2A7UL,
             ["cursed_wallet"] = 0x6C452E7509218067UL,
             ["deep_read"] = 0xC383C8B1EA98D853UL,
             ["desk_lamp"] = 0xD1F756F96198B5F9UL,
             ["diligence"] = 0x15937CB9955353F9UL,
-            ["diploma_pressure"] = 0x5819411D229FE6C0UL,
+            ["diploma_pressure"] = 0xD7A8EF4E78A924AAUL,
             ["diploma_relic"] = 0xC383CEB1EA98E285UL,
             ["domino"] = 0xF7816AF3D5594120UL,
             ["early_adapt"] = 0x6E9C55F4FEDAE99EUL,
@@ -328,7 +334,7 @@ namespace JackpotRun.EngineTests
             ["endgame_rush"] = 0xA31B9365DB6D5B31UL,
             ["eraser"] = 0x5A5479D0B0766021UL,
             ["evening"] = 0xC67AC262DA8F582BUL,
-            ["exam_week"] = 0x7260F7D4415D5C04UL,
+            ["exam_week"] = 0xD7A8EF4E78A924AAUL,
             ["fate_bell"] = 0xCBF29CE484222325UL,
             ["fate_burst"] = 0x82BB827E111F7910UL,
             ["fate_handle"] = 0xA3B919C1592AB9CEUL,
@@ -337,14 +343,14 @@ namespace JackpotRun.EngineTests
             ["focus_ring"] = 0xFA2D063D4EE14201UL,
             ["fortune_check"] = 0xFCAE2417EB486DAFUL,
             ["four_clover"] = 0x54F8FE17414E9381UL,
-            ["frugal_vow"] = 0x43820A30AA61FDB3UL,
+            ["frugal_vow"] = 0x53A2D60CF8719C3FUL,
             ["gamblers_dice"] = 0x8228470284D10E63UL,
             ["gamblers_eye"] = 0x9BF651E013A02BCFUL,
             ["gem_buff"] = 0x8C573F704E622261UL,
             ["gem_cert"] = 0x8C5740704E622414UL,
             ["gem_dust"] = 0x8C573D704E621EFBUL,
             ["gem_invest"] = 0x8C4D30704E59B45FUL,
-            ["gem_obsession"] = 0x35E915E71AF43104UL,
+            ["gem_obsession"] = 0x2C20835C2EF05668UL,
             ["gem_polish"] = 0x8C573D704E621EFBUL,
             ["gem_tiara"] = 0x8C4D2B704E59ABE0UL,
             ["glass_cannon"] = 0x1A6B6B56AC0ADD8BUL,
@@ -353,10 +359,10 @@ namespace JackpotRun.EngineTests
             ["greed_calc"] = 0xB1AB7583F884FADCUL,
             ["greed_goblet"] = 0x54F8FE17414E9381UL,
             ["growth_log"] = 0xB6BD7693AE52AC56UL,
-            ["hard_exam"] = 0x9DFDF5FACF8B9E73UL,
-            ["hex_allornothing"] = 0xE0AB41B523111F94UL,
+            ["hard_exam"] = 0xAFE3CF4DDCF78F9CUL,
+            ["hex_allornothing"] = 0x731E5CFC897C0DF8UL,
             ["high_roller"] = 0x571C21D1C776083DUL,
-            ["high_stakes"] = 0x7A003BE3030DFA37UL,
+            ["high_stakes"] = 0xD7AC6B4E78AC2D35UL,
             ["honor_student"] = 0xC383CBB1EA98DD6CUL,
             ["hot_handle"] = 0xB1A80583F88206B5UL,
             ["hourglass_r"] = 0xBE5725DA69C8ED7CUL,
@@ -367,7 +373,7 @@ namespace JackpotRun.EngineTests
             ["key_master"] = 0x238EA79D2CC54287UL,
             ["kings_ledger"] = 0x31513500E1CADCE3UL,
             ["lapidary"] = 0x8C4D33704E59B978UL,
-            ["late_bloomer"] = 0xAC83AA65E0F78BF8UL,
+            ["late_bloomer"] = 0x75788F7AB3FE7DBEUL,
             ["late_focus"] = 0xB73643D1DBA06A8DUL,
             ["library"] = 0xFF7E9093F5F2A4D2UL,
             ["library_card"] = 0x6FD12DC2DA439A95UL,
@@ -395,7 +401,7 @@ namespace JackpotRun.EngineTests
             ["piggy_bank"] = 0x555F8273CEC732B7UL,
             ["polish_work"] = 0x8C4D30704E59B45FUL,
             ["polymath"] = 0x54F8FB17414E8E68UL,
-            ["pop_quiz"] = 0x85209DA288117A57UL,
+            ["pop_quiz"] = 0xF7C2CD355EBAD3BAUL,
             ["practice_pad"] = 0x5A5479D0B0766021UL,
             ["preview"] = 0x1D7B9277973EAD7FUL,
             ["puzzle_sense"] = 0x79A8B1965F185EDBUL,
@@ -414,27 +420,49 @@ namespace JackpotRun.EngineTests
             ["skull_idol"] = 0xEF7E8A5CF200C3E2UL,
             ["skull_study"] = 0xEF7E8A5CF200C3E2UL,
             ["skull_watch"] = 0xD427AACBB470390AUL,
-            ["sleep_debt"] = 0x2257F59E5CC13B72UL,
+            ["sleep_debt"] = 0xFD492F58BCE29E96UL,
             ["small_candle"] = 0xEF7E875CF200BEC9UL,
             ["snowball"] = 0xA8CA96C3051C692EUL,
             ["spare_token"] = 0x67B76F40DBBAE80BUL,
-            ["speed_test"] = 0x236F91480AF3FF35UL,
+            ["speed_test"] = 0xF7C2CD355EBAD3BAUL,
             ["star_chart"] = 0x2C22B75903C8408CUL,
             ["star_sticker"] = 0xAA81B67975AB3D11UL,
             ["star_up"] = 0x2C22B75903C8408CUL,
             ["star_up2"] = 0x2C22B85903C8423FUL,
-            ["student_debt"] = 0x27B96FBB9ABE2D7CUL,
+            ["student_debt"] = 0x53A2D70CF8719DF2UL,
             ["study"] = 0x54F8FE17414E9381UL,
             ["study_tag"] = 0xC383CDB1EA98E0D2UL,
             ["supernova"] = 0x54F90017414E96E7UL,
             ["symmetry"] = 0x3DA78EBE0F53C108UL,
             ["thick_tome"] = 0x5A547BD0B0766387UL,
-            ["thorny_path"] = 0x3A6B80880AEFDBC1UL,
+            ["thorny_path"] = 0x9540B11E79D36E65UL,
             ["time_warp"] = 0x9504931C6AD7CAD9UL,
-            ["tunnel_vision"] = 0x5A990C7097B51B91UL,
+            ["tunnel_vision"] = 0x54ED907D4C9AB91DUL,
             ["twins"] = 0x9A080BC535AA5ED0UL,
             ["wide_lens"] = 0xFA2D033D4EE13CE8UL,
             ["wild_world"] = 0xF89BB0CDAB53AC81UL,
+                    // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14) 신규 증강9·유물12 ──
+            ["discount"] = 0x9CD9292CC5A14150UL,
+            ["thrifty"] = 0x99F56B01CC248C1CUL,
+            ["item_bag"] = 0xF1645B270362696FUL,
+            ["vip"] = 0xB2A80D9D96429CC7UL,
+            ["refund"] = 0xCBF29CE484222325UL,
+            ["crown_burst"] = 0x833409D6BFDC0405UL,
+            ["curse_grad"] = 0x8C7284B81BECE03UL,
+            ["extreme_overload"] = 0x8A686F1615FDF26DUL,
+            ["abyss_lore"] = 0x200D0C034178FC74UL,
+            ["prism_diploma"] = 0xF522B965DB729149UL,
+            ["golden_ratio"] = 0xE9A63DEF49134544UL,
+            ["starlight_crown"] = 0xB3BE32104E949E53UL,
+            ["endless_recess"] = 0xA98F3068A81E5F21UL,
+            ["fortunes_wheel"] = 0x285F353A2A2BCCA2UL,
+            ["set_resonator"] = 0xECDF56C160D3330CUL,
+            ["reapers_pact"] = 0x26B0873ECCA37E7EUL,
+            ["phoenix_thesis"] = 0xDB585156122493A3UL,
+            ["crown_monolith"] = 0xCE2DEC3D56F2DF21UL,
+            ["black_grad_photo"] = 0x8C72D4B81BED682UL,
+            ["last_roll"] = 0xE1C1486E86F11117UL,
+            ["nameless_cup"] = 0x938DDF13722DA6CBUL,
         };
 
         // ── 퍼크 157종 name/emoji/desc/price/tier/school 스냅샷 해시 ──
@@ -447,7 +475,7 @@ namespace JackpotRun.EngineTests
             ["black_candle"] = 0xA09B330C28269B48UL,
             ["black_diploma"] = 0xE0FD92934A066C28UL,
             ["black_report"] = 0x7C15408CAF5F6E26UL,
-            ["blackout"] = 0x000FD8108D411EDDUL,
+            ["blackout"] = 0x8A47ABD036299D10UL,
             ["bloody_coupon"] = 0x9FC389FD8FC40C7AUL,
             ["book_up"] = 0xA682B2864090B05BUL,
             ["bookmark"] = 0x7A41541E13D0ABDCUL,
@@ -477,12 +505,12 @@ namespace JackpotRun.EngineTests
             ["crown_stand"] = 0xD873F2B424A27404UL,
             ["crumpled_coupon"] = 0x28D53FA9DD2E099CUL,
             ["crystal_ball"] = 0x8C14017F05847618UL,
-            ["cursed_skulls"] = 0xBA7814D402995371UL,
+            ["cursed_skulls"] = 0x2C3E8F46AD37EEAFUL,
             ["cursed_wallet"] = 0x5BCB10A387478104UL,
             ["deep_read"] = 0xEC3671D80B92A34DUL,
             ["desk_lamp"] = 0x02D21C55466EE090UL,
             ["diligence"] = 0x4F2AD647146059E4UL,
-            ["diploma_pressure"] = 0x7C1B59C0C34E2891UL,
+            ["diploma_pressure"] = 0x51554E12B563EBBAUL,
             ["diploma_relic"] = 0xD6384DD2DA9F2486UL,
             ["domino"] = 0x208416C756D65670UL,
             ["early_adapt"] = 0x9B63C4303EA42943UL,
@@ -490,7 +518,7 @@ namespace JackpotRun.EngineTests
             ["endgame_rush"] = 0x9DB6FC754DAC9610UL,
             ["eraser"] = 0x2213EF677C201659UL,
             ["evening"] = 0xBA54A997A202B1EBUL,
-            ["exam_week"] = 0x2AFB5FCE3C711CF8UL,
+            ["exam_week"] = 0x474E1B0B80C58151UL,
             ["fate_bell"] = 0x9EEFEE86E06C5610UL,
             ["fate_burst"] = 0xE0AF0D293532E137UL,
             ["fate_handle"] = 0x3A29E8391F454832UL,
@@ -499,14 +527,14 @@ namespace JackpotRun.EngineTests
             ["focus_ring"] = 0x3DE0D37CBAEF957BUL,
             ["fortune_check"] = 0xC152BA44E8BD5251UL,
             ["four_clover"] = 0x72E4FB91457922F3UL,
-            ["frugal_vow"] = 0xCB7C343F69E41DA2UL,
+            ["frugal_vow"] = 0x74133E862A6A0CECUL,
             ["gamblers_dice"] = 0xC508C70EEA289285UL,
             ["gamblers_eye"] = 0xCDB0D4B6F7C7A160UL,
             ["gem_buff"] = 0x26B52CFBFD6153C9UL,
             ["gem_cert"] = 0xB81B63E2A01AAC61UL,
             ["gem_dust"] = 0x759AFD4AA795A8BDUL,
             ["gem_invest"] = 0x36206AF16491E585UL,
-            ["gem_obsession"] = 0x23AA87704887881DUL,
+            ["gem_obsession"] = 0xD0E81E169FA982DUL,
             ["gem_polish"] = 0x614D0A46ED2C9E27UL,
             ["gem_tiara"] = 0xBCCEDC96B774FCC6UL,
             ["glass_cannon"] = 0x0DF8169380CF7341UL,
@@ -515,10 +543,10 @@ namespace JackpotRun.EngineTests
             ["greed_calc"] = 0x52778E7E40EAA845UL,
             ["greed_goblet"] = 0x19F1FC7DF0A99EBEUL,
             ["growth_log"] = 0xD129200EE670AF05UL,
-            ["hard_exam"] = 0x4F35D97EE4F9716AUL,
-            ["hex_allornothing"] = 0x89823509123DE5E8UL,
+            ["hard_exam"] = 0xAFFD1C263E4F042AUL,
+            ["hex_allornothing"] = 0x7CFBC6F271496A53UL,
             ["high_roller"] = 0x762A55C14D45709AUL,
-            ["high_stakes"] = 0x494374BD681FE9EBUL,
+            ["high_stakes"] = 0x856E1387FA817ECCUL,
             ["honor_student"] = 0x48035BC4DC91FDD2UL,
             ["hot_handle"] = 0xE90912E24B3376F5UL,
             ["hourglass_r"] = 0x30288BAD26033374UL,
@@ -529,7 +557,7 @@ namespace JackpotRun.EngineTests
             ["key_master"] = 0xEB85FC0C849B0B46UL,
             ["kings_ledger"] = 0xFF7B40B8C3EFD36DUL,
             ["lapidary"] = 0x79D843CCD77C466FUL,
-            ["late_bloomer"] = 0x1C755553CBAA79B4UL,
+            ["late_bloomer"] = 0x8375A18644D518E3UL,
             ["late_focus"] = 0xF18A38D563541515UL,
             ["library"] = 0xAE5534F32724922FUL,
             ["library_card"] = 0xCE6FB38BBCF22287UL,
@@ -557,7 +585,7 @@ namespace JackpotRun.EngineTests
             ["piggy_bank"] = 0xA631FB0112ECB3D8UL,
             ["polish_work"] = 0x7C81E7D60FBFA6FDUL,
             ["polymath"] = 0xF745F747E2B344EAUL,
-            ["pop_quiz"] = 0xB13F8BB3655C2DF5UL,
+            ["pop_quiz"] = 0x2085E8F0646488ADUL,
             ["practice_pad"] = 0xE5A925E82C2D39F4UL,
             ["preview"] = 0xE2C4D4BEBF4DE328UL,
             ["puzzle_sense"] = 0x7FAC2B7C4817B6ABUL,
@@ -576,27 +604,49 @@ namespace JackpotRun.EngineTests
             ["skull_idol"] = 0x5962193CD886A334UL,
             ["skull_study"] = 0x4F29FEE12FF9D0E7UL,
             ["skull_watch"] = 0x349B71099D0FE1DCUL,
-            ["sleep_debt"] = 0x4F0B12C7040D6569UL,
+            ["sleep_debt"] = 0x49167F12EE06C945UL,
             ["small_candle"] = 0x287D076F224D2FA7UL,
             ["snowball"] = 0x8C1D5FB40D057B17UL,
             ["spare_token"] = 0xF49DF7CA7059A7A2UL,
-            ["speed_test"] = 0x19FDBB5B790D66C2UL,
+            ["speed_test"] = 0xA55112628A26A561UL,
             ["star_chart"] = 0x0D9D69739D09B145UL,
             ["star_sticker"] = 0x8BDC63822923FB10UL,
             ["star_up"] = 0xA3219D4E64D43AABUL,
             ["star_up2"] = 0x4E3997B54AE42D28UL,
-            ["student_debt"] = 0xA833133565D4C66BUL,
+            ["student_debt"] = 0xE1F53CDED7B767CAUL,
             ["study"] = 0xC33FF508431A4CD9UL,
             ["study_tag"] = 0x6F711F6F1B02A8E4UL,
             ["supernova"] = 0x67B05651451DF252UL,
             ["symmetry"] = 0x27FC783A5E458E7DUL,
             ["thick_tome"] = 0x59C3D786A668F42CUL,
-            ["thorny_path"] = 0x3871FA297861E3BAUL,
+            ["thorny_path"] = 0x91D5D8513129C43DUL,
             ["time_warp"] = 0x8BF6D197AD23A17AUL,
-            ["tunnel_vision"] = 0x6DDC1081D65A98EEUL,
+            ["tunnel_vision"] = 0x59F4ADFB5EF010DCUL,
             ["twins"] = 0xAC4D8F266422CC79UL,
             ["wide_lens"] = 0xF4D344B498403DE7UL,
             ["wild_world"] = 0xAF877F125A34E619UL,
+                    // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14) 신규 증강9·유물12 ──
+            ["discount"] = 0xE44A90F79D5A0151UL,
+            ["thrifty"] = 0x797AAF3B2CD3579FUL,
+            ["item_bag"] = 0xB6CD5B24710EA27BUL,
+            ["vip"] = 0x7F3D95A19C1C1274UL,
+            ["refund"] = 0xC47F67DC8B262C8FUL,
+            ["crown_burst"] = 0x7F19C5C9818720A2UL,
+            ["curse_grad"] = 0x3A8E01AF5FFC35DDUL,
+            ["extreme_overload"] = 0x605AE20D1710B2D7UL,
+            ["abyss_lore"] = 0x34E14C7773290614UL,
+            ["prism_diploma"] = 0x2B9DCBE765E0B802UL,
+            ["golden_ratio"] = 0xB9D6FADF696C1FDDUL,
+            ["starlight_crown"] = 0xEEBA49F523A7D597UL,
+            ["endless_recess"] = 0x16EC2708A1608C20UL,
+            ["fortunes_wheel"] = 0xF68495A18B4E239UL,
+            ["set_resonator"] = 0x2580E8F1EB629708UL,
+            ["reapers_pact"] = 0xEB0E626FEC2514F8UL,
+            ["phoenix_thesis"] = 0x124FDC9E34551545UL,
+            ["crown_monolith"] = 0xC7728164E9836294UL,
+            ["black_grad_photo"] = 0xB54E3FCC28395022UL,
+            ["last_roll"] = 0x74553E228BB10293UL,
+            ["nameless_cup"] = 0x4BD5BA6F96BAC290UL,
         };
 
         // ── 아이템 73종 exact (coinCost, kind) ──
@@ -675,6 +725,12 @@ namespace JackpotRun.EngineTests
             ["devil_contract"] = (20, "INSTANT"),
             ["timeline_ticket"] = (26, "INSTANT"),
             ["broken_prism"] = (22, "INSTANT"),
+                    // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #12/#14, data.js:765-770) 신규 아이템 5종 ──
+            ["study_note"] = (18, "INSTANT"),
+            ["aug_catalyst"] = (12, "INSTANT"),
+            ["gold_marker"] = (30, "INSTANT"),
+            ["prism_ink"] = (35, "INSTANT"),
+            ["overcharge"] = (26, "INSTANT"),
         };
 
         // ── 아이템 73종 fx 스냅샷 해시 ──
@@ -753,6 +809,12 @@ namespace JackpotRun.EngineTests
             ["ward_charm"] = 0xFA7E13DB5A8BDA67UL,
             ["wild_inject"] = 0xF89BB0CDAB53AC81UL,
             ["wild_temp"] = 0xCBF29CE484222325UL,
+                    // 신규 5종 — 전부 fx 없음(ItemUse.ApplyItemPurchase가 직접 처리, Items.cs 헤더 각주).
+            ["study_note"] = 0xCBF29CE484222325UL,
+            ["aug_catalyst"] = 0xCBF29CE484222325UL,
+            ["gold_marker"] = 0xCBF29CE484222325UL,
+            ["prism_ink"] = 0xCBF29CE484222325UL,
+            ["overcharge"] = 0xCBF29CE484222325UL,
         };
 
         // ── 장치 16종 exact (kind, rare, unlockAch) ──
@@ -780,6 +842,10 @@ namespace JackpotRun.EngineTests
             ["dev_holdfile"] = ("ARMED", false, ""),
             ["dev_retake"] = ("ARMED", true, ""),
             ["dev_major"] = ("PASSIVE", false, ""),
+                    // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #9/#14) 신규 장치 3종 — 레벨 자동지급(unlockAch="") ──
+            ["dev_reaper"] = ("PASSIVE", true, ""),
+            ["dev_abyss"] = ("PASSIVE", true, ""),
+            ["dev_reactor"] = ("PASSIVE", true, ""),
         };
 
         // ── 장치 16종 fx 스냅샷 해시 ──
@@ -801,6 +867,9 @@ namespace JackpotRun.EngineTests
             ["dev_subreel"] = 0x5E6E191746E35570UL,
             ["dev_swap"] = 0xCBF29CE484222325UL,
             ["dev_syllabus"] = 0xCBF29CE484222325UL,
+                    ["dev_reaper"] = 0xF4B7EFEF373E4E09UL,
+            ["dev_abyss"] = 0xD1EE3ED07BA83CF7UL,
+            ["dev_reactor"] = 0x22A6A014745CF7CDUL,
         };
 
         // ── 세트 33종 exact (requires, reqChar, reqMachine, reqDevice) ──
@@ -882,25 +951,30 @@ namespace JackpotRun.EngineTests
         };
 
         // ── 캐릭터 16종 exact (scoreMod, startCoins, unlockReq) — Kotlin CHARS(L316-363) 직접대조 ──
-        private static readonly Dictionary<string, (double scoreMod, int startCoins, (string key, long val)[] req)> ExpectedCharacterExact =
-            new Dictionary<string, (double, int, (string, long)[])>
+        // (scoreMod, startCoins, unlockRuns, unlockScore, unlockStage, unlockLevel, unlockAch) — data.js:145-166.
+        private static readonly Dictionary<string, (double scoreMod, int startCoins, long unlockRuns, long unlockScore, long unlockStage, int unlockLevel, string unlockAch)> ExpectedCharacterExact =
+            new Dictionary<string, (double, int, long, long, long, int, string)>
         {
-            ["novice"] = (0.9, 0, Array.Empty<(string, long)>()),
-            ["scholar"] = (1.0, 0, Array.Empty<(string, long)>()),
-            ["gambler"] = (1.1, 0, new (string, long)[] { ("gambles", 12L), ("allinWins", 5L) }),
-            ["farmer"] = (0.95, 0, new (string, long)[] { ("cherryTotal", 1200L), ("mstage_cherry", 8L) }),
-            ["parttime"] = (1.0, 15, new (string, long)[] { ("coinTotal", 1000L), ("shopBuys", 20L) }),
-            ["jeweler"] = (1.1, 0, new (string, long)[] { ("gemTotal", 1200L), ("bestScore", 15_000L) }),
-            ["honor"] = (1.0, 0, new (string, long)[] { ("exactClears", 6L), ("bestStage", 12L) }),
-            ["cultist"] = (1.15, 0, new (string, long)[] { ("skullTotal", 1200L), ("curseMax", 5L) }),
-            ["crowncol"] = (1.15, 0, new (string, long)[] { ("crownTotal", 250L), ("jackpots", 6L) }),
-            ["minimalist"] = (1.1, 0, new (string, long)[] { ("minimalistS10", 2L) }),
-            ["lucky"] = (1.05, 0, new (string, long)[] { ("prayClears", 8L) }),
-            ["highroller"] = (1.1, 12, new (string, long)[] { ("coinTotal", 2500L), ("shopBuys", 40L) }),
-            ["monk"] = (1.05, 0, new (string, long)[] { ("noItemS8", 2L) }),
-            ["alchemist"] = (1.0, 0, new (string, long)[] { ("richBossClears", 3L) }),
-            ["daredevil"] = (1.2, 0, new (string, long)[] { ("allinWins", 18L), ("bestStage", 14L) }),
-            ["prodigy"] = (0.95, 0, new (string, long)[] { ("distinctCharS10", 7L) }),
+            ["novice"] = (0.9, 0, 0, 0, 0, 0, ""),
+            ["scholar"] = (1.0, 0, 0, 0, 0, 0, ""),
+            ["gambler"] = (1.1, 0, 0, 0, 0, 0, ""), // data.js:148 — 웹은 unlock 필드 자체가 없다(항상 해금).
+            ["farmer"] = (0.95, 0, 2, 0, 0, 0, "cherry100"),
+            ["parttime"] = (1.0, 15, 3, 0, 0, 0, ""),
+            ["jeweler"] = (1.1, 0, 0, 2500, 0, 0, "jackpot1"),
+            ["honor"] = (1.0, 0, 0, 0, 8, 0, "boss5"),
+            ["cultist"] = (1.15, 0, 0, 0, 5, 0, "boss1"),
+            ["crowncol"] = (1.15, 0, 0, 5000, 0, 0, "crown30"),
+            ["minimalist"] = (1.1, 0, 0, 0, 7, 0, "exact1"),
+            ["lucky"] = (1.05, 0, 4, 0, 0, 0, ""),
+            ["highroller"] = (1.1, 12, 0, 3500, 0, 0, ""),
+            ["monk"] = (1.05, 0, 0, 0, 6, 0, ""),
+            ["alchemist"] = (1.0, 0, 0, 4000, 0, 0, ""),
+            ["daredevil"] = (1.2, 0, 0, 0, 8, 0, "score10k"),
+            ["prodigy"] = (0.95, 0, 0, 0, 9, 0, "stage10"),
+            // ── 신규 3종(data.js:163-165) — 전부 플레이어 레벨 해금 ──
+            ["regent"] = (1.15, 0, 0, 0, 0, 8, ""),
+            ["bankrupt"] = (1.15, 0, 0, 0, 0, 12, ""),
+            ["abyss_scholar"] = (1.15, 0, 0, 0, 0, 16, ""),
         };
 
         // ── Schools SCHOOL_REQ 10종 exact (minLevel, req) — Kotlin SCHOOL_REQ(L716-727) 대조 ──

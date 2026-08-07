@@ -46,7 +46,7 @@ namespace JackpotRun.UI2
             if (titleText != null) titleText.text = $"상점 · 코인 {NumberFormat.Comma(run.Coins)}";
             if (emptyText != null) emptyText.gameObject.SetActive(run.ShopOffer.Count == 0);
 
-            if (rerollButtonLabel != null) rerollButtonLabel.text = $"리롤 ({Shop.RerollCost}코인)";
+            if (rerollButtonLabel != null) rerollButtonLabel.text = $"리롤 ({Shop.RerollCostFor(run)}코인)";
             if (rerollButton != null)
             {
                 rerollButton.onClick.RemoveAllListeners();

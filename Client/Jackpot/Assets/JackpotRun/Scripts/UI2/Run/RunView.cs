@@ -377,7 +377,7 @@ namespace JackpotRun.UI2
         private void RefreshBagLabel()
         {
             // S8 항목⑤: 🎒(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
-            if (bagButtonLabel != null) bagButtonLabel.text = $"가방 {_session.State.Items.Count}/{ItemUse.ItemSlots}";
+            if (bagButtonLabel != null) bagButtonLabel.text = $"가방 {_session.State.Items.Count}/{ItemUse.EffectiveSlots(_session.State)}";
         }
 
         private void RefreshDeviceRow()

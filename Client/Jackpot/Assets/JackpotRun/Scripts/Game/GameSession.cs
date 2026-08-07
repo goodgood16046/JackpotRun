@@ -34,6 +34,14 @@ namespace JackpotRun.Game
         public GameSession(string charId, string machineId, string deviceId)
         {
             Profile = ProfileStore.Load();
+            // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #9/#13, game.js:179 `this._grantLevelDevices()`) —
+            // 로드 직후 후반 장치 자동 지급(멱등). Stats["playerLevel"]도 여기서 현재값으로 스냅샷해
+            // Shop.PerkUnlocked(퍽 레벨 게이트)가 이번 런 내내 최신 레벨을 보게 한다 — 이 스냅샷은
+            // StatTracker.ApplyGameOverTracking이 이번 런 종료 시 다시 "레벨업 직전" 값으로 되돌려
+            // 쓰므로(업적 lv20/lv40용 1런 지연 의미는 그대로 보존, StatTracker.cs 헤더 각주 참조) 여기서
+            // 미리 갱신해도 그 시점의 기존 동작과 충돌하지 않는다.
+            Profile.SetStat("playerLevel", Profile.PlayerLevel);
+            Profile.GrantLevelDevices();
             // seed는 이 파일(Unity 어댑터)에서만 시각 기반 생성 — 엔진(RunController/Rng)은 순수 유지
             // (ENGINE_PORT_DESIGN.md S6 지시 "seed=현재틱").
             long seed = DateTime.UtcNow.Ticks;
@@ -81,6 +89,9 @@ namespace JackpotRun.Game
                 // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #11, 웹 game.js:2627 — playerXp/레벨업 계산
                 // 직후, _saveProfile() 직전) — 이번 런에서 사용한 캐릭/머신/장치 숙련도 누적.
                 MasteryTracker.ApplyRunEnd(Profile, Controller.State, gameOverEvent.failure);
+                // 웹 파리티 P3-4(game.js:179 생성자 호출뿐 아니라 레벨업 직후에도 즉시 반영돼야 다음
+                // 런 시작 전에 이미 새 장치를 확인할 수 있다) — 런 종료 시점에도 재호출(멱등).
+                Profile.GrantLevelDevices();
                 ProfileStore.Save(Profile);
             }
 

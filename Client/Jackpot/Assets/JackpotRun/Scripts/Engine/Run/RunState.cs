@@ -219,6 +219,17 @@ namespace JackpotRun.Engine
         // 필드에 가산하기만 하면 StageFlow.ClearStage의 pity 계산이 자동으로 반영한다.
         public double AugLevelBoost = 0.0;
 
+        // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14, 웹 game.js:320 `_prismInk`) — 💧프리즘잉크
+        // 아이템 사용 시 true. 다음 AUGMENT 노드 오퍼를 강제로 PRISM 티어로 뽑게 하고 소비 시 리셋
+        // (NodeEvents.OfferPerks 참조).
+        public bool PrismInkActive = false;
+
+        // 웹 파리티 P3-4 Opus 2차검수 웹 이탈 정리⑤(WEB_PARITY_DESIGN.md §2, 웹 game.js:320
+        // `_prismInkBought`) — 상점에서 "prism_ink" 상품을 이미 구매했으면 런 끝까지 재구매를 막는다
+        // (game.js:2350/2356 shopBuy 가드). 아이템 자체를 "사용"하는 것(ItemUse.PrismInkActive와 무관한
+        // 별개 플래그)과는 무관 — 순수히 "상점 상품칸에서 다시 살 수 있는가"만 제한한다.
+        public bool PrismInkBought = false;
+
         public RunState(long seed)
         {
             Rng = new Rng(seed);

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using JackpotRun.Engine;
@@ -400,8 +401,8 @@ namespace JackpotRun.EngineTests
     {
         public static void Run(TestCtx t)
         {
-            t.Eq(16, Machines.Count, "Machines.Count");
-            t.Eq(16, Machines.All.Length, "Machines.All.Length");
+            t.Eq(19, Machines.Count, "Machines.Count");
+            t.Eq(19, Machines.All.Length, "Machines.All.Length");
 
             var ids = new HashSet<string>();
             int dup = 0;
@@ -432,6 +433,12 @@ namespace JackpotRun.EngineTests
             {
                 [Sym.Crown] = 1.6, [Sym.Star] = 18.2, [Sym.Gem] = 15.6, [Sym.Cherry] = 15.0, [Sym.Book] = 10.8,
             });
+            // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14, data.js:188-190) — 신규 머신 3종 ──
+            // nightmare: skull 10×2.2+2.0=24.0.  throne: crown 1×2.5+2.0=4.5.  broke: wmul/wadd 전부 빈값
+            // (buildMods의 코인0·값심볼+2는 Mods.cs 별도 switch, 가중치표엔 영향 없음).
+            AssertWeights(t, "nightmare", new Dictionary<Sym, double> { [Sym.Skull] = 24.0 });
+            AssertWeights(t, "throne", new Dictionary<Sym, double> { [Sym.Crown] = 4.5 });
+            AssertWeights(t, "broke", new Dictionary<Sym, double>());
         }
 
         // machineId에 대해 "명시적으로 달라지는 심볼"만 nonDefault로 받고, 나머지 심볼은 전부
@@ -450,13 +457,13 @@ namespace JackpotRun.EngineTests
         }
     }
 
-    // ── 캐릭터 16종 — 01_engine.md §4 ───────────────────────────────────────────
+    // ── 캐릭터 19종(기존16+신규3) — 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14, data.js:145-166) ──
     internal static class Tests_Core_Characters
     {
         public static void Run(TestCtx t)
         {
-            t.Eq(16, Characters.Count, "Characters.Count");
-            t.Eq(16, Characters.All.Length, "Characters.All.Length");
+            t.Eq(19, Characters.Count, "Characters.Count");
+            t.Eq(19, Characters.All.Length, "Characters.All.Length");
 
             var ids = new HashSet<string>();
             int dup = 0;
@@ -473,15 +480,40 @@ namespace JackpotRun.EngineTests
             AssertChar(t, "cultist", 1.15, 0);
             AssertChar(t, "daredevil", 1.2, 0);
             AssertChar(t, "prodigy", 0.95, 0);
+            // 신규 3종(data.js:163-165) — 전부 scoreMod 1.15·startCoins 0, unlockLevel로만 구분.
+            AssertChar(t, "regent", 1.15, 0);
+            AssertChar(t, "bankrupt", 1.15, 0);
+            AssertChar(t, "abyss_scholar", 1.15, 0);
+            t.Eq(8, Characters.ById("regent").unlockLevel, "regent.unlockLevel");
+            t.Eq(12, Characters.ById("bankrupt").unlockLevel, "bankrupt.unlockLevel");
+            t.Eq(16, Characters.ById("abyss_scholar").unlockLevel, "abyss_scholar.unlockLevel");
 
-            // grandfather 규칙(SlotV2Engine.kt L368-369): unlockReq 미충족이어도 cstage_<id>>0이면 해금 유지.
+            // ── 웹 파리티 P3-4(§1-A #13, game.js:259-268 charUnlocked) — OR 5축, grandfather 폐기 ──
+            // (기존 StatReq AND + cstage_ grandfather 테스트를 대체 — Characters.cs/Machines.cs 헤더
+            // 각주 "웹은 grandfather 규칙이 없다" 결정 그대로).
+            var gambler = Characters.ById("gambler");
+            t.True(new PlayerProfile().IsCharUnlocked(gambler), "gambler always unlocked (data.js:148 — unlock 필드 없음)");
+
             var farmer = Characters.ById("farmer");
-            var statNotMet = new Dictionary<string, long> { ["cherryTotal"] = 0, ["mstage_cherry"] = 0 };
-            t.True(!Characters.Unlocked(farmer, statNotMet), "farmer locked when req unmet and no grandfather");
-            var statGrandfather = new Dictionary<string, long> { ["cstage_farmer"] = 3 };
-            t.True(Characters.Unlocked(farmer, statGrandfather), "farmer grandfathered via cstage_farmer>0");
-            var statMet = new Dictionary<string, long> { ["cherryTotal"] = 1200, ["mstage_cherry"] = 8 };
-            t.True(Characters.Unlocked(farmer, statMet), "farmer unlocked via unlockReq");
+            var pFarmer = new PlayerProfile();
+            t.True(!pFarmer.IsCharUnlocked(farmer), "farmer locked with empty profile");
+            pFarmer.SetStat("runs", 2);
+            t.True(pFarmer.IsCharUnlocked(farmer), "farmer unlocked via unlockRuns==2 (runs>=2)");
+            var pFarmerAch = new PlayerProfile();
+            pFarmerAch.AchievedIds.Add("cherry100");
+            t.True(pFarmerAch.IsCharUnlocked(farmer), "farmer unlocked via unlockAch cherry100 (OR — either axis suffices)");
+
+            var honor = Characters.ById("honor"); // unlockStage=8
+            var pHonor = new PlayerProfile();
+            t.True(!pHonor.IsCharUnlocked(honor), "honor locked below stage 8");
+            pHonor.SetMax("bestStage", 8);
+            t.True(pHonor.IsCharUnlocked(honor), "honor unlocked via unlockStage==8");
+
+            var regent = Characters.ById("regent"); // unlockLevel=8
+            var pRegent = new PlayerProfile();
+            t.True(!pRegent.IsCharUnlocked(regent), "regent locked below level 8");
+            pRegent.PlayerLevel = 8;
+            t.True(pRegent.IsCharUnlocked(regent), "regent unlocked at PlayerLevel 8");
         }
 
         private static void AssertChar(TestCtx t, string id, double scoreMod, int startCoins)
@@ -531,11 +563,17 @@ namespace JackpotRun.EngineTests
             t.Eq(16, catalogCharIds.Count, "catalog char_ id count");
             t.Eq(16, catalogMacIds.Count, "catalog mac_ id count");
 
-            ReportAndAssertSetEquality(t, "char", engineCharIds, catalogCharIds);
-            ReportAndAssertSetEquality(t, "mac", engineMacIds, catalogMacIds);
+            // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14) — 신규 캐릭3·머신3은 manifest.json에 아직
+            // 아트가 없어(이모지 폴백) catalog.json에 대응 항목이 없다. catalog-only=죽은 참조는 여전히
+            // 0을 기대. Opus 2차검수 웹 이탈 정리⑨ — engine-only를 "무제한 허용"하면 앞으로 catalog.json
+            // 갱신을 깜빡한 새 콘텐츠도 영영 못 잡는다 — 이번 슬라이스가 만든 신규분만 명시 allowlist로 좁힌다.
+            var expectedNewCharIds = new HashSet<string> { "regent", "bankrupt", "abyss_scholar" };
+            var expectedNewMacIds = new HashSet<string> { "nightmare", "throne", "broke" };
+            ReportAndAssertCatalogSubset(t, "char", engineCharIds, catalogCharIds, expectedNewCharIds);
+            ReportAndAssertCatalogSubset(t, "mac", engineMacIds, catalogMacIds, expectedNewMacIds);
         }
 
-        private static void ReportAndAssertSetEquality(TestCtx t, string label, HashSet<string> engineIds, HashSet<string> catalogIds)
+        private static void ReportAndAssertCatalogSubset(TestCtx t, string label, HashSet<string> engineIds, HashSet<string> catalogIds, HashSet<string> allowedEngineOnly)
         {
             var engineOnly = new List<string>();
             foreach (var id in engineIds) if (!catalogIds.Contains(id)) engineOnly.Add(id);
@@ -545,13 +583,19 @@ namespace JackpotRun.EngineTests
             engineOnly.Sort(StringComparer.Ordinal);
             catalogOnly.Sort(StringComparer.Ordinal);
 
-            t.Report($"{label} engine-only ids", engineOnly.Count == 0 ? "(none)" : string.Join(", ", engineOnly));
+            t.Report($"{label} engine-only ids (신규·아트 없음 — 정상)", engineOnly.Count == 0 ? "(none)" : string.Join(", ", engineOnly));
             t.Report($"{label} catalog-only ids", catalogOnly.Count == 0 ? "(none)" : string.Join(", ", catalogOnly));
 
             t.True(
-                engineOnly.Count == 0 && catalogOnly.Count == 0,
-                $"{label}_ catalog<->engine id set equality",
-                $"engine-only=[{string.Join(",", engineOnly)}] catalog-only=[{string.Join(",", catalogOnly)}]");
+                catalogOnly.Count == 0,
+                $"{label}_ catalog ⊆ engine id set",
+                $"catalog-only(죽은 참조)=[{string.Join(",", catalogOnly)}]");
+
+            var unexpected = engineOnly.Where(id => !allowedEngineOnly.Contains(id)).ToList();
+            t.True(
+                unexpected.Count == 0,
+                $"{label}_ engine-only id ⊆ P3-4 신규 allowlist",
+                $"예상 밖 engine-only=[{string.Join(",", unexpected)}]");
         }
     }
 }

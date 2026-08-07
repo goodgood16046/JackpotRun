@@ -350,11 +350,13 @@ namespace JackpotRun.UI2
             else
             {
                 var entry = EntryOf(tab, id);
-                var m = (entry != null && entry.hasPick) ? entry.pick : null;
-                // WEB_PARITY P3-2(Fable 결정 4번 확인) — dev_syllabus/dev_holdfile/dev_retake/dev_major
-                // (드랍 전용 장치, Devices.cs 헤더 각주)는 catalog.json에 pick이 애초에 없어(manifest.json
-                // 원본 데이터, 시작 장착 후보로 큐레이션된 적 없음) 여기서 카드 자체가 생성되지 않는다
-                // — 시작 조합 선택 화면에는 뜨지 않고, 런 중 드랍으로만 만나는 게 원래도 의도된 동작.
+                bool hasCatalogPick = entry != null && entry.hasPick;
+                // 웹 파리티 P3-4(작업 지시 C) — catalog.json에 아트/pick이 없는 신규 콘텐츠(레벨해금 캐릭
+                // 3·머신3·장치3)는 PickMeta.FallbackInfo로 data.js 기반 최소 정보를 합성해 카드를 채운다
+                // (기존 dev_syllabus 등 "드랍 전용 4종"은 Engine 콘텐츠 자체엔 있지만 시작 선택 후보로
+                // 큐레이션된 적이 없어 DevOrder에 없다 — 그 경로는 FallbackInfo가 애초에 호출되지 않아
+                // 종전과 동일하게 카드 자체가 생성되지 않는다, 원래도 의도된 동작).
+                var m = hasCatalogPick ? entry.pick : PickMeta.FallbackInfo(tab, id);
                 if (m == null) return;
 
                 name = m.name;
@@ -363,7 +365,7 @@ namespace JackpotRun.UI2
                 role = m.role + MasteryStarsSuffix(tab, id);
                 effText = m.eff;
                 tags = m.tags;
-                icon = JackpotCatalog.LoadSprite(entry);
+                icon = hasCatalogPick ? JackpotCatalog.LoadSprite(entry) : null;
                 unlocked = IsUnlocked(tab, id);
                 selected = (tab == "char" && _selChar == id) || (tab == "mac" && _selMac == id) || (tab == "dev" && _selDev == id);
                 hasBadge = true;
@@ -660,7 +662,23 @@ namespace JackpotRun.UI2
             }
 
             var ev = PickMeta.Evaluate(_selChar, _selMac, _selDev);
-            if (ev == null) return;
+            if (ev == null)
+            {
+                // 웹 파리티 P3-4(작업 지시 C) — 신규 캐릭/머신(catalog.json에 pick 없음)은 Evaluate가
+                // null을 반환한다(시너지 분석은 P4). 이전 조합의 잔상이 남지 않도록 안내문으로 비운다.
+                if (comboBuildText != null) comboBuildText.text = "";
+                if (gradeText != null) gradeText.text = "";
+                if (gradeBadgeImage != null) gradeBadgeImage.color = new Color(0f, 0f, 0f, 0f);
+                if (blurbText != null) blurbText.text = "신규 콘텐츠입니다. 상세 시너지 분석은 추후 제공됩니다.";
+                if (ceilingValueText != null) ceilingValueText.text = "";
+                if (stabilityValueText != null) stabilityValueText.text = "";
+                if (difficultyValueText != null) difficultyValueText.text = "";
+                if (difficultyLabelText != null) difficultyLabelText.text = "난이도";
+                if (prosText != null) prosText.text = "";
+                if (consText != null) consText.text = "";
+                ClearBuildChips();
+                return;
+            }
 
             if (comboBuildText != null)
                 comboBuildText.text = ev.buildTokens != null ? string.Join(" / ", ev.buildTokens) : "";
@@ -796,10 +814,13 @@ namespace JackpotRun.UI2
             return JackpotCatalog.Get(pickId);
         }
 
+        // 웹 파리티 P3-4(작업 지시 C) — catalog.json 미스(신규 콘텐츠, 아트 없음)면 PickMeta.FallbackInfo로
+        // data.js 기반 최소 정보를 합성한다(공백 카드 방지).
         private static PickInfo MetaOf(string tab, string id)
         {
             var e = EntryOf(tab, id);
-            return (e != null && e.hasPick) ? e.pick : null;
+            if (e != null && e.hasPick) return e.pick;
+            return PickMeta.FallbackInfo(tab, id);
         }
 
         // 실 프로필 해금 연동 — PlayerProfile.IsCharUnlocked/IsMachineUnlocked/IsDeviceUnlocked

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using JackpotRun.Engine;
 using UnityEngine;
 
 namespace JackpotRun.Data
@@ -25,23 +26,87 @@ namespace JackpotRun.Data
     public static class PickMeta
     {
         // ── app.js CHAR_ORDER/MAC_ORDER/DEV_ORDER 그대로 ──────────────
+        // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14) — 신규 3종씩 말미에 추가(레벨 해금, catalog.json
+        // 아트 없음 → FallbackInfo로 카드 렌더). 원래 순서(app.js CHAR_ORDER/MAC_ORDER/DEV_ORDER)는 그대로
+        // 유지하고 뒤에 이어붙였다 — 기존 카드 순서/인덱스에 영향 없음.
         public static readonly string[] CharOrder =
         {
             "novice", "scholar", "gambler", "farmer", "parttime", "jeweler", "honor", "cultist",
-            "crowncol", "minimalist", "lucky", "highroller", "monk", "alchemist", "daredevil", "prodigy"
+            "crowncol", "minimalist", "lucky", "highroller", "monk", "alchemist", "daredevil", "prodigy",
+            "regent", "bankrupt", "abyss_scholar",
         };
 
         public static readonly string[] MacOrder =
         {
             "basic", "cherry", "library", "gem", "magnet", "skull", "crown", "flame",
-            "bomb", "star", "clover", "casino", "garden", "wildmac", "vault", "rainbow"
+            "bomb", "star", "clover", "casino", "garden", "wildmac", "vault", "rainbow",
+            "nightmare", "throne", "broke",
         };
 
         public static readonly string[] DevOrder =
         {
             "dev_flame", "dev_seal", "dev_safe", "dev_overheat", "dev_subreel", "dev_coin",
-            "dev_reroll", "dev_pin", "dev_copy", "dev_swap", "dev_oracle", "dev_bell"
+            "dev_reroll", "dev_pin", "dev_copy", "dev_swap", "dev_oracle", "dev_bell",
+            "dev_reaper", "dev_abyss", "dev_reactor",
         };
+
+        // ── 웹 파리티 P3-4(작업 지시 C) — catalog.json에 아트/pick 메타가 없는 신규 콘텐츠용 안전 폴백.
+        // data.js 기반 기본 정보(emoji/name/desc)만으로 최소 PickInfo를 합성한다(시너지 평가·pros/cons
+        // 등 정밀 메타는 P4). PickView가 EntryOf/MetaOf에서 catalog 미스 시 이 함수로 대체해 카드가
+        // 아예 안 그려지는 "공백"을 막는다. tab이 가리키는 콘텐츠가 실존하지 않으면 null(카드 자체 스킵).
+        public static PickInfo FallbackInfo(string tab, string id)
+        {
+            if (string.IsNullOrEmpty(id)) return null;
+            if (tab == "char")
+            {
+                var c = Array.Find(Characters.All, x => x.id == id);
+                if (c == null) return null;
+                return new PickInfo
+                {
+                    emoji = c.emoji, name = c.name, role = "신규 캐릭터", eff = c.desc,
+                    unlock = UnlockTextOf(c.unlockRuns, c.unlockScore, c.unlockStage, c.unlockLevel, c.unlockAch),
+                };
+            }
+            if (tab == "mac")
+            {
+                var m = Array.Find(Machines.All, x => x.id == id);
+                if (m == null) return null;
+                return new PickInfo
+                {
+                    emoji = m.emoji, name = m.name, role = "신규 슬롯머신", eff = m.desc,
+                    unlock = UnlockTextOf(m.unlockRuns, m.unlockScore, 0, m.unlockLevel, m.unlockAch),
+                };
+            }
+            if (tab == "dev")
+            {
+                var d = Devices.ById(id);
+                if (d == null) return null;
+                // DeviceDef엔 cmd 필드가 없다(Devices.cs 헤더 각주). 신규 3종은 전부 PASSIVE(웹
+                // data.js:212-214 cmd:null)라 빈 명령이 정답이다.
+                return new PickInfo
+                {
+                    emoji = d.emoji, name = d.name, role = "신규 장치", eff = d.desc,
+                    kind = d.kind == "PASSIVE" ? "패시브" : "능동", cmd = "", cool = "-",
+                    when = "레벨 해금", unlock = "레벨 해금(자동 지급)",
+                };
+            }
+            return null;
+        }
+
+        private static string UnlockTextOf(long unlockRuns, long unlockScore, long unlockStage, int unlockLevel, string unlockAch)
+        {
+            var parts = new List<string>();
+            if (unlockRuns > 0) parts.Add($"{unlockRuns}런");
+            if (unlockScore > 0) parts.Add($"{unlockScore:N0}점");
+            if (unlockStage > 0) parts.Add($"S{unlockStage} 도달");
+            if (unlockLevel > 0) parts.Add($"레벨 {unlockLevel}");
+            if (!string.IsNullOrEmpty(unlockAch))
+            {
+                var ach = Achievements.ById(unlockAch);
+                parts.Add(ach != null ? $"업적 '{ach.name}'" : $"업적 '{unlockAch}'");
+            }
+            return parts.Count > 0 ? string.Join(" or ", parts) : "";
+        }
 
         // ── app.js CHIP_VOCAB 23종 그대로 ──────────────────────────────
         public static readonly string[] ChipVocab =

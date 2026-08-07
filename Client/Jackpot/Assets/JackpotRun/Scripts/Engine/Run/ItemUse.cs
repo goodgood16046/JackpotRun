@@ -9,7 +9,22 @@ namespace JackpotRun.Engine
     // applyItemPurchase(L1438-1518)/instantQuota(L1430-1436)를 전사. 02_service.md §7-D·§7-E.
     public static class ItemUse
     {
-        public const int ItemSlots = 3; // ITEM_SLOTS(Kotlin L45) — Shop.cs 구매 시 가방 여유칸 확인에도 사용.
+        // ITEM_SLOTS(Kotlin L45) 기본값 — 웹 파리티 P3-4 Opus 2차검수 필수③(WEB_PARITY_DESIGN.md §2):
+        // 웹 game.js:2301 `_giveItem` cap은 `3 + ascMods(r.asc).itemCapDelta + mods.itemCapBonus`(item_bag
+        // 증강 등)로 동적이다 — 승천(asc)은 P6 미구현이라 생략(곱연산 아니라 가산 항이라 나중에 그대로
+        // 끼워 넣을 수 있음). 정적 상수는 "기본값" 의미로만 남기고, 실사용은 EffectiveSlots(run)를 거친다.
+        public const int BaseItemSlots = 3;
+
+        // 웹 game.js:2301 `_giveItem` cap 그대로 — Shop.Buy(가방 여유칸 확인)·BagPopup/RunView(표시)가 공용.
+        public static int EffectiveSlots(RunState run)
+        {
+            var combinedPerks = new List<string>(run.Perks);
+            combinedPerks.AddRange(run.PhasePerks);
+            var mods = ModsBuilder.ApplyItemMods(
+                ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
+                run.PhaseItems);
+            return BaseItemSlots + mods.itemCapBonus;
+        }
 
         // INSTANT_CLEAR_ITEMS 6종 — SlotV2Engine.kt:1009-1012, S4 백로그 항목. 스테이지당 1회("ICLEAR" 마커,
         // 클리어 시 StageFlow가 usedCmds를 리셋하므로 자동 재충전).
@@ -47,11 +62,25 @@ namespace JackpotRun.Engine
             if (IsInstantClearItem(itemId) && run.UsedCmds.Contains("ICLEAR"))
                 return RunEvents.Rejected("ICLEAR_ALREADY_USED");
 
+            // 📄 재시험(retake_form) 사전 검증 — 거부 시 RNG 포함 아무 것도 변형하지 않는다(기존 Unity
+            // "거부=완전 무변형" 불변식 유지, 아래 keepItem 롤보다 먼저 걸러야 한다). 웹엔 이 가드 자체가
+            // 없다(Unity 전용 방어 — 02_service.md 계약 "거부 시 상태 불변" 그대로 보존).
+            if (itemId == "retake_form" && (run.LastCells.Count == 0 || run.LastSpinNo < 0))
+                return RunEvents.Rejected("NO_LAST_SPIN");
+
+            // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14, 웹 game.js:1337 `const keep = r.perks.includes
+            // ("refund") && rng.double() < 0.3`) — 🧾환불 정책 보유 시 30% 확률로 가방에서 사라지지
+            // 않는다. 효과 자체(ApplyItemPurchase/UseRetakeForm)는 keep 여부와 무관하게 항상 발동 —
+            // "재사용 가능한 슬롯" 개념일 뿐 효과를 두 번 주는 게 아니다. RNG 소비는 웹과 동일하게 효과
+            // 적용 이전. Opus 2차검수 웹 이탈 정리⑦ — retake_form도 웹은 동일 useItem() 파이프라인
+            // (단일 switch)을 타므로 예외 없이 적용한다(이전엔 조기 반환으로 keep 판정 자체를 건너뜀).
+            bool keepItem = run.Perks.Contains("refund") && run.Rng.NextDouble() < 0.3;
+
             // 📄 재시험(retake_form) — 즉발 아님, 직전 스핀 전체 재굴림(별도 분기, Kotlin L1551-1575).
             if (itemId == "retake_form")
-                return UseRetakeForm(run, idx);
+                return UseRetakeForm(run, idx, keepItem);
 
-            run.Items.RemoveAt(idx);
+            if (!keepItem) run.Items.RemoveAt(idx);
             if (IsInstantClearItem(itemId)) run.UsedCmds.Add("ICLEAR");
             run.UsedItemThisRun = true;
 
@@ -88,10 +117,11 @@ namespace JackpotRun.Engine
         }
 
         // ── 📄재시험(retake_form) — 직전 스핀 전체 재굴림, INSTANT_CLEAR_ITEMS 아님(ICLEAR 무관). ──
-        private static List<RunEvent> UseRetakeForm(RunState run, int bagIndex)
+        // NO_LAST_SPIN 검증은 호출측(Use)이 keepItem 롤보다 먼저 이미 마쳤다(중복 검증 아님 — 거부=
+        // 완전 무변형 불변식을 keepItem RNG 소비보다 앞에 두기 위한 순서 요구).
+        private static List<RunEvent> UseRetakeForm(RunState run, int bagIndex, bool keepItem)
         {
-            if (run.LastCells.Count == 0 || run.LastSpinNo < 0) return RunEvents.Rejected("NO_LAST_SPIN");
-            run.Items.RemoveAt(bagIndex);
+            if (!keepItem) run.Items.RemoveAt(bagIndex);
             run.UsedItemThisRun = true;
 
             var combinedPerks = new List<string>(run.Perks);
@@ -167,12 +197,16 @@ namespace JackpotRun.Engine
                 }
                 case "insurance_cert": run.Survive = true; break;
                 case "debt_note": run.Coins += 30; run.DebtStages = 4; break;
+                // 웹 파리티 P3-4 Opus 2차검수 웹 이탈 정리⑥(WEB_PARITY_DESIGN.md §2, 웹 game.js:1383-1384
+                // black_lottery/devil_contract) — 두 아이템 다 원본부터 raw RELICS(레벨게이트/GatedPool
+                // 미적용)에서 뽑는다(웹 quirk 보존, held 제외 필터만 유지 — 이건 Kotlin 원본부터 있던
+                // "이미 보유 중이면 재추첨 대상에서 제외"일 뿐 해금 게이트가 아니다).
                 case "black_lottery":
                 {
                     if (run.Rng.Next(2) == 0)
                     {
                         var held = new HashSet<string>(run.Perks);
-                        var pool = Shop.GatedPool(Perks.Relics, stat).Where(p => p.tier == Tier.GOLD && !held.Contains(p.id)).ToList();
+                        var pool = Perks.Relics.Where(p => p.tier == Tier.GOLD && !held.Contains(p.id)).ToList();
                         var rel = run.Rng.PickOrDefault(pool);
                         if (rel != null) run.Perks.Add(rel.id); else run.Coins += 15;
                     }
@@ -188,7 +222,7 @@ namespace JackpotRun.Engine
                 {
                     var held = new HashSet<string>(run.Perks);
                     var heldC = new HashSet<string>(run.Curses);
-                    var rel = run.Rng.PickOrDefault(Shop.GatedPool(Perks.Relics, stat).Where(p => !held.Contains(p.id)).ToList());
+                    var rel = run.Rng.PickOrDefault(Perks.Relics.Where(p => !held.Contains(p.id)).ToList());
                     var c = run.Rng.PickOrDefault(Perks.Curses.Where(x => !heldC.Contains(x.id)).ToList());
                     if (rel != null) run.Perks.Add(rel.id);
                     if (c != null) run.Curses.Add(c.id);
@@ -234,8 +268,47 @@ namespace JackpotRun.Engine
                     break;
                 }
                 case "retake_form": break; // 여기선 무효과(위 특수분기)
+                // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #12/#14, 웹 game.js:1368-1372) — 증강
+                // 레벨업 상점 상품 5종. AugLevels.LevelableHeld(보유&레벨업가능&Lv<3)를 그대로 재사용.
+                case "study_note":
+                {
+                    var ids = AugLevels.LevelableHeld(run);
+                    if (ids.Count > 0)
+                    {
+                        var t = LowestLevelHeld(run, ids);
+                        run.PerkLevels[t] = Math.Min(3, LevelOf(run, t) + 1);
+                    }
+                    break;
+                }
+                case "aug_catalyst": run.AugLevelBoost += 0.15; break;
+                case "gold_marker":
+                {
+                    var ids = AugLevels.LevelableHeld(run)
+                        .Where(id => { var p = Perks.ById(id); return p != null && p.tier == Tier.GOLD; })
+                        .ToList();
+                    if (ids.Count > 0)
+                    {
+                        var t = LowestLevelHeld(run, ids);
+                        run.PerkLevels[t] = Math.Min(3, LevelOf(run, t) + 1);
+                    }
+                    break;
+                }
+                case "prism_ink": run.PrismInkActive = true; break;
+                case "overcharge":
+                    run.PendingNextExpMul *= 1.5;
+                    run.Score = Math.Max(0, run.Score - 200);
+                    break;
                 default: break;
             }
         }
+
+        // 웹 game.js:1368/1370 `ids.sort((a,b) => (r.perkLevels[a]||1) - (r.perkLevels[b]||1)); ids[0]`
+        // — 보유 레벨업가능 증강 중 현재 레벨이 가장 낮은 1개(동률이면 원본 나열 순서 유지, List.Sort는
+        // 불안정 정렬이 아니라 OrderBy로 안정 정렬을 보장한다).
+        private static string LowestLevelHeld(RunState run, List<string> ids) =>
+            ids.OrderBy(id => LevelOf(run, id)).First();
+
+        private static int LevelOf(RunState run, string perkId) =>
+            run.PerkLevels.TryGetValue(perkId, out var lv) ? lv : 1;
     }
 }

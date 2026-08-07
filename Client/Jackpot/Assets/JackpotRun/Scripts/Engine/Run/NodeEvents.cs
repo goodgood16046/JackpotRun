@@ -173,19 +173,37 @@ namespace JackpotRun.Engine
             var baseTier = Formulas.TierForClearedStage(clearedStage);
             tierBumped = false;
             Tier nodeTier;
+            // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14, 웹 game.js:1620/2350 · engine.js:1256
+            // "opts.forceTier — 프리즘 잉크 등 강제 티어") — 💧프리즘잉크 사용 후 다음 AUGMENT 노드
+            // 오퍼를 강제로 PRISM으로. 🗂️보류파일(heldPerk, Unity 전용)이 이미 결정형 우선순위 1위라
+            // 그 아래(2위)로 둔다 — 웹엔 holdfile 개념이 없어 상호작용 규정이 없으므로 합리적 절충.
+            bool prismInkForced = node == NodeKind.Augment && run.PrismInkActive;
             if (heldPerk != null)
             {
-                nodeTier = heldPerk.tier; // 🗂️보류파일 — 보류 티어 우선(결정형/등급업 무시)
-            }
-            else if (run.Rng.Next(100) < 10) // 10% "행운! 등급업"
-            {
-                var up = Formulas.TierUp(baseTier);
-                if (up != baseTier) { tierBumped = true; nodeTier = up; } else nodeTier = baseTier;
+                nodeTier = heldPerk.tier; // 🗂️보류파일 — 보류 티어 우선(결정형/등급업 무시, RNG 없음·기존 동작 그대로)
             }
             else
             {
-                nodeTier = baseTier;
+                // Opus 2차검수 필수① — 웹 engine.js:1254-1256 offerPerks는 forceTier 유무와 무관하게
+                // 10% 등급업 롤을 항상 먼저 소비한 뒤(RNG 스트림 파리티) forceTier로 덮어쓴다:
+                //   `if (rng.n(100) < 10) {...} if (opts.forceTier) { nodeTier = opts.forceTier; ... }`
+                // 이전 구현은 prismInkForced일 때 롤 자체를 건너뛰어(else-if) 시드 스트림이 웹과 어긋났다.
+                if (run.Rng.Next(100) < 10) // 10% "행운! 등급업" — 무조건 먼저 굴린다
+                {
+                    var up = Formulas.TierUp(baseTier);
+                    if (up != baseTier) { tierBumped = true; nodeTier = up; } else nodeTier = baseTier;
+                }
+                else
+                {
+                    nodeTier = baseTier;
+                }
+                if (prismInkForced) // 굴림 결과와 무관하게 덮어쓰기(웹 engine.js:1256 forceTier 우선)
+                {
+                    nodeTier = Tier.PRISM;
+                    tierBumped = nodeTier != baseTier;
+                }
             }
+            if (node == NodeKind.Augment) run.PrismInkActive = false; // 소비(오퍼 생성 시도 시 무조건 리셋, 웹과 동일)
 
             bool lucky = run.UnluckyGauge >= Formulas.UNLUCKY_MAX;
             var picks = Shop.PickPerksByTier(run.Rng, pool, run.Stage, held, lucky, favCat, stat, bossClear, nodeTier);

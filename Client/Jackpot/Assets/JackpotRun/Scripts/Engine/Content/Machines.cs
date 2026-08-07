@@ -3,23 +3,28 @@ using System.Collections.Generic;
 
 namespace JackpotRun.Engine
 {
-    // 슬롯머신 — Kotlin data class Machine(SlotV2Engine.kt L227-233) 전사.
-    // ENGINE_PORT_DESIGN.md 공유 타입 계약: "{ id,name,emoji; scoreMod; Dictionary<Sym,double> weightMul;
-    // Dictionary<Sym,double> weightAdd; List<StatReq> unlockReq }". desc 필드는 계약에 없지만 콘텐츠
-    // 완전 전사(원칙 3) 목적으로 추가했다(계약이 명시한 필드는 전부 그대로 보존).
+    // 슬롯머신 — 웹 파리티(WEB_PARITY_DESIGN.md P3-4) 전면 개편.
+    //
+    // [해금 모델 전환] 기존 Kotlin AND(StatReq 리스트, unlockReq)를 폐기하고 웹 game.js:269-276
+    // machineUnlocked()의 OR 4축(unlockRuns|unlockScore|unlockLevel|unlockAch, 전부 미사용이면 항상
+    // 해금 — 웹은 머신 해금에 unlockStage 축 자체가 없다)으로 교체했다. grandfather 규칙은 웹에 없어
+    // 미적용(§2 결정 로그, Characters.cs 헤더 각주와 동일 근거).
     public sealed class Machine
     {
         public string id, name, emoji, desc;
         public double scoreMod;
         public Dictionary<Sym, double> weightMul;
         public Dictionary<Sym, double> weightAdd;
-        public List<StatReq> unlockReq;
+        public long unlockRuns;
+        public long unlockScore;
+        public int unlockLevel;
+        public string unlockAch = "";
     }
 
-    // 머신 16종 — 01_engine.md §3 표 / SlotV2Engine.kt L234-282 (MACHINES) 전사.
+    // 머신 19종(기존16+신규3) — data.js:170-193(MACHINES) 전사.
     public static class Machines
     {
-        public const int Count = 16;
+        public const int Count = 19;
 
         public static readonly Machine[] All =
         {
@@ -29,23 +34,20 @@ namespace JackpotRun.Engine
                 weightMul = new Dictionary<Sym, double>(),
                 scoreMod = 1.0,
                 weightAdd = new Dictionary<Sym, double>(),
-                unlockReq = Req.None(),
             },
             new Machine
             {
                 id = "cherry", emoji = "🍒", name = "체리", desc = "체리↑·왕관↓ (안정)",
                 weightMul = new Dictionary<Sym, double> { [Sym.Cherry] = 1.5, [Sym.Crown] = 0.6 },
                 scoreMod = 0.95,
-                weightAdd = new Dictionary<Sym, double>(),
-                unlockReq = Req.Of("cherryTotal", 200L, "bestStage", 4L),
+                weightAdd = new Dictionary<Sym, double>(), // data.js:172 — 웹은 unlock 필드가 없다(항상 해금).
             },
             new Machine
             {
                 id = "library", emoji = "📚", name = "도서관", desc = "책↑·코인/보석↓ (경험치)",
                 weightMul = new Dictionary<Sym, double> { [Sym.Book] = 1.5, [Sym.Coin] = 0.6, [Sym.Gem] = 0.6 },
                 scoreMod = 1.0,
-                weightAdd = new Dictionary<Sym, double>(),
-                unlockReq = Req.Of("bookTotal", 200L, "lastSpinClears", 3L),
+                weightAdd = new Dictionary<Sym, double>(), // data.js:173 — 웹은 unlock 필드가 없다(항상 해금).
             },
             new Machine
             {
@@ -53,7 +55,7 @@ namespace JackpotRun.Engine
                 weightMul = new Dictionary<Sym, double> { [Sym.Gem] = 1.7, [Sym.Book] = 0.6, [Sym.Cherry] = 0.6 },
                 scoreMod = 1.1,
                 weightAdd = new Dictionary<Sym, double>(),
-                unlockReq = Req.Of("gemTotal", 250L, "bestScore", 4_000L),
+                unlockScore = 1500, unlockAch = "jackpot1",
             },
             new Machine
             {
@@ -61,7 +63,7 @@ namespace JackpotRun.Engine
                 weightMul = new Dictionary<Sym, double> { [Sym.Magnet] = 2.5 },
                 scoreMod = 1.0,
                 weightAdd = new Dictionary<Sym, double>(),
-                unlockReq = Req.Of("set4Plus", 8L, "bestStage", 6L),
+                unlockRuns = 4,
             },
             new Machine
             {
@@ -69,7 +71,7 @@ namespace JackpotRun.Engine
                 weightMul = new Dictionary<Sym, double> { [Sym.Skull] = 1.8 },
                 scoreMod = 1.10,
                 weightAdd = new Dictionary<Sym, double>(),
-                unlockReq = Req.Of("skullTotal", 250L, "curseMax", 3L),
+                unlockScore = 4000, unlockAch = "boss1",
             },
             new Machine
             {
@@ -77,7 +79,7 @@ namespace JackpotRun.Engine
                 weightMul = new Dictionary<Sym, double> { [Sym.Crown] = 2.0, [Sym.Cherry] = 0.7, [Sym.Book] = 0.7 },
                 scoreMod = 1.2,
                 weightAdd = new Dictionary<Sym, double>(),
-                unlockReq = Req.Of("crownTotal", 40L, "jackpots", 3L),
+                unlockScore = 6000, unlockAch = "crown30",
             },
             new Machine
             {
@@ -85,7 +87,7 @@ namespace JackpotRun.Engine
                 weightMul = new Dictionary<Sym, double> { [Sym.Flame] = 1.8, [Sym.Skull] = 1.4 },
                 scoreMod = 1.1,
                 weightAdd = new Dictionary<Sym, double>(),
-                unlockReq = Req.Of("bestScore", 15_000L, "bestStage", 10L),
+                unlockRuns = 6, unlockAch = "score10k",
             },
             new Machine
             {
@@ -93,7 +95,7 @@ namespace JackpotRun.Engine
                 weightMul = new Dictionary<Sym, double> { [Sym.Bomb] = 2.5 },
                 scoreMod = 1.1,
                 weightAdd = new Dictionary<Sym, double>(),
-                unlockReq = Req.Of("bossClears", 5L, "bestStage", 10L),
+                unlockRuns = 8, unlockAch = "boss5",
             },
             new Machine
             {
@@ -101,7 +103,7 @@ namespace JackpotRun.Engine
                 weightMul = new Dictionary<Sym, double> { [Sym.Star] = 2.0, [Sym.Cherry] = 0.8 },
                 scoreMod = 1.05,
                 weightAdd = new Dictionary<Sym, double>(),
-                unlockReq = Req.Of("starTotal", 200L, "set4Plus", 10L),
+                unlockScore = 3000,
             },
             new Machine
             {
@@ -109,7 +111,7 @@ namespace JackpotRun.Engine
                 weightMul = new Dictionary<Sym, double> { [Sym.Crown] = 1.3, [Sym.Coin] = 1.4, [Sym.Flame] = 1.3 },
                 scoreMod = 1.05,
                 weightAdd = new Dictionary<Sym, double>(),
-                unlockReq = Req.Of("prayClears", 3L, "bestStage", 8L),
+                unlockRuns = 5,
             },
             new Machine
             {
@@ -117,7 +119,7 @@ namespace JackpotRun.Engine
                 weightMul = new Dictionary<Sym, double>(),
                 scoreMod = 1.1,
                 weightAdd = new Dictionary<Sym, double> { [Sym.Dice] = 4.0 },
-                unlockReq = Req.Of("gambles", 5L, "allinWins", 5L),
+                unlockScore = 4500,
             },
             new Machine
             {
@@ -125,7 +127,7 @@ namespace JackpotRun.Engine
                 weightMul = new Dictionary<Sym, double>(),
                 scoreMod = 1.05,
                 weightAdd = new Dictionary<Sym, double> { [Sym.Seed] = 4.0 },
-                unlockReq = Req.Of("cherryTotal", 400L, "bestStage", 9L),
+                unlockRuns = 7,
             },
             new Machine
             {
@@ -133,15 +135,42 @@ namespace JackpotRun.Engine
                 weightMul = new Dictionary<Sym, double>(),
                 scoreMod = 1.1,
                 weightAdd = new Dictionary<Sym, double> { [Sym.Wild] = 3.0 },
-                unlockReq = Req.Of("prismPicks", 8L, "jackpots", 5L),
+                unlockScore = 5000,
             },
+            // ── 후반 슬롯머신(플레이어 레벨 해금, data.js:188-190) — 기본보다 특이·고위험 고점 ──
+            new Machine
+            {
+                id = "nightmare", emoji = "😱", name = "악몽 슬롯", desc = "☠해골 대량 등장·해골도 EXP+6 (고위험 고점)",
+                weightMul = new Dictionary<Sym, double> { [Sym.Skull] = 2.2 },
+                scoreMod = 1.2,
+                weightAdd = new Dictionary<Sym, double> { [Sym.Skull] = 2.0 },
+                unlockLevel = 10,
+            },
+            new Machine
+            {
+                id = "throne", emoji = "👑", name = "빈 왕좌 슬롯",
+                desc = "👑왕관 대량·왕관 점수+40·기본 EXP-10% (왕관 특화)",
+                weightMul = new Dictionary<Sym, double> { [Sym.Crown] = 2.5 },
+                scoreMod = 1.2,
+                weightAdd = new Dictionary<Sym, double> { [Sym.Crown] = 2.0 },
+                unlockLevel = 12,
+            },
+            new Machine
+            {
+                id = "broke", emoji = "💸", name = "파산 슬롯", desc = "코인 안 나옴·🍒📘⭐ 값심볼 EXP+2 (무코인 고점)",
+                weightMul = new Dictionary<Sym, double>(),
+                scoreMod = 1.2,
+                weightAdd = new Dictionary<Sym, double>(),
+                unlockLevel = 14,
+            },
+            // ── 나머지 기존 머신 (unlockRuns/unlockScore, data.js:191-193) ──
             new Machine
             {
                 id = "vault", emoji = "🗝", name = "금고", desc = "🗝열쇠 등장·코인↑",
                 weightMul = new Dictionary<Sym, double> { [Sym.Coin] = 1.5 },
                 scoreMod = 1.10,
                 weightAdd = new Dictionary<Sym, double> { [Sym.Key] = 3.0 },
-                unlockReq = Req.Of("coinTotal", 600L, "shopBuys", 20L),
+                unlockRuns = 9,
             },
             new Machine
             {
@@ -152,7 +181,7 @@ namespace JackpotRun.Engine
                 },
                 scoreMod = 1.2,
                 weightAdd = new Dictionary<Sym, double>(),
-                unlockReq = Req.Of("bestScore", 25_000L, "jackpots", 10L),
+                unlockScore = 8000,
             },
         };
 
@@ -165,7 +194,6 @@ namespace JackpotRun.Engine
         }
 
         // 최종 가중치 = base(Symbols) × weightMul[sym](없으면 1.0) + weightAdd[sym](없으면 0.0)
-        // — SlotV2Engine.kt weighted() (L2079-2091)의 머신 배수/가산 부분과 동일 공식.
         public static double FinalWeight(Machine m, Sym sym)
         {
             double baseW = Symbols.BySym(sym).weight;

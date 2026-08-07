@@ -226,6 +226,149 @@
     흐름·Lv3 이후 방어적 무보상) + `Tests_P3_Mastery.cs`(char/mac/dev 마일스톤 경계값 전수·레벨=독립
     카운트 확인·BumpMastery 누적규칙·MasteryTracker 3축(dev는 미장착 스킵)·null가드·ProfileDto 왕복·
     자동플레이 2시드 교차검증) — 어서션 18315→18787(+472), 0 실패.
+- **(N) 2026-08-08 완료 세부(P3-4 "콘텐츠 증보 + 해금 OR + 레벨 보상" 슬라이스, P3 마지막) — 정확한 차집합 산출**:
+  data.js 대 Unity Content/*.cs를 id 기준 python set-diff로 전수 대조했다(손으로 세지 않음).
+  - **캐릭터(19-16=+3)**: `regent`(Lv8)·`bankrupt`(Lv12)·`abyss_scholar`(Lv16), Unity에만 있는 항목 0건.
+  - **머신(19-16=+3)**: `nightmare`(Lv10)·`throne`(Lv12)·`broke`(Lv14), Unity에만 있는 항목 0건.
+  - **장치**: 웹 24종 중 이번 슬라이스 대상은 레벨자동지급 3종(`dev_reaper`/`dev_abyss`/`dev_reactor`,
+    engine.js:508-510 applyPassiveDevice 그대로 fx 전사)뿐 — 나머지 9종(`dev_compress_gauge` 등, `deepOnly`)은
+    P7 심화모드 전용이라 데이터·로직 모두 이번 슬라이스에서 제외(§1-A #14 원문 그대로). Unity 전용 드랍 4종
+    (`dev_syllabus`/`dev_holdfile`/`dev_retake`/`dev_major`)은 §2-(C-2) 결정대로 유지.
+  - **증강(89-80=+9)**: `discount`·`thrifty`·`item_bag`·`vip`·`refund`(상점/가방 시스템 관련 5종, engine.js:
+    204-208) + `crown_burst`(Lv10)·`curse_grad`(Lv12)·`extreme_overload`(Lv15)·`abyss_lore`(Lv16)(후반 4종,
+    engine.js:300-304). Unity에만 있는 항목 0건.
+  - **유물(73-61=+12)**: PRISM 신설 12종 — 보스클리어 풀 8종(`prism_diploma`·`golden_ratio`·`starlight_crown`·
+    `endless_recess`·`fortunes_wheel`·`set_resonator`·`reapers_pact`·`phoenix_thesis`, engine.js:332-339) +
+    레벨해금 4종(`crown_monolith`Lv10·`black_grad_photo`Lv12·`last_roll`Lv15·`nameless_cup`Lv20, engine.js:
+    306-309). Unity에만 있는 항목 0건.
+  - **아이템(78-73=+5)**: 증강 레벨업 상점 상품군 — `study_note`·`aug_catalyst`·`gold_marker`·`prism_ink`·
+    `overcharge`(data.js:765-770, 웹 game.js:1368-1372 useItem 분기 그대로 ItemUse.cs에 이식). Unity에만
+    있는 항목 0건.
+  - **저주(16=16, id 불변)**: 항목⑤ "패널티 전용화" — Unity 구 fx(양면형: 페널티+보너스)를 웹
+    engine.js:378-395 buildMods 저주 루프의 순수 패널티값으로 16종 전량 교체(desc도 data.js:634-650
+    그대로). 예: `hard_exam` 구 `quotaMul×1.10 & scoreMul×1.20` → 신 `quotaMul×1.10`만(요구치만 패널티,
+    클리어점수 보너스 삭제). `frugal_vow` 구 `coinMul×0.6 & quotaMul×0.88`(코인 페널티+요구치 할인 보너스)
+    → 신 `coinMul×0.6`만. 16종 전부 같은 패턴(감산/페널티 필드는 유지, 보너스 필드는 삭제) — 상세는
+    `Perks.cs` Curses 배열 주석 및 `Tests_Fx.cs` 골든 테이블 참조.
+  - **콘텐츠 fx 신규 훅**: `phoenix_thesis`(유물)의 `cliffBurstExpMul`(요구치 50% 미만 게이트 시 그 스핀
+    EXP×2, engine.js:930-933)을 `Mods.cs`에 신규 필드로 추가하고 `SpinResolver.Evaluate`가
+    perfectShapeExpMul 직후·전역배수 이전에 소비하도록 배선(웹과 동일 위치). `curse_grad`/`black_grad_photo`
+    (scoreMul×(1+ratio×curseCount))·`abyss_lore`(보스면 expMul×1.5)는 기존 "cond.*" ctx-조건부 규약을 그대로
+    재사용(신규 해석기 불필요). 상점 빌드 증강 4종(discount/thrifty/item_bag/vip)은 `Mods`에
+    `shopPriceMul`/`itemPriceMul`/`itemCapBonus`/`shopSlotBonus`/`shopRerollDelta` 5개 신규 필드를
+    추가했다 — **소비처(실제 상점 화면)는 P4 대상이라 이번 슬라이스는 필드·fx만 완성**(계산 로직은
+    끝, 화면 연결은 후속).
+- **(O) 2026-08-08 완료 세부(P3-4, 해금 OR 모델 전환)**: `Character`/`Machine`의 `unlockReq`(StatReq AND
+  리스트)를 전량 폐기하고 웹 game.js:259-277 `charUnlocked`/`machineUnlocked` OR 5축/4축(unlockRuns·
+  unlockScore·unlockStage(캐릭만)·unlockLevel·unlockAch)으로 교체했다 — 기존 16종도 웹 data.js 값으로
+  재산출(예: `gambler`/`cherry`/`library` 머신은 웹에 unlock 필드 자체가 없어 항상 해금으로 바뀜, 구
+  StatReq 게이트보다 대체로 완화됨). **grandfather(cstage_>0) 규칙은 웹 전수 grep 결과 부재를 확인**해
+  폐기했다(§2 결정 로그 조건부 지시 "웹에 있으면 유지"가 부재 시 자동 미적용을 뜻함 — `Characters.Unlocked`
+  구 정적 메서드 자체를 제거, 판정 로직은 `PlayerProfile.IsCharUnlocked`/`IsMachineUnlocked`로 이관).
+  `PlayerLevel`은 지연 스냅샷(`Stats["playerLevel"]`, 업적 lv20/lv40 전용)이 아니라 실 필드를 직접 읽어
+  레벨업 즉시 반영한다.
+- **(P) 2026-08-08 완료 세부(P3-4, 퍽 레벨 게이트)**: `Shop.PerkGate`/`SchoolResearchDone`/`PerkUnlocked`/
+  `GatedPool`을 전면 재작성 — 기존 전공연구(Schools.SchoolReq/SchoolResearch)·AccountLevel·`seen_`
+  그랜드파더 게이트를 폐기하고 "unlockLevel 있는 8종(증강4·유물4)만 PlayerLevel로 게이트, 나머지 154종은
+  항상 개방"으로 단순화했다. 웹 `pickPerksByTier`(engine.js:1213-1241)의 PERK_FAMILY 랭크 순차 게이팅은
+  "해금" 축이 아니라 "한 오퍼 안에서 같은 계열이 겹치지 않게 하는 표시 순서 규칙"이라 이번 슬라이스
+  범위(해금 축) 밖으로 판단해 손대지 않았다 — Unity `Shop.PickPerksByTier`의 오퍼 알고리즘 자체(가중치
+  분포·favoredCat)는 이전 슬라이스부터 이미 웹 최신 `pickPerksByTier`와 갈라져 있던 기존 기술부채이고,
+  이번 작업 지시가 명시한 범위(게이트 축)에 포함되지 않아 **손대지 않았다**(판단 보류 — 별도 슬라이스
+  필요, 보고 대상). `Schools.cs` 파일 자체는 삭제하지 않고 게이트 연결만 끊었다(작업 지시 "삭제 범위가
+  크면 파일 정리는 보류" 그대로). `GameSession` 생성자가 `Profile.SetStat("playerLevel", Profile.PlayerLevel)`
+  로 런 시작 시점에 최신 레벨을 스냅샷해 Shop/NodeEvents 게이트 판정에 반영한다(업적 lv20/lv40용 1런 지연
+  스냅샷 의미는 런 종료 시점에 StatTracker가 다시 되돌려 써서 그대로 보존됨).
+- **(Q) 2026-08-08 완료 세부(P3-4, 레벨 장치 자동지급)**: `PlayerProfile.LevelDeviceReward`(14→dev_reaper·
+  18→dev_abyss·22→dev_reactor)+`GrantLevelDevices()`(멱등)를 웹 game.js:172/246-254 `_grantLevelDevices()`
+  그대로 이식 — `GameSession` 생성자(로드 직후)와 `FinishAction`의 GAME_OVER 분기(런 종료·레벨업 직후)
+  양쪽에서 호출한다. `PlayerProfile.LevelUnlocks()`(웹 game.js:201-211 levelUnlocks 데이터 함수만, P4 UI
+  화면은 없음)도 함께 추가했다.
+- **(R) 2026-08-08 완료 세부(P3-4, UI 최소 정합 — 작업 지시 C)**: `PickView`/`PickMeta`/`JackpotCatalog`가
+  신규 콘텐츠를 렌더링할 때 공백 카드가 뜨지 않도록 안전 폴백을 추가했다 — `unity-assets/manifest.json`에
+  아직 신규 35종(캐릭3·머신3·장치3·증강9·유물12·아이템5)의 아트/엔트리가 없어(PNG 생성은 별도 이미지
+  파이프라인 요청 필요, 이 슬라이스 범위 밖) `catalog.json` 조회가 전부 미스가 나기 때문이다.
+  `PickMeta.FallbackInfo(tab,id)`가 Engine 콘텐츠(Characters/Machines/Devices)에서 직접 emoji/name/desc/
+  unlock 텍스트를 합성하고, `PickView.MetaOf`/`BuildCard`가 catalog 미스 시 이 폴백으로 대체한다(아이콘은
+  스프라이트 없음 → 기존 "⊘" BMP 폴백 관례 그대로, 시너지 분석은 P4). `PickMeta.CharOrder`/`MacOrder`/
+  `DevOrder`에도 신규 9개 id를 추가해(그렇지 않으면 카드 자체가 순회 대상에서 빠져 "선택 불가"가 됨)
+  실제로 선택 가능하게 했다. `JackpotCatalog.EnsureLoaded()`는 실 JSON 파싱 후 Engine 콘텐츠 기반 합성
+  엔트리(스프라이트 없음)를 메모리상의 조회 테이블에만 이어붙여 `DexView`(도감)에도 신규 콘텐츠가 뜨게
+  했다(실 JSON 파일은 미수정 — manifest.json이 나중에 갱신되면 정식 엔트리가 자동으로 우선). 기존 우선
+  폴백 관례(DexView가 아트 없는 드랍전용 장치 4종에 raw astral 이모지를 그대로 쓰는 것)를 그대로 따랐다
+  — PickView의 "⊘" 고정 치환과는 다른 화면별 관례이며 이번 슬라이스가 새로 만든 게 아니라 기존 관례를
+  확인해 재사용한 것이다.
+  - **후속 필요(스코프 밖, 보고 대상)**: `catalog.json`의 저주 16종 `descKo`는 여전히 구 텍스트(양면형)를
+    담고 있다 — 엔진(`Perks.cs`)은 갱신됐지만 표시 데이터(`unity-assets/manifest.json` → convert_manifest.py
+    → catalog.json 파이프라인)는 건드리지 않았다. 실제 PNG 아트 생성도 마찬가지로 후속 작업.
+- **(S) 2026-08-08 완료 세부(P3-4, 테스트)**: 어서션 18787→18992(+205), 0 실패. 신규/변경 골든:
+  Perks fx·meta 스냅샷 해시(신규 21종 추가 + 저주 16종 재계산), 캐릭터 exact 테이블(OR 5축으로 재설계,
+  19종), 머신 가중치표(신규 3종), 아이템/장치 exact+fx(신규 8종). **의미가 바뀐 기존 테스트 재작성**:
+  `Tests_RunNet_ModsAdditive`(cursed_skulls/thorny_path 보너스 삭제분 재확인) · `Tests_Run_ModsAggregation`
+  (hard_exam/frugal_vow 보너스 삭제 반영 재계산) · `Tests_S4_ShopOffer`/`Tests_S4_TierPoolFallback`/
+  `Tests_S4_RetakeExhaustion`(Schools "BasePerkIds 폴백" 전제가 사라져 held-기반 소진 재현으로 교체) ·
+  `Tests_S5_SeenGateTracking`(seen_ 그랜드파더 폐기 반영 — "여전히 잠김" 확인으로 전환) ·
+  `Tests_S5_CharUnlockDerivedKeyGate`(prodigy의 구 `distinctCharS10` 파생키 게이트 폐기 → 신 OR 모델
+  unlockStage/unlockAch 검증으로 전환).
+- **(T) 2026-08-08 Opus 2차검수 반영(필수4·웹 이탈 정리6·신규 골든 1) + 후속 문서화 3건**:
+  - **필수**: ①`NodeEvents.OfferPerks`의 프리즘잉크 강제 티어가 10% 등급업 롤을 건너뛰던 걸 고쳐,
+    웹 engine.js:1254-1256과 동일하게 "굴림은 무조건 먼저 소비 → forceTier로 덮어쓰기" 순서로 정정
+    (RNG 스트림 파리티). ②`AppRoot.Awake`/`EndRun`가 `ProfileStore.Load()` 직후 `GrantLevelDevices()`를
+    호출하도록 추가(웹 game.js:179 대응) — 지급이 있었을 때만 저장. 기존엔 `GameSession` 생성자에서만
+    호출돼 Pick/Dex가 보는 `AppRoot.Profile`이 "런 시작 전까지" 1런 지연됐다. ③상점 5필드
+    (shopPriceMul/itemPriceMul/itemCapBonus/shopSlotBonus/shopRerollDelta)를 실제로 배선 —
+    `Shop.FreshOffer`(증강·유물·아이템 가격에 pm/itemPm 곱, 아이템 상품칸 2+slot) ·
+    `Shop.RerollCostFor(run)`(신설, `max(2, 6+shopRerollDelta)`, 구 `RerollCost` 상수는
+    `BaseRerollCost`로 이름 변경해 기본값 의미만 유지) · `ItemUse.EffectiveSlots(run)`(신설,
+    `3+itemCapBonus`, 구 `ItemSlots` 상수는 `BaseItemSlots`로 변경) — `Shop.Buy`의 가방 한도 체크,
+    `BagPopup`/`RunView`/`ShopPanel`의 표시 라벨까지 전부 이 메서드들로 전환했다. 승천(ascMods)·심화
+    (영수증/장바구니) 항은 P6/P7 미구현이라 각 지점에 "여기에 곱연산으로 추가" 주석만 남기고 생략.
+    ④`DexView` 상세 팝업의 `e.unlockReq`(catalog.json의 구 Kotlin StatReq AND 문구, manifest.json
+    미갱신이라 스테일) 렌더를 차단하고 `pick.unlock`(PickInfo.unlock, 웹 OR 문구)으로 대체.
+  - **웹 이탈 정리**: ⑤`RunState.PrismInkBought` 신설 — `Shop.Buy`가 프리즘잉크 재구매를 코인/가방
+    체크보다 먼저 거부(웹 game.js:2350). ⑥`RunController`의 honor 시작 증강, `ItemUse`의
+    black_lottery/devil_contract 3곳에서 `Shop.GatedPool(...)` 래핑을 제거하고 raw
+    `Perks.Augments`/`Perks.Relics`를 직접 쓰도록 되돌렸다(웹 원본부터 이 3경로는 해금 게이트가 없다
+    — game.js:393-397·1374-1376, "이미 보유 중이면 제외"하는 held 필터는 게이트가 아니라 그대로 유지).
+    ⑦`refund`(환불 정책)의 30% 미소모 판정을 `retake_form`에도 적용(웹은 단일 `useItem()` 파이프라인이라
+    예외가 없다, game.js:1337) — 단 `retake_form`의 `NO_LAST_SPIN` 사전 검증은 keep 롤보다 앞에 둬서
+    "거부 시 RNG 포함 아무 것도 변형하지 않는다"는 기존 Unity 불변식을 지켰다(웹엔 이 가드 자체가 없음
+    — Unity 전용 방어). ⑧`PlayerProfile.LevelUnlocks()`의 `List.Sort`(불안정 정렬)를 LINQ
+    `OrderBy`(안정 정렬)로 바꾸고 `LevelDeviceReward`(Dictionary) 순회를 키 오름차순으로 고정 — 동순위
+    항목(예: Lv12의 bankrupt/throne/curse_grad/black_grad_photo 4건)의 표시 순서가 실행마다 달라지던
+    잠재 비결정성을 제거. ⑨`Tests_Content2.cs`/`Tests_Perks.cs`/`Tests_Core.cs`의 catalog↔engine
+    교차대조를 "engine-only 무제한 허용"에서 "이번 슬라이스 신규 id 명시 allowlist"로 좁혔다 — 향후
+    catalog.json 갱신을 누락한 콘텐츠 추가를 잡아낼 수 있게.
+  - **신규 골든**: ⑩`Tests_P3_4_ContentGolden.cs` 신설 — 신규 증강9·유물12·저주16(fx 교체분)을
+    `Perks.cs`를 보지 않고 `data.js`/`engine.js`를 다시 읽어 독립적으로 옮겨 적은 (id,tier,unlockLevel,
+    price,fx 전체) 표. Tests_Fx.cs의 FNV 스냅샷과 별개 축 — 스냅샷은 "이후 변경 감지"만 하고 "지금 값이
+    웹과 맞는지"는 검증하지 못한다(Perks.cs가 처음부터 틀렸으면 스냅샷도 함께 틀린 채 통과). fx는
+    "포함 여부"가 아니라 "키 집합이 정확히 일치"까지 검증(golden에 없는 여분 fx 키가 남아 있어도 실패).
+  - **어서션**: 18992 → 19244(+252). `Tests_P3_4_ContentGolden.cs`(신규 21퍽·저주16 손전사 골든 +
+    상점 5필드 손계산) 신설이 대부분을 차지.
+  - **후속 문서화만(코드 미반영, 별도 슬라이스 대상)**:
+    1. **PERK_FAMILY 랭크 게이팅**: 웹 `pickPerksByTier`(engine.js:1213-1241)의 "같은 계열은 보유 랭크+1만
+       후보, 오퍼 1개당 같은 패밀리 1개만" 규칙이 Unity `Shop.PickPerksByTier`엔 전혀 없다 — 이번
+       슬라이스가 다룬 "해금 게이트" 축과는 다른 축(오퍼 *후보 필터*라 뽑히는 분포 자체에 영향)이라
+       손대지 않았다(§2-(P) 이미 기록). 오퍼 알고리즘 전체(가중치분포·favoredCat 포함) 재정렬이 필요한
+       별도 슬라이스 대상.
+    2. **retake_form의 RunCtx 누락**: `ItemUse.UseRetakeForm`이 재계산 mods를 `ModsBuilder.Build(...)`
+       호출 시 `ctx`를 아예 안 넘겨(`new RunCtx()` 기본값) 만든다 — 이번 슬라이스 이전부터 있던 구조적
+       공백이다(early_prep/growth_log/snowball/fortune_check/luck_accum/fate_burst/late_focus/
+       cliff_focus/sacrifice/black_diploma 전부 영향받음). 이번 슬라이스가 추가한 bankrupt/abyss_scholar
+       (ctx.coins/ctx.boss)·curse_grad/black_grad_photo(ctx.curseCount)·phoenix_thesis(ctx.stage/
+       quota/stageExp)까지 가세해 영향 범위가 넓어졌다 — retake_form으로 재굴림하는 순간에만 이
+       퍽들이 "기본값 컨텍스트"로 잘못 계산된다(실제 스핀 경로는 정상). 별도 슬라이스에서
+       `BuildRunCtx`류 헬퍼를 `UseRetakeForm`에도 연결해야 한다.
+    3. **Mods.cs:107 "기본값 99 무해" 주석 정정**: 그 주석은 `RunCtx.coins` 기본값 99가 "미설정
+       호출부에서도 안전한 무해 기본값"이라 적었지만 부정확하다 — bankrupt 캐릭터 기준 `coins>=10`이면
+       `expMul *= 0.8`이 실제로 걸린다(99는 결코 "중립"이 아니라 "패널티 조건을 충족하는 값"이다).
+       현재 무해한 이유는 딱 하나, ctx 없이 호출되는 모든 "프리패스" 지점(예: SpinResolver의 3단계
+       재계산 중 1단계, GameSession.PreviewQuotaSpins 등)이 그 결과에서 `bonusSpins`/`SpinsPerStage`만
+       뽑아 쓰고 `expMul`은 읽지 않기 때문이다 — 즉 "필드 자체가 무해"가 아니라 "현재 소비처가 우연히
+       그 필드를 안 읽어서 무해"인 훨씬 좁고 깨지기 쉬운 보장이다. 향후 누군가 ctx-less Build() 결과의
+       expMul을 읽는 소비처를 추가하면 bankrupt 런에서 조용히 잘못된 페널티가 섞여 들어갈 수 있다 —
+       retake_form 항목과 같은 근본 원인(ctx 전달 누락)이라 함께 다룰 별도 슬라이스 대상.
 
 ## 3. 페이즈 로드맵
 
@@ -233,7 +376,7 @@
 |---|---|---|
 | **P1** | 룰 파리티 1차: 첫판 즉시시작 · 특수스핀 첫사용무료 · 실패체인 웹 순서 · 노드 보상 수치/DEVICE 노드 · 포기 | ✅ 2026-08-07 완료 |
 | **P2** | 점수·캡 공식 웹화 + 보스 grad/finals 정리 + 골든 테스트 재산출 | ✅ 2026-08-07 완료 |
-| P3 | 메타 웹화: XP/레벨/레벨보상 · 업적 34종 교체 · 숙련도 · 증강 레벨업 · 해금 OR · 콘텐츠 증보(+3캐릭/+3머신/+장치/+증강9/+유물12/+아이템5) | 진행 중(3/4: 업적 34종 완료 · 숙련도+증강 레벨업 완료) |
+| P3 | 메타 웹화: XP/레벨/레벨보상 · 업적 34종 교체 · 숙련도 · 증강 레벨업 · 해금 OR · 콘텐츠 증보(+3캐릭/+3머신/+장치/+증강9/+유물12/+아이템5) | ✅ 2026-08-08 완료 |
 | P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | 대기 |
 | P5 | 사운드(절차 합성 SFX 17 + BGM) | 대기 |
 | P6 | 승천 A1~A10 + 승천 랭킹 분리 | 대기 |

@@ -14,6 +14,9 @@ namespace JackpotRun.Engine
         public int price;
         public string school;
         public Dictionary<string, double> fx;
+        // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #9/#13, data.js unlockLevel) — 0=레벨게이트 없음
+        // (항상 개방). 8종(증강4·유물4)만 값을 가진다. Shop.PerkUnlocked가 유일한 소비처.
+        public int unlockLevel;
     }
 
     public sealed class ItemDef

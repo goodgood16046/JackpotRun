@@ -30,14 +30,14 @@ namespace JackpotRun.EngineTests
             CheckSetGateFields(t);
         }
 
-        // ── 개수 검증 (73/16/33/10/45) ──
+        // ── 개수 검증 (78/19/33/10/45) — 웹 파리티 P3-4: 아이템+5·장치+3(dev_reaper/dev_abyss/dev_reactor). ──
         private static void CheckCounts(TestCtx t)
         {
-            t.Check(Items.All.Length == 73, $"Items.All.Length == 73 (실제 {Items.All.Length})");
-            t.Check(Items.Count == 73, $"Items.Count == 73 (실제 {Items.Count})");
+            t.Check(Items.All.Length == 78, $"Items.All.Length == 78 (실제 {Items.All.Length})");
+            t.Check(Items.Count == 78, $"Items.Count == 78 (실제 {Items.Count})");
 
-            t.Check(Devices.All.Length == 16, $"Devices.All.Length == 16 (실제 {Devices.All.Length})");
-            t.Check(Devices.Count == 16, $"Devices.Count == 16 (실제 {Devices.Count})");
+            t.Check(Devices.All.Length == 19, $"Devices.All.Length == 19 (실제 {Devices.All.Length})");
+            t.Check(Devices.Count == 19, $"Devices.Count == 19 (실제 {Devices.Count})");
 
             t.Check(Sets.All.Length == 33, $"Sets.All.Length == 33 (실제 {Sets.All.Length})");
             t.Check(Sets.Count == 33, $"Sets.Count == 33 (실제 {Sets.Count})");
@@ -108,16 +108,39 @@ namespace JackpotRun.EngineTests
             var engineItemIds = new HashSet<string>(Items.All.Select(x => x.id));
             var engineDevIds = new HashSet<string>(Devices.All.Select(x => x.id));
 
+            // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14) — 신규 아이템5·장치3은 manifest.json에 아직
+            // 아트가 없어 catalog.json에 대응 항목이 없다(이모지 폴백). catalog에만 있는 죽은 참조는
+            // 여전히 0을 기대. Opus 2차검수 웹 이탈 정리⑨ — engine-only를 "무제한 허용"하면 앞으로
+            // catalog.json 갱신을 깜빡한 새 콘텐츠도 영영 못 잡는다 — 이번 슬라이스가 만든 신규분만
+            // 명시 allowlist로 좁혀서, 그 목록 밖의 engine-only id가 하나라도 생기면(=미래에 아트 없이
+            // 콘텐츠만 추가) 실패로 드러나게 한다.
             var itemOnlyInCatalog = catalogItemKeys.Except(engineItemIds).ToList();
-            var itemOnlyInEngine = engineItemIds.Except(catalogItemKeys).ToList();
-            t.Check(itemOnlyInCatalog.Count == 0 && itemOnlyInEngine.Count == 0,
-                $"catalog.json item_* id == Items.All id (catalog만: {string.Join(",", itemOnlyInCatalog)} / 엔진만: {string.Join(",", itemOnlyInEngine)})");
+            t.Check(itemOnlyInCatalog.Count == 0,
+                $"catalog.json item_* id ⊆ Items.All id (catalog만: {string.Join(",", itemOnlyInCatalog)})");
+            var itemEngineOnly = engineItemIds.Except(catalogItemKeys).ToList();
+            var itemEngineOnlyUnexpected = itemEngineOnly.Except(ExpectedNewItemIds).ToList();
+            t.Check(itemEngineOnlyUnexpected.Count == 0,
+                $"Items.All engine-only id ⊆ P3-4 신규 5종 allowlist (예상 밖: {string.Join(",", itemEngineOnlyUnexpected)})");
 
             var devOnlyInCatalog = catalogDevIds.Except(engineDevIds).ToList();
-            var devOnlyInEngine = engineDevIds.Except(catalogDevIds).ToList();
-            t.Check(devOnlyInCatalog.Count == 0 && devOnlyInEngine.Count == 0,
-                $"catalog.json dev_* id == Devices.All id (catalog만: {string.Join(",", devOnlyInCatalog)} / 엔진만: {string.Join(",", devOnlyInEngine)})");
+            t.Check(devOnlyInCatalog.Count == 0,
+                $"catalog.json dev_* id ⊆ Devices.All id (catalog만: {string.Join(",", devOnlyInCatalog)})");
+            var devEngineOnly = engineDevIds.Except(catalogDevIds).ToList();
+            var devEngineOnlyUnexpected = devEngineOnly.Except(ExpectedNewDeviceIds).ToList();
+            t.Check(devEngineOnlyUnexpected.Count == 0,
+                $"Devices.All engine-only id ⊆ P3-4 신규 3종 allowlist (예상 밖: {string.Join(",", devEngineOnlyUnexpected)})");
         }
+
+        // 웹 파리티 P3-4에서 catalog.json/manifest.json 아트 없이 엔진에만 추가한 콘텐츠(이 슬라이스가
+        // 유일한 출처 — 새 슬라이스가 또 추가하면 이 목록도 함께 갱신해야 한다).
+        private static readonly HashSet<string> ExpectedNewItemIds = new HashSet<string>
+        {
+            "study_note", "aug_catalyst", "gold_marker", "prism_ink", "overcharge",
+        };
+        private static readonly HashSet<string> ExpectedNewDeviceIds = new HashSet<string>
+        {
+            "dev_reaper", "dev_abyss", "dev_reactor",
+        };
 
         // Tools/EngineTests/Tests_Content2.cs 기준 상대경로로 catalog.json을 찾는다(작업 디렉터리 의존 X).
         // Client/Jackpot/Tools/EngineTests -> ../.. -> Client/Jackpot -> Assets/JackpotRun/Resources/JackpotRun/catalog.json

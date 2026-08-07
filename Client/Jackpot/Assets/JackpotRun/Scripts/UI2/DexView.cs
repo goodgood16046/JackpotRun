@@ -270,13 +270,18 @@ namespace JackpotRun.UI2
 
             if (descText != null) descText.text = TextSanitize.StripAstral(e.descKo ?? "");
 
+            // 웹 파리티 P3-4 Opus 2차검수 필수④(WEB_PARITY_DESIGN.md §2) — catalog.json의 e.unlockReq는
+            // 구 Kotlin StatReq AND 문구(manifest.json 미갱신이라 스테일)라 더는 실제 해금 조건과
+            // 일치하지 않는다(예: gambler는 웹에서 항상 해금인데 unlockReq엔 구 게이트 문구가 남음) —
+            // 렌더를 아예 차단하고, pick.unlock(PickInfo.unlock — 웹 OR 문구. 실 catalog 항목이면
+            // convert_manifest.py가 이미 웹 문구로 채운 원본, 신규 콘텐츠면 PickMeta.FallbackInfo가
+            // Characters/Machines.cs unlockRuns/Score/Stage/Level/Ach로 즉석 합성)로 대체한다.
             if (unlockText != null)
             {
-                if (e.unlockReq != null && e.unlockReq.Length > 0)
+                bool hasUnlockLine = e.hasPick && e.pick != null && !string.IsNullOrEmpty(e.pick.unlock);
+                if (hasUnlockLine)
                 {
-                    var lines = new List<string>(e.unlockReq.Length);
-                    foreach (var req in e.unlockReq) lines.Add($"해금: {req.stat} ≥ {NumberFormat.Comma(req.value)}");
-                    unlockText.text = string.Join("\n", lines);
+                    unlockText.text = "해금: " + e.pick.unlock;
                     unlockText.gameObject.SetActive(true);
                 }
                 else unlockText.gameObject.SetActive(false);

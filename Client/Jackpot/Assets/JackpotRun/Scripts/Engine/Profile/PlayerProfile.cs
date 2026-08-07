@@ -144,14 +144,35 @@ namespace JackpotRun.Engine
             Stats[key] = value;
         }
 
-        // ── 해금 조회 — 기존 API 재사용만(Unlocks.Meets·Schools·Shop.PerkUnlocked), 재정의 금지 ──────
-        // 캐릭터/머신은 공유 StatReq 계약(01_engine.md §9.1)이라 Unlocks.Meets를 직접 재사용.
-        // M1(Opus 1차 검수, 2026-07-31): 원재료 Stats가 아니라 AchievementEngine.ComposeStat(this)로 판정한다
-        // — 일부 캐릭터의 unlockReq가 파생키를 참조한다(예: prodigy = "distinctCharS10">=7, Kotlin
-        // Character 정의 L362). 원재료 Stats만 보면 distinctCharS10 키 자체가 없어(StatTracker는 파생키를
-        // 저장하지 않음) 항상 0으로 취급돼 영구 잠긴다.
-        public bool IsCharUnlocked(Character c) => c != null && Unlocks.Meets(c.unlockReq, AchievementEngine.ComposeStat(this));
-        public bool IsMachineUnlocked(Machine m) => m != null && Unlocks.Meets(m.unlockReq, AchievementEngine.ComposeStat(this));
+        // ── 해금 조회 — 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #13, game.js:259-277 charUnlocked/
+        // machineUnlocked) OR 5축/4축 그대로. 기존 Unlocks.Meets(StatReq AND 리스트) 경유는 폐기했다
+        // (Characters.cs/Machines.cs 헤더 각주 참조 — unlockReq 필드 자체를 제거했다). PlayerLevel은
+        // 즉시 반영되는 실 필드를 직접 읽는다(Stats["playerLevel"]은 업적 lv20/lv40용 1런 지연
+        // 스냅샷이라 여기 쓰면 레벨업 직후 1런 동안 게이트가 그릇되게 잠긴다).
+        public bool IsCharUnlocked(Character c)
+        {
+            if (c == null) return false;
+            if (c.unlockRuns <= 0 && c.unlockScore <= 0 && c.unlockStage <= 0 && c.unlockLevel <= 0 && string.IsNullOrEmpty(c.unlockAch))
+                return true;
+            if (c.unlockRuns > 0 && Runs >= c.unlockRuns) return true;
+            if (c.unlockScore > 0 && BestScore >= c.unlockScore) return true;
+            if (c.unlockStage > 0 && BestStage >= c.unlockStage) return true;
+            if (c.unlockLevel > 0 && PlayerLevel >= c.unlockLevel) return true;
+            if (!string.IsNullOrEmpty(c.unlockAch) && AchievedIds.Contains(c.unlockAch)) return true;
+            return false;
+        }
+
+        public bool IsMachineUnlocked(Machine m)
+        {
+            if (m == null) return false;
+            if (m.unlockRuns <= 0 && m.unlockScore <= 0 && m.unlockLevel <= 0 && string.IsNullOrEmpty(m.unlockAch))
+                return true;
+            if (m.unlockRuns > 0 && Runs >= m.unlockRuns) return true;
+            if (m.unlockScore > 0 && BestScore >= m.unlockScore) return true;
+            if (m.unlockLevel > 0 && PlayerLevel >= m.unlockLevel) return true;
+            if (!string.IsNullOrEmpty(m.unlockAch) && AchievedIds.Contains(m.unlockAch)) return true;
+            return false;
+        }
 
         // 퍽(증강/유물/저주) 해금 — Shop.PerkUnlocked(internal, 같은 어셈블리)가 Unlocks.Meets + Schools
         // (BasePerkIds/SchoolReq/PerkGateOverrides/SchoolResearch)를 이미 결합해 두었다(Shop.cs 헤더 주석
@@ -175,6 +196,68 @@ namespace JackpotRun.Engine
 
         // 현재 장착 가능한(해금된) 장치 목록 — devicesOwned 스탯과 동일한 모집합(unlockAch 있는 것만).
         public IEnumerable<DeviceDef> UnlockedDevices() => Devices.All.Where(IsDeviceUnlocked);
+
+        // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #9/#14, game.js:172 LEVEL_DEVICE_REWARD) ──
+        // 레벨 도달 시 자동 지급되는 후반 장치 3종(업적 무관 — Devices.cs의 dev_reaper/dev_abyss/
+        // dev_reactor는 unlockAch=""). 웹과 동일한 레벨→장치 매핑을 단일 소스로 둔다.
+        public static readonly IReadOnlyDictionary<int, string> LevelDeviceReward = new Dictionary<int, string>
+        {
+            [14] = "dev_reaper", [18] = "dev_abyss", [22] = "dev_reactor",
+        };
+
+        // 웹 game.js:246-254 `_grantLevelDevices()` 그대로 — 멱등(이미 보유하면 재지급 안 함). 호출측
+        // (GameSession)이 ①프로필 로드 직후 ②런 종료(레벨업 가능 시점) 양쪽에서 호출한다. 반환값은
+        // 이번 호출로 새로 지급된 장치 id 목록(로그/토스트용, 없으면 빈 리스트).
+        public List<string> GrantLevelDevices()
+        {
+            var got = new List<string>();
+            foreach (var kv in LevelDeviceReward)
+            {
+                if (PlayerLevel >= kv.Key && !OwnedDevices.Contains(kv.Value))
+                {
+                    OwnedDevices.Add(kv.Value);
+                    got.Add(kv.Value);
+                }
+            }
+            return got;
+        }
+
+        // ── 웹 파리티 P3(#9, WEB_PARITY_DESIGN.md §1-A #9, game.js:201-211 levelUnlocks) ──
+        // P4(레벨 보상 화면) UI가 소비할 로드맵 데이터만 엔진에 준비해 둔다(이 슬라이스는 UI 없음).
+        public sealed class LevelUnlockEntry
+        {
+            public int Level;
+            public string Label;
+            public bool Unlocked;
+        }
+
+        public List<LevelUnlockEntry> LevelUnlocks()
+        {
+            var raw = new List<LevelUnlockEntry>();
+            foreach (var c in Characters.All)
+                if (c.unlockLevel > 0) raw.Add(new LevelUnlockEntry { Level = c.unlockLevel, Label = $"🎭 {c.name} (캐릭터)" });
+            foreach (var mc in Machines.All)
+                if (mc.unlockLevel > 0) raw.Add(new LevelUnlockEntry { Level = mc.unlockLevel, Label = $"🎰 {mc.name} (슬롯)" });
+            // 웹 파리티 P3-4 Opus 2차검수 웹 이탈 정리⑧(WEB_PARITY_DESIGN.md §2) — Dictionary 순회 순서는
+            // .NET/Mono/IL2CPP 구현 세부사항이라 보장되지 않는다. 레벨 오름차순으로 명시 정렬해 고정한다
+            // (LevelDeviceReward는 이 함수 안에서만 순서가 문제 — GrantLevelDevices는 순서 무관 멱등).
+            foreach (var kv in LevelDeviceReward.OrderBy(kv => kv.Key))
+            {
+                var d = Devices.ById(kv.Value);
+                if (d != null) raw.Add(new LevelUnlockEntry { Level = kv.Key, Label = $"🔧 {d.name} (장치)" });
+            }
+            foreach (var a in Perks.Augments)
+                if (a.unlockLevel > 0) raw.Add(new LevelUnlockEntry { Level = a.unlockLevel, Label = $"✨ {a.name} (증강)" });
+            foreach (var r in Perks.Relics)
+                if (r.unlockLevel > 0) raw.Add(new LevelUnlockEntry { Level = r.unlockLevel, Label = $"📜 {r.name} (유물)" });
+            // 웹 파리티 P3-4 Opus 2차검수 웹 이탈 정리⑧ — List.Sort는 불안정 정렬(동순위 상대순서 미보장)
+            // 이라 같은 레벨 항목(예: Lv12의 bankrupt/throne/curse_grad/black_grad_photo 4건)의 순서가
+            // 실행마다 달라질 수 있었다. LINQ OrderBy(안정 정렬)로 전환 — 동순위는 위 삽입 순서
+            // (캐릭→머신→장치→증강→유물)를 그대로 유지한다.
+            var sorted = raw.OrderBy(o => o.Level).ToList();
+            foreach (var o in sorted) o.Unlocked = PlayerLevel >= o.Level;
+            return sorted;
+        }
 
         // ── 숙련도(mastery, P3, WEB_PARITY_DESIGN.md §1-A #11) — kind("char"/"mac"/"dev") -> id -> 성과.
         // 웹 profile.mastery = {char:{},mac:{},dev:{}} 대응(웹 game.js:143 MASTERY 표/217-232 _bumpMastery/

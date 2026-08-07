@@ -21,7 +21,10 @@ namespace JackpotRun.Engine
     // 그대로 옮겼다 — NodeEvents.cs(증강/유물 노드 티어 픽)도 이 파일의 해금 게이트 헬퍼를 그대로 재사용한다.
     public static class Shop
     {
-        public const int RerollCost = 6;                 // SHOP_REROLL(Kotlin L1400) — 정액, 증가 없음(§4-C)
+        // 웹 파리티 P3-4 Opus 2차검수 필수③(WEB_PARITY_DESIGN.md §2) — 이전엔 정액(Kotlin SHOP_REROLL
+        // L1400)이었지만 웹 game.js:2363 `shopReroll()`은 `max(2, 6 + shopRerollDelta)`로 vip 등
+        // 증강에 반응한다. 기본값은 그대로 6(BaseRerollCost)이고, 실사용은 RerollCostFor(run)를 거친다.
+        public const int BaseRerollCost = 6;
         private const double EventPrismRate = 0.12;       // EVENT_PRISM_RATE(Kotlin L1249)
 
         private static int AugPrice(Tier t) => t switch
@@ -32,49 +35,66 @@ namespace JackpotRun.Engine
         };
 
         // ══════════════════════════════════════════════════════════════════
-        // 해금 게이트 — perkGate/perkUnlocked/gatedPool/unlockedPerks (Kotlin L825-914).
-        // Schools.cs(S2b)의 BasePerkIds/SchoolReq/PerkGateOverrides/SchoolResearch를 단일 소스로 결합만
-        // 한다(재정의 금지 — S4 백로그 "Schools.BasePerkIds 사용"). Formulas.AccountLevel(S1)을 그대로
-        // 재사용하며 achievements 인자는 null(=482종 미반영, S1 주석/S4 백로그 명시 제약 — S5가 채운다).
-        // 死코드 정리(S4 백로그): 여기서는 Unlocks.Meets(StatReq 기반)만 쓰고 Formulas.MeetsReq(튜플 기반,
-        // 미사용 死코드)는 호출하지 않는다.
+        // 웹 파리티 P3-4 Opus 2차검수 필수③ — 상점 5필드(shopPriceMul/itemPriceMul/itemCapBonus/
+        // shopSlotBonus/shopRerollDelta) 실제 배선. 이 5필드는 Kotlin 원본에 없는 웹 전용 신규
+        // 기능(discount/thrifty/item_bag/vip 증강)이라 이 파일이 직접 mods를 계산한다. Perks+PhasePerks
+        // 결합 + ApplyItemMods(PhaseItems)만 적용하는 것은 ItemUse.InstantQuota/GameSession.
+        // PreviewQuotaSpins와 동일한 "스핀 밖 스냅샷" 근사 패턴(ApplyPassiveDevice 미적용) — 현재
+        // 어떤 장치도 이 5필드를 건드리지 않아 실질 차이는 없다(신규 장치 추가 시 재검토 필요).
         // ══════════════════════════════════════════════════════════════════
-        internal static UnlockGate PerkGate(Perk p)
+        internal static Mods ShopMods(RunState run)
         {
-            if (Schools.BasePerkIds.Contains(p.id))
-                return new UnlockGate { minLevel = 0, req = Array.Empty<StatReq>(), school = "" };
-            if (Schools.PerkGateOverrides.TryGetValue(p.id, out var over))
-                return over;
-
-            var baseGate = Schools.SchoolReq.TryGetValue(p.school ?? "", out var b)
-                ? b
-                : new UnlockGate { minLevel = 0, req = Array.Empty<StatReq>(), school = "" };
-            switch (p.tier)
-            {
-                case Tier.PRISM:
-                    return new UnlockGate { minLevel = Math.Max(baseGate.minLevel + 4, 12), req = baseGate.req, school = baseGate.school };
-                case Tier.SILVER:
-                    return new UnlockGate { minLevel = Math.Max(baseGate.minLevel - 2, 2), req = baseGate.req, school = baseGate.school };
-                default: // GOLD
-                    return baseGate;
-            }
+            var combinedPerks = new List<string>(run.Perks);
+            combinedPerks.AddRange(run.PhasePerks);
+            return ModsBuilder.ApplyItemMods(
+                ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
+                run.PhaseItems);
         }
 
-        internal static bool SchoolResearchDone(string school, IReadOnlyDictionary<string, long> stat)
-        {
-            if (string.IsNullOrEmpty(school) || !Schools.SchoolResearch.TryGetValue(school, out var r)) return false;
-            long v = (stat != null && stat.TryGetValue(r.key, out var vv)) ? vv : 0L;
-            return v >= r.threshold;
-        }
+        // 웹 game.js:2327 `pm = max(0.4, ascMods(r.asc).shopPriceMul * (sm.shopPriceMul||1) * receiptMul)`
+        // — 승천(ascMods)·심화 영수증(receiptMul)은 P6/P7 미구현이라 생략(각각 곱연산 항이라 나중에
+        // 그대로 끼워 넣을 수 있다, 삭제 아님·주석 표기).
+        private static double ShopPriceMul(Mods mods) => Math.Max(0.4, mods.shopPriceMul);
 
+        // 웹 game.js:2328 `itemPm = max(0.4, pm * (sm.itemPriceMul||1))`.
+        private static double ItemPriceMul(Mods mods) => Math.Max(0.4, ShopPriceMul(mods) * mods.itemPriceMul);
+
+        // 웹 game.js:2330 `slot = max(0, min(3, (sm.shopSlotBonus||0) + cartBonus))` — cartBonus(🛒장바구니,
+        // 심화 전용)는 P7 미구현이라 생략.
+        private static int ShopSlotBonus(Mods mods) => Math.Max(0, Math.Min(3, mods.shopSlotBonus));
+
+        // 웹 game.js:2363 `cost = max(2, 6 + shopRerollDelta)`.
+        public static int RerollCostFor(RunState run) => Math.Max(2, BaseRerollCost + ShopMods(run).shopRerollDelta);
+
+        // JS Math.round(양수)는 항상 반올림(0.5는 위로) — C# 기본 Math.Round(은행원 반올림)와 달라
+        // MidpointRounding.AwayFromZero로 맞춘다(가격은 항상 양수라 이 옵션이 JS와 동치).
+        private static int RoundPrice(double v) => Math.Max(1, (int)Math.Round(v, MidpointRounding.AwayFromZero));
+
+        // ══════════════════════════════════════════════════════════════════
+        // 해금 게이트 — 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #13, §2 "퍽 레벨 해금") 전면 개편.
+        // 기존 Kotlin 전공연구(Schools.SchoolReq/SchoolResearch)·AccountLevel·StatReq AND 게이트는
+        // 폐기했다 — 웹 engine.js의 실사용 오퍼 함수(pickPerksByTier, engine.js:1213-1241)는 그런
+        // "해금" 개념 자체가 없다(PERK_FAMILY 랭크 순차 게이팅만 있고, 이는 "한 오퍼 안에서 같은
+        // 계열이 겹치지 않게 하는" 표시 순서 규칙이라 Shop.PickPerksByTier의 기존 별도 알고리즘과
+        // 무관 — 이번 슬라이스는 "해금 여부" 축만 다룬다). 대신 웹 `_augPool`/`_relicPool`
+        // (game.js:234-235 `!a.unlockLevel || lvl >= a.unlockLevel`)과 동일하게 "unlockLevel이 없으면
+        // 항상 개방, 있으면 PlayerLevel 게이트만" 규칙으로 단순화한다 — 대상은 신규 8종(증강4·유물4)
+        // 뿐이고 나머지 154종은 전면 개방이다. Schools.cs 자체는 삭제하지 않고 게이트 연결만 끊었다
+        // (§2 결정 로그 "삭제 범위가 크면 파일 정리는 보류" 지시).
+        //
+        // playerLevel 값은 stat["playerLevel"] 키로 읽는다 — GameSession이 런 시작 시
+        // Profile.SetStat("playerLevel", Profile.PlayerLevel)로 최신값을 스냅샷해 두므로(달성 업적
+        // lv20/lv40용 "1런 지연" 스냅샷과는 별개 타이밍, GameSession.cs 주석 참조) 런 도중 게이트
+        // 판정에 항상 현재 레벨이 반영된다.
+        // ══════════════════════════════════════════════════════════════════
         internal static bool PerkUnlocked(Perk p, IReadOnlyDictionary<string, long> stat)
         {
             if (p == null) return false;
-            if (stat != null && stat.TryGetValue("seen_" + p.id, out var seen) && seen > 0) return true;
-            var g = PerkGate(p);
-            if (p.tier != Tier.PRISM && SchoolResearchDone(g.school, stat)) return true;
-            if (Formulas.AccountLevel(stat) < g.minLevel) return false;
-            return Unlocks.Meets(g.req, stat);
+            if (p.unlockLevel <= 0) return true;
+            long lvl = 1L;
+            if (stat != null) stat.TryGetValue("playerLevel", out lvl);
+            if (lvl <= 0) lvl = 1L;
+            return lvl >= p.unlockLevel;
         }
 
         internal static List<Perk> UnlockedPerks(IReadOnlyList<Perk> pool, IReadOnlyDictionary<string, long> stat)
@@ -84,14 +104,13 @@ namespace JackpotRun.Engine
             return list;
         }
 
-        // gatedPool — 미해금 제외, 전부 잠겼으면 BasePerkIds만 폴백(그마저 없으면 원본 그대로, 데드엔드 방지).
+        // gatedPool — unlockLevel 미해금만 제외(웹 파리티 P3-4). 8종 외 154종은 항상 통과하므로
+        // "전부 잠김" 데드엔드는 이제 도달 불가하지만, stat 미전달(방어적 기본값) 시엔 원본 그대로
+        // 반환하는 기존 관례를 유지한다.
         internal static List<Perk> GatedPool(IReadOnlyList<Perk> pool, IReadOnlyDictionary<string, long> stat)
         {
             if (stat == null || stat.Count == 0) return new List<Perk>(pool);
-            var unlocked = UnlockedPerks(pool, stat);
-            if (unlocked.Count > 0) return unlocked;
-            var baseOnly = pool.Where(p => Schools.BasePerkIds.Contains(p.id)).ToList();
-            return baseOnly.Count > 0 ? baseOnly : new List<Perk>(pool);
+            return UnlockedPerks(pool, stat);
         }
 
         // ── favoredSymbol / majorFavoredCat (Kotlin L1611-1616, Service L119-123) ──
@@ -310,12 +329,16 @@ namespace JackpotRun.Engine
             return null;
         }
 
-        // ── 상점 오퍼 생성 (freshShopOffer, Kotlin L1404-1419) ──
+        // ── 상점 오퍼 생성 (freshShopOffer, Kotlin L1404-1419 + 웹 game.js:2322-2339 5필드 배선) ──
         public static List<ShopEntry> FreshOffer(RunState run, IReadOnlyDictionary<string, long> stat)
         {
             var held = new HashSet<string>(run.Perks);
             var rng = run.Rng;
             bool allowPrism = rng.NextDouble() < EventPrismRate;
+            var mods = ShopMods(run);
+            double pm = ShopPriceMul(mods);
+            double itemPm = ItemPriceMul(mods);
+            int slot = ShopSlotBonus(mods);
 
             List<Perk> GatePrism(List<Perk> list)
             {
@@ -325,11 +348,12 @@ namespace JackpotRun.Engine
             }
 
             var augs = GatePrism(PickAugments(rng, run.Stage, held, 4, stat))
-                .Select(p => new ShopEntry { kind = 'A', id = p.id, price = AugPrice(p.tier) });
+                .Select(p => new ShopEntry { kind = 'A', id = p.id, price = RoundPrice(AugPrice(p.tier) * pm) });
             var relics = GatePrism(PickRelics(rng, held, 4, stat))
-                .Select(p => new ShopEntry { kind = 'R', id = p.id, price = p.price });
-            var items = PickItems(rng, 2)
-                .Select(i => new ShopEntry { kind = 'I', id = i.id, price = i.coinCost });
+                .Select(p => new ShopEntry { kind = 'R', id = p.id, price = RoundPrice(p.price * pm) });
+            // 웹 game.js:2339 `E.pickItems(this.rng, 2 + slot, ...)` — 상품칸 기본 2 + shopSlotBonus(vip 등).
+            var items = PickItems(rng, 2 + slot)
+                .Select(i => new ShopEntry { kind = 'I', id = i.id, price = RoundPrice(i.coinCost * itemPm) });
 
             var all = augs.Concat(relics).Concat(items).ToList();
             rng.Shuffle(all);
@@ -342,12 +366,17 @@ namespace JackpotRun.Engine
             if (run.Phase != RunPhase.EventShop) return RunEvents.Rejected("PHASE_NOT_SHOP");
             if (index < 0 || index >= run.ShopOffer.Count) return RunEvents.Rejected("INVALID_INDEX");
             var entry = run.ShopOffer[index];
+            // 웹 파리티 P3-4 Opus 2차검수 웹 이탈 정리⑤(game.js:2350 shopBuy 최우선 가드) — 프리즘잉크는
+            // 런당 1회만 구매 가능. 코인/가방 체크보다 먼저(웹과 동일 순서).
+            if (entry.id == "prism_ink" && run.PrismInkBought) return RunEvents.Rejected("PRISM_INK_ALREADY_BOUGHT");
             if (run.Coins < entry.price) return RunEvents.Rejected("INSUFFICIENT_COINS");
             bool isItem = entry.kind != 'A' && entry.kind != 'R';
-            if (isItem && run.Items.Count >= ItemUse.ItemSlots) return RunEvents.Rejected("BAG_FULL");
+            // 웹 game.js:2301 `_giveItem` cap = 3 + itemCapBonus(item_bag 등) — ItemUse.EffectiveSlots로 위임.
+            if (isItem && run.Items.Count >= ItemUse.EffectiveSlots(run)) return RunEvents.Rejected("BAG_FULL");
 
             run.Coins -= entry.price;
             run.UsedCmds.Add("RUNSHOP"); // 런 끝까지 보존(StageFlow.ClearStage의 usedCmds 리셋 예외 목록)
+            if (entry.id == "prism_ink") run.PrismInkBought = true;
             if (isItem) run.Items.Add(entry.id);
             else run.Perks.Add(entry.id); // 증강/유물 구매는 즉시 영구 추가(대기 없음, §4-D)
             run.ShopOffer.RemoveAt(index); // 구매 후에도 상점 유지, 산 것만 제거(§4-D)
@@ -361,12 +390,13 @@ namespace JackpotRun.Engine
         public static List<RunEvent> Reroll(RunState run, IReadOnlyDictionary<string, long> stat)
         {
             if (run.Phase != RunPhase.EventShop) return RunEvents.Rejected("PHASE_NOT_SHOP");
-            if (run.Coins < RerollCost) return RunEvents.Rejected("INSUFFICIENT_COINS");
-            run.Coins -= RerollCost;
+            int cost = RerollCostFor(run);
+            if (run.Coins < cost) return RunEvents.Rejected("INSUFFICIENT_COINS");
+            run.Coins -= cost;
             var offer = FreshOffer(run, stat);
             run.ShopOffer.Clear();
             run.ShopOffer.AddRange(offer);
-            return RunEvents.One(new RunEvent { type = "SHOP_REROLLED", shopOffer = run.ShopOffer, coinsDelta = -RerollCost });
+            return RunEvents.One(new RunEvent { type = "SHOP_REROLLED", shopOffer = run.ShopOffer, coinsDelta = -cost });
         }
 
         public static List<RunEvent> Leave(RunState run)

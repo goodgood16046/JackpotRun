@@ -343,6 +343,7 @@ namespace JackpotRun.Engine
             growthStack = run.GrowthStack, snowStack = run.SnowStack,
             curseCount = run.Curses.Count, unluckyGauge = run.UnluckyGauge,
             boss = Bosses.For(run.Stage) != null,
+            coins = run.Coins, // 웹 파리티 P3-4 — SpinResolver.RunCtxOf와 동일(bankrupt 캐릭터).
         };
 
         private static int Clamp(int v, int lo, int hi) => v < lo ? lo : (v > hi ? hi : v);

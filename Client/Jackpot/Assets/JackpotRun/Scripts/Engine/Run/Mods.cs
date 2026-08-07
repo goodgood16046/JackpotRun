@@ -48,6 +48,18 @@ namespace JackpotRun.Engine
         public double set4ScoreMul = 1.0;
         public double perfectShapeExpMul = 1.0;
 
+        // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14) 신규 필드 ──────────────────────────
+        // phoenix_thesis(불사조논문, engine.js:111/930-933) — 요구치 50% 미만 게이트 통과 시 그 스핀
+        // EXP ×2. SpinResolver.Evaluate가 perfectShapeExpMul 직후에 곱한다.
+        public double cliffBurstExpMul = 1.0;
+        // 상점 빌드 증강(discount/thrifty/item_bag/vip, engine.js:113) — 상점/가방 화면 자체는 P4
+        // 대상이라 이 슬라이스는 필드만 채운다(소비처는 후속 슬라이스).
+        public double shopPriceMul = 1.0;
+        public double itemPriceMul = 1.0;
+        public int itemCapBonus = 0;
+        public int shopSlotBonus = 0;
+        public int shopRerollDelta = 0;
+
         // Kotlin data class copy()의 "새 Map 인스턴스" 관용구 대응 — 01_engine.md §11-8: C# Dictionary는
         // 기본 가변(mutable)이라 참조를 공유한 채 두면 한 스핀의 수정이 다른 곳에 누출된다. applyItemMods/
         // applyPassiveDevice처럼 "base 위에 오버레이"가 필요한 지점은 전부 Clone() 후 수정해야 한다.
@@ -66,6 +78,8 @@ namespace JackpotRun.Engine
                 rareBurstExpMul = rareBurstExpMul, rareBurstScoreMul = rareBurstScoreMul,
                 twoSetBonusMul = twoSetBonusMul, set3ExpMul = set3ExpMul, set4ScoreMul = set4ScoreMul,
                 perfectShapeExpMul = perfectShapeExpMul,
+                cliffBurstExpMul = cliffBurstExpMul, shopPriceMul = shopPriceMul, itemPriceMul = itemPriceMul,
+                itemCapBonus = itemCapBonus, shopSlotBonus = shopSlotBonus, shopRerollDelta = shopRerollDelta,
             };
             foreach (var kv in perSymbolExp) m.perSymbolExp[kv.Key] = kv.Value;
             foreach (var kv in tagExpBonus) m.tagExpBonus[kv.Key] = kv.Value;
@@ -90,6 +104,10 @@ namespace JackpotRun.Engine
         public int curseCount = 0;
         public int unluckyGauge = 0;
         public bool boss = false;
+        // 웹 파리티 P3-4(engine.js:136 makeCtx `coins: ctx.coins ?? 99`) — bankrupt(파산 졸업생) 캐릭터
+        // 조건부 효과(코인0=EXP+50%/코인10+=−20%)용. 기본값 99 = "충분함"과 동치라 미설정 호출부(예:
+        // ModsBuilder.Build의 ctx 생략 "1차 프리패스")에서도 안전한 무해 기본값이다.
+        public long coins = 99;
 
         public bool IsFirstSpin => spinIndex == 0;
         // Kotlin: spinsPerStage in 1..(spinIndex+1)  →  1 <= spinsPerStage <= spinIndex+1.
@@ -119,6 +137,9 @@ namespace JackpotRun.Engine
             "fortune_check", "luck_accum", "fate_burst",
             "late_focus", "cliff_focus",
             "sacrifice", "black_diploma",
+            // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14) — 신규 4종(증강2·유물2)도 curseCount/boss/
+            // quota%로 동적 계산되는 조건부 효과라 이 집합에 추가한다(sacrifice/abyss_lore 등과 동일 패턴).
+            "curse_grad", "abyss_lore", "black_grad_photo", "phoenix_thesis",
         };
 
         // ── 1.5 buildMods (Kotlin L1730-2026) ──────────────────────────────────
@@ -141,6 +162,15 @@ namespace JackpotRun.Engine
             // L1744-1745) — 이후 wmul()/wadd() 헬퍼(및 fx 해석기)가 이 위에 곱/가산으로 누적한다.
             foreach (var kv in machine.weightMul) m.symbolWeightMul[kv.Key] = kv.Value;
             foreach (var kv in machine.weightAdd) m.weightAdd[kv.Key] = kv.Value;
+
+            // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14, engine.js:164-168) — 후반 슬롯머신 특수
+            // 모드(가중치 외 효과). Machine에 fx 데이터가 없어 id별 switch로 직접 구현(캐릭터와 동일 패턴).
+            switch (machineId)
+            {
+                case "nightmare": m.skullExp += 6; break;                              // 악몽: 해골도 EXP 제공
+                case "throne": Pss(m, Sym.Crown, 40); m.expMul *= 0.9; break;           // 빈 왕좌: 왕관 점수↑·기본 EXP-10%
+                case "broke": Pse(m, Sym.Cherry, 2); Pse(m, Sym.Book, 2); Pse(m, Sym.Star, 2); m.coinMul = 0; break; // 파산: 코인 없음·값심볼 강화
+            }
 
             // ── 캐릭터 (L1755-1773) — Character에 fx 데이터가 없어 id별 switch로 직접 구현 ──
             // gambler(도박꾼)·honor(수석졸업생)는 Kotlin when-block에 케이스가 없다(01_engine.md §4 표,
@@ -168,6 +198,17 @@ namespace JackpotRun.Engine
                     break;
                 case "prodigy": m.expMul *= 1.12; break;
                 // "novice"~"prodigy" 외: gambler/honor는 케이스 없음(위 주석), 그 외 미지정 id도 무효과.
+                // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14, engine.js:188-190) — 후반 캐릭터 3종 ──
+                case "regent": // 왕의 대리인: 왕관 점수2배·등장↑·기본 EXP -10%
+                    Pss(m, Sym.Crown, 60); Wmul(m, Sym.Crown, 2.0); Wadd(m, Sym.Crown, 1.5); m.expMul *= 0.9;
+                    break;
+                case "bankrupt": // 파산 졸업생: 코인0 EXP+50%·코인10+ -20%
+                    if (ctx.coins <= 0) m.expMul *= 1.5;
+                    else if (ctx.coins >= 10) m.expMul *= 0.8;
+                    break;
+                case "abyss_scholar": // 심연 장학생: 보스 EXP+30%·일반 -10%
+                    if (ctx.boss) m.expMul *= 1.3; else m.expMul *= 0.9;
+                    break;
             }
 
             // ── 증강+유물 (perkIds 루프, L1775-1932) ──
@@ -296,6 +337,18 @@ namespace JackpotRun.Engine
                         m.scoreMul *= fx["cond.scoreMul"];
                         m.bonusSpins += (int)fx["cond.bonusSpinsDelta"];
                     }
+                    break;
+                // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14) — 신규 4종 ──
+                case "curse_grad": // scoreMul *= (1 + 0.15*curseCount) — 무조건 대입(curseCount=0이면 무영향)
+                case "black_grad_photo": // scoreMul *= (1 + 0.12*curseCount) — curse_grad와 동일 키, 값만 다름
+                    m.scoreMul *= 1.0 + fx["cond.curseScoreBase"] * ctx.curseCount;
+                    break;
+                case "abyss_lore": // if (ctx.boss) expMul *= 1.5
+                    if (ctx.boss) m.expMul *= fx["cond.bossExpMul"];
+                    break;
+                case "phoenix_thesis": // if (stage>0 && quota>0 && stageExp < quota*0.5) cliffBurstExpMul *= 2.0
+                    if (ctx.stage > 0 && ctx.quota > 0 && ctx.stageExp < (long)(ctx.quota * fx["cond.quotaPct"]))
+                        m.cliffBurstExpMul *= fx["cond.cliffBurstExpMul"];
                     break;
             }
         }
@@ -460,6 +513,13 @@ namespace JackpotRun.Engine
                 case "set3ExpMul": m.set3ExpMul *= v; break;
                 case "set4ScoreMul": m.set4ScoreMul *= v; break;
                 case "perfectShapeExpMul": m.perfectShapeExpMul *= v; break;
+                // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14) 신규 필드.
+                case "cliffBurstExpMul": m.cliffBurstExpMul *= v; break;
+                case "shopPriceMul": m.shopPriceMul *= v; break;
+                case "itemPriceMul": m.itemPriceMul *= v; break;
+                case "itemCapBonus": m.itemCapBonus += (int)v; break;
+                case "shopSlotBonus": m.shopSlotBonus += (int)v; break;
+                case "shopRerollDelta": m.shopRerollDelta += (int)v; break;
                 default: throw new InvalidOperationException($"Mods fx: 알 수 없는 필드명 '{field}'");
             }
         }

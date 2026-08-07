@@ -490,6 +490,14 @@ namespace JackpotRun.Engine
                 }
             }
 
+            // 🔥 phoenix_thesis(불사조논문) — 웹 파리티 P3-4(engine.js:930-933), perfectShapeExpMul 직후·
+            // 전역 배수 이전(specialMul 위치, 웹과 동일 순서).
+            if (mods.cliffBurstExpMul != 1.0)
+            {
+                exp *= mods.cliffBurstExpMul;
+                notes.Add($"🔥불사조 EXP ×{FmtMul(mods.cliffBurstExpMul)}");
+            }
+
             // 전역 배수 + 고정(잭팟은 아직 미포함)
             long preMulExp = Math.Max((long)exp, 0);
             exp = exp * mods.expMul + mods.flatExp;
@@ -602,6 +610,7 @@ namespace JackpotRun.Engine
             growthStack = run.GrowthStack, snowStack = run.SnowStack,
             curseCount = run.Curses.Count, unluckyGauge = run.UnluckyGauge,
             boss = Bosses.For(run.Stage) != null,
+            coins = run.Coins, // 웹 파리티 P3-4(engine.js:136 makeCtx coins) — bankrupt 캐릭터 조건부 효과용.
         };
 
         private static string CmdMarker(SpinMode mode) => mode switch

@@ -465,13 +465,14 @@ namespace JackpotRun.EngineTests
     // 않고, StatTracker가 만든 결과를 재사용 가능한 기존 함수로 독립 재확인).
     internal static class Tests_S5_SeenGateTracking
     {
-        // Shop.PerkUnlocked의 다른 통로(BasePerkIds/SchoolResearchDone/AccountLevel/Unlocks.Meets)로도
-        // 우연히 해금되지 않을 만한 고티어 퍽을 고른다 — 빈 stat이면 학교 게이트 minLevel을 넘지 못해
-        // 확실히 잠겨 있다.
+        // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #13, Shop.cs 헤더 각주) — Schools/AccountLevel 게이트가
+        // 폐기되면서 "빈 stat에서 잠긴 퍽"은 이제 unlockLevel>0인 8종(증강4·유물4)뿐이다. 이 헬퍼는 여전히
+        // "빈 stat(=Lv1)에서 잠긴 퍽 1개"를 고르는 역할이라 자연히 이 8종만 반환한다(seen_ 그랜드파더는
+        // 더 이상 없다 — 아래 각 테스트가 "seen_는 마킹되지만 잠김은 유지"로 갱신됨).
         private static Perk PickGatedPerk(IReadOnlyList<Perk> pool, IReadOnlyDictionary<string, long> emptyStat)
         {
             foreach (var p in pool)
-                if (!Schools.BasePerkIds.Contains(p.id) && !Shop.PerkUnlocked(p, emptyStat))
+                if (!Shop.PerkUnlocked(p, emptyStat))
                     return p;
             throw new InvalidOperationException("빈 stat에서도 전부 해금된 퍽 풀 — 테스트 전제 깨짐");
         }
@@ -495,7 +496,9 @@ namespace JackpotRun.EngineTests
             t.True(!Shop.PerkUnlocked(perk, profile.Stats), $"[seen-gate] {perk.id} 사전 미해금(빈 stat)");
             StatTracker.Apply(profile, run, new List<RunEvent> { new RunEvent { type = "PERK_GRANTED", perkId = perk.id } }, scratch);
             t.True(profile.GetStat("seen_" + perk.id) > 0, $"[seen-gate] PERK_GRANTED 후 seen_{perk.id} > 0");
-            t.True(Shop.PerkUnlocked(perk, profile.Stats), $"[seen-gate] PERK_GRANTED 후 {perk.id} 그랜드파더 해금됨");
+            // 웹 파리티 P3-4 — seen_ 그랜드파더는 폐기됐다(Shop.cs 헤더 각주). {perk.id}는 unlockLevel 퍽이라
+            // seen_ 마킹과 무관하게 PlayerLevel 미달이면 계속 잠긴다(레벨업 외엔 해금 수단 없음).
+            t.True(!Shop.PerkUnlocked(perk, profile.Stats), $"[seen-gate] PERK_GRANTED 후에도 {perk.id}는 여전히 잠김(그랜드파더 폐기)");
         }
 
         private static void NodeEventGrantMarksSeen(TestCtx t)
@@ -506,15 +509,18 @@ namespace JackpotRun.EngineTests
             var relic = PickGatedPerk(Perks.Relics, profile.Stats);
             var aug = PickGatedPerk(Perks.Augments, profile.Stats);
 
-            // case 7(유물 발견)
+            // case 7(유물 발견) — seen_ 마킹은 그대로 확인하되(StatTracker 책임), 웹 파리티 P3-4로
+            // 그랜드파더가 폐기돼 unlockLevel 퍽은 여전히 잠긴 채다(Shop.cs 헤더 각주).
             StatTracker.Apply(profile, run,
                 new List<RunEvent> { new RunEvent { type = "NODE_RESOLVED", node = NodeKind.Event, relicGrantedId = relic.id } }, scratch);
-            t.True(Shop.PerkUnlocked(relic, profile.Stats), $"[seen-gate] EVENT case7 유물발견 후 {relic.id} 해금됨");
+            t.True(profile.GetStat("seen_" + relic.id) > 0, $"[seen-gate] EVENT case7 유물발견 후 seen_{relic.id} > 0");
+            t.True(!Shop.PerkUnlocked(relic, profile.Stats), $"[seen-gate] EVENT case7 이후에도 {relic.id}는 여전히 잠김(그랜드파더 폐기)");
 
             // case 8(증강 발견, 25% 특별이벤트는 relicGrantedId도 함께 채워지는 케이스까지 커버하도록 augmentGrantedId만 단독 확인)
             StatTracker.Apply(profile, run,
                 new List<RunEvent> { new RunEvent { type = "NODE_RESOLVED", node = NodeKind.Event, augmentGrantedId = aug.id } }, scratch);
-            t.True(Shop.PerkUnlocked(aug, profile.Stats), $"[seen-gate] EVENT case8 증강발견 후 {aug.id} 해금됨");
+            t.True(profile.GetStat("seen_" + aug.id) > 0, $"[seen-gate] EVENT case8 증강발견 후 seen_{aug.id} > 0");
+            t.True(!Shop.PerkUnlocked(aug, profile.Stats), $"[seen-gate] EVENT case8 이후에도 {aug.id}는 여전히 잠김(그랜드파더 폐기)");
         }
 
         private static void RiskNodeDoesNotMarkSeen(TestCtx t)
@@ -542,7 +548,8 @@ namespace JackpotRun.EngineTests
             StatTracker.Apply(profile, run,
                 new List<RunEvent> { new RunEvent { type = "SHOP_PURCHASED", shopBought = new ShopEntry { kind = 'A', id = aug.id, price = 24 } } },
                 scratch);
-            t.True(Shop.PerkUnlocked(aug, profile.Stats), $"[seen-gate] 상점 증강구매 후 {aug.id} 해금됨");
+            t.True(profile.GetStat("seen_" + aug.id) > 0, $"[seen-gate] 상점 증강구매 후 seen_{aug.id} > 0");
+            t.True(!Shop.PerkUnlocked(aug, profile.Stats), $"[seen-gate] 상점 증강구매 후에도 {aug.id}는 여전히 잠김(그랜드파더 폐기, 웹 파리티 P3-4)");
 
             StatTracker.Apply(profile, run,
                 new List<RunEvent> { new RunEvent { type = "SHOP_PURCHASED", shopBought = new ShopEntry { kind = 'I', id = item.id, price = item.coinCost } } },
@@ -1166,7 +1173,12 @@ namespace JackpotRun.EngineTests
         }
     }
 
-    // ── M1 회귀: distinctCharS10 게이트를 쓰는 캐릭터 해금이 ComposeStat 경유로 정상 동작하는지 ──────
+    // ── M1 회귀 → 웹 파리티 P3-4로 갱신: prodigy는 더 이상 distinctCharS10(파생키) 게이트를 쓰지 않는다.
+    // Characters.cs가 unlockReq(StatReq AND)를 전면 폐기하고 웹 OR 5축(unlockRuns/Score/Stage/Level/Ach)
+    // 으로 교체되면서, prodigy도 data.js:161 그대로 unlockStage=9 OR unlockAch="stage10"이 됐다
+    // (distinctCharS10 파생키 자체는 AchievementEngine.ComposeStat에 여전히 남아 있지만 — Perks.cs
+    // "prodigy unlockReq가 여전히 참조" 각주는 이제 사문화됐다 — 소비처가 없는 죽은 계산일 뿐이다).
+    // 이 테스트는 그 이관이 실제로 반영됐는지(OR 두 축 각각 단독으로 충분한지) 확인한다.
     internal static class Tests_S5_CharUnlockDerivedKeyGate
     {
         public static void Run(TestCtx t)
@@ -1174,16 +1186,28 @@ namespace JackpotRun.EngineTests
             var prodigy = Array.Find(Characters.All, c => c.id == "prodigy");
             t.True(prodigy != null, "[M1] prodigy 캐릭터 존재 확인");
             if (prodigy == null) return;
+            t.Eq(9L, prodigy.unlockStage, "[M1] prodigy.unlockStage == 9 (data.js:161)");
+            t.Eq("stage10", prodigy.unlockAch, "[M1] prodigy.unlockAch == \"stage10\" (data.js:161)");
 
-            var profile = new PlayerProfile();
-            // distinctCharS10<7 — 원재료 Stats만으로는 이 키 자체가 없어 항상 미해금이어야 정상.
-            profile.Stats["cstage_novice"] = 10;
-            t.True(!profile.IsCharUnlocked(prodigy), "[M1] distinctCharS10=1(<7) — prodigy 미해금");
-
-            // distinctCharS10>=7이 되도록 서로 다른 캐릭 7명의 cstage_*를 10 이상으로.
+            // distinctCharS10(구 게이트)는 이제 prodigy 해금과 완전히 무관 — 아무리 채워도 미해금 유지.
+            var profileOld = new PlayerProfile();
             string[] ids = { "novice", "scholar", "gambler", "farmer", "parttime", "jeweler", "honor" };
-            foreach (var id in ids) profile.Stats["cstage_" + id] = 10;
-            t.True(profile.IsCharUnlocked(prodigy), "[M1] distinctCharS10=7 — ComposeStat 경유로 prodigy 해금(회귀 확인)");
+            foreach (var id in ids) profileOld.Stats["cstage_" + id] = 10;
+            t.True(!profileOld.IsCharUnlocked(prodigy), "[M1] distinctCharS10 파생키는 더 이상 prodigy를 해금하지 않음(죽은 게이트)");
+
+            // 새 OR 모델 — unlockStage 단독 충족.
+            var profileStage = new PlayerProfile();
+            profileStage.SetMax("bestStage", 9);
+            t.True(profileStage.IsCharUnlocked(prodigy), "[M1] bestStage>=9 단독으로 prodigy 해금(OR)");
+
+            // 새 OR 모델 — unlockAch 단독 충족.
+            var profileAch = new PlayerProfile();
+            profileAch.AchievedIds.Add("stage10");
+            t.True(profileAch.IsCharUnlocked(prodigy), "[M1] 업적 stage10 단독으로 prodigy 해금(OR)");
+
+            // 둘 다 미충족이면 잠김.
+            var profileLocked = new PlayerProfile();
+            t.True(!profileLocked.IsCharUnlocked(prodigy), "[M1] 두 축 모두 미충족이면 prodigy 잠김");
         }
     }
 }

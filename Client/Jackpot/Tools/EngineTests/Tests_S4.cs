@@ -58,7 +58,7 @@ namespace JackpotRun.EngineTests
         {
             FixedSeedReproducibility(t);
             EntryShapeAndPricing(t);
-            GatedPoolBaseFallback(t);
+            GatedPoolLevelGateOnly(t);
         }
 
         private static void FixedSeedReproducibility(TestCtx t)
@@ -128,27 +128,45 @@ namespace JackpotRun.EngineTests
             }
         }
 
-        // 전부 잠긴(사실상 BASE만 통과) 스탯 뷰 → gatedPool이 BasePerkIds로 폴백해야 한다(데드엔드 방지).
-        private static void GatedPoolBaseFallback(TestCtx t)
+        // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #13, Shop.cs 헤더 각주) — Schools/AccountLevel 게이트
+        // 폐기로 GatedPool은 이제 "unlockLevel 있는 8종만 PlayerLevel로 게이트, 나머지 154종은 항상 개방"
+        // 규칙이다. 구 "전부 잠기면 BasePerkIds 폴백" 데드엔드 방어 자체가 이제 도달 불가(레벨 무관하게
+        // 154종이 항상 통과하므로) — 새 규칙을 직접 검증하는 테스트로 교체.
+        private static readonly string[] LevelGatedAugIds = { "crown_burst", "curse_grad", "extreme_overload", "abyss_lore" };
+        private static readonly string[] LevelGatedRelIds = { "crown_monolith", "black_grad_photo", "last_roll", "nameless_cup" };
+
+        private static void GatedPoolLevelGateOnly(TestCtx t)
         {
-            var lockedStat = new Dictionary<string, long> { ["dummy_unrelated_key"] = 1 }; // 비어있지 않지만 아무 게이트도 못 채움
-            var gatedAug = Shop.GatedPool(Perks.Augments, lockedStat);
-            var gatedRelic = Shop.GatedPool(Perks.Relics, lockedStat);
+            // playerLevel 키가 없는(=Lv1 취급) stat — Schools 시절의 "완전히 잠긴" 뷰를 재사용하되 이제는
+            // "레벨게이트 8종만 제외"가 기대값이다.
+            var lowLevelStat = new Dictionary<string, long> { ["dummy_unrelated_key"] = 1 };
+            var gatedAug = Shop.GatedPool(Perks.Augments, lowLevelStat);
+            var gatedRelic = Shop.GatedPool(Perks.Relics, lowLevelStat);
 
-            t.True(gatedAug.Count > 0, "[gated-fallback] 증강 폴백 결과 비어있지 않음");
-            t.True(gatedAug.All(p => Schools.BasePerkIds.Contains(p.id)), "[gated-fallback] 증강 폴백 = BasePerkIds만");
-            t.True(gatedRelic.Count > 0, "[gated-fallback] 유물 폴백 결과 비어있지 않음");
-            t.True(gatedRelic.All(p => Schools.BasePerkIds.Contains(p.id)), "[gated-fallback] 유물 폴백 = BasePerkIds만");
+            t.Eq(Perks.Augments.Length - LevelGatedAugIds.Length, gatedAug.Count, "[level-gate] Lv1: 증강 풀 = 전체-레벨게이트4");
+            t.Eq(Perks.Relics.Length - LevelGatedRelIds.Length, gatedRelic.Count, "[level-gate] Lv1: 유물 풀 = 전체-레벨게이트4");
+            foreach (var id in LevelGatedAugIds)
+                t.True(!gatedAug.Any(p => p.id == id), $"[level-gate] Lv1: 증강 {id}는 제외됨");
+            foreach (var id in LevelGatedRelIds)
+                t.True(!gatedRelic.Any(p => p.id == id), $"[level-gate] Lv1: 유물 {id}는 제외됨");
+            // 구 Schools 전용게이트였던 퍽(overdrive 등)은 이제 레벨 무관하게 항상 통과해야 한다.
+            t.True(gatedAug.Any(p => p.id == "overdrive"), "[level-gate] 구 Schools 게이트 퍽(overdrive)도 항상 개방");
 
-            // pickAugments/pickRelics도 폴백 풀 안에서만 뽑아야 한다.
+            // PlayerLevel 충분(20) → 전체 풀 그대로.
+            var highLevelStat = new Dictionary<string, long> { ["playerLevel"] = 20 };
+            var gatedAugHigh = Shop.GatedPool(Perks.Augments, highLevelStat);
+            var gatedRelicHigh = Shop.GatedPool(Perks.Relics, highLevelStat);
+            t.Eq(Perks.Augments.Length, gatedAugHigh.Count, "[level-gate] Lv20: 증강 풀 = 전체(레벨게이트 전부 통과)");
+            t.Eq(Perks.Relics.Length, gatedRelicHigh.Count, "[level-gate] Lv20: 유물 풀 = 전체(레벨게이트 전부 통과)");
+
+            // pickAugments도 Lv1에서는 레벨게이트 4종을 절대 뽑지 않는다.
             var rng = new Rng(555L);
-            var picks = Shop.PickAugments(rng, 5, new HashSet<string>(), 4, lockedStat);
-            t.True(picks.Count > 0, "[gated-fallback] pickAugments도 폴백 풀에서 결과를 낸다");
-            t.True(picks.All(p => Schools.BasePerkIds.Contains(p.id)), "[gated-fallback] pickAugments 결과 전부 BasePerkIds");
+            var picks = Shop.PickAugments(rng, 5, new HashSet<string>(), 40, lowLevelStat);
+            t.True(picks.All(p => !LevelGatedAugIds.Contains(p.id)), "[level-gate] pickAugments Lv1: 레벨게이트 4종 미출현");
 
-            // 완전 빈 맵(null과 동치)은 무필터 — Kotlin stat.isEmpty() 분기.
+            // 완전 빈 맵(null과 동치)은 무필터 — 기존 Kotlin stat.isEmpty() 분기 그대로 유지.
             var unfiltered = Shop.GatedPool(Perks.Augments, new Dictionary<string, long>());
-            t.Eq(Perks.Augments.Length, unfiltered.Count, "[gated-fallback] 빈 스탯맵 = 무필터(원본 그대로)");
+            t.Eq(Perks.Augments.Length, unfiltered.Count, "[level-gate] 빈 스탯맵 = 무필터(원본 그대로)");
         }
     }
 
@@ -724,23 +742,21 @@ namespace JackpotRun.EngineTests
 
     // ── Opus 회귀 보강 ② Retake 풀 소진 경로 — 코인·RETAKE 마커 롤백 + RETAKE_EMPTY ─────────────────
     // NodeEvents.Retake의 "Kotlin L1364-1369: spent 사본은 offerPerks가 null이면 upsert되지 않고
-    // 버려진다 → 코인·RETAKE 마커 원복" 주석대로 구현됐는지 확인한다. GatedPoolBaseFallback 테스트와
-    // 동일한 패턴(잠긴 stat + held로 폴백 풀까지 고갈)으로 pickPerksByTier가 빈 리스트를 반환하게 만든다.
+    // 버려진다 → 코인·RETAKE 마커 원복" 주석대로 구현됐는지 확인한다. 웹 파리티 P3-4로 Schools 기반
+    // "BasePerkIds 폴백" 개념 자체가 없어졌으므로(Shop.cs 헤더 각주 — 154종은 항상 개방), 이 테스트는
+    // "보유(held)로 avail을 진짜 0으로 만드는" 직접적인 방법으로 소진을 재현한다(레벨게이트 무관하게
+    // 성립 — 전체 89종을 다 보유하면 어떤 게이트 규칙이든 avail=0).
     internal static class Tests_S4_RetakeExhaustion
     {
         public static void Run(TestCtx t)
         {
-            var lockedStat = new Dictionary<string, long> { ["dummy_unrelated_key"] = 1 }; // BASE_PERK_IDS만 폴백
+            var lockedStat = new Dictionary<string, long> { ["dummy_unrelated_key"] = 1 };
             var run = S4TestHelpers.NewRun(5005L);
             run.Phase = RunPhase.EventAugment;
             run.Device = "dev_retake";
             run.Coins = 50;
-            // gatedPool 폴백 풀(BasePerkIds 중 증강 10종) 전부를 이미 보유시켜 avail을 완전히 고갈시킨다.
-            foreach (var id in Schools.BasePerkIds)
-            {
-                var p = Perks.ById(id);
-                if (p != null && p.cat == PCat.AUGMENT) run.Perks.Add(id);
-            }
+            // 증강 89종 전부를 이미 보유시켜 avail을 완전히 고갈시킨다(게이트 규칙과 무관하게 0을 보장).
+            foreach (var p in Perks.Augments) run.Perks.Add(p.id);
 
             long coinsBefore = run.Coins;
             var ev = NodeEvents.Retake(run, lockedStat);
@@ -1503,32 +1519,31 @@ namespace JackpotRun.EngineTests
         }
     }
 
-    // ── S16 §A 신규 — 증강/유물 오퍼 티어 풀 소진 폴백(Shop.PickPerksByTier) ────────────────────────
-    // 원인: BasePerkIds 22종(증강10+유물12)이 전부 SILVER인데, 클리어 스테이지 %3==0이면
-    // Formulas.TierForClearedStage가 GOLD를 강제한다. 신규 프로필처럼 GatedPool이 BASE로만 폴백되는
-    // 상황에서는 강제 티어의 tierPool이 항상 비어 오퍼 전체가 빈 리스트가 되고, NodeEvents.ChooseNode가
-    // 조용히 EVENT 테이블로 대체하던 문제를 Shop.PickPerksByTier의 잔여 후보 전체 폴백으로 고쳤다
-    // (ENGINE_PORT_DESIGN.md S16 §A). 세 가지를 검증: ①증강 노드 티어 폴백 → PERK_OFFER(전원
-    // BASE·SILVER) ②유물 노드 동일 패턴 ③전 풀 소진(BASE 전부 보유)은 여전히 기존대로 EVENT 폴백
-    // (PERK_OFFER 아님).
+    // ── S16 §A / 웹 파리티 P3-4 갱신 — 증강/유물 오퍼 티어 풀 소진 폴백(Shop.PickPerksByTier) ─────────
+    // 원래(S16 §A) 재현 경로는 Schools 기반 "BasePerkIds(전부 SILVER)로만 폴백된 게이트 풀"이었다 —
+    // 웹 파리티 P3-4로 그 게이트 모델 자체가 폐기돼(154종 항상 개방, Shop.cs 헤더 각주) 더는 재현할
+    // 수 없다. `PickPerksByTier`의 폴백 로직 자체("강제 티어 풀에 unheld 후보가 없으면 avail 전체로
+    // 대체", Shop.cs `if (!tierPool.Any(...)) tierPool = avail;`)는 게이트와 무관한 범용 메커니즘이라,
+    // 이제는 "보유(held)로 그 티어를 완전히 고갈시키는" 방식으로 동일 코드 경로를 검증한다.
     internal static class Tests_S4_TierPoolFallback
     {
         public static void Run(TestCtx t)
         {
-            TierFallbackOffersBaseOnly(t, "AUGMENT", NodeKind.Augment, seedBase: 8_000_000L);
-            TierFallbackOffersBaseOnly(t, "RELIC", NodeKind.Relic, seedBase: 8_100_000L);
+            TierFallbackViaHeldExhaustion(t, "AUGMENT", NodeKind.Augment, Perks.Augments, seedBase: 8_000_000L);
+            TierFallbackViaHeldExhaustion(t, "RELIC", NodeKind.Relic, Perks.Relics, seedBase: 8_100_000L);
             FullPoolExhaustionStillFallsBackToEvent(t);
         }
 
-        // 잠긴 stat(GatedPool이 BASE로만 폴백) + clearedStage=3(%3==0 → baseTier GOLD 강제) 조합에서는
-        // BASE 풀에 GOLD가 하나도 없어(전부 SILVER) 강제 티어 풀이 비게 된다 — 고친 폴백이 없다면 오퍼가
-        // 통째로 비어 EVENT로 샜을 상황. OfferPerks의 "10% 행운 등급업"(GOLD→PRISM)이 걸리면 PRISM 분기
-        // (기존 rawPool 폴백, Shop.cs L245-246)로 갈라져 이 테스트의 취지(GOLD 강제 폴백)와 무관해지므로,
-        // 등급업이 걸리지 않은 시드만 골라 검증한다 — Rng는 결정론적이라 이 탐색 루프도 항상 같은 결과를
-        // 낸다(재현성 훼손 없음).
-        private static void TierFallbackOffersBaseOnly(TestCtx t, string label, NodeKind node, long seedBase)
+        // GOLD 티어를 통째로 보유시켜(clearedStage=3 → baseTier=GOLD 강제, Formulas.TierForClearedStage)
+        // "강제 티어의 tierPool에 unheld 후보가 0"인 상황을 재현한다 — 폴백이 없다면 오퍼가 통째로 비어
+        // EVENT로 샜을 상황. OfferPerks의 "10% 행운 등급업"(GOLD→PRISM)이 걸리면 이 테스트 취지와
+        // 무관한 분기로 갈라지므로, 등급업이 걸리지 않은 시드만 골라 검증한다(Rng 결정론이라 재현 가능).
+        private static void TierFallbackViaHeldExhaustion(TestCtx t, string label, NodeKind node, Perk[] pool, long seedBase)
         {
-            var lockedStat = new Dictionary<string, long> { ["dummy_unrelated_key"] = 1 };
+            var stat = new Dictionary<string, long> { ["playerLevel"] = 20 }; // 레벨게이트 무관하게 하기 위해 전체 개방
+            var goldIds = pool.Where(p => p.tier == Tier.GOLD).Select(p => p.id).ToList();
+            t.True(goldIds.Count > 0, $"[tier-fallback:{label}] GOLD 후보 존재");
+
             RunState foundRun = null;
             RunEvent foundEv = null;
 
@@ -1538,8 +1553,9 @@ namespace JackpotRun.EngineTests
                 run.Phase = RunPhase.NodeSelect;
                 run.Stage = 4; // clearedStage=3 → baseTier=GOLD 강제(%3==0)
                 run.NodeOptions.Add(node);
+                run.Perks.AddRange(goldIds); // GOLD 전량 보유 → 강제 티어 풀이 unheld 기준 0
 
-                var ev = NodeEvents.ChooseNode(run, 0, lockedStat);
+                var ev = NodeEvents.ChooseNode(run, 0, stat);
                 if (ev[0].type == "PERK_OFFER" && !ev[0].offerTierBumped)
                 {
                     foundRun = run;
@@ -1551,31 +1567,27 @@ namespace JackpotRun.EngineTests
             t.True(foundRun != null, $"[tier-fallback:{label}] 10% 등급업 안 걸리는 시드를 200개 내에서 확보");
             if (foundRun == null) return;
 
-            t.Eq("PERK_OFFER", foundEv.type, $"[tier-fallback:{label}] 티어 풀 소진에도 EVENT 아닌 PERK_OFFER");
+            t.Eq("PERK_OFFER", foundEv.type, $"[tier-fallback:{label}] GOLD 풀 소진에도 EVENT 아닌 PERK_OFFER");
             t.True(foundRun.PerkOfferIds.Count >= 1, $"[tier-fallback:{label}] 오퍼 최소 1건");
-            t.True(foundRun.PerkOfferIds.All(id => Schools.BasePerkIds.Contains(id)),
-                $"[tier-fallback:{label}] 오퍼 전원이 BasePerkIds 소속(잔여 후보 폴백 풀)");
-            t.True(foundRun.PerkOfferIds.All(id => Perks.ById(id)?.tier == Tier.SILVER),
-                $"[tier-fallback:{label}] 오퍼 전원이 SILVER(BasePerkIds는 전부 SILVER — GOLD 강제 티어를 무시하고 폴백됨)");
+            t.True(foundRun.PerkOfferIds.All(id => !goldIds.Contains(id)),
+                $"[tier-fallback:{label}] 오퍼 전원이 GOLD 보유분과 무관(잔여 후보 폴백 풀에서 옴)");
+            t.True(foundRun.PerkOfferIds.All(id => Perks.ById(id)?.tier != Tier.GOLD),
+                $"[tier-fallback:{label}] 오퍼에 GOLD 없음(GOLD 전량 보유 — 폴백은 SILVER/PRISM 잔여에서만 채움)");
         }
 
-        // avail 자체가 고갈(BASE 증강 전부 보유)되면 PickPerksByTier가 즉시 빈 리스트를 반환하는 기존
-        // 조기 반환 경로(avail.Count==0, Shop.cs L196)는 이번 수정과 무관하게 보존된다 — ChooseNode가
+        // avail 자체가 고갈(증강 89종 전부 보유)되면 PickPerksByTier가 즉시 빈 리스트를 반환하는 기존
+        // 조기 반환 경로(avail.Count==0, Shop.cs)는 게이트 모델 변경과 무관하게 보존된다 — ChooseNode가
         // 여전히 EVENT 테이블로 폴백(NODE_RESOLVED, PERK_OFFER 아님)하는지 확인.
         private static void FullPoolExhaustionStillFallsBackToEvent(TestCtx t)
         {
-            var lockedStat = new Dictionary<string, long> { ["dummy_unrelated_key"] = 1 };
+            var stat = new Dictionary<string, long> { ["playerLevel"] = 20 };
             var run = S4TestHelpers.NewRun(8_200_000L);
             run.Phase = RunPhase.NodeSelect;
             run.Stage = 4;
             run.NodeOptions.Add(NodeKind.Augment);
-            foreach (var id in Schools.BasePerkIds)
-            {
-                var p = Perks.ById(id);
-                if (p != null && p.cat == PCat.AUGMENT) run.Perks.Add(id);
-            }
+            foreach (var p in Perks.Augments) run.Perks.Add(p.id);
 
-            var ev = NodeEvents.ChooseNode(run, 0, lockedStat);
+            var ev = NodeEvents.ChooseNode(run, 0, stat);
             t.Eq("NODE_RESOLVED", ev[0].type, "[tier-fallback:exhausted] 전 풀 소진 → 기존대로 EVENT 테이블 폴백");
             t.Eq(NodeKind.Event, ev[0].node, "[tier-fallback:exhausted] node 필드 = Event(공용 EVENT 테이블 경유)");
             t.Eq(RunPhase.Spin, run.Phase, "[tier-fallback:exhausted] Phase → Spin");

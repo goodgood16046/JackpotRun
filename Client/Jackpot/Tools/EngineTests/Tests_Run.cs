@@ -103,7 +103,8 @@ namespace JackpotRun.EngineTests
         //   centerExpMul = 2.0 (center)
         //   clearCoinBonus = -1 (sacrifice, 무조건)
         //   quotaMul = 0.92(novice) × 1.10(hard_exam curse) = 1.012
-        //   scoreMul = 1.0 × 1.20(hard_exam curse) = 1.20
+        //   scoreMul = 1.0 (웹 파리티 P3-4: hard_exam은 패널티 전용화로 scoreMul 보너스가 삭제됨 — 요구치
+        //   +10%만 남는다, Perks.cs 저주 헤더 각주)
         private static void RepresentativePerks(TestCtx t)
         {
             var perks = new List<string> { "study", "cherry_up", "center", "overdrive", "sacrifice" };
@@ -116,7 +117,7 @@ namespace JackpotRun.EngineTests
             t.EqTol(2.0, m.centerExpMul, "[mods5] centerExpMul=2.0(center)");
             t.Eq(-1, m.clearCoinBonus, "[mods5] clearCoinBonus=-1(sacrifice, 무조건)");
             t.EqTol(1.012, m.quotaMul, "[mods5] quotaMul=novice×hard_exam");
-            t.EqTol(1.20, m.scoreMul, "[mods5] scoreMul=hard_exam");
+            t.EqTol(1.0, m.scoreMul, "[mods5] scoreMul=hard_exam(구 ×1.20 보너스 폐기, 웹 파리티 P3-4)");
 
             // sacrifice의 expMul 기여는 curseCount에 비례 — curseCount=0이면 배수 1.0(무효과)이어야 함.
             var ctx0 = new RunCtx { curseCount = 0 };
@@ -172,15 +173,17 @@ namespace JackpotRun.EngineTests
             t.EqTol(1.1, mEarly.expMul, "[char] daredevil 첫스핀(막스핀도 남은≤2도 아님) → expMul=1.1만");
 
             // cultist: 퍽루프에서 skullExp+=3, 저주 2개(hard_exam+frugal_vow) + 후처리 scoreMul×(1+0.08×2).
-            // 손계산: quotaMul = 1.0×1.10(hard_exam)×0.88(frugal_vow) = 0.968
+            // 웹 파리티 P3-4(Perks.cs 저주 헤더 각주) — hard_exam/frugal_vow 둘 다 패널티 전용화되어
+            // frugal_vow의 quotaMul 보너스(구 0.88)·hard_exam의 scoreMul 보너스(구 1.20)가 삭제됐다.
+            // 손계산: quotaMul = 1.0×1.10(hard_exam, frugal_vow는 quotaMul 없음) = 1.10
             //         coinMul = 1.0×0.6(frugal_vow) = 0.6
-            //         scoreMul = 1.0×1.20(hard_exam) × (1+0.08×2)=1.16(후처리) = 1.392
+            //         scoreMul = 1.0(hard_exam 보너스 없음) × (1+0.08×2)=1.16(후처리) = 1.16
             var curses2 = new List<string> { "hard_exam", "frugal_vow" };
             var mCultist = ModsBuilder.Build("basic", "cultist", none, curses2, "");
             t.Eq(3, mCultist.skullExp, "[char] cultist skullExp=3");
-            t.EqTol(0.968, mCultist.quotaMul, "[char] cultist quotaMul=hard_exam×frugal_vow");
+            t.EqTol(1.10, mCultist.quotaMul, "[char] cultist quotaMul=hard_exam(frugal_vow quotaMul 보너스 폐기)");
             t.EqTol(0.6, mCultist.coinMul, "[char] cultist coinMul=frugal_vow");
-            t.EqTol(1.392, mCultist.scoreMul, "[char] cultist scoreMul=hard_exam×후처리(1+0.08×2)");
+            t.EqTol(1.16, mCultist.scoreMul, "[char] cultist scoreMul=후처리(1+0.08×2)(hard_exam scoreMul 보너스 폐기)");
 
             // gambler/honor — buildMods when-block에 케이스 없음(01_engine.md §4 표, 부록A-3) → 완전 무효과.
             var mGambler = ModsBuilder.Build("basic", "gambler", none, none, "");

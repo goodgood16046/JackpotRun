@@ -56,11 +56,12 @@ namespace JackpotRun.EngineTests
         // key/dice, weight=0)을 실제로 풀에 등장시키는 유일한 경로(§01_engine.md 부록, weightAdd.* 주석).
         private static void WeightAdd(TestCtx t)
         {
-            // 단일 소스: cursed_skulls(저주) — weightAdd.skull=4.0·flatExp=-4·skullExp=8 (Perks.cs 저주 L645).
+            // 단일 소스: cursed_skulls(저주) — 웹 파리티 P3-4(Perks.cs 저주 헤더 각주)로 패널티 전용화되어
+            // weightAdd.skull=4.0·flatExp=-4만 남았다(구 skullExp=8 보너스는 삭제 — 저주는 이득이 없다).
             var mCurse = ModsBuilder.Build("basic", "", new List<string>(), new List<string> { "cursed_skulls" }, "");
             t.EqTol(4.0, mCurse.weightAdd.TryGetValue(Sym.Skull, out var wa1) ? wa1 : 0.0, "[wadd] cursed_skulls: weightAdd[skull]=4.0");
             t.Eq(-4, mCurse.flatExp, "[wadd] cursed_skulls: flatExp=-4");
-            t.Eq(8, mCurse.skullExp, "[wadd] cursed_skulls: skullExp=8");
+            t.Eq(0, mCurse.skullExp, "[wadd] cursed_skulls: skullExp=0(구 +8 보너스 폐기, 웹 파리티 P3-4)");
 
             // 누적: seed_garden(weightAdd.seed=5.0) + great_harvest(weightAdd.seed=5.0·perSymbolExp.cherry=3)
             // → weightAdd[seed]=10.0(가산 누적), perSymbolExp[cherry]=3(great_harvest만 기여).
@@ -77,12 +78,13 @@ namespace JackpotRun.EngineTests
             t.Eq(7, m.tagExpBonus.TryGetValue("학습", out var teb) ? teb : 0, "[tagExp] study_tag+library: tagExpBonus[학습]=4+3=7");
             t.Eq(4, m.perSymbolExp.TryGetValue(Sym.Book, out var pse) ? pse : 0, "[tagExp] library: perSymbolExp[book]=4");
 
-            // 다른 태그 계열: thorny_path(저주) — tagExpBonus.저주=6·weightAdd.skull=3.0·skullExp=-5·clearCoinBonus=4.
+            // 다른 태그 계열: thorny_path(저주) — 웹 파리티 P3-4로 패널티 전용화되어 weightAdd.skull=3.0·
+            // skullExp=-5만 남았다(구 tagExpBonus.저주=6·clearCoinBonus=4 보너스는 삭제).
             var mCurse = ModsBuilder.Build("basic", "", new List<string>(), new List<string> { "thorny_path" }, "");
-            t.Eq(6, mCurse.tagExpBonus.TryGetValue("저주", out var teb2) ? teb2 : 0, "[tagExp] thorny_path: tagExpBonus[저주]=6");
+            t.Eq(0, mCurse.tagExpBonus.TryGetValue("저주", out var teb2) ? teb2 : 0, "[tagExp] thorny_path: tagExpBonus[저주]=0(구 +6 보너스 폐기)");
             t.EqTol(3.0, mCurse.weightAdd.TryGetValue(Sym.Skull, out var wa) ? wa : 0.0, "[tagExp] thorny_path: weightAdd[skull]=3.0(부수)");
             t.Eq(-5, mCurse.skullExp, "[tagExp] thorny_path: skullExp=-5");
-            t.Eq(4, mCurse.clearCoinBonus, "[tagExp] thorny_path: clearCoinBonus=4");
+            t.Eq(0, mCurse.clearCoinBonus, "[tagExp] thorny_path: clearCoinBonus=0(구 +4 보너스 폐기)");
         }
 
         // perSymbolScore — pss 헬퍼(Mods.cs L390-391), perSymbolExp와 동일한 누적 규칙의 별도 딕셔너리.

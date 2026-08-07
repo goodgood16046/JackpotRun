@@ -78,7 +78,20 @@ namespace JackpotRun.UI2
             Instance = this;
             DontDestroyOnLoad(gameObject);
             Profile = ProfileStore.Load();
+            RefreshLevelDevices();
             BuildFadeCanvas();
+        }
+
+        // 웹 파리티 P3-4 Opus 2차검수 필수② — 웹 game.js:179 `this.profile = this._loadProfile();
+        // this._grantLevelDevices();`(Game 생성자) 대응. GameSession도 자기 생성자에서 동일 호출을
+        // 하지만(GameSession.cs) 그건 "런 시작" 시점이라, Pick/Dex 화면이 참조하는 AppRoot.Profile은
+        // 그때까지 1런(런 시작 전까지) 지연되는 문제가 있었다 — 프로필을 새로 읽는 두 지점(Awake·
+        // EndRun) 모두에서 즉시 반영한다. 지급이 실제로 있었을 때만 저장(무변경 시 디스크 쓰기 생략).
+        private void RefreshLevelDevices()
+        {
+            if (Profile == null) return;
+            var got = Profile.GrantLevelDevices();
+            if (got.Count > 0) ProfileStore.Save(Profile);
         }
 
         private void OnDestroy()
@@ -183,6 +196,7 @@ namespace JackpotRun.UI2
             if (_transitioning) return;
             Session = null;
             Profile = ProfileStore.Load();
+            RefreshLevelDevices();
             StartCoroutine(TransitionToScene(IntroSceneName));
         }
 

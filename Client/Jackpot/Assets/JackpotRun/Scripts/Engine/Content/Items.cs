@@ -12,7 +12,7 @@ namespace JackpotRun.Engine
     // applyCellOps 소관, INSTANT 23종 전부는 "엔진 미구현·서비스 처리")은 fx를 빈 딕셔너리로 둔다 — 원본에 수치가 없다.
     public static class Items
     {
-        public const int Count = 73;
+        public const int Count = 78;
 
         public static readonly ItemDef[] All =
         {
@@ -457,6 +457,41 @@ namespace JackpotRun.Engine
             {
                 id = "broken_prism", name = "깨진프리즘", emoji = "🔮", desc = "이번 스테이지 랜덤 프리즘 증강효과 1개",
                 kind = "INSTANT", coinCost = 22,
+                fx = new System.Collections.Generic.Dictionary<string, double>(),
+            },
+            // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #12/#14, data.js:765-770) — 증강 레벨업 상점
+            // 상품 5종. 전부 INSTANT·엔진 fx 없음(ItemUse.ApplyItemPurchase가 game.js:1368-1372 그대로
+            // 직접 처리 — study_note/gold_marker=AugLevels.LevelableHeld 최저레벨 강화, aug_catalyst=
+            // RunState.AugLevelBoost 가산, prism_ink=RunState.PrismInkActive 플래그, overcharge=
+            // PendingNextExpMul·Score 직접 조작).
+            new ItemDef
+            {
+                id = "study_note", name = "강화노트", emoji = "📓", desc = "보유 증강 중 가장 낮은 레벨 1개를 즉시 레벨업",
+                kind = "INSTANT", coinCost = 18,
+                fx = new System.Collections.Generic.Dictionary<string, double>(),
+            },
+            new ItemDef
+            {
+                id = "aug_catalyst", name = "증강촉매", emoji = "🧪", desc = "다음 증강 레벨업 발생 확률 +15%",
+                kind = "INSTANT", coinCost = 12,
+                fx = new System.Collections.Generic.Dictionary<string, double>(),
+            },
+            new ItemDef
+            {
+                id = "gold_marker", name = "골드형광펜", emoji = "📙", desc = "보유 골드 증강 1개를 즉시 레벨업",
+                kind = "INSTANT", coinCost = 30,
+                fx = new System.Collections.Generic.Dictionary<string, double>(),
+            },
+            new ItemDef
+            {
+                id = "prism_ink", name = "프리즘잉크", emoji = "💧", desc = "다음 증강 선택을 프리즘 등급으로 (런당 1회 구매)",
+                kind = "INSTANT", coinCost = 35,
+                fx = new System.Collections.Generic.Dictionary<string, double>(),
+            },
+            new ItemDef
+            {
+                id = "overcharge", name = "과충전배터리", emoji = "⚡", desc = "다음 스핀 EXP +50% · 점수 -200 (고위험)",
+                kind = "INSTANT", coinCost = 26,
                 fx = new System.Collections.Generic.Dictionary<string, double>(),
             },
         };

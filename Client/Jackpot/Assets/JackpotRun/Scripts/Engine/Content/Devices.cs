@@ -31,7 +31,7 @@ namespace JackpotRun.Engine
     // OwnedDevices 소속 여부만 보므로(IsDeviceUnlocked 각주) 별도 코드 변경 없이 안전하게 동작한다.
     public static class Devices
     {
-        public const int Count = 16;
+        public const int Count = 19;
 
         public static readonly DeviceDef[] All =
         {
@@ -114,6 +114,32 @@ namespace JackpotRun.Engine
                 id = "dev_bell", name = "비상졸업벨", emoji = "🔔", desc = "부족 EXP ≤25면 즉시 클리어 (1회 파괴)",
                 kind = "INSTANT", rare = true, unlockAch = "runs20", // 웹 ACH_DEVICE_REWARD: runs20→dev_bell
                 fx = new Dictionary<string, double>(),
+            },
+
+            // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #9/#14, data.js:212-214) — 후반 장치 3종.
+            // 업적이 아니라 PlayerProfile.LevelDeviceReward(레벨14/18/22)로 자동 지급된다(unlockAch="",
+            // 웹 game.js:172 LEVEL_DEVICE_REWARD/246-254 _grantLevelDevices 그대로). fx는 engine.js:508-510
+            // applyPassiveDevice 그대로(전부 PASSIVE, 스칼라 필드만이라 기존 ApplyScalarFx 해석기로 충분).
+            new DeviceDef
+            {
+                id = "dev_reaper", name = "사신의 낫", emoji = "⚰️",
+                desc = "☠해골이 EXP +10 (해골 빌드 코어) · Lv.14 지급",
+                kind = "PASSIVE", rare = true, unlockAch = "",
+                fx = new Dictionary<string, double> { ["skullExp"] = 10 },
+            },
+            new DeviceDef
+            {
+                id = "dev_abyss", name = "심연 코어", emoji = "🌌",
+                desc = "모든 스핀 EXP +35% · 점수 -10% · Lv.18 지급",
+                kind = "PASSIVE", rare = true, unlockAch = "",
+                fx = new Dictionary<string, double> { ["expMul"] = 1.35, ["scoreMul"] = 0.9 },
+            },
+            new DeviceDef
+            {
+                id = "dev_reactor", name = "과부하 리액터", emoji = "⚡",
+                desc = "모든 스핀 EXP +40% · 요구 EXP +15% · Lv.22 지급",
+                kind = "PASSIVE", rare = true, unlockAch = "",
+                fx = new Dictionary<string, double> { ["expMul"] = 1.4, ["quotaMul"] = 1.15 },
             },
 
             // ── P7 증강 보조 계열 — 웹에 없는 Unity 전용 드랍 전용 장치. 업적 해금 없음, 런 중 장치

@@ -39,7 +39,7 @@ namespace JackpotRun.UI2
             bool firstShow = !gameObject.activeSelf;
             gameObject.SetActive(true);
             // S8 항목⑤: 🎒(astral)는 렌더링되지 않는다 — 한글 라벨만 사용.
-            if (titleText != null) titleText.text = $"가방 ({run.Items.Count}/{ItemUse.ItemSlots})";
+            if (titleText != null) titleText.text = $"가방 ({run.Items.Count}/{ItemUse.EffectiveSlots(run)})";
             if (emptyText != null) emptyText.gameObject.SetActive(run.Items.Count == 0);
 
             BuildRows(run, onUse);

@@ -39,8 +39,8 @@ namespace JackpotRun.Engine
     // BASE_PERK_IDS 22종은 원본처럼 school = ""(빈 게이트라 전공 개념 자체가 없음).
     public static class Perks
     {
-        public const int AugmentCount = 80;
-        public const int RelicCount = 61;
+        public const int AugmentCount = 89;
+        public const int RelicCount = 73;
         public const int CurseCount = 16;
 
         // ── 증강 80종 (L383-481) ────────────────────────────────────────────
@@ -567,6 +567,74 @@ namespace JackpotRun.Engine
                     ["cond.bonusSpinsDelta"] = -1,
                 },
             },
+            // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14, data.js:247-337) — 신규 9종 ──
+            // 상점 빌드 4종(discount/thrifty/item_bag/vip, engine.js:204-208) — 상점/가방 시스템 자체는
+            // Unity P4(화면 흐름 웹화) 대상이라 이 슬라이스에선 Mods 필드만 채워 넣는다(fx 데이터 완비).
+            new Perk
+            {
+                id = "discount", emoji = "🏷️", name = "할인감각", tier = Tier.SILVER, cat = PCat.AUGMENT, price = 0,
+                desc = "상점 가격 -10%",
+                fx = new Dictionary<string, double> { ["shopPriceMul"] = 0.9 },
+            },
+            new Perk
+            {
+                id = "thrifty", emoji = "🛍️", name = "알뜰구매", tier = Tier.SILVER, cat = PCat.AUGMENT, price = 0,
+                desc = "상점 아이템 가격 -20%",
+                fx = new Dictionary<string, double> { ["itemPriceMul"] = 0.8 },
+            },
+            new Perk
+            {
+                id = "item_bag", emoji = "🎒", name = "아이템가방", tier = Tier.SILVER, cat = PCat.AUGMENT, price = 0,
+                desc = "아이템 보유칸 +1",
+                fx = new Dictionary<string, double> { ["itemCapBonus"] = 1 },
+            },
+            new Perk
+            {
+                id = "vip", emoji = "💳", name = "VIP 회원", tier = Tier.GOLD, cat = PCat.AUGMENT, price = 0,
+                desc = "상점 상품칸 +1·새로고침 비용 -2",
+                fx = new Dictionary<string, double> { ["shopSlotBonus"] = 1, ["shopRerollDelta"] = -2 },
+            },
+            // refund(환불 정책) — buildMods에 case가 없다(engine.js 전수 확인, "keep" 판정은 game.js
+            // useItem이 r.perks.includes("refund")로 직접 검사 — ItemUse.Use가 동일하게 처리). fx는
+            // 의도적으로 빈 딕셔너리(fate_bell과 동일한 "서비스가 별도 처리" 패턴).
+            new Perk
+            {
+                id = "refund", emoji = "🧾", name = "환불 정책", tier = Tier.GOLD, cat = PCat.AUGMENT, price = 0,
+                desc = "아이템 사용 시 30% 확률로 사라지지 않음",
+                fx = new Dictionary<string, double>(),
+            },
+            // 후반(심연) 증강 4종(unlockLevel, engine.js:301-304) — abyss_lore/curse_grad는 ctx 조건부
+            // (ModsBuilder.CtxConditionalIds에 추가 필요 — cond.* 접두 규약).
+            new Perk
+            {
+                id = "crown_burst", emoji = "👑", name = "왕관 폭발", tier = Tier.PRISM, cat = PCat.AUGMENT, price = 0,
+                desc = "👑왕관 점수 +100·대량 등장", unlockLevel = 10,
+                fx = new Dictionary<string, double>
+                {
+                    ["perSymbolScore.crown"] = 100, ["symbolWeightMul.crown"] = 2.5, ["weightAdd.crown"] = 2.0,
+                },
+            },
+            new Perk
+            {
+                id = "curse_grad", emoji = "🎓", name = "저주 대학원", tier = Tier.PRISM, cat = PCat.AUGMENT, price = 0,
+                desc = "저주 1개당 점수 +15%", unlockLevel = 12,
+                // Kotlin(웹): scoreMul *= (1 + 0.15 * ctx.curseCount) — 조건 없는 대입이지만 curseCount에
+                // 동적으로 의존하므로 다른 cond.curse* 계열(sacrifice/black_diploma)과 동일하게 취급.
+                fx = new Dictionary<string, double> { ["cond.curseScoreBase"] = 0.15 },
+            },
+            new Perk
+            {
+                id = "extreme_overload", emoji = "⚡", name = "극한 과부하", tier = Tier.PRISM, cat = PCat.AUGMENT, price = 0,
+                desc = "모든 EXP +90% · 요구 EXP +30% (고위험)", unlockLevel = 15,
+                fx = new Dictionary<string, double> { ["expMul"] = 1.9, ["quotaMul"] = 1.3 },
+            },
+            new Perk
+            {
+                id = "abyss_lore", emoji = "🌌", name = "심연 지식", tier = Tier.PRISM, cat = PCat.AUGMENT, price = 0,
+                desc = "보스 스테이지 EXP +50% (보스 특화)", unlockLevel = 16,
+                // Kotlin(웹): if (ctx.boss) expMul *= 1.5 — cliff_focus 등과 동일한 cond.* 조건부 표기.
+                fx = new Dictionary<string, double> { ["cond.bossExpMul"] = 1.5 },
+            },
         });
 
         // ── 유물 61종 (L484-547, buildMods 같은 루프 L1842-1904) ────────────
@@ -636,28 +704,60 @@ namespace JackpotRun.Engine
             new Perk { id = "practice_pad", emoji = "📓", name = "연습장", tier = Tier.SILVER, cat = PCat.RELIC, price = 10, desc = "📘책 EXP +2", fx = new Dictionary<string, double> { ["perSymbolExp.book"] = 2 } },
             new Perk { id = "calculator", emoji = "🧮", name = "작은 계산기", tier = Tier.SILVER, cat = PCat.RELIC, price = 12, desc = "💎보석 점수 +12", fx = new Dictionary<string, double> { ["perSymbolScore.gem"] = 12 } },
             new Perk { id = "lucky_eraser", emoji = "🩹", name = "행운의 지우개", tier = Tier.SILVER, cat = PCat.RELIC, price = 14, desc = "희귀심볼 등장 +15%", fx = new Dictionary<string, double> { ["rareWeightMul"] = 1.15 } },
+            // ── 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14, data.js:480-493) — PRISM 유물 12종 신설 ──
+            // 프리즘(PRISM) 유물 8종(2026-06-30, engine.js:332-339) — 보스클리어 유물노드 PRISM 풀.
+            new Perk { id = "prism_diploma", emoji = "🎖️", name = "명예졸업장", tier = Tier.PRISM, cat = PCat.RELIC, price = 28, desc = "EXP +40%·점수 +20%", fx = new Dictionary<string, double> { ["expMul"] = 1.40, ["scoreMul"] = 1.20 } },
+            new Perk { id = "golden_ratio", emoji = "📐", name = "황금비율", tier = Tier.PRISM, cat = PCat.RELIC, price = 30, desc = "세트3+ EXP +40%·세트4+ 점수 +40%", fx = new Dictionary<string, double> { ["set3ExpMul"] = 1.40, ["set4ScoreMul"] = 1.40 } },
+            new Perk { id = "starlight_crown", emoji = "🌟", name = "별빛왕관", tier = Tier.PRISM, cat = PCat.RELIC, price = 30, desc = "👑왕관 점수 +60·등장↑·코인 +30%", fx = new Dictionary<string, double> { ["perSymbolScore.crown"] = 60, ["coinMul"] = 1.30, ["symbolWeightMul.crown"] = 1.4 } },
+            new Perk { id = "endless_recess", emoji = "⏱️", name = "무한자습", tier = Tier.PRISM, cat = PCat.RELIC, price = 36, desc = "스핀 +1·첫끝 스핀 EXP +35%", fx = new Dictionary<string, double> { ["bonusSpins"] = 1, ["firstSpinExpMul"] = 1.35, ["lastSpinExpMul"] = 1.35 } },
+            new Perk { id = "fortunes_wheel", emoji = "🎡", name = "운명의수레바퀴", tier = Tier.PRISM, cat = PCat.RELIC, price = 34, desc = "희귀심볼 등장 +25%·희귀 2개+ 스핀 EXP +60%·점수 +30%", fx = new Dictionary<string, double> { ["rareBurstExpMul"] = 1.60, ["rareBurstScoreMul"] = 1.30, ["rareWeightMul"] = 1.25 } },
+            new Perk { id = "set_resonator", emoji = "🎼", name = "공명세트", tier = Tier.PRISM, cat = PCat.RELIC, price = 28, desc = "세트 보너스 +50%·2세트 추가 +30%", fx = new Dictionary<string, double> { ["setExpMul"] = 1.50, ["twoSetBonusMul"] = 1.30 } },
+            new Perk { id = "reapers_pact", emoji = "⚰️", name = "사신의계약", tier = Tier.PRISM, cat = PCat.RELIC, price = 28, desc = "☠해골 EXP +10·점수 +15%", fx = new Dictionary<string, double> { ["skullExp"] = 7, ["perSkullExp"] = 3, ["scoreMul"] = 1.15 } },
+            new Perk
+            {
+                id = "phoenix_thesis", emoji = "🔥", name = "불사조논문", tier = Tier.PRISM, cat = PCat.RELIC, price = 34,
+                desc = "EXP가 요구치 50% 미만이면 그 스핀 EXP ×2",
+                // Kotlin(웹): if (stage>0 && quota>0 && stageExp < floor(quota*0.5)) cliffBurstExpMul *= 2.0
+                // — cliff_focus와 동일한 cond.* 조건부 표기(신규 Mods.cliffBurstExpMul, SpinResolver.Evaluate
+                // perfectShapeExpMul 직후에서 소비).
+                fx = new Dictionary<string, double> { ["cond.quotaPct"] = 0.5, ["cond.cliffBurstExpMul"] = 2.0 },
+            },
+            // ── 후반(심연) 유물 4종(unlockLevel, engine.js:306-309) ──
+            new Perk { id = "crown_monolith", emoji = "👑", name = "왕관 모노리스", tier = Tier.PRISM, cat = PCat.RELIC, price = 28, unlockLevel = 10, desc = "👑왕관 점수 +80·등장↑", fx = new Dictionary<string, double> { ["perSymbolScore.crown"] = 80, ["symbolWeightMul.crown"] = 1.5 } },
+            new Perk
+            {
+                id = "black_grad_photo", emoji = "🖤", name = "검은 졸업사진", tier = Tier.PRISM, cat = PCat.RELIC, price = 26, unlockLevel = 12,
+                desc = "저주 1개당 점수 +12%",
+                // Kotlin(웹): scoreMul *= (1 + 0.12 * curseCount) — curse_grad와 동일 cond 키 재사용(값만 다름).
+                fx = new Dictionary<string, double> { ["cond.curseScoreBase"] = 0.12 },
+            },
+            new Perk { id = "last_roll", emoji = "📋", name = "최후의 출석부", tier = Tier.PRISM, cat = PCat.RELIC, price = 30, unlockLevel = 15, desc = "막스핀 EXP ×2 · 첫스핀 -10%", fx = new Dictionary<string, double> { ["lastSpinExpMul"] = 2.0, ["firstSpinExpMul"] = 0.9 } },
+            new Perk { id = "nameless_cup", emoji = "🏆", name = "무명왕의 잔", tier = Tier.PRISM, cat = PCat.RELIC, price = 40, unlockLevel = 20, desc = "점수 ×1.6 · 요구 EXP +25% (고점)", fx = new Dictionary<string, double> { ["scoreMul"] = 1.6, ["quotaMul"] = 1.25 } },
         });
 
-        // ── 저주 16종 (L552-568, buildMods L1936-1951) — 전부 Tier.GOLD 고정, price=0 ──
+        // ── 저주 16종 — 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14, data.js:626-651 CURSES) ──
+        // Kotlin 원본(양면형: 페널티+보너스 동시)을 웹(패널티 전용, "장점 없음" — 이득은 별도 투자로만
+        // 캐릭터 cultist·증강 sacrifice/black_diploma를 통해서만 얻는다)으로 전량 교체했다. fx는
+        // engine.js:378-395 buildMods 저주 루프 그대로(desc도 data.js 문구로 교체). 전부 Tier.GOLD
+        // 고정·price=0(원본과 동일, data.js에 price 필드 자체가 없음).
         public static readonly Perk[] Curses = WithSchool(new[]
         {
-            new Perk { id = "hard_exam", emoji = "📝", name = "어려운시험", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "요구치+10% / 클리어점수+20%", fx = new Dictionary<string, double> { ["quotaMul"] = 1.10, ["scoreMul"] = 1.20 } },
-            new Perk { id = "cursed_skulls", emoji = "☠", name = "저주받은패", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "해골↑·EXP-4 / 해골 EXP+8", fx = new Dictionary<string, double> { ["weightAdd.skull"] = 4.0, ["flatExp"] = -4, ["skullExp"] = 8 } },
-            new Perk { id = "speed_test", emoji = "⏱️", name = "속성평가", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "스핀-1 / 요구치-22%", fx = new Dictionary<string, double> { ["bonusSpins"] = -1, ["quotaMul"] = 0.78 } },
-            new Perk { id = "frugal_vow", emoji = "🪙", name = "청빈서약", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "코인-40% / 요구치-12%", fx = new Dictionary<string, double> { ["coinMul"] = 0.6, ["quotaMul"] = 0.88 } },
-            new Perk { id = "tunnel_vision", emoji = "🎯", name = "외골수", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "양끝·첫스핀↓ / 가운데 2배", fx = new Dictionary<string, double> { ["endsMatchExpMul"] = 0.5, ["firstSpinExpMul"] = 0.85, ["centerExpMul"] = 2.0 } },
-            new Perk { id = "late_bloomer", emoji = "🌙", name = "늦깎이", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "첫스핀-50% / 막스핀+80%", fx = new Dictionary<string, double> { ["firstSpinExpMul"] = 0.5, ["lastSpinExpMul"] = 1.8 } },
-            new Perk { id = "gem_obsession", emoji = "💎", name = "보석집착", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "체리·책↓ / 보석 점수+35", fx = new Dictionary<string, double> { ["perSymbolExp.cherry"] = -2, ["perSymbolExp.book"] = -2, ["perSymbolScore.gem"] = 35, ["scoreMul"] = 1.10 } },
-            new Perk { id = "high_stakes", emoji = "🎲", name = "한탕주의", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "요구치+8% / 희귀등장+50%", fx = new Dictionary<string, double> { ["quotaMul"] = 1.08, ["rareWeightMul"] = 1.5 } },
-            new Perk { id = "thorny_path", emoji = "🌵", name = "가시밭길", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "해골↑·EXP↓ / 클리어 코인+", fx = new Dictionary<string, double> { ["weightAdd.skull"] = 3.0, ["skullExp"] = -5, ["tagExpBonus.저주"] = 6, ["clearCoinBonus"] = 4 } },
-            new Perk { id = "hex_allornothing", emoji = "⚡", name = "일발역전", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "세트-50% / 양끝맞춤 2배", fx = new Dictionary<string, double> { ["setExpMul"] = 0.5, ["endsMatchExpMul"] = 2.0 } },
-            new Perk { id = "sleep_debt", emoji = "😴", name = "수면부족", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "스핀당 EXP-5 / 세트+40%", fx = new Dictionary<string, double> { ["flatExp"] = -5, ["setExpMul"] = 1.40 } },
-            new Perk { id = "diploma_pressure", emoji = "🎓", name = "학위압박", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "요구치+12% / 학습·책 강화", fx = new Dictionary<string, double> { ["quotaMul"] = 1.12, ["tagExpBonus.학습"] = 5, ["perSymbolExp.book"] = 2 } },
-            // ── 물량 확장 (2026-06-24, L565-568) ──
-            new Perk { id = "exam_week", emoji = "📅", name = "시험기간", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "요구치+12% / 클리어점수+25%", fx = new Dictionary<string, double> { ["quotaMul"] = 1.12, ["scoreMul"] = 1.25 } },
-            new Perk { id = "blackout", emoji = "🌑", name = "정전", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "해골↑·해골 EXP+6 / 희귀등장+30%", fx = new Dictionary<string, double> { ["weightAdd.skull"] = 4.0, ["skullExp"] = 6, ["rareWeightMul"] = 1.3 } },
-            new Perk { id = "pop_quiz", emoji = "❓", name = "쪽지시험", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "스핀-1 / 희귀등장+40%", fx = new Dictionary<string, double> { ["bonusSpins"] = -1, ["rareWeightMul"] = 1.4 } },
-            new Perk { id = "student_debt", emoji = "💸", name = "학자금", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "코인-50% / 스핀마다 EXP+6", fx = new Dictionary<string, double> { ["coinMul"] = 0.5, ["flatExp"] = 6 } },
+            new Perk { id = "hard_exam", emoji = "📝", name = "어려운시험", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "요구치 +10%", fx = new Dictionary<string, double> { ["quotaMul"] = 1.10 } },
+            new Perk { id = "cursed_skulls", emoji = "☠", name = "저주받은패", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "☠해골 등장↑ · EXP -4", fx = new Dictionary<string, double> { ["weightAdd.skull"] = 4.0, ["flatExp"] = -4 } },
+            new Perk { id = "speed_test", emoji = "⏱️", name = "속성평가", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "스핀 -1", fx = new Dictionary<string, double> { ["bonusSpins"] = -1 } },
+            new Perk { id = "frugal_vow", emoji = "🪙", name = "청빈서약", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "코인 -40%", fx = new Dictionary<string, double> { ["coinMul"] = 0.6 } },
+            new Perk { id = "tunnel_vision", emoji = "🎯", name = "외골수", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "양끝맞춤 EXP -50% · 첫스핀 EXP -15%", fx = new Dictionary<string, double> { ["endsMatchExpMul"] = 0.5, ["firstSpinExpMul"] = 0.85 } },
+            new Perk { id = "late_bloomer", emoji = "🌙", name = "늦깎이", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "첫스핀 EXP -50%", fx = new Dictionary<string, double> { ["firstSpinExpMul"] = 0.5 } },
+            new Perk { id = "gem_obsession", emoji = "💎", name = "보석집착", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "🍒체리·📘책 EXP -2", fx = new Dictionary<string, double> { ["perSymbolExp.cherry"] = -2, ["perSymbolExp.book"] = -2 } },
+            new Perk { id = "high_stakes", emoji = "🎲", name = "한탕주의", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "요구치 +8%", fx = new Dictionary<string, double> { ["quotaMul"] = 1.08 } },
+            new Perk { id = "thorny_path", emoji = "🌵", name = "가시밭길", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "☠해골 등장↑ · ☠해골 EXP -5", fx = new Dictionary<string, double> { ["weightAdd.skull"] = 3.0, ["skullExp"] = -5 } },
+            new Perk { id = "hex_allornothing", emoji = "⚡", name = "일발역전", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "세트 EXP -50%", fx = new Dictionary<string, double> { ["setExpMul"] = 0.5 } },
+            new Perk { id = "sleep_debt", emoji = "😴", name = "수면부족", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "스핀마다 EXP -5", fx = new Dictionary<string, double> { ["flatExp"] = -5 } },
+            new Perk { id = "diploma_pressure", emoji = "🎓", name = "학위압박", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "요구치 +12%", fx = new Dictionary<string, double> { ["quotaMul"] = 1.12 } },
+            new Perk { id = "exam_week", emoji = "📅", name = "시험기간", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "요구치 +12%", fx = new Dictionary<string, double> { ["quotaMul"] = 1.12 } },
+            new Perk { id = "blackout", emoji = "🌑", name = "정전", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "☠해골 등장↑", fx = new Dictionary<string, double> { ["weightAdd.skull"] = 4.0 } },
+            new Perk { id = "pop_quiz", emoji = "❓", name = "쪽지시험", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "스핀 -1", fx = new Dictionary<string, double> { ["bonusSpins"] = -1 } },
+            new Perk { id = "student_debt", emoji = "💸", name = "학자금", tier = Tier.GOLD, cat = PCat.CURSE, price = 0, desc = "코인 -50%", fx = new Dictionary<string, double> { ["coinMul"] = 0.5 } },
         });
 
         public static readonly IReadOnlyDictionary<string, Perk> All = BuildAll();

@@ -220,12 +220,16 @@ namespace JackpotRun.Engine
             run.StageExp = 0;
             run.Phase = RunPhase.Spin;
 
-            // honor(수석졸업생) — 실버 증강 1개로 시작(launchRun L483-489). 해금분만(gatedPool BASE 폴백).
-            // gambler(도박꾼)의 "스테이지당 1회 무료 재굴림"은 buildMods에 기여가 없는 서비스 레이어 효과라
-            // 런 시작 시 별도 세팅이 필요 없다 — DeviceActions.GamblerReroll이 charId=="gambler"만 확인.
+            // honor(수석졸업생) — 실버 증강 1개로 시작(launchRun L483-489).
+            // 웹 파리티 P3-4 Opus 2차검수 웹 이탈 정리⑥(WEB_PARITY_DESIGN.md §2, 웹 game.js:393-397
+            // `E.pickAugments(this.rng, 1, new Set(), 1)` → `offerPerks(AUGMENTS, ...)`) — 이 경로는
+            // 원본부터 raw AUGMENTS(레벨게이트/GatedPool 미적용)를 그대로 쓴다(웹 quirk 보존 — offerPerks/
+            // pickPerksByTier 자체엔 "해금" 개념이 아예 없다, Shop.cs 헤더 각주 참조). Unity가 임의로
+            // Shop.GatedPool을 씌우면 레벨 미달 시 신규 4종 증강이 후보에서 빠지는 등 웹과 달라진다 —
+            // 게이트 없이 raw Perks.Augments에서 SILVER만 추린다.
             if (run.CharId == "honor")
             {
-                var pool = Shop.GatedPool(Perks.Augments, _stat).Where(p => p.tier == Tier.SILVER).ToList();
+                var pool = Perks.Augments.Where(p => p.tier == Tier.SILVER).ToList();
                 var aug = run.Rng.PickOrDefault(pool);
                 if (aug != null)
                 {
