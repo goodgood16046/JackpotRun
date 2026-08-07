@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-08-07 - 웹 파리티 P3-1: 플레이어 XP/레벨 코어
+
+- 웹 공식 이식(`game.js:107-120, 2617-2625`): `PlayerXpReq=120+(lvl-1)×60`(순차 차감 누적,
+  캡 100), 런XP `40+min(20,stage)×12+floor(score/250)+런보스×20+신규업적×25`(자발 포기에도 부여),
+  이력 시딩 `runs×30+totalScore/300+bossClears×15+bestStage×8`(웹과 동일 2중 가드·1회성),
+  로드 시 레벨 재산출. 신규 `Engine/Profile/PlayerLevelTracker.cs` + `RunState.RunBossClears`
+  (런XP는 런 단위 보스 수 — 통산과 구분), FailureOutcome에 xpGain/levelBefore/After(표시는 P4).
+- 파이프라인: Fable 설계 → Sonnet 구현 → Opus 검수(공식·가드·순서 문자 단위 대조, 어긋남 0.
+  실측으로 **업적 482종發 XP 인플레이션** 경고 → 설계 §2-(L) 결정: 다음 슬라이스 = 업적 34종
+  교체 + XP 재시딩 마이그레이션) → Fable 최종. AccountExp(졸업레벨)·레벨 보상·게이트는 무접촉
+  (후속 슬라이스).
+- 검증: EngineTests 18,178 통과(+76 — 공식 손계산·DTO 왕복·시딩 4시나리오·자동플레이 런보스
+  교차검증). P3 로드맵 "진행 중(1/4)".
+
 ## 2026-08-07 - 웹 파리티 P2 완료: 점수·배율캡·보스 웹화
 
 - **클리어 점수 웹 공식 채택**(`game.js:1412-1419`): `stage×50 + leftover×2 + leftSpins×100 +

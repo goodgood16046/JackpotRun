@@ -166,6 +166,12 @@ namespace JackpotRun.Engine
         public int RunFastClears = 0;
         public int RunSet4 = 0;
 
+        // 웹 파리티 P3(#9) — 이번 런에서 클리어한 보스 수(통산 누적 아님, 웹 game.js:350 r.stats.bossClears
+        // / game.js:1421 `if (boss) r.stats.bossClears += 1`). PlayerLevelTracker.ApplyRunEnd의 runXp
+        // 공식(bossClearsThisRun*20)에만 쓰인다 — PlayerProfile.Stats["bossClears"](통산 누적, StatTracker
+        // 담당)와는 다른 값이라 혼동하지 말 것.
+        public int RunBossClears = 0;
+
         public int GrowthStack = 0; // 0~5
         public int SnowStack = 0;   // 0~4
         public bool FateBellUsed = false; // Kotlin Int(0/1, 런 1회) → bool로 정리(§CSV 재설계 원칙과 동일 취지)

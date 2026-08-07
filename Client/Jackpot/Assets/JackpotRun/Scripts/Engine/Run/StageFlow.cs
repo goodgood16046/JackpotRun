@@ -55,6 +55,14 @@ namespace JackpotRun.Engine
         // 만든 GAME_OVER면 true — GameOverPanel이 "실패" 프레이밍 대신 "포기 — 즉시 결산" 문구를 쓴다.
         // 만회 수단을 안 써서 도달한 통상 GAME_OVER(kind=="GAME_OVER", RunController.Continue 등)는 false.
         public bool Voluntary;
+
+        // 웹 파리티 P3(#9, 웹 game.js:2618-2622 r.xpGain/r.levelBefore/r.levelAfter) — 런 종료 XP/레벨업
+        // 결과. 엔진(Engine/Run)은 Engine/Profile을 참조하지 않으므로(설계 원칙 6) 이 필드는 primitive만
+        // 갖고, 실제 계산은 PlayerLevelTracker.ApplyRunEnd(Engine/Profile, GameSession이 GAME_OVER 감지
+        // 직후 호출)가 채운다. kind=="GAME_OVER"가 아니면(REVIVE/POST_SPIN) 미사용(전부 기본값 0).
+        public long PlayerXpGain;
+        public int PlayerLevelBefore;
+        public int PlayerLevelAfter;
     }
 
     public sealed class SpinStepResult
@@ -243,6 +251,7 @@ namespace JackpotRun.Engine
             run.RunLastSpinClears += lastSpinClear ? 1 : 0;
             run.RunCloseClears += closeClear ? 1 : 0;
             run.RunFastClears += fastClear ? 1 : 0;
+            run.RunBossClears += boss ? 1 : 0; // 웹 파리티 P3(#9) — 웹 game.js:1421 r.stats.bossClears 대응
             run.GrowthStack = newGrowthStack;
             run.SnowStack = newSnowStack;
             run.NodeOptions.Clear();

@@ -62,6 +62,18 @@ namespace JackpotRun.Engine
         public string PinnedChallenge = "";
         public string LastCombo = "";
 
+        // ── 플레이어 레벨/XP (P3, WEB_PARITY_DESIGN.md §1-A #9) ────────────────────────────────────
+        // 콘텐츠 해금 게이트일 뿐 영구 스탯 보정 없음(웹 game.js:105 defaultProfile: playerXp 0,
+        // playerLevel 1). Formulas.AccountExp/AccountLevel(§9.3, 졸업레벨 1~25 — 퍽 게이트가 아직
+        // 참조 중이라 이번 슬라이스에서 미변경)과는 완전히 별개 체계라 이름이 겹치지 않게 "Player"
+        // 접두를 쓴다. 레벨업 계산은 PlayerLevelTracker.ApplyRunEnd(런 종료 훅)가 담당한다.
+        public long PlayerXp;
+        public int PlayerLevel = 1;
+
+        // 웹 profile._xpInit(game.js:189-192) 대응 — 기존 세이브에 이력 XP를 1회만 시딩했는지 플래그.
+        // ProfileDto.FromDto가 로드 시점에 관리한다(직접 조작하지 말 것).
+        public bool PlayerXpSeeded;
+
         // ── bestScore/bestStage/runs 읽기 별칭 (Stats 딕셔너리가 단일 진실 공급원) ──────────────────
         public long BestScore => GetStat("bestScore");
         public long BestStage => GetStat("bestStage");

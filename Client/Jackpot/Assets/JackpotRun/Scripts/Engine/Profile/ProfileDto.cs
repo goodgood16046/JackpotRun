@@ -33,6 +33,12 @@ namespace JackpotRun.Engine
         public long lastPlayedAtUnixMs; // 카톡 전용 startedAt/lastActionAt(§3.1)은 제외 — 이건 프로필(영속) 전용 메타
         public string pinnedChallenge = ""; // 고정한 도전 id(§3.3) — 도전판 진행률 로직 자체는 이 슬라이스 범위 밖(보고 대상)
         public string lastCombo = "";       // 직전 런 조합 CSV "char,machine,device,device2"(§3.3)
+
+        // ── 플레이어 레벨/XP (P3, 웹 파리티) — PlayerProfile.PlayerXp/PlayerLevel/PlayerXpSeeded 대응.
+        // 웹 game.js:105 defaultProfile()의 playerXp:0/playerLevel:1, game.js:189-192 _xpInit 마이그레이션.
+        public long playerXp;
+        public int playerLevel = 1;
+        public bool playerXpSeeded; // 웹 profile._xpInit 대응 — 이력 XP 시딩(seedXpFromHistory) 1회성 플래그.
     }
 
     public static class ProfileDto
@@ -70,6 +76,9 @@ namespace JackpotRun.Engine
                 lastPlayedAtUnixMs = p.LastPlayedAtUnixMs,
                 pinnedChallenge = p.PinnedChallenge ?? "",
                 lastCombo = p.LastCombo ?? "",
+                playerXp = p.PlayerXp,
+                playerLevel = p.PlayerLevel,
+                playerXpSeeded = p.PlayerXpSeeded,
             };
         }
 
@@ -101,6 +110,22 @@ namespace JackpotRun.Engine
             p.LastPlayedAtUnixMs = dto.lastPlayedAtUnixMs;
             p.PinnedChallenge = dto.pinnedChallenge ?? "";
             p.LastCombo = dto.lastCombo ?? "";
+
+            // ── 플레이어 레벨/XP 마이그레이션 (웹 game.js:189-192 _loadProfile 그대로) ──────────────
+            // 이 필드 도입 전 세이브(playerXp/playerXpSeeded가 DTO 기본값 0/false로 역직렬화됨)를
+            // 로드했을 때만 이력 시딩이 발동한다 — 이미 seeded이거나 이미 XP가 쌓여 있으면(이 필드
+            // 도입 후 첫 런을 이미 마친 세이브) 건드리지 않는다("runs>0 && !(playerXp>0)"만 시딩,
+            // 웹과 동일 조건). Runs/TotalScore/BestStage는 위에서 이미 채워진 뒤라 안전하게 읽는다.
+            p.PlayerXp = dto.playerXp;
+            p.PlayerXpSeeded = dto.playerXpSeeded;
+            if (!p.PlayerXpSeeded)
+            {
+                if (p.Runs > 0 && p.PlayerXp <= 0)
+                    p.PlayerXp = Formulas.PlayerSeedXpFromHistory(p.Runs, p.TotalScore, p.GetStat("bossClears"), p.BestStage);
+                p.PlayerXpSeeded = true;
+            }
+            p.PlayerLevel = Formulas.PlayerLevelFromXp(p.PlayerXp); // 웹 game.js:193 — 로드마다 XP로부터 재산출.
+
             return p;
         }
     }

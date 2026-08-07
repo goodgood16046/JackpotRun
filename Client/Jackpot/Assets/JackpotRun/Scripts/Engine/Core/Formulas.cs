@@ -149,7 +149,56 @@ namespace JackpotRun.Engine
             return true;
         }
 
+        // ── 9.2 Player 레벨/XP (P3, WEB_PARITY_DESIGN.md §1-A #9 — 웹 game.js:107-120 그대로 이식) ──
+        // 레벨은 "콘텐츠 해금 게이트"일 뿐 영구 스탯 보정이 없다(웹 주석 game.js:107). 아래 §9.3
+        // AccountExp/AccountLevel(졸업레벨 1~25, 퍽 게이트가 아직 참조 중이라 이번 슬라이스에서 손대지
+        // 않음)과는 완전히 별개의 체계다 — 혼동 방지를 위해 이 섹션은 전부 "Player" 접두로 명명한다.
+        public const int PLAYER_LEVEL_MAX = 100; // 웹 game.js:108 PLV_MAX
+
+        // 레벨 lvl → lvl+1 에 필요한 XP (웹 game.js:109 `xpReq = (lvl) => 120 + (lvl - 1) * 60`).
+        public static long PlayerXpReq(int lvl) => 120L + (lvl - 1) * 60L;
+
+        // 누적 XP → 레벨 (웹 game.js:110-115 levelInfo) — 닫힌 형태 공식이 아니라 "레벨별 요구치를
+        // 순차 차감"하는 누적식이다: while(lvl<MAX && rem>=xpReq(lvl)) { rem-=xpReq(lvl); lvl++; } 그대로.
+        public static int PlayerLevelFromXp(long totalXp)
+        {
+            int lvl = 1;
+            long rem = Math.Max(0L, totalXp);
+            while (lvl < PLAYER_LEVEL_MAX && rem >= PlayerXpReq(lvl))
+            {
+                rem -= PlayerXpReq(lvl);
+                lvl++;
+            }
+            return lvl;
+        }
+
+        // 런 종료 XP (웹 game.js:2619 `runXp = 40 + Math.min(20, r.stage) * 12 + Math.floor(finalScore
+        // / 250) + r.stats.bossClears * 20 + newly.length * 25`). stage는 실패/포기 시점의 현재 스테이지
+        // (아직 클리어 전 값 — 웹 r.stage), bossClearsThisRun/newAchievementCount는 이번 런 한정(통산
+        // 누적 아님 — 웹 r.stats.bossClears·newly.length). finalScore/250의 정수나눗셈은 finalScore>=0
+        // 전제하에 Math.floor와 동일한 결과.
+        public static long PlayerRunXp(int stage, long finalScore, int bossClearsThisRun, int newAchievementCount)
+        {
+            long xp = 40L + Math.Min(20, stage) * 12L;
+            xp += finalScore / 250L;
+            xp += bossClearsThisRun * 20L;
+            xp += newAchievementCount * 25L;
+            return xp;
+        }
+
+        // 기존 플레이어(이력 보유)에게 최초 1회만 부여하는 초기 XP(웹 game.js:117-120 seedXpFromHistory)
+        // — 그동안의 플레이를 레벨에 소급 반영한다. 1회성 적용 자체는 ProfileDto.FromDto가
+        // PlayerProfile.PlayerXpSeeded(웹 profile._xpInit 대응)로 관리한다.
+        public static long PlayerSeedXpFromHistory(long runs, long totalScore, long bossClears, long bestStage)
+        {
+            return runs * 30L + totalScore / 300L + bossClears * 15L + bestStage * 8L;
+        }
+
         // ── 9.3 accountExp / expToLevel / expForLevel (SlotV2Engine.kt L840-880) ─
+        // ⚠️ 웹 파리티 P3(§9.2 위) PlayerXpReq/PlayerLevelFromXp/PlayerRunXp와는 다른 시스템이다 —
+        // 이쪽(AccountExp/AccountLevel, "졸업레벨" 1~25)은 Kotlin 원본 이식이고 Shop.PerkGate가 아직
+        // 참조 중이라 건드리지 않았다(WEB_PARITY_DESIGN.md §1-B "업적 482종... 폐기 → 웹 34종 체계로
+        // 교체(P3)" — 그 업적 교체 슬라이스에서 함께 정리 예정).
         //
         // [S1 범위 제약 — 보고 대상] Kotlin accountExp()의 ④ 컴포넌트("for (a in ACHIEVEMENTS) ...")는
         // 전역 ACHIEVEMENTS(482종, SlotV2AchievementsExt 포함)를 순회하는데, Achievements.cs는 S5 슬라이스

@@ -48,7 +48,8 @@ namespace JackpotRun.Game
 
         // 모든 상호작용의 단일 진입점(RunScreen 전용) — RunController.Do를 감싸 StatTracker 공급 +
         // GAME_OVER 시 기록 갱신(StatTracker.ApplyGameOverTracking이 bestScore/bestStage/runs/totalScore를
-        // 이미 갱신)·AchievementEngine.Evaluate·ProfileStore.Save까지 처리한다.
+        // 이미 갱신)·AchievementEngine.Evaluate·PlayerLevelTracker.ApplyRunEnd(웹 파리티 P3 #9, 런종료
+        // XP/레벨업)·ProfileStore.Save까지 처리한다.
         public IReadOnlyList<RunEvent> Do(RunAction action) => FinishAction(Controller.Do(action));
 
         // WEB_PARITY P1 ⑤: RunController.GiveUp()은 RunAction이 아니라 별도 공개 메서드(자발적
@@ -62,15 +63,19 @@ namespace JackpotRun.Game
             StatTracker.Apply(Profile, Controller.State, events, _scratch);
 
             LastNewAchievements = Array.Empty<AchDef>();
-            bool gameOver = false;
+            RunEvent gameOverEvent = null;
             for (int i = 0; i < events.Count; i++)
             {
-                if (events[i].type == "GAME_OVER") { gameOver = true; break; }
+                if (events[i].type == "GAME_OVER") { gameOverEvent = events[i]; break; }
             }
 
-            if (gameOver)
+            if (gameOverEvent != null)
             {
                 LastNewAchievements = AchievementEngine.Evaluate(Profile);
+                // 웹 파리티 P3(#9, 웹 game.js:2617-2625) — StatTracker.Apply(카운터)→AchievementEngine.
+                // Evaluate(신규업적수 확정) 다음 순서로 런 종료 XP를 부여한다(웹과 동일 순서). 자발적
+                // 포기(FailureOutcome.Voluntary)도 웹처럼 예외 없이 XP를 받는다.
+                PlayerLevelTracker.ApplyRunEnd(Profile, Controller.State, gameOverEvent.failure, LastNewAchievements.Count);
                 ProfileStore.Save(Profile);
             }
 
