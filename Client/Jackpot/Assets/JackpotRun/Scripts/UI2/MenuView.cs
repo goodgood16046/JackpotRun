@@ -1,5 +1,6 @@
 using JackpotRun.Core;
 using JackpotRun.Engine;
+using JackpotRun.Game;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -23,8 +24,11 @@ namespace JackpotRun.UI2
     //
     // 랭킹 버튼은 S15에서 실제 화면(RankView)으로 연결됐다(§4 그대로 버튼 유지, 토스트 안내는 제거).
     //
-    // P4 A.2/A.3 범위 메모: 웹 소리 토글(`soundToggle`)은 P5(사운드) 예약 — 이번 슬라이스는 버튼 자체를
-    // 짓지 않는다(빈 자리도 만들지 않음, 작업 지시 "주석으로 예약" 그대로). 승천 선택기(`ascSelector`)는
+    // P4 A.2/A.3 범위 메모: 웹 소리 토글(`soundToggle`)은 P5(사운드, WEB_PARITY_DESIGN.md §1-A #17)에서
+    // 완성했다 — 웹 renderHome(ui.js:630) `<button class="reset-link sndtog withlabel"
+    // data-act="soundToggle">${sndIcon()} 소리</button>`를 "데이터 초기화" 링크 버튼과 같은 행에
+    // 나란히 짓는다(soundToggleButton/soundToggleLabel 신규 필드, UiSceneBuilder.BuildMenuScreen).
+    // 승천 선택기(`ascSelector`)는
     // 웹도 `ascUnlocked()`(profile.ascMax>=0, 승천 1회 이상 졸업)가 false면 아예 렌더하지 않는데, 승천
     // 자체가 P6 미구현이라 Unity는 항상 이 조건이 거짓이다 — 그래서 지금은 렌더 자체를 생략한다(엔진에
     // ascMax 필드가 없어 조건 판정 코드조차 쓸 수 없음, §1-A #18 P6에서 이 자리를 다시 연다).
@@ -54,6 +58,10 @@ namespace JackpotRun.UI2
         [SerializeField] private Button resetButton;
         [SerializeField] private ConfirmSheetPopup resetConfirmPopup;
 
+        // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17) — 홈 소리 토글(웹 renderHome sndtog, ui.js:630).
+        [SerializeField] private Button soundToggleButton;
+        [SerializeField] private Text soundToggleLabel;
+
         // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 gearbtn) — 설정 진입점(홈).
         [SerializeField] private Button settingsButton;
         [SerializeField] private SettingsSheet settingsSheet;
@@ -67,11 +75,14 @@ namespace JackpotRun.UI2
             if (modeDeepButton != null) modeDeepButton.onClick.AddListener(OnDeepModeClicked);
             if (resetButton != null) resetButton.onClick.AddListener(OnResetClicked);
             if (settingsButton != null) settingsButton.onClick.AddListener(OnSettingsClicked);
+            if (soundToggleButton != null) soundToggleButton.onClick.AddListener(OnSoundToggleClicked);
         }
 
         // 설정 시트의 "데이터 초기화"도 이 화면의 기존 확인 흐름(OnResetConfirmed)을 그대로 재사용한다
         // (작업 지시 "홈과 동일 확인 시트 재사용").
-        private void OnSettingsClicked() => settingsSheet?.Show(OnResetConfirmed);
+        // Opus 2차검수 항목4(2026-08-09) — 시트를 닫을 때 홈 소리 토글 라벨을 재동기화(웹 syncSndIcons
+        // 대응). 시트 안에서 소리를 껐다 켜도 홈의 별도 링크 버튼 라벨은 이 콜백이 없으면 갱신되지 않는다.
+        private void OnSettingsClicked() => settingsSheet?.Show(OnResetConfirmed, onHide: RefreshSoundToggle);
 
         private void OnEnable()
         {
@@ -116,6 +127,29 @@ namespace JackpotRun.UI2
             appRoot?.ResetProfile();
         }
 
+        // 웹 파리티 P5(웹 setSound(!soundOn), ui.js:211 `case "soundToggle": setSound(!soundOn); break;`)
+        // — 홈에서는 런이 없으므로(st==null) bgmStart를 시도하지 않는다(웹도 `if (st && st.phase)`
+        // 가드로 동일하게 건너뛴다). 끌 때는 방어적으로 BgmStop까지 호출(멱등 — 애초에 홈에서 BGM이
+        // 재생 중일 수 없지만, SettingsSheet.OnSoundToggle과 동일 모양을 맞춰 둔다).
+        private void OnSoundToggleClicked()
+        {
+            bool next = !SoundKit.Enabled;
+            SoundKit.SetEnabled(next);
+            if (next) SoundKit.Sfx("coin");
+            else SoundKit.BgmStop();
+            RefreshSoundToggle();
+        }
+
+        private void RefreshSoundToggle()
+        {
+            bool on = SoundKit.Enabled;
+            if (soundToggleLabel != null)
+            {
+                soundToggleLabel.text = on ? "소리 켜짐" : "소리 꺼짐";
+                soundToggleLabel.color = on ? UiKit.TextPrimary : UiKit.TextSecondary;
+            }
+        }
+
         /// <summary>AppRoot.ResetProfile()이 리셋 직후 호출한다(화면 전환 없이 카드만 새로고침) —
         /// OnEnable 갱신과 동일한 진입점을 공개로 승격했을 뿐 로직 변경은 없다.</summary>
         public void Refresh()
@@ -134,6 +168,7 @@ namespace JackpotRun.UI2
             }
 
             RefreshLevelCard(profile);
+            RefreshSoundToggle();
         }
 
         private void RefreshLevelCard(PlayerProfile profile)

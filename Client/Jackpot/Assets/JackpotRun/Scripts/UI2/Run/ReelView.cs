@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using JackpotRun.Engine;
+using JackpotRun.Game;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -480,6 +481,9 @@ namespace JackpotRun.UI2
             Color tint = SymbolTintById.TryGetValue(cv.lastSymId ?? "", out var symTint) ? symTint : Color.white;
             FxKit.I?.Play(FxId.SpinStop, cv.rt, tint);
             PlayLandingImpact(cv);
+            // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17, 웹 ui.js:334 landReel 꼬리) — 릴 1개가
+            // 멈출 때마다(전체 스핀 1회당 릴 개수만큼 반복) "reel" 틱음.
+            SoundKit.Sfx("reel");
 
             if (isNearMiss) StartCoroutine(TintRoutine(cv.CenterIcon, Color.white, NearMissGray, NearMissGrayFadeDuration));
         }
@@ -719,7 +723,8 @@ namespace JackpotRun.UI2
             }
 
             // 폭발이 1개 이상이면 릴 전체에 S14 셰이크 함수(PlayScreenShake) 재사용(설계 명시 ±6px/0.15s).
-            if (anyBombBurst) PlayScreenShake(BombShakeAmplitude, BombShakeDuration);
+            // 웹 파리티 P5(웹 ui.js:445 blastBomb 꼬리 `shake("sm"); snd.sfx("bomb");`) — 같은 타이밍에 폭발음.
+            if (anyBombBurst) { PlayScreenShake(BombShakeAmplitude, BombShakeDuration); SoundKit.Sfx("bomb"); }
 
             for (int r = 0; r < reveals.Count; r++)
                 if (reveals[r] != null) yield return reveals[r];
@@ -787,6 +792,12 @@ namespace JackpotRun.UI2
                 FxKit.I?.Play(FxId.RisingLight, reelRow);
             }
             else TryPairAccent(result);
+
+            // 웹 파리티 P5(웹 ui.js:368-369 그대로) — 잭팟이면 잭팟음만, 아니면 bestCount>=3(세트
+            // 성립, matchCount 3/4 둘 다 hasSet==true라 한 번에 커버)일 때만 win. 2매치 이하는 무음
+            // (TryPairAccent는 시각 연출만 — 웹도 2매치엔 sfx가 없다).
+            if (jackpot) SoundKit.Sfx("jackpot");
+            else if (hasSet) SoundKit.Sfx("win");
 
             if (jackpot)
             {

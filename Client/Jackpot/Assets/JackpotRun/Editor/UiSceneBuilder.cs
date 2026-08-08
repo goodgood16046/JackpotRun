@@ -383,6 +383,9 @@ namespace JackpotRun.EditorTools
             public Image levelBarFillImage;
             public Button modeDeepButton;
             public Button resetButton;
+            // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17) — 홈 소리 토글(reset 링크 버튼과 같은 행).
+            public Button soundToggleButton;
+            public Text soundToggleLabel;
             // BuildIntroScene이 overlay 확보 후 별도로 채운다(BuildMenuScreen 시점엔 overlay가 아직 없음).
             public UI2.ConfirmSheetPopup resetConfirmPopup;
             // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — 설정 진입점(우상단 ⚙). settingsSheet도
@@ -1007,12 +1010,22 @@ namespace JackpotRun.EditorTools
                 21, UiKit.TextSecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(desc, preferredHeight: 66, flexibleHeight: 0);
 
-            // ── P4 A.5: 데이터 초기화(웹 .reset-link, ui.js:630) — 소리 토글(sndtog)은 P5 예약이라
-            // 여기 짓지 않는다(작업 지시 "주석으로 예약" 그대로, 빈 자리도 만들지 않음).
-            // ⚠(U+26A0)는 BMP 문자라 레거시 Text에서 정상 렌더링된다(S8 항목⑤ 기준 안전).
-            result.resetButton = UiKit.Button(col, "⚠ 데이터 초기화", new Vector2(0f, 60f),
+            // ── P4 A.5 + P5: 소리 토글 + 데이터 초기화(웹 renderHome, ui.js:630 한 행에 나란히
+            // `<button class="reset-link sndtog withlabel" data-act="soundToggle">🔊 소리</button>
+            // <button class="reset-link" data-act="resetAsk">⚠️ 데이터 초기화</button>`) ─────────────
+            // ⚠(U+26A0)는 BMP 문자라 레거시 Text에서 정상 렌더링되지만 🔊/🔇(astral)는 안 되므로(S8
+            // 항목⑤) 소리 토글은 아이콘 없이 "소리 켜짐/꺼짐" 텍스트만 쓴다(MenuView.RefreshSoundToggle).
+            var linkRow = UiKit.HGroup(col, 16, new RectOffset(), true, true);
+            UiKit.SizeHint(linkRow, preferredHeight: 60, flexibleHeight: 0);
+
+            result.soundToggleButton = UiKit.Button(linkRow, "소리 켜짐", new Vector2(0f, 60f),
+                new Color(0f, 0f, 0f, 0f), UiKit.TextPrimary, null);
+            UiKit.SizeHint(result.soundToggleButton, flexibleWidth: 1, preferredHeight: 60, flexibleHeight: 0);
+            result.soundToggleLabel = result.soundToggleButton.GetComponentInChildren<Text>();
+
+            result.resetButton = UiKit.Button(linkRow, "⚠ 데이터 초기화", new Vector2(0f, 60f),
                 new Color(0f, 0f, 0f, 0f), UiKit.Bad, null);
-            UiKit.SizeHint(result.resetButton, preferredHeight: 60, flexibleHeight: 0);
+            UiKit.SizeHint(result.resetButton, flexibleWidth: 1, preferredHeight: 60, flexibleHeight: 0);
 
             var footerSpacer = UiKit.Panel(col, "FooterSpacer", new Color(0f, 0f, 0f, 0f));
             UiKit.SizeHint(footerSpacer, flexibleHeight: 1);
@@ -1081,6 +1094,8 @@ namespace JackpotRun.EditorTools
             so.FindProperty("resetConfirmPopup").objectReferenceValue = r.resetConfirmPopup;
             so.FindProperty("settingsButton").objectReferenceValue = r.settingsButton;
             so.FindProperty("settingsSheet").objectReferenceValue = r.settingsSheet;
+            so.FindProperty("soundToggleButton").objectReferenceValue = r.soundToggleButton;
+            so.FindProperty("soundToggleLabel").objectReferenceValue = r.soundToggleLabel;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
@@ -2378,6 +2393,11 @@ namespace JackpotRun.EditorTools
             {
                 var scrimBtn = scrim.gameObject.AddComponent<Button>();
                 scrimBtn.transition = Selectable.Transition.None;
+                // Opus 2차검수 항목5(2026-08-09) — 웹 `.sheet-bg`(data-act="closeSheet")도 전역
+                // tap 위임을 그대로 타 딤 배경을 눌러 닫을 때 tap음이 난다. 이 Button은 UiKit.Button
+                // 헬퍼를 거치지 않는 수동 생성이라 PressFx가 자동으로 안 붙는다 — 여기서 직접 추가
+                // (골드 버튼이 아니므로 파티클/진동은 안 나고 tap 사운드만, PressFx 기본값 그대로).
+                scrimBtn.gameObject.AddComponent<PressFx>();
             }
 
             var dimOverlay = UiKit.Panel(scrim, "DimOverlay", new Color(0f, 0f, 0f, 0.62f));
@@ -3502,8 +3522,9 @@ namespace JackpotRun.EditorTools
 
         // ── SettingsSheet ────────────────────────────────────────────────────────────
         // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 openSettings ui.js:881-908) — 진동 토글(즉시
-        // 동작) + 소리/볼륨(P5 예약, 비활성 행+"준비 중") + 데이터 초기화(자기 자신의 ConfirmSheetPopup
-        // 재사용) + 닫기. Intro(MenuView)·Play(RunView) 양쪽에서 각자 인스턴스로 호출한다.
+        // 동작) + 소리/볼륨(P5에서 완성, WEB_PARITY_DESIGN.md §1-A #17 — 아래 소리/볼륨 행 참조) +
+        // 데이터 초기화(자기 자신의 ConfirmSheetPopup 재사용) + 닫기. Intro(MenuView)·Play(RunView)
+        // 양쪽에서 각자 인스턴스로 호출한다.
         // Opus 2차검수 필수⑥(2026-08-09) — 웹 설정 시트(ui.js:881-908 openSettings)엔 데이터 초기화
         // 행이 없다(그건 홈 화면 전용 `.reset-link`, ui.js:630 — 별개 UI 요소). includeReset=false면
         // resetButton/resetConfirmPopup 자체를 짓지 않는다(SettingsSheet.cs는 두 필드 모두 null 안전).
@@ -3523,12 +3544,14 @@ namespace JackpotRun.EditorTools
 
             var (vibeRow, vibeToggleButton, vibeToggleLabel) = BuildSettingsToggleRow(col, "진동", true);
 
-            // 소리/볼륨 — P5(사운드) 예약. 비활성 행 + "준비 중"(작업 지시 그대로, 버튼/슬라이더는
-            // 짓지 않는다 — 상호작용 불가한 정적 안내 행만).
-            BuildSettingsDisabledRow(col, "소리");
-            BuildSettingsDisabledRow(col, "볼륨");
-            var hint = UiKit.Text(col, "소리·볼륨 조절은 준비 중이에요.", 15, UiKit.TextSecondary, TextAnchor.MiddleLeft);
-            UiKit.SizeHint(hint, preferredHeight: 30, flexibleHeight: 0);
+            // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17, 웹 openSettings ui.js:886-896) — 소리 토글
+            // (진동과 동일한 토글 행 헬퍼 재사용) + 볼륨 슬라이더(신규 BuildSettingsVolumeRow).
+            var (soundRow, soundToggleButton, soundToggleLabel) = BuildSettingsToggleRow(col, "소리", true);
+            var (volumeRow, volumeSlider, volumeValueText) = BuildSettingsVolumeRow(col, "볼륨");
+            var hint = UiKit.Text(col,
+                "볼륨을 움직이면 예시음이 들려요.\n위쪽 [소리]로 전체 음소거, [진동]으로 탭 진동을 끌 수 있어요.",
+                15, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(hint, preferredHeight: 52, flexibleHeight: 0);
 
             var spacer = UiKit.Panel(col, "Spacer", new Color(0, 0, 0, 0));
             UiKit.SizeHint(spacer, flexibleHeight: 1);
@@ -3551,6 +3574,10 @@ namespace JackpotRun.EditorTools
             so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
             so.FindProperty("vibeToggleButton").objectReferenceValue = vibeToggleButton;
             so.FindProperty("vibeToggleLabel").objectReferenceValue = vibeToggleLabel;
+            so.FindProperty("soundToggleButton").objectReferenceValue = soundToggleButton;
+            so.FindProperty("soundToggleLabel").objectReferenceValue = soundToggleLabel;
+            so.FindProperty("volumeSlider").objectReferenceValue = volumeSlider;
+            so.FindProperty("volumeValueText").objectReferenceValue = volumeValueText;
             so.FindProperty("resetButton").objectReferenceValue = resetButton;
             so.FindProperty("resetConfirmPopup").objectReferenceValue = resetConfirmPopup;
             so.FindProperty("closeButton").objectReferenceValue = closeButton;
@@ -3558,8 +3585,8 @@ namespace JackpotRun.EditorTools
             return view;
         }
 
-        // 토글 행(라벨 + on/off 버튼) — 진동 전용(소리는 P5까지 짓지 않음). 반환한 Button/Text를
-        // SettingsSheet가 직접 채운다(웹 .set-tog 관례를 라벨색 반전으로 근사).
+        // 토글 행(라벨 + on/off 버튼) — 진동/소리 공용. 반환한 Button/Text를 SettingsSheet가 직접
+        // 채운다(웹 .set-tog 관례를 라벨색 반전으로 근사).
         private static (RectTransform row, Button toggle, Text label) BuildSettingsToggleRow(RectTransform parent, string title, bool defaultOn)
         {
             var row = UiKit.HGroup(parent, 12, new RectOffset(0, 0, 0, 0), true, true);
@@ -3573,19 +3600,87 @@ namespace JackpotRun.EditorTools
             return (row, toggle, toggleLabel);
         }
 
-        // 비활성(정적) 행 — 소리/볼륨 P5 예약 자리. 상호작용 불가, "준비 중" 라벨만.
-        private static void BuildSettingsDisabledRow(RectTransform parent, string title)
+        // 볼륨 행(라벨 + 슬라이더 + "N%" 값) — 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17, 웹
+        // #volrange 행 ui.js:892-896). 반환한 Slider/Text를 SettingsSheet가 직접 채운다.
+        private static (RectTransform row, Slider slider, Text valueText) BuildSettingsVolumeRow(RectTransform parent, string title)
         {
             var row = UiKit.HGroup(parent, 12, new RectOffset(0, 0, 0, 0), true, true);
-            UiKit.SizeHint(row, preferredHeight: 48, flexibleHeight: 0);
-            var label = UiKit.Text(row, title, 19, UiKit.TextSecondary, TextAnchor.MiddleLeft);
-            UiKit.SizeHint(label, flexibleWidth: 1, flexibleHeight: 0);
-            var value = UiKit.Text(row, "준비 중", 17, UiKit.TextSecondary, TextAnchor.MiddleRight);
-            UiKit.SizeHint(value, preferredWidth: 120, flexibleHeight: 0);
-            var g = row.gameObject.AddComponent<CanvasGroup>();
-            g.alpha = 0.55f;
-            g.interactable = false;
-            g.blocksRaycasts = false;
+            UiKit.SizeHint(row, preferredHeight: 56, flexibleHeight: 0);
+            var label = UiKit.Text(row, title, 19, UiKit.TextPrimary, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(label, preferredWidth: 90, flexibleWidth: 0, flexibleHeight: 0);
+
+            var sliderRt = BuildSlider(row, "VolumeSlider");
+            UiKit.SizeHint(sliderRt, flexibleWidth: 1, preferredHeight: 36, flexibleHeight: 0);
+            var slider = sliderRt.GetComponent<Slider>();
+
+            var valueText = UiKit.Text(row, "70%", 17, UiKit.TextSecondary, TextAnchor.MiddleRight);
+            UiKit.SizeHint(valueText, preferredWidth: 66, flexibleWidth: 0, flexibleHeight: 0);
+
+            return (row, slider, valueText);
+        }
+
+        // 표준 uGUI Slider 골격(Background/Fill Area→Fill/Handle Slide Area→Handle) — 이 프로젝트에는
+        // 지금까지 Slider 소비처가 없어(기존 진행바는 전부 anchorMax 기반 정적 표시 바) 신규로 짓는다.
+        // 값 범위는 항상 0..1(SoundKit.Volume과 동일 스케일)로 고정 — 호출측이 SetValueWithoutNotify로 채운다.
+        private static RectTransform BuildSlider(Transform parent, string name)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            var rt = (RectTransform)go.transform;
+            rt.SetParent(parent, false);
+            var slider = go.AddComponent<Slider>();
+
+            // Opus 2차검수 항목5(2026-08-09) — 트랙 두께 10f는 S13 §A 9-slice 위반 구간(border합
+            // 18px > 대상 10px, PillSprite가 폴백으로 w_r9를 억지로 눌러써 늘어난 타원이 됨)이라
+            // 18px 이상으로 올린다(터치 영역 체감도 함께 개선).
+            const float trackThickness = 18f;
+            var bg = UiKit.Panel(rt, "Background", UiKit.Panel2, UiKit.PillSprite(trackThickness));
+            bg.anchorMin = new Vector2(0f, 0.5f);
+            bg.anchorMax = new Vector2(1f, 0.5f);
+            bg.sizeDelta = new Vector2(0f, trackThickness);
+            bg.anchoredPosition = Vector2.zero;
+
+            var fillAreaGo = new GameObject("Fill Area", typeof(RectTransform));
+            var fillArea = (RectTransform)fillAreaGo.transform;
+            fillArea.SetParent(rt, false);
+            fillArea.anchorMin = new Vector2(0f, 0.5f);
+            fillArea.anchorMax = new Vector2(1f, 0.5f);
+            fillArea.sizeDelta = new Vector2(-8f, trackThickness);
+            fillArea.anchoredPosition = Vector2.zero;
+
+            var fill = UiKit.Panel(fillArea, "Fill", UiKit.Accent, UiKit.PillSprite(trackThickness));
+            fill.anchorMin = new Vector2(0f, 0f);
+            fill.anchorMax = new Vector2(0f, 1f);
+            fill.sizeDelta = Vector2.zero;
+            fill.anchoredPosition = Vector2.zero;
+
+            var handleAreaGo = new GameObject("Handle Slide Area", typeof(RectTransform));
+            var handleArea = (RectTransform)handleAreaGo.transform;
+            handleArea.SetParent(rt, false);
+            UiKit.Fill(handleArea);
+
+            // Opus 2차검수 항목2(2026-08-09) — Slider.UpdateVisuals가 방향축과 직교하는 축(여기서는
+            // y)의 handle anchorMin/anchorMax를 무조건 (0,1)(Handle Slide Area 전체로 스트레치)로
+            // 덮어쓴다(LeftToRight 기준 x만 정규값으로 고정, y는 항상 스트레치). 스트레치 앵커에서
+            // sizeDelta.y는 "부모 대비 오프셋"이 되어 최종 높이=parentHeight+sizeDelta.y가 된다 —
+            // 26f를 그대로 두면 슬라이더 행(36px)보다 훨씬 큰 62px로 튀어나온다. y=0으로 두면 정확히
+            // Handle Slide Area 높이(=슬라이더 행 높이)를 그대로 채운다(x는 앵커가 점으로 붕괴돼
+            // sizeDelta.x가 그대로 절대폭이 된다 — Unity 기본 Slider 프리팹의 (20,0) 관례와 동일 원리).
+            var handle = UiKit.Panel(handleArea, "Handle", UiKit.TextPrimary, UiKit.PillSprite(26f));
+            handle.anchorMin = new Vector2(0f, 0.5f);
+            handle.anchorMax = new Vector2(0f, 0.5f);
+            handle.sizeDelta = new Vector2(26f, 0f);
+            handle.anchoredPosition = Vector2.zero;
+
+            slider.fillRect = fill;
+            slider.handleRect = handle;
+            slider.targetGraphic = handle.GetComponent<Image>();
+            slider.direction = Slider.Direction.LeftToRight;
+            slider.minValue = 0f;
+            slider.maxValue = 1f;
+            slider.wholeNumbers = false;
+            slider.value = 0.7f; // DefaultVolume(SoundKit.cs)와 동일값 — 실값은 호출측이 SetValueWithoutNotify로 다시 채운다.
+
+            return rt;
         }
 
         // 라벨 1개짜리 버튼 템플릿(공용) — 자식 경로 계약: "Label"(Text). name/height를 호출측이 지정한다.

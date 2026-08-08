@@ -1,3 +1,4 @@
+using JackpotRun.Game;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -32,6 +33,15 @@ namespace JackpotRun.UI2
         // 조용히 아무 것도 재생하지 않는다).
         [SerializeField] private bool isGoldButton;
 
+        // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17, 웹 ui.js:93-99 전역 클릭 위임) — 웹은
+        // `[data-act]` 전체에 "tap" 사운드를 걸되 스핀 버튼(`data-act="spin"`, 메인+특수스핀 4버튼
+        // 전부)만 예외로 뺀다(그 자리는 별도 "spin" 사운드가 이미 난다 — 웹 doSpin() 첫 줄
+        // `snd.sfx("spin")`). RunView.WireOnce가 spinButton/modeButtons 4개에 SuppressTapSfx()를
+        // 호출해 이 예외를 그대로 재현한다.
+        private bool _suppressTapSfx;
+
+        public void SuppressTapSfx() => _suppressTapSfx = true;
+
         private RectTransform _rt;
         private CanvasGroup _cg;
         private Vector3 _baseScale;
@@ -60,6 +70,9 @@ namespace JackpotRun.UI2
         {
             if (target != null && !target.interactable) return;
             RestartScale(_baseScale * PressedScale, PressDuration, UiTween.Ease.OutQuad);
+            // 웹 파리티 P5 — "tap" 사운드는 골드 여부와 무관하게 거의 모든 버튼에서 난다(웹은
+            // fx_btn_press/진동만 골드 전용이고 tap 사운드는 전역이다 — isGoldButton 밖에서 독립 재생).
+            if (!_suppressTapSfx) SoundKit.Sfx("tap");
             if (isGoldButton)
             {
                 FxKit.I?.Play(FxId.BtnPress, _rt);

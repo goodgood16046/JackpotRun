@@ -838,6 +838,143 @@
     로직 영향 없음 — 표시만). ⑤ 씬 리빌드·프리팹·.meta 파일 생성은 다루지 않았다 — Fable이
     에디터에서 배치 실행 예정(기존 슬라이스들과 동일 분업). 시각 검수(설정 시트 여백, 툴팁 위/아래
     판정, 하이라이트 프레임 위치)도 씬 리빌드 후 Fable 육안 확인 필요.
+- **(Y) 2026-08-09 완료(P5 "사운드" — WEB_PARITY_DESIGN.md §1-A #17, 정답지 `public/play/sound.js`
+  전체 84줄 + `ui.js`의 `snd.*` 호출 지점 전수 grep)**:
+  - **절차 합성 엔진**: 신규 `Scripts/Game/SoundKit.cs`(DontDestroyOnLoad 싱글턴, `AppRoot`와 동일한
+    `RuntimeInitializeOnLoadMethod(BeforeSceneLoad)` 자가부팅 패턴 — `AppRoot`에 종속시키지 않고
+    독립시켰다, 사운드는 프로필 로드와 무관한 별도 관심사). 웹은 재생마다 Web Audio 그래프를 실시간
+    구성하지만, Unity는 기동 시 `AudioClip.Create`로 sfx 16종(아래 "정확한 개수" 참조) + BGM 음표
+    팔레트(PENTA 5 + bass 4, 총 9클립)를 전부 오프라인 합성해 캐시하고 재생 시점엔 `AudioSource`
+    풀(8개, 라운드로빈) `PlayOneShot`만 한다 — 스케줄 오차가 없어 오히려 웹보다 타이밍이 정확하다.
+    합성은 sound.js의 `tone()`(오실레이터 sine/triangle/square/sawtooth + `slideTo` 지수 주파수
+    슬라이드 + `0.0001→vol→0.0001` 지수 게인 엔벨로프)과 `noise()`(선형 감쇠 화이트노이즈 + 선택적
+    bandpass)를 오프라인 렌더러로 그대로 전사했다(파라미터는 클립 캐시 빌드 코드의 주석에 원본 수식
+    그대로 인용). bandpass는 근사가 아니라 Web Audio spec의 "constant 0dB peak gain BPF"(Q=1 기본값)
+    RBJ 쿡북 공식을 정확히 구현(Direct Form I biquad).
+  - **"SFX 17종"의 정확한 개수 확인**: `sound.js`의 `switch(name)`은 tap/select/spin/reel/win/
+    jackpot/coin/buy/clear/perfect/fanfare/perk/bomb/boss/error/gameover **16개**뿐이다(전수 확인).
+    작업 지시·설계 문서의 "17종"은 여기에 BGM 루프 1종을 더한 표기로 보인다(16 SFX + BGM = 17개
+    사운드 유닛) — 임의로 항목을 늘리지 않고 16개 그대로 구현했다.
+  - **select/buy/error 배선 없음(웹 자체 죽은 코드)**: 3종 모두 합성은 구현·캐시했지만(추후 웹이
+    호출을 추가하면 바로 쓸 수 있게), `ui.js`/`game.js`/`engine.js` 전체에서 `snd.sfx("select"|
+    "buy"|"error")`를 호출하는 곳이 실제로는 단 한 곳도 없다(전수 grep 확인) — §0 "웹 채택이 기본"
+    원칙대로 웹에 없는 트리거를 새로 만들지 않았다.
+  - **트리거 배선 대응표**(웹 호출 지점 → Unity 지점, 전부 실제 코드 grep으로 대조):
+    - `tap`(웹 전역 `[data-act]` 클릭 위임, spin 제외) → `PressFx.OnPointerDown`(모든 `UiKit.Button`
+      공용 훅, `isGoldButton` 여부와 무관하게 전역 재생) + `SuppressTapSfx()`(spinButton·특수스핀
+      4버튼에 `RunView.WireOnce`가 호출 — 웹 `data-act="spin"` 제외와 동형).
+    - `spin`(웹 `doSpin()` 첫 줄) → `RunView` 5개 스핀 버튼 onClick 람다.
+    - `reel`(웹 `landReel()` 꼬리, 릴 1개당 1회) → `ReelView.SpinOneReel`(착지 임팩트 직후).
+    - `win`/`jackpot`(웹 `out.jackpot`/`out.bestCount>=3`) → `ReelView.PostRevealFx`(jackpot 배타
+      우선, hasSet이면 win — matchCount 3/4 둘 다 커버).
+    - `bomb`(웹 `blastBomb()` 꼬리) → `ReelView.TransformRevealRoutine`(`anyBombBurst` 셰이크와 동시).
+    - `clear`/`perfect`/`fanfare`(tier≥4, 130ms 지연)/`win`(tier≥2·<4, 150ms 지연)/`boss`(클리어 시,
+      70ms 지연) → `NodePanel.EnterRoutine`(웹 `stageClearFx` setTimeout 3종을 `DelayedSfx` 지연
+      코루틴으로 재현).
+    - `boss`(스테이지 최초 진입) → `RunView.PlayRoutine` 꼬리(`_lastBossCheckStage` 신규 필드, 웹
+      `curStage` 변수와 동형 — phase가 Spin/PostSpin일 때만 평가해 웹 `renderPlay()` 전용 체크와
+      동일 범위 유지).
+    - `perk`(웹 `celebratePerk`, 오퍼 픽 시점) → `PerkOfferPanel.OnCardPicked`(홀드는 이 경로를
+      타지 않아 웹처럼 무음 유지).
+    - `coin`(웹 `shopBuyConfirm`/`setSound(true)`/볼륨 release) → `RunView`의 `shopPanel.Show` onBuy
+      람다 + `SettingsSheet.OnSoundToggle`/`OnVolumeReleased` + `MenuView.OnSoundToggleClicked`.
+    - `gameover`(+ `bgmStop`) → `GameOverPanel.Show`(firstShow 1회).
+    - `bgmStart`(웹 `renderPlay()` 매번, `soundOn`이면) → `RunView.PlayRoutine` 꼬리(phase==Spin/
+      PostSpin일 때만, `SoundKit.BgmStart`는 이미 재생 중이면 무시라 매번 불러도 안전).
+    - `bgmStop`(웹 renderIntro/renderLoginGate/renderHome) → `IntroSceneRoot.Awake`(Title/Login/
+      Menu/Pick/Dex/Rank/LevelRewards 전부가 이 씬 하나라 진입 1회로 대체 — BgmStart는 Play 씬
+      RunView에서만 일어나므로 씬 분리 자체가 웹의 3개 개별 호출과 동치).
+  - **AudioListener 결함 발견 + 수정**: `Editor/UiSceneBuilder.cs`의 `UICamera` 생성부(`typeof(Camera)`
+    만, `AudioListener` 미포함)를 전수 확인한 결과 씬에 리스너가 전혀 없었다 — 이 상태로는
+    `AudioSource.Play`가 전부 무음이 된다(콘솔 경고만 뜨고 아무 것도 안 들림, 육안 검증 불가 환경이라
+    특히 위험한 결함). 씬 리빌드에 기대지 않도록 `SoundKit`(DontDestroyOnLoad) 자신의 GameObject에
+    `AudioListener`를 보장한다(Intro/Play 두 씬 전환에도 유지되는 유일한 리스너) — `UiSceneBuilder`
+    쪽은 변경하지 않았다(리스너 2개가 되는 상황을 피함).
+  - **설정 시트 완성**: `Editor/UiSceneBuilder.cs BuildSettingsSheet`의 "준비 중" 비활성 행 2개(소리/
+    볼륨, `BuildSettingsDisabledRow` — 이번에 제거)를 실제 토글(`BuildSettingsToggleRow` 재사용) +
+    신규 볼륨 슬라이더(`BuildSettingsVolumeRow`+`BuildSlider`, 이 프로젝트 최초의 uGUI `Slider`
+    — 기존 진행바는 전부 anchorMax 정적 표시 바라 release 이벤트가 없어 `SliderReleaseRelay`
+    (`IPointerUpHandler`) 소형 헬퍼로 웹 `#volrange` "change"(release 시 예시음) vs "input"(드래그 중
+    무음) 구분을 재현했다)로 교체. `MenuView`도 웹 `renderHome`의 `🔊 소리` 링크 버튼 자리를
+    새로 지었다(`⚠ 데이터 초기화`와 한 행에 나란히, 웹과 동일 순서) — astral(🔊/🔇)은 렌더링되지
+    않아(S8 항목⑤) 아이콘 없이 "소리 켜짐/꺼짐" 텍스트만 사용.
+  - **PlayerPrefs**: `jackpotrun_sound`(기본 1=켜짐, 웹 `slotweb_sound !== "0"`과 동형) /
+    `jackpotrun_vol`(기본 0.7, 웹 `let vol = 0.7`과 동일값) — `SoundKit.SetEnabled`/`SetVolume`이
+    직접 영속화(호출부가 매번 저장할 필요 없음, `SettingsSheet.SafeVibrate`류 "시스템 유틸리티는
+    직접 호출" 기존 관례와 동일선상).
+  - **합성 근사(웹과 다른 점, 전부 `SoundKit.cs` 헤더 주석에도 동일 기록)**: ① 오실레이터 파형은
+    Web Audio의 band-limited(안티에일리어싱) 버퍼가 아니라 단순 수식파(naive) — 청감상 무시 가능한
+    수준. ② 웹 `o.stop(t+dur+0.03)`의 +0.03s "게인이 이미 바닥인 무음에 가까운 꼬리"는 렌더링하지
+    않는다(들리는 차이 없음). ③ `noise()`의 난수원은 웹이 `Math.random()`(비결정)인 반면 Unity는
+    레이어 파라미터 기반 고정 시드(`System.Random`) — 기동 시 1회만 합성해 캐시하는 구조상 오히려
+    결정론이 유리하고, 화이트노이즈 텍스처의 통계적 성질은 동일해 청감 차이 없음.
+  - **모바일 resume 없음**: 웹 `snd.resume()`(Web Audio 자동재생 정책 우회, 사용자 제스처 안에서
+    AudioContext 재개)에 대응하는 Unity 개념이 없다(`AudioSource`는 이런 브라우저 전용 제약이 없음)
+    — 작업 지시대로 의도적으로 구현하지 않고 `SoundKit.cs`에 사유만 주석으로 남겼다.
+  - **스모크 컴파일**: Unity 에디터 미실행 상태라 이전 슬라이스와 동일하게 `dotnet exec csc.dll`
+    오프라인 검증 — 이번엔 실제 참조 경로까지 확정해 재현 가능한 커맨드로 남긴다(이전 슬라이스들은
+    결과만 기록하고 커맨드는 남기지 않아 매번 새로 재구성해야 했다): Unity 설치는 `D:\Unity\
+    2022.3.39f1`(Managed dll은 `Editor\Data\Managed\*.dll` 19개 + `Editor\Data\Managed\UnityEngine\
+    *.dll` 87개 — 이 하위 폴더 하나에 UnityEngine.*Module과 UnityEditor.*Module이 함께 들어있다),
+    NetStandard 2.1 ref는 `Editor\Data\NetStandard\ref\2.1.0\netstandard.dll`, Editor 전용 netfx
+    shim 17종은 `Editor\Data\NetStandard\compat\2.1.0\shims\netfx\*.dll`, csc.dll은 로컬 .NET SDK의
+    `sdk\8.0.302\Roslyn\bincore\csc.dll`(`dotnet exec csc.dll @응답파일.rsp`로 호출, 인자가 많아
+    response file 필수). `Assembly-CSharp`(런타임, `Scripts/**/*.cs` 79개 — 신규 `SoundKit.cs` 포함)
+    은 `Library/ScriptAssemblies/*.dll`(Assembly-CSharp/-Editor 자기 자신 2개는 참조에서 제외) +
+    위 Unity Managed + netstandard만으로, `Assembly-CSharp-Editor`(`Editor/*.cs` 6개)는 위에 더해
+    방금 만든 `AsmCSharp.dll` 자체 참조 + `UNITY_EDITOR` 정의 + netfx shim 17개를 추가해 컴파일 —
+    **양쪽 다 0에러·0경고**(CS0169/0649/0414만 `-nowarn`, 기존 슬라이스들의 "미할당 SerializeField
+    CS0649뿐" 관례와 동일 성격이라 사전에 억제). 엔진(Engine/) 무접촉 확인 — `dotnet run --project
+    Client/Jackpot/Tools/EngineTests` 20016 passed, 0 failed(불변, 이번 슬라이스가 건드리지 않은
+    회귀망 그대로 통과).
+  - **웹 대비 생략/보고 대상**: ① 오실레이터 band-limiting·오디오 이펙트(리버브 등, 웹도 안 씀이라
+    해당 없음)는 처음부터 웹에도 없어 이식 대상이 아니다. ② 씬 리빌드·프리팹·.meta 파일 생성은
+    다루지 않았다 — Fable이 에디터에서 배치 실행 예정(신규 `SoundKit` GameObject는 런타임
+    자가생성이라 씬 배치 자체가 불필요, `SettingsSheet`/`MenuView`의 신규 필드만 씬 리빌드로
+    와이어링 필요). ③ 실제 청감 검증(합성음이 실제로 웹과 "비슷하게 들리는지")은 에디터 Play
+    모드에서만 가능 — 이번 슬라이스는 파라미터 전사의 정확성과 트리거 대응표의 완전성까지만
+    검증했다(작업 지시 "오디오는 육안 검증 불가 환경" 그대로).
+  - **2026-08-09 Opus 2차검수 반영(HIGH 1건 + 4건)**:
+    ①[HIGH] `SoundKit.cs` — noise() 게인 엔벨로프가 tone()과 같은 `Envelope` 함수를 공유하고
+    있었다(합성 수학 수기 검증에서 적발). 웹 `noise()`는 `g.gain.setValueAtTime(vol,t)`(어택 없이
+    즉시 최대치) → `exponentialRampToValueAtTime(0.0001,t+dur)`(전체 dur 단일 지수감쇠)뿐인데,
+    tone()의 0.008s 어택 구간(`Envelope`)을 그대로 재사용해 spin/jackpot/perfect/fanfare/bomb 5종의
+    노이즈 레이어가 실제보다 느리게 붙는 타격감으로 합성돼 있었다 — `ToneEnvelope`(기존)/
+    `NoiseEnvelope`(신설, 어택 없이 `peak * Pow(EnvFloor/peak, t/dur)`)로 분리해 `RenderTone`/
+    `RenderNoise`가 각자 전용 함수만 쓰도록 정정.
+    ② `Editor/UiSceneBuilder.cs BuildSlider` — 핸들 `sizeDelta`가 `(26,26)`이었는데, `Slider.
+    UpdateVisuals`가 LeftToRight 방향에서 핸들의 y축 anchorMin/anchorMax를 항상 `(0,1)`(Handle Slide
+    Area 전체 스트레치)로 덮어써 y가 "부모 대비 오프셋" 의미로 바뀐다 — 26을 그대로 두면 최종 높이가
+    62px(=36px 행+26)로 튀어나온다. `(26,0)`으로 정정(Unity 기본 Slider 프리팹의 `(20,0)` 관례와
+    동일 원리 — x는 앵커가 점으로 붕괴돼 절대폭 그대로 유지).
+    ③ `SoundKit.SetVolume`이 볼륨 슬라이더 드래그 중(매 프레임 `onValueChanged`) `PlayerPrefs.Save()`
+    까지 매번 호출해 디스크 flush가 과도했다 — `SetVolume`은 값 반영 + `SetFloat`(메모리 캐시)만
+    하도록 축소하고, 신설 `SoundKit.SaveVolume()`(`PlayerPrefs.Save()`)을 release 시점(`SettingsSheet.
+    OnVolumeReleased`)과 시트 `Hide()`(드래그 중 release 이벤트를 놓치고 닫는 경우 대비, 방어적
+    1회 추가 호출) 두 곳에서만 호출하도록 분리.
+    ④ 소리 토글 양방향 동기화 — 웹 `syncSndIcons()`는 `.sndtog` 전체를 한 번에 동기화하지만 Unity는
+    `MenuView`(홈 링크 버튼)와 `SettingsSheet`(시트 내부 토글)가 서로 독립된 라벨 상태였다 — 시트
+    안에서 토글해도 홈 쪽 라벨은 갱신되지 않는 결함. `SettingsSheet.Show`에 `onHide` 콜백을 추가해
+    `Hide()` 호출 시점(스크림/닫기/데이터초기화 확정 전부 포함)에 실행하고, `MenuView.
+    OnSettingsClicked`가 `RefreshSoundToggle`을 넘겨 시트를 닫을 때마다 홈 라벨을 재동기화한다
+    (RunView는 별도 표시 라벨이 없어 전달하지 않음).
+    ⑤ tap 사운드 보강 2곳 + 슬라이더 트랙 두께 — (a) 릴 셀 탭(`RunView.OnCellTapped`)은 `ReelView`
+    전용 raw `Button`(PressFx 미부착, `BuildReelCellTemplate` 참조)이라 전역 tap 훅을 타지 못했다 —
+    웹은 셀도 `[data-act]` 전역 위임을 그대로 타 무조건 tap이 나므로, 가드보다 먼저 `SoundKit.
+    Sfx("tap")`을 추가. (b) 시트 딤 배경 탭(웹 `.sheet-bg` data-act="closeSheet")도 `BuildSheetChrome`
+    의 `scrimBtn`이 `UiKit.Button` 헬퍼를 거치지 않는 수동 생성이라 PressFx가 없었다 — `dismissOnScrimClick`
+    분기에 `AddComponent<PressFx>()`를 추가해 SettingsSheet/BagPopup/CellInfoSheet 등 이 헬퍼를 쓰는
+    모든 딤-탭-닫기 시트에 일괄 적용. (c) 슬라이더 트랙(Background/Fill) 두께를 10f→18f로 올려
+    S13 §A 9-slice 위반 구간(border합 18px가 대상 10px를 넘어 `PillSprite`가 폴백으로 늘어난 타원을
+    그리던 문제)을 해소하고 터치 영역 체감도 개선.
+    **권고(코드 변경 불필요, 알려진 근사로 §2-(Y) 상단에 이미 기재)**: BGM 드리프트(코루틴 프레임
+    지연 누적, 웹 setTimeout도 동일한 종류의 드리프트가 있어 파리티상 문제 아님) · 재생 중 볼륨
+    추종(`PlayOneShot`은 시작 시점 볼륨을 고정 캡처 — 웹 GainNode의 실시간 곱셈과 달리 재생 중인
+    사운드에는 슬라이더를 움직여도 소급 적용되지 않음, 다음 재생부터 반영) · `PressFx.OnPointerDown`
+    (down) vs 웹 `click`(up) 타이밍 차이(§2-(Y) 상단 트리거 배선 섹션 tap 항목 참조).
+    **재검증**: `dotnet exec csc.dll` 오프라인 컴파일 재실행 — Assembly-CSharp(79개)·
+    Assembly-CSharp-Editor(6개) 둘 다 0에러·0경고(불변). `dotnet run --project Client/Jackpot/Tools/
+    EngineTests` 20016 passed, 0 failed(불변, Engine/ 무접촉 재확인).
 
 ## 3. 페이즈 로드맵
 
@@ -847,7 +984,7 @@
 | **P2** | 점수·캡 공식 웹화 + 보스 grad/finals 정리 + 골든 테스트 재산출 | ✅ 2026-08-07 완료 |
 | P3 | 메타 웹화: XP/레벨/레벨보상 · 업적 34종 교체 · 숙련도 · 증강 레벨업 · 해금 OR · 콘텐츠 증보(+3캐릭/+3머신/+장치/+증강9/+유물12/+아이템5) | ✅ 2026-08-08 완료 |
 | P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | ✅ 2026-08-09 완료(3/3) |
-| P5 | 사운드(절차 합성 SFX 17 + BGM) | 대기 |
+| P5 | 사운드(절차 합성 SFX 16종 + BGM 루프) | ✅ 2026-08-09 완료 |
 | P6 | 승천 A1~A10 + 승천 랭킹 분리 | 대기 |
 | P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버) + 심화 랭킹 | 대기 |
 

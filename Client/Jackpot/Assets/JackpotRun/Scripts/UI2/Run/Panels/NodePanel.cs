@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using JackpotRun.Core;
 using JackpotRun.Engine;
+using JackpotRun.Game;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -119,6 +120,15 @@ namespace JackpotRun.UI2
             if (clear != null)
             {
                 PopulateBanner(clear);
+                // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17, 웹 stageClearFx ui.js:1701-1707 그대로) —
+                // clear/perfect는 즉시, fanfare(tier>=4)는 130ms 후, 아니면 win(tier>=2)은 150ms 후,
+                // 보스면 boss가 70ms 후에 추가로 겹쳐 난다(웹 setTimeout 3종 그대로 지연 코루틴으로 재현).
+                bool perfect = clear.gradeTier == 6;
+                SoundKit.Sfx(perfect ? "perfect" : "clear");
+                if (clear.gradeTier >= 4) StartCoroutine(DelayedSfx("fanfare", 0.13f));
+                else if (clear.gradeTier >= 2) StartCoroutine(DelayedSfx("win", 0.15f));
+                if (clear.boss) StartCoroutine(DelayedSfx("boss", 0.07f));
+
                 if (bannerRect != null) bannerRect.anchoredPosition = new Vector2(0f, BannerStartY);
                 // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16, 웹 stageClearFx ui.js:1700-1731) — 등급
                 // escalation: 화면 흔들림(콜백, RunView가 ReelView.PlayClearShake로 연결) + 색종이 개수를
@@ -167,6 +177,12 @@ namespace JackpotRun.UI2
                 FxKit.I?.Play(FxId.Clear, bannerRect);
                 if (i < bursts - 1) yield return new WaitForSeconds(ConfettiBurstStagger);
             }
+        }
+
+        private static IEnumerator DelayedSfx(string name, float delaySeconds)
+        {
+            yield return new WaitForSeconds(delaySeconds);
+            SoundKit.Sfx(name);
         }
 
         private const float GradePulsePeakScale = 1.28f; // 설계 미명시 — "펄스" 지시의 팝 강도 기본값

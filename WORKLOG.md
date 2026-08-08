@@ -4,6 +4,43 @@
 
 ---
 
+## 2026-08-09 - 웹 파리티 P5(마지막 세부 페이즈) — 사운드(절차 합성 SFX 16종 + BGM)
+
+상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(Y) 참조. 요약:
+
+- **절차 합성 엔진**: 신규 `Scripts/Game/SoundKit.cs`(DontDestroyOnLoad 자가부팅 싱글턴, `AppRoot`와
+  독립) — 웹 `public/play/sound.js`의 `tone()`(오실레이터+지수 게인 엔벨로프+주파수 슬라이드)/
+  `noise()`(선형감쇠 화이트노이즈+bandpass, Web Audio spec 공식 그대로 구현)를 기동 시 `AudioClip.
+  Create`로 오프라인 합성해 캐시(sfx 16종 + BGM 음표 팔레트 9클립), 재생은 `AudioSource` 풀(8개)
+  `PlayOneShot`만. "SFX 17종" 표기는 sound.js switch case 16개(select/buy/error 3종은 웹 자체에서도
+  호출되지 않는 죽은 코드, 합성만 하고 배선 안 함) + BGM 1종의 합.
+- **트리거 배선**: tap(전역 PressFx, 스핀 버튼 5개만 제외)·spin·reel(릴별 착지)·win/jackpot·bomb·
+  clear/perfect/fanfare(130ms지연)/win(150ms지연)/boss(70ms지연, 클리어+스테이지 최초진입 2곳)·
+  perk(오퍼 픽)·coin(상점구매·소리토글·볼륨release)·gameover·bgmStart(Play씬 Spin/PostSpin)/bgmStop
+  (Intro씬 진입+게임오버) — 전부 `ui.js` 실제 호출 지점 grep 대조로 배선.
+- **설정 완성**: `SettingsSheet`의 "준비 중" 소리/볼륨 자리를 실 토글+`Slider`(이 프로젝트 최초
+  uGUI Slider)로 교체, `MenuView`에 홈 소리 토글 신설(웹 `renderHome` sndtog 자리). PlayerPrefs
+  `jackpotrun_sound`(기본켜짐)/`jackpotrun_vol`(기본0.7).
+- **결함 발견 + 수정**: `Editor/UiSceneBuilder.cs`의 `UICamera`에 `AudioListener`가 없어(전수 확인)
+  씬에 리스너가 아예 없었다 — 사운드가 전혀 안 들렸을 근본 결함. `SoundKit` 자신의 DontDestroyOnLoad
+  오브젝트에 리스너를 보장해 씬 리빌드와 무관하게 해결.
+- **스모크 컴파일**: `dotnet exec csc.dll` 오프라인 검증(Unity `D:\Unity\2022.3.39f1` Managed +
+  Library/ScriptAssemblies + NetStandard 2.1 ref/netfx shim17, 참조 경로를 이번에 처음으로 재현
+  가능한 형태로 §2-(Y)에 기록) — Assembly-CSharp(79개, 신규 SoundKit.cs 포함)·Assembly-CSharp-Editor
+  (6개) 둘 다 0에러·0경고. `dotnet run --project Client/Jackpot/Tools/EngineTests` 20016 passed 불변
+  (Engine/ 무접촉).
+- **웹 파리티 로드맵 P5 완료** — 남은 페이즈는 P6(승천)·P7(심화모드)뿐. 씬 리빌드는 Fable이 처리.
+- **Opus 2차검수 반영(HIGH1+4, 상세 §2-(Y) 하단)**: ①[HIGH] noise() 게인 엔벨로프가 tone()의 0.008s
+  어택 구간을 잘못 공유해(spin/jackpot/perfect/fanfare/bomb 5종 타격감 오류) `ToneEnvelope`/
+  `NoiseEnvelope`로 분리(웹은 noise가 어택 없이 즉시 최대치→단일 지수감쇠). ② 슬라이더 핸들
+  `sizeDelta`를 `(26,26)`→`(26,0)`(Slider.UpdateVisuals의 y축 앵커 스트레치 덮어쓰기로 62px까지
+  튀어나오던 결함). ③ 볼륨 드래그 중 매 프레임 `PlayerPrefs.Save()` 제거 — `SetVolume`은 캐시만,
+  신설 `SaveVolume()`을 release/시트Hide 시 1회만. ④ 소리 토글 양방향 동기 — `SettingsSheet.Show`에
+  `onHide` 콜백 추가, `MenuView`가 시트 닫힐 때 홈 라벨 재동기화(웹 syncSndIcons 대응). ⑤ tap 보강
+  2곳(릴 셀 탭·시트 딤 배경 탭 — 둘 다 PressFx 미부착 raw Button이라 무음이었음) + 슬라이더 트랙
+  두께 10f→18f(S13 §A 9-slice 위반 해소). 재검증: 스모크 컴파일 0에러·0경고, EngineTests 20016
+  passed 불변.
+
 ## 2026-08-09 - 웹 파리티 P4(3/3, 마지막) — 튜토리얼 + 설정 시트 + STAGE_CLEAR 보드 정합 + MANIP final 파리티
 
 P4 마지막 슬라이스. 상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(X) 참조. 요약:

@@ -78,6 +78,12 @@ namespace JackpotRun.UI2
         private RunEvent _lastOfferEvent;
         private FailureOutcome _lastFailure;
 
+        // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17, 웹 ui.js:695 `if (st.stage !== curStage) {
+        // curStage = st.stage; if (st.boss) snd.sfx("boss"); }` — renderPlay(SPIN/POST_SPIN)에서만
+        // 평가된다) — PlayRoutine 꼬리에서 phase==Spin/PostSpin일 때만 재평가한다(NodeSelect/Shop 등
+        // 오버레이 화면에서는 웹도 이 체크를 건너뛴다).
+        private int _lastBossCheckStage;
+
         private void Awake()
         {
             if (deviceButtonTemplate != null) deviceButtonTemplate.gameObject.SetActive(false);
@@ -95,12 +101,18 @@ namespace JackpotRun.UI2
                 var btnRect = modeButtons[i].GetComponent<RectTransform>();
                 // S16 규칙: "스핀 시작 시... gainPanel?.Clear()" — 직전 스핀의 결과 패널이 다음 스핀
                 // 시작과 동시에 사라지도록 액션 전송 직전에 비운다.
-                modeButtons[i].onClick.AddListener(() => { gainPanel?.Clear(); PlaySpinChargeSquash(btnRect); Send(new Spin(mode)); });
+                // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17, 웹 doSpin() 첫 줄 `snd.sfx("spin")`) —
+                // 4개 특수스핀 버튼도 전부 스핀을 발동하므로 동일하게 재생(웹 data-act="spin" 공용).
+                modeButtons[i].onClick.AddListener(() => { gainPanel?.Clear(); SoundKit.Sfx("spin"); PlaySpinChargeSquash(btnRect); Send(new Spin(mode)); });
+                // 웹은 이 5개 버튼(메인+특수스핀4)을 "tap" 사운드에서 제외한다(위 spin 사운드와 겹치지
+                // 않도록) — PressFx.cs 헤더 주석 참조.
+                modeButtons[i].GetComponent<PressFx>()?.SuppressTapSfx();
             }
             if (spinButton != null)
             {
                 var spinRect = spinButton.GetComponent<RectTransform>();
-                spinButton.onClick.AddListener(() => { gainPanel?.Clear(); PlaySpinChargeSquash(spinRect); Send(new Spin(SpinMode.N)); });
+                spinButton.onClick.AddListener(() => { gainPanel?.Clear(); SoundKit.Sfx("spin"); PlaySpinChargeSquash(spinRect); Send(new Spin(SpinMode.N)); });
+                spinButton.GetComponent<PressFx>()?.SuppressTapSfx();
             }
             if (bagButton != null)
                 bagButton.onClick.AddListener(() => bagPopup?.Show(_session.State, itemId => Send(new UseItem(itemId))));
@@ -145,13 +157,21 @@ namespace JackpotRun.UI2
         // 데이터 초기화 행 자체가 없다(그건 홈 화면 전용 `.reset-link`, ui.js:630 — 별개 UI). 런 화면의
         // settingsSheet는 애초에 reset 관련 필드를 짓지 않으므로(UiSceneBuilder.BuildSettingsSheet
         // includeReset:false) 여기서 콜백을 넘길 필요가 없다.
-        private void OnSettingsButtonClicked() => settingsSheet?.Show();
+        // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17, 웹 setSound() ui.js:875 `if (st && st.phase)
+        // snd.bgmStart();`) — 런 화면 설정 시트에서 소리를 켜면 즉시 BGM을 재개한다(홈 인스턴스는
+        // 이 콜백을 넘기지 않는다 — MenuView.OnSettingsClicked 참조, 웹도 st==null인 홈에선 재개하지 않음).
+        private void OnSettingsButtonClicked() => settingsSheet?.Show(onSoundOn: SoundKit.BgmStart);
 
         // Opus 2차검수 LOW⑤(2026-08-09) — _session은 Bind() 이전(씬 로드 직후 등)엔 null일 수 있고,
         // _busy(스핀/연출 처리 중)일 때 탭하면 애니메이션 도중 상태를 읽어 화면과 안 맞는 셀 정보가 뜰
         // 수 있다 — 다른 액션 핸들러(OnGiveUpClicked 등)와 동일한 가드를 그대로 적용.
         private void OnCellTapped(int idx)
         {
+            // Opus 2차검수 항목5(2026-08-09) — 릴 셀은 PressFx 없는 raw Button이라(ReelView 전용
+            // 탭 감지, BuildReelCellTemplate 참조) 전역 tap 훅을 못 탄다. 웹은 셀도 `[data-act]`
+            // 전역 클릭 위임을 그대로 타 무조건 tap이 나므로(가드/처리 성공 여부와 무관), 여기서도
+            // 아래 가드보다 먼저 재생한다.
+            SoundKit.Sfx("tap");
             if (_busy || _session == null) return;
             cellInfoSheet?.Show(_session.State, idx);
         }
@@ -208,6 +228,7 @@ namespace JackpotRun.UI2
             _lastClear = null;
             _lastOfferEvent = null;
             _lastFailure = null;
+            _lastBossCheckStage = 0; // 웹 curStage 초기값 0 그대로 — 첫 renderPlay에서도 보스 체크가 돈다.
 
             notesFeed?.Clear();
             reelView?.Clear();
@@ -321,6 +342,20 @@ namespace JackpotRun.UI2
             {
                 tutorialOverlay?.NotifyPhase(_session.State.Phase, _session.State.Stage);
                 tutorialOverlay?.MaybeAutoStart(_session.State, appRoot == null || appRoot.Profile == null || appRoot.Profile.TutDone);
+
+                // 웹 파리티 P5 — bgmStart(웹 ui.js:696 `if (soundOn) snd.bgmStart();`, renderPlay 매번
+                // 호출 — SoundKit.BgmStart는 이미 켜져 있으면 조용히 무시하므로 매번 불러도 안전)
+                // + 보스 스테이지 최초 진입 사운드(위 _lastBossCheckStage 필드 주석 참조).
+                var run = _session.State;
+                if (run.Phase == RunPhase.Spin || run.Phase == RunPhase.PostSpin)
+                {
+                    SoundKit.BgmStart();
+                    if (run.Stage != _lastBossCheckStage)
+                    {
+                        _lastBossCheckStage = run.Stage;
+                        if (Bosses.For(run.Stage) != null) SoundKit.Sfx("boss");
+                    }
+                }
             }
 
             SetControlsInteractable(true);
@@ -421,7 +456,8 @@ namespace JackpotRun.UI2
                         idx => Send(new PickOffer(idx)), idx => Send(new HoldAugment(idx)), () => Send(new Retake()));
                     break;
                 case RunPhase.EventShop:
-                    shopPanel?.Show(run, idx => Send(new BuyOffer(idx)), () => Send(new RerollShop()), () => Send(new LeaveShop()));
+                    // 웹 파리티 P5(웹 ui.js:170 `st = g.shopBuy(...); snd.sfx("coin");`) — 구매 확정 시점.
+                    shopPanel?.Show(run, idx => { SoundKit.Sfx("coin"); Send(new BuyOffer(idx)); }, () => Send(new RerollShop()), () => Send(new LeaveShop()));
                     break;
                 case RunPhase.PostSpin:
                     postSpinPanel?.Show(run, _lastFailure, OpenManipPicker, () => Send(new GamblerReroll()), () => Send(new Continue()));

@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using JackpotRun.Data;
 using JackpotRun.Engine;
+using JackpotRun.Game;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -175,6 +176,10 @@ namespace JackpotRun.UI2
         {
             if (_closing) return; // 닫힘 연출 중 중복 클릭 방지
             _closing = true;
+            // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17, 웹 celebratePerk 트리거 ui.js:167
+            // `st = g.pickPerk(...); ...; celebratePerk(cp);`) — 카드를 실제로 "고른" 시점. 보류(onHold)는
+            // 이 메서드를 타지 않으므로(홀드 버튼은 onHold(idx)를 바로 부른다) 웹처럼 사운드가 나지 않는다.
+            SoundKit.Sfx("perk");
             StopCardAuras();
 
             foreach (var (rect, _) in allCards)

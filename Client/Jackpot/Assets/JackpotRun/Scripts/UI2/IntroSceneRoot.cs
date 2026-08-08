@@ -1,4 +1,5 @@
 using System.Collections;
+using JackpotRun.Game;
 using UnityEngine;
 
 namespace JackpotRun.UI2
@@ -45,6 +46,12 @@ namespace JackpotRun.UI2
             // 먼저 생성되어 있다(설계 S8 "생성" 절) — Instance가 null일 일은 없지만 방어적으로 처리.
             var app = AppRoot.Instance;
             if (app != null) app.RegisterIntro(this);
+
+            // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17) — 웹은 renderIntro/renderLoginGate/renderHome
+            // 진입마다 각각 snd.bgmStop()을 부르지만, Unity는 이 씬(Title/Login/Menu/Pick/Dex/Rank/
+            // LevelRewards 전부) 자체가 "BGM이 켜질 일이 없는 화면 묶음"이라 씬 진입 1회로 대체된다
+            // (BgmStart는 오직 RunView PlayRoutine 꼬리에서만 호출된다 — Play 씬 전용). 멱등 호출.
+            SoundKit.BgmStop();
         }
 
         // 첫 화면 표시는 Start에서 한다. Awake에서 부르면 같은 GameObject의 ScreenRouter.Awake가

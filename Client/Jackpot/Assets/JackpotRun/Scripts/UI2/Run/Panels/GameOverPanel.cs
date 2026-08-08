@@ -66,6 +66,10 @@ namespace JackpotRun.UI2
             bool firstShow = !gameObject.activeSelf;
             gameObject.SetActive(true);
 
+            // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17, 웹 renderEnd ui.js:2092 `snd.bgmStop();
+            // snd.sfx("gameover");`) — 재표시(re-render 격)에 중복 재생하지 않도록 firstShow에서만.
+            if (firstShow) { SoundKit.BgmStop(); SoundKit.Sfx("gameover"); }
+
             var run = session.State;
             var profile = session.Profile;
             long finalScore = failure?.finalScore ?? 0;
