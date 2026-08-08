@@ -195,109 +195,130 @@ namespace JackpotRun.Engine
         }
 
         // ══════════════════════════════════════════════════════════════════
-        // pickPerksByTier (Kotlin L1654-1700) — 티어 통일 3택. 노드(NodeEvents.cs 증강/유물 오퍼)와 상점
-        // 둘 다 원본은 이 함수를 공유하지 않지만("상점=pickAugments/pickRelics", "노드=pickPerksByTier"),
-        // 이 파일이 두 함수 모두를 정답 원본 그대로 보관하고 NodeEvents.cs가 이 함수를 호출한다.
-        // ⚠️ dev_syllabus 정보성 힌트(tierOddsHint, L1318-1324)는 파워에 영향 없는 정보 텍스트라 이번
-        // 슬라이스 범위에서 제외한다(S6 UI로 이관, Fable 승인 2026-07-31). 세트 시너지 5% off-tier 주입은
-        // 실제 오퍼 분포를 바꾸는 게임플레이 요소라 이식했다 — pickPerksByTier 자체가 아니라 Kotlin
-        // offerPerks(Service.kt L1281-1295)가 pickPerksByTier 호출 *이후*에 적용하는 별도 단계라, 이
-        // 함수 밖(NodeEvents.OfferPerks)에서 동일한 위치에 적용한다. SetSynergyAug가 그 이식분.
-        // dev_major favoredCat 편향은 포함(파워/분포에 실질 영향 있는 부분이라 원본 함수 시그니처에
-        // 이미 포함돼 있어 누락 시 픽 분포가 달라짐).
+        // pickPerksByTier — 웹 파리티 P3.5(WEB_PARITY_DESIGN.md §2-(T) 후속①②) 전면 재작성. 웹
+        // engine.js:1213-1241 pickPerksByTier를 리터럴 포팅 + PERK_FAMILY 랭크 게이팅(신규, §2-(T)
+        // 후속①) + dev_major favoredCat(Unity 전용 확장 — 아래 별도 각주).
+        //
+        // 예전 구현(Kotlin SlotV2Engine.kt L1654-1700 계열, 스테이지 가중 SILVER/GOLD/PRISM 확률 롤
+        // TierWeights/RollTier + forceRare + "티어 풀 소진 시 avail 전체로 폴백")은 이 함수의 실사용
+        // 경로에서 이미 죽은 코드였다 — NodeEvents.OfferPerks가 항상 forceTier를 확정해서 넘기므로
+        // else 분기(가중 롤)엔 애초에 도달할 수 없었고, forceRare(불운 게이지 만땅)는 그 죽은 분기의
+        // silverW를 0으로 만드는 것 말곤 하는 일이 없어 사실상 아무 효과가 없었다(버그). 웹 구조와도
+        // 맞지 않아 전부 제거한다 — 상점 전용 Shop.PickAugments/PickRelics가 쓰는 TierWeights/RollTier는
+        // 별개 함수라 영향 없다(그쪽은 웹 game.js 실사용 상점(2322-2339)이 이 함수 대신 offerPerks를
+        // 직접 쓰는 것과 이미 갈라져 있는 별도 기술부채 — 이번 슬라이스 범위 밖, 보고 대상).
+        //
+        // pool은 이미 unlockLevel 게이트를 통과한 상태로 전달돼야 한다(웹 game.js:234-235 _augPool()/
+        // _relicPool()과 동일하게 "호출자가 먼저 거른다" 계약 — 웹 pickPerksByTier 자체엔 게이트 개념이
+        // 없다). 호출부(NodeEvents.OfferPerks)가 Shop.GatedPool을 먼저 돌려서 넘긴다.
+        //
+        // [dev_major favoredCat — Unity 전용, 웹에 대응 없음] 이 장치의 desc("주력 계열 증강 등장확률
+        // 소폭↑")가 유일한 실효과라 완전히 들어내면 장치가 no-op이 된다. dev_holdfile/dev_retake와
+        // 동일한 통합 원칙(미장착 시엔 웹과 RNG 소비 순서 100% 동일, 장착 시에만 추가 소비)으로 유지 —
+        // family/tier-purity 게이팅을 통과한 후보 중에서만 우선 픽하도록 재배선했다(예전엔 FavoredSymbol
+        // (held)이 dev_major 장착 여부와 *무관하게* 항상 추가로 한 번 더 소비되는 버그성 코드가 있었다
+        // — 모든 오퍼에서 웹에 없는 RNG 소비가 매번 끼어 있었다는 뜻이라, 이번 슬라이스에서 완전히
+        // 제거했다. 이제 favoredCat이 null(=dev_major 미장착이거나 RELIC 노드)이면 이 블록 자체가
+        // RNG를 전혀 소비하지 않는다).
         // ══════════════════════════════════════════════════════════════════
         internal static List<Perk> PickPerksByTier(
-            Rng rng, IReadOnlyList<Perk> rawPool, int stage, IReadOnlyCollection<string> held, bool forceRare,
-            string favoredCat, IReadOnlyDictionary<string, long> stat, bool bossClear, Tier? forceTier)
+            Rng rng, IReadOnlyList<Perk> pool, IReadOnlyCollection<string> held,
+            Tier? forceTier, bool bossClear = false, string favoredCat = null)
         {
-            var pool = GatedPool(rawPool, stat);
-            var avail = pool.Where(p => !held.Contains(p.id)).ToList();
+            var taken = new HashSet<string>(held);
+            var avail = pool.Where(p => !taken.Contains(p.id)).ToList();
             if (avail.Count == 0) return new List<Perk>();
 
-            int Cnt(Tier t) => avail.Count(p => p.tier == t);
+            // 웹 engine.js:1218 `let tier = forceTier || (bossClear ? "PRISM" : "SILVER")`. 웹
+            // offerPerks도 항상 forceTier를 확정해서 넘기므로 bossClear 분기는 웹 자신도 실사용
+            // 경로에서 도달하지 않는 죽은 파라미터다 — 시그니처 패리티를 위해 그대로 남긴다.
+            Tier tier = forceTier ?? (bossClear ? Tier.PRISM : Tier.SILVER);
 
-            Tier tier;
-            if (forceTier.HasValue)
+            // 웹 engine.js:1219-1228 — 티어순수 단계형 폴백(PRISM→GOLD→SILVER, 각 단계 풀이 있으면
+            // 그 자리에서 멈춘다). 예전 Unity는 여기서 avail 전체(타 티어 혼용)로 폴백했었다
+            // (ENGINE_PORT_DESIGN.md S16 §A, 2026-08-03 승인) — 그 근거였던 "BASE 22종 게이트로
+            // 대부분 풀이 텅 빔" 문제는 §2-(P) 슬라이스가 게이트 자체를 단순화(unlockLevel 있는 8종만
+            // 제외, 나머지 154/162종 상시개방)하며 이미 해소됐다. 이번 슬라이스에서 웹 기준 단계형
+            // 폴백으로 되돌린다(§2-(T) 후속② 정렬) — "3개 못 채우면 적게 제시(타티어로 메우지 않음)"
+            // 원칙 그대로.
+            var tierPool = pool.Where(p => p.tier == tier && !taken.Contains(p.id)).ToList();
+            if (tierPool.Count == 0)
             {
-                tier = forceTier.Value;
-            }
-            else if (bossClear)
-            {
-                tier = Tier.PRISM;
-            }
-            else
-            {
-                int silverW = forceRare ? 0 : Math.Max(12 - stage, 2);
-                int goldW = 4 + stage * 2;
-                var weights = new List<(Tier t, int w)>
+                Tier[] fallbackOrder = tier == Tier.PRISM
+                    ? new[] { Tier.GOLD, Tier.SILVER }
+                    : tier == Tier.GOLD ? new[] { Tier.SILVER } : Array.Empty<Tier>();
+                foreach (var lower in fallbackOrder)
                 {
-                    (Tier.SILVER, Cnt(Tier.SILVER) > 0 ? silverW : 0),
-                    (Tier.GOLD, Cnt(Tier.GOLD) > 0 ? goldW : 0),
-                };
-                int total = weights.Sum(w => w.w);
-                if (total <= 0)
-                {
-                    var nonPrism = avail.FirstOrDefault(p => p.tier != Tier.PRISM);
-                    tier = nonPrism != null ? nonPrism.tier : rng.Pick(avail).tier;
-                }
-                else
-                {
-                    int x = rng.Next(total);
-                    tier = weights.First(w => w.w > 0).t;
-                    foreach (var (t, w) in weights)
-                    {
-                        if (w <= 0) continue;
-                        if (x < w) { tier = t; break; }
-                        x -= w;
-                    }
+                    var candidate = pool.Where(p => p.tier == lower && !taken.Contains(p.id)).ToList();
+                    if (candidate.Count > 0) { tierPool = candidate; tier = lower; break; }
                 }
             }
 
-            var used = new HashSet<string>(held);
+            // ── 패밀리 게이팅(신규, 웹 engine.js:1229-1233) — 같은 계열은 "보유한 같은 패밀리 개수+1"
+            // 랭크만 후보(약→강 순차 해금), 오퍼 1개당 같은 패밀리는 1개만. initialHeld(이 오퍼 시작
+            // 시점의 보유분)만 기준 — 이번 오퍼에서 새로 뽑은 것은 랭크 카운트에 반영하지 않는다
+            // (usedFams가 같은 패밀리 중복 픽 자체를 이미 막으므로 결과는 웹의 "initialHeld 클로저
+            // 참조"와 동치 — 매 후보 평가마다 다시 reduce하는 웹 구현 대신 Dictionary로 한 번만 집계).
+            var famCounts = new Dictionary<string, int>();
+            foreach (var id in held)
+            {
+                var fam = PerkFamily.FamOf(id).Fam;
+                famCounts.TryGetValue(fam, out var c);
+                famCounts[fam] = c + 1;
+            }
+            bool Eligible(Perk p)
+            {
+                var (fam, rank) = PerkFamily.FamOf(p.id);
+                famCounts.TryGetValue(fam, out var c);
+                return rank == c + 1;
+            }
+
             var outp = new List<Perk>();
-            void Take(Perk p) { if (p != null) { outp.Add(p); used.Add(p.id); } }
+            var usedFams = new HashSet<string>();
 
-            var fav = FavoredSymbol(held);
-            List<Perk> tierPool;
-            if (tier == Tier.PRISM)
+            if (!string.IsNullOrWhiteSpace(favoredCat))
             {
-                var g = pool.Where(p => p.tier == Tier.PRISM).ToList();
-                tierPool = g.Count > 0 ? g : rawPool.Where(p => p.tier == Tier.PRISM).ToList();
+                var favPick = rng.PickOrDefault(tierPool
+                    .Where(p => !taken.Contains(p.id) && Eligible(p) && p.desc.Contains(favoredCat)).ToList());
+                if (favPick != null)
+                {
+                    outp.Add(favPick);
+                    taken.Add(favPick.id);
+                    usedFams.Add(PerkFamily.FamOf(favPick.id).Fam);
+                }
             }
-            else
-            {
-                tierPool = pool.Where(p => p.tier == tier).ToList();
-            }
 
-            // [원본 이탈 — Fable 승인 2026-08-03] 티어 풀 소진 시 잔여 후보 전체로 폴백 — PickAugments의
-            // "any" 폴백과 동일 패턴. (신규 프로필: BASE 22종 전부 SILVER + %3 스테이지 GOLD 강제 → 오퍼가
-            // 통째로 비어 증강/유물 노드가 EVENT로 조용히 대체되던 문제. ENGINE_PORT_DESIGN.md S16 §A)
-            if (!tierPool.Any(p => !used.Contains(p.id))) tierPool = avail;
-
-            var cat = string.IsNullOrWhiteSpace(favoredCat) ? null : favoredCat;
-            if (cat != null)
-                Take(rng.PickOrDefault(tierPool.Where(p => !used.Contains(p.id) && p.desc.Contains(cat)).ToList()));
-            if (fav != null && fav != cat)
-                Take(rng.PickOrDefault(tierPool.Where(p => !used.Contains(p.id) && p.desc.Contains(fav)).ToList()));
-
+            // 웹 engine.js:1234-1239 — family-gated 랜덤 채움(guard<120, 웹과 동일 상한).
             int guard = 0;
-            while (outp.Count < 3 && guard++ < 80)
+            while (outp.Count < 3 && guard++ < 120)
             {
-                var candidates = tierPool.Where(p => !used.Contains(p.id)).ToList();
-                var pick = rng.PickOrDefault(candidates);
-                if (pick == null) break;
-                Take(pick);
+                var cand = tierPool.Where(p => !taken.Contains(p.id) && Eligible(p) && !usedFams.Contains(PerkFamily.FamOf(p.id).Fam)).ToList();
+                if (cand.Count == 0) break;
+                var pick = rng.Pick(cand);
+                taken.Add(pick.id);
+                usedFams.Add(PerkFamily.FamOf(pick.id).Fam);
+                outp.Add(pick);
             }
-            rng.Shuffle(outp);
+            rng.Shuffle(outp); // 웹 engine.js:1240 `return rng.shuffle(out);` — out.length<3이어도 무조건 셔플.
             return outp;
         }
 
         // ══════════════════════════════════════════════════════════════════
-        // setSynergyAug (Kotlin L655-670) — 플레이어가 짓는 중인(requires 1개+ 보유·미완성) 세트들의
-        // 미보유 requires 중 cat(기본 AUGMENT)이고 exclude에 없는 후보에서, 가장 근접한(미보유 requires
-        // 최소) 세트 우선으로 1개 추첨. Sets.cs(S2b)엔 SetEffect 데이터 테이블만 있고 이 결합 로직 자체는
-        // 없어(Sets.cs 파일 헤더에 setSynergyAug/setSynergyName 언급 없음, 2026-07-31 확인) 이 파일에
-        // 새로 이식한다 — Fable 후속 지시(2026-07-31) 반영, Sets.All을 유일 소스로 참조만 한다.
+        // setSynergyAug — 웹 engine.js:1170-1192 setSynergyPick 리터럴 포팅(Kotlin L655-670 원류).
+        // 플레이어가 짓는 중인(requires 1개+ 보유·미완성) 세트들의 미보유 requires 중 exclude에 없는
+        // *증강* 후보에서, 가장 근접한(미보유 requires 최소) 세트 우선으로 1개 추첨. Sets.cs(S2b)엔
+        // SetEffect 데이터 테이블만 있고 이 결합 로직 자체는 없어(Sets.cs 파일 헤더에 setSynergyAug/
+        // setSynergyName 언급 없음, 2026-07-31 확인) 이 파일에 새로 이식한다 — Fable 후속 지시
+        // (2026-07-31) 반영, Sets.All을 유일 소스로 참조만 한다.
+        //
+        // [cat 매개변수 — 웹 engine.js:1172-1173 그대로] "cat: 시그니처 패리티용(미사용). Kotlin 도
+        // 노드 cat 과 무관하게 항상 AUGMENT 조각만 주입(이름이 setSynergyAug 인 이유) — perk(id) 는
+        // 전체에서 찾되 cat==AUGMENT 만 채택." 웹 setSynergyPick 본문은 실제로 cat 인자를 단 한 번도
+        // 읽지 않고 `augById = Map(AUGMENTS...)`로 고정한다 — 즉 RELIC 노드 오퍼라도 5% 시너지
+        // 주입 조각은 항상 AUGMENT일 수 있다(RELIC이 아님). 이 함수도 cat 인자를 매개변수로만
+        // 남기고(호출부 시그니처 패리티) 내부에서는 무조건 PCat.AUGMENT로 필터한다 — 웹 파리티
+        // P3.5(§2-(T) 후속②) 정렬: 예전 Unity는 node 종류로 실제 필터링 카테고리를 갈라(AUGMENT
+        // 노드→AUGMENT만, RELIC 노드→RELIC만) 웹과 다르게 동작했다.
         //
         // RNG 소비: 후보 세트를 "미보유 requires 개수" 오름차순(가까운 세트 우선, 동점은 Sets.All 선언
         // 순서로 안정정렬 — Kotlin sortedBy와 동일한 안정성)으로 순회하며, 세트마다 최대 1회
@@ -321,7 +342,7 @@ namespace JackpotRun.Engine
                 var missingAug = s.requires
                     .Where(r => !heldSet.Contains(r) && !excludeSet.Contains(r))
                     .Select(Perks.ById)
-                    .Where(p => p != null && p.cat == cat)
+                    .Where(p => p != null && p.cat == PCat.AUGMENT) // 웹과 동일 — cat 인자 미사용, 항상 AUGMENT
                     .ToList();
                 var pick = rng.PickOrDefault(missingAug);
                 if (pick != null) return pick;

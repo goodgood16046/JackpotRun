@@ -126,7 +126,30 @@ namespace JackpotRun.Engine
 
             var combinedPerks = new List<string>(run.Perks);
             combinedPerks.AddRange(run.PhasePerks);
-            var pmods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels);
+            // 웹 파리티 P3.5(WEB_PARITY_DESIGN.md §2-(T) 후속③) — 웹 _freeReroll()(game.js:1214-1224)은
+            // this._mods() → this._ctx()를 그대로 거쳐 ctx 포함 buildMods를 호출한다(game.js:443-445
+            // `E.buildMods(r.machineId, r.charId, r.perks, r.curses, r.device, this._ctx(), r.perkLevels)`).
+            // 예전 구현은 ModsBuilder.Build를 ctx 없이(기본 `new RunCtx()`, coins=99) 호출해 ctx-조건부
+            // 퍽(early_prep/growth_log/snowball/fortune_check/luck_accum/fate_burst/late_focus/
+            // cliff_focus/sacrifice/black_diploma/bankrupt/abyss_scholar/curse_grad/black_grad_photo/
+            // phoenix_thesis)이 재굴림 시점엔 전부 "기본값 컨텍스트"로 잘못 계산되는 공백이 있었다
+            // (Mods.cs의 RunCtx.coins 주석 참조 — 99는 "무해 기본값"이 아니라 "우연히 안 읽혀서
+            // 무해"였을 뿐이다). SpinResolver.ResolveSpin과 같은 모양의 2단계 패턴(ctx 없는 1차 mods로
+            // spins/quota를 먼저 산출 → 그 값으로 RunCtx 구성 → ctx 포함 2차 mods)을 재사용한다.
+            // [Opus 2차검수 권장⑧] 오늘 시점 콘텐츠 기준으로는 이 2단계가 ResolveSpin의 진짜 3단계
+            // 재계산과 **결과값이 동치**다 — ctx-조건부 퍽 14종 중 quotaMul에 영향을 주는 것은 없고
+            // bonusSpins에 영향을 주는 것은 black_diploma(curseCount>=5) 하나뿐인데, curseCount는
+            // run.Curses.Count로 mods 계산과 무관하게 즉시 알 수 있어 1차(ctx 없는) mods로 뽑은
+            // preSpins만으로도 정확하다. 그러나 **구조적으로 3단계와 동일한 것은 아니다** — 향후
+            // ctx-조건부 퍽이 quotaMul이나 bonusSpins를 stage/spinIndex 등 "mods 계산 자체에 의존하는"
+            // ctx 필드로 계산하게 되면, 이 1차 mods 기반 preSpins/preQuota가 실제 최종값과 어긋나는
+            // 시나리오가 이론상 가능하다 — 그때는 ResolveSpin처럼 진짜 반복(고정점) 계산으로 확장해야
+            // 한다.
+            var pre0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels);
+            var preSpins = SpinResolver.EffSpins(run, pre0);
+            var preQuota = SpinResolver.QuotaOf(run.Stage, pre0);
+            var ctx = SpinResolver.RunCtxOf(run, run.SpinIndex, preSpins, preQuota);
+            var pmods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, ctx, run.PerkLevels);
             var pmods1 = ModsBuilder.ApplyItemMods(pmods0, run.PhaseItems);
             var devEq = Devices.ById(run.Device);
             var pmods = (devEq != null && devEq.kind == "PASSIVE") ? ModsBuilder.ApplyPassiveDevice(pmods1, devEq.id) : pmods1;

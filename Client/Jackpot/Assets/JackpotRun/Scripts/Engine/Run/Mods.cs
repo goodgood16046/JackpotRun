@@ -105,8 +105,17 @@ namespace JackpotRun.Engine
         public int unluckyGauge = 0;
         public bool boss = false;
         // 웹 파리티 P3-4(engine.js:136 makeCtx `coins: ctx.coins ?? 99`) — bankrupt(파산 졸업생) 캐릭터
-        // 조건부 효과(코인0=EXP+50%/코인10+=−20%)용. 기본값 99 = "충분함"과 동치라 미설정 호출부(예:
-        // ModsBuilder.Build의 ctx 생략 "1차 프리패스")에서도 안전한 무해 기본값이다.
+        // 조건부 효과(코인0=EXP+50%/코인10+=−20%)용.
+        // [주석 정정 — 웹 파리티 P3.5, WEB_PARITY_DESIGN.md §2-(T) 후속③] 예전 버전의 이 주석은
+        // 기본값 99가 "미설정 호출부에서도 안전한 무해 기본값"이라 적었지만 부정확했다 — bankrupt
+        // 캐릭터 기준 `coins>=10`이면 `expMul *= 0.8`이 실제로 걸린다(99는 결코 "중립"이 아니라
+        // "패널티 조건을 충족하는 값"이다). 현재 무해한 이유는 딱 하나, ctx 없이 호출되는 "프리패스"
+        // 지점(예: ModsBuilder.Build의 ctx 생략 1차 재계산, GameSession.PreviewQuotaSpins 등)이 그
+        // 결과에서 bonusSpins/SpinsPerStage/QuotaOf만 뽑아 쓰고 expMul은 읽지 않기 때문이다 — 즉
+        // "필드 자체가 무해"가 아니라 "현재 소비처가 우연히 그 필드를 안 읽어서 무해"인 훨씬 좁고
+        // 깨지기 쉬운 보장이다. 향후 누군가 ctx-less Build() 결과의 expMul을 읽는 소비처를 추가하면
+        // bankrupt 런에서 조용히 잘못된 페널티가 섞여 들어갈 수 있다(ItemUse.UseRetakeForm은 이번
+        // 슬라이스에서 ctx 포함 2단계 빌드로 고쳤다 — SpinResolver.RunCtxOf 참조).
         public long coins = 99;
 
         public bool IsFirstSpin => spinIndex == 0;

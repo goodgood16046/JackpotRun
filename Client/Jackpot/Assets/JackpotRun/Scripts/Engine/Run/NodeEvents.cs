@@ -149,10 +149,11 @@ namespace JackpotRun.Engine
             return RunEvents.One(evEvent);
         }
 
-        // ── 증강/유물 오퍼 생성 (offerPerks, Kotlin L1257-1316) ──
+        // ── 증강/유물 오퍼 생성 (offerPerks, 웹 engine.js:1248-1284 offerPerks 리터럴 포팅 — 웹 파리티
+        // P3.5, WEB_PARITY_DESIGN.md §2-(T) 후속①②) ──
         // dev_syllabus 정보성 힌트는 S6 UI로 이관(스코프 제외, Fable 승인 2026-07-31). 세트 시너지 5%
-        // off-tier 주입(Kotlin L1281-1295)은 이식했다 — synPerkId(out)로 주입된 퍽 id를 노출한다(주입 없으면
-        // null).
+        // off-tier 주입(engine.js:1260-1271)은 이식했다 — synPerkId(out)로 주입된 퍽 id를 노출한다(주입
+        // 없으면 null).
         private static List<Perk> OfferPerks(
             RunState run, NodeKind node, IReadOnlyDictionary<string, long> stat, bool reoffer,
             out bool bossClear, out bool tierBumped, out string synPerkId, out bool heldIncluded)
@@ -160,7 +161,11 @@ namespace JackpotRun.Engine
             synPerkId = null;
             heldIncluded = false;
             var held = new HashSet<string>(run.Perks);
-            IReadOnlyList<Perk> pool = node == NodeKind.Augment ? (IReadOnlyList<Perk>)Perks.Augments : Perks.Relics;
+            // 웹 game.js:234-235 `_augPool()`/`_relicPool()` — unlockLevel 게이트는 호출자가 먼저 거른
+            // "이미 필터된 풀"을 pickPerksByTier에 넘긴다(§2-(T) 후속① 정리 — 예전엔 Shop.PickPerksByTier
+            // 내부에서 GatedPool을 돌렸다. 웹 pickPerksByTier 자체엔 게이트 개념이 없다).
+            IReadOnlyList<Perk> rawPool = node == NodeKind.Augment ? (IReadOnlyList<Perk>)Perks.Augments : Perks.Relics;
+            var pool = Shop.GatedPool(rawPool, stat);
             string favCat = node == NodeKind.Augment ? Shop.MajorFavoredCat(run) : null;
 
             string heldAugId = null;
@@ -168,7 +173,11 @@ namespace JackpotRun.Engine
                 heldAugId = run.HeldAug;
 
             int clearedStage = run.Stage - 1;
-            bossClear = Formulas.IsBossStage(clearedStage);
+            // 웹 engine.js:1250 `bossClear = opts.bossClear ?? (clearedStage > 0 && clearedStage % 5 === 0)`
+            // — clearedStage>0 조건 포함(0을 boss로 오판하지 않음). 실사용 경로에선 forceTier가 항상
+            // 확정돼 넘어가 이 값 자체는 죽은 파라미터지만(RunEvent.offerBossPrism 표시용으로만 관측됨),
+            // 문자 그대로 맞춰 둔다.
+            bossClear = clearedStage > 0 && Formulas.IsBossStage(clearedStage);
             var heldPerk = heldAugId != null ? Perks.ById(heldAugId) : null;
             var baseTier = Formulas.TierForClearedStage(clearedStage);
             tierBumped = false;
@@ -178,9 +187,18 @@ namespace JackpotRun.Engine
             // 오퍼를 강제로 PRISM으로. 🗂️보류파일(heldPerk, Unity 전용)이 이미 결정형 우선순위 1위라
             // 그 아래(2위)로 둔다 — 웹엔 holdfile 개념이 없어 상호작용 규정이 없으므로 합리적 절충.
             bool prismInkForced = node == NodeKind.Augment && run.PrismInkActive;
+            // 웹 파리티 P3.5 [Fable 결정 — Opus 2차검수 필수①②](WEB_PARITY_DESIGN.md §2-(A)/§2-(U)) —
+            // 불운 게이지 만땅(forceRare)은 웹 pickPerksByTier/offerPerks에 대응 개념이 없는 Unity 전용
+            // 카논 규칙이다. 원본(Kotlin) 의도는 "silverW=0 = GOLD 이상 보장"이므로, **SILVER 노드일
+            // 때만 GOLD로 승급**하고 GOLD/PRISM 노드는 무승급(이미 "희귀↑ 보장" 조건을 자연히 만족한
+            // 것으로 간주). 🗂️보류파일(heldPerk)이 이미 결정형 우선순위 1위이므로 이 승급은 heldPerk==
+            // null(보류 미사용) 분기 안에서만 적용한다 — heldPerk 분기 밖에 두면 보류 티어까지 밀어
+            // 올려 "보류 티어 결정형 우선" 원칙이 깨진다(Opus 2차검수 필수① — 보류파일 오퍼 티어 혼용
+            // 회귀 제거).
+            bool lucky = run.UnluckyGauge >= Formulas.UNLUCKY_MAX;
             if (heldPerk != null)
             {
-                nodeTier = heldPerk.tier; // 🗂️보류파일 — 보류 티어 우선(결정형/등급업 무시, RNG 없음·기존 동작 그대로)
+                nodeTier = heldPerk.tier; // 🗂️보류파일 — 보류 티어 우선(결정형/등급업/불운승급 전부 무시, RNG 없음)
             }
             else
             {
@@ -202,11 +220,19 @@ namespace JackpotRun.Engine
                     nodeTier = Tier.PRISM;
                     tierBumped = nodeTier != baseTier;
                 }
+
+                // forceRare — SILVER 노드일 때만 GOLD로 승급(RNG 미소비, 결정적 후처리). 10%등급업/
+                // forceTire 처리가 모두 끝난 "최종 nodeTier"를 기준으로 판정한다 — 이미 GOLD/PRISM이면
+                // 손대지 않는다.
+                if (lucky && nodeTier == Tier.SILVER)
+                {
+                    nodeTier = Tier.GOLD;
+                    tierBumped = true;
+                }
             }
             if (node == NodeKind.Augment) run.PrismInkActive = false; // 소비(오퍼 생성 시도 시 무조건 리셋, 웹과 동일)
 
-            bool lucky = run.UnluckyGauge >= Formulas.UNLUCKY_MAX;
-            var picks = Shop.PickPerksByTier(run.Rng, pool, run.Stage, held, lucky, favCat, stat, bossClear, nodeTier);
+            var picks = Shop.PickPerksByTier(run.Rng, pool, held, nodeTier, bossClear, favCat);
             if (heldPerk != null)
             {
                 picks = new[] { heldPerk }.Concat(picks.Where(p => p.id != heldPerk.id)).Take(3).ToList();
@@ -214,18 +240,25 @@ namespace JackpotRun.Engine
             }
             if (picks.Count == 0) return picks;
 
-            // 🧩 세트 시너지 off-tier 조각 주입 (Kotlin offerPerks L1281-1295) — 보류파일(heldPerk) 미사용
+            // 🧩 세트 시너지 off-tier 조각 주입 (웹 engine.js:1260-1271) — 보류파일(heldPerk) 미사용
             // 시에만, 5% 확률로 마지막 칸을 "짓는 중인 세트의 빠진 조각"으로 교체(메인 티어와 다를 수
             // 있음 — 세트 완성 유도가 목적). RNG 소비 순서 주의: heldPerk==null이면 이 100-roll은
-            // "picks.Count>=2인지"·"syn이 실제로 발견되는지"와 무관하게 항상 1회 소비된다(Kotlin과 동일 —
-            // r.nextInt(100)이 조건식 안에 있어 heldPerk==null이기만 하면 매번 평가됨).
-            if (heldPerk == null && run.Rng.Next(100) < 5)
+            // "syn이 실제로 발견되는지"와 무관하게 항상 1회 소비된다(웹과 동일 — `rng.n(100) < 5`가
+            // `&&` 좌변이라 heldPerk==null이기만 하면 매번 평가됨). 단 `picks.Count>=2`는 Opus 2차검수
+            // 필수③(WEB_PARITY_DESIGN.md §2-(U)) 반영 — 웹 engine.js:1262 `if (rng.n(100) < 5 &&
+            // picks.length >= 2) { ... setSynergyPick(...) ... }`처럼 SetSynergyAug 호출 *앞*의 조건절에
+            // 있어야 한다(1~2장짜리 오퍼에서는 100-roll이 성공해도 SetSynergyAug 자체를 호출하지 않아
+            // RNG를 추가 소비하지 않는다) — 이전엔 SetSynergyAug를 먼저 호출한 뒤에야 picks.Count>=2를
+            // 검사해 1장 오퍼에서도 웹에 없는 RNG 소비가 발생했다.
+            if (heldPerk == null && run.Rng.Next(100) < 5 && picks.Count >= 2)
             {
-                var synCat = node == NodeKind.Augment ? PCat.AUGMENT : PCat.RELIC;
+                // Shop.SetSynergyAug는 웹 setSynergyPick과 동일하게 cat 인자와 무관하게 항상 AUGMENT
+                // 조각만 찾는다(§2-(T) 후속② — RELIC 노드 오퍼라도 주입 조각은 AUGMENT일 수 있음, 웹
+                // 원문 그대로). 인자는 시그니처 패리티용으로만 남긴다.
                 var excludeSet = new HashSet<string>(picks.Select(p => p.id));
                 excludeSet.UnionWith(held);
-                var syn = Shop.SetSynergyAug(held, excludeSet, run.Rng, synCat);
-                if (syn != null && picks.Count >= 2 && !picks.Any(p => p.id == syn.id))
+                var syn = Shop.SetSynergyAug(held, excludeSet, run.Rng, PCat.AUGMENT);
+                if (syn != null && !picks.Any(p => p.id == syn.id))
                 {
                     picks = picks.Take(picks.Count - 1).Append(syn).ToList(); // 항상 마지막 칸 교체(메인 티어 칸 보존)
                     synPerkId = syn.id;

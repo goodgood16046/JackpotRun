@@ -346,29 +346,159 @@
     "포함 여부"가 아니라 "키 집합이 정확히 일치"까지 검증(golden에 없는 여분 fx 키가 남아 있어도 실패).
   - **어서션**: 18992 → 19244(+252). `Tests_P3_4_ContentGolden.cs`(신규 21퍽·저주16 손전사 골든 +
     상점 5필드 손계산) 신설이 대부분을 차지.
-  - **후속 문서화만(코드 미반영, 별도 슬라이스 대상)**:
-    1. **PERK_FAMILY 랭크 게이팅**: 웹 `pickPerksByTier`(engine.js:1213-1241)의 "같은 계열은 보유 랭크+1만
-       후보, 오퍼 1개당 같은 패밀리 1개만" 규칙이 Unity `Shop.PickPerksByTier`엔 전혀 없다 — 이번
-       슬라이스가 다룬 "해금 게이트" 축과는 다른 축(오퍼 *후보 필터*라 뽑히는 분포 자체에 영향)이라
-       손대지 않았다(§2-(P) 이미 기록). 오퍼 알고리즘 전체(가중치분포·favoredCat 포함) 재정렬이 필요한
-       별도 슬라이스 대상.
-    2. **retake_form의 RunCtx 누락**: `ItemUse.UseRetakeForm`이 재계산 mods를 `ModsBuilder.Build(...)`
-       호출 시 `ctx`를 아예 안 넘겨(`new RunCtx()` 기본값) 만든다 — 이번 슬라이스 이전부터 있던 구조적
-       공백이다(early_prep/growth_log/snowball/fortune_check/luck_accum/fate_burst/late_focus/
-       cliff_focus/sacrifice/black_diploma 전부 영향받음). 이번 슬라이스가 추가한 bankrupt/abyss_scholar
-       (ctx.coins/ctx.boss)·curse_grad/black_grad_photo(ctx.curseCount)·phoenix_thesis(ctx.stage/
-       quota/stageExp)까지 가세해 영향 범위가 넓어졌다 — retake_form으로 재굴림하는 순간에만 이
-       퍽들이 "기본값 컨텍스트"로 잘못 계산된다(실제 스핀 경로는 정상). 별도 슬라이스에서
-       `BuildRunCtx`류 헬퍼를 `UseRetakeForm`에도 연결해야 한다.
-    3. **Mods.cs:107 "기본값 99 무해" 주석 정정**: 그 주석은 `RunCtx.coins` 기본값 99가 "미설정
-       호출부에서도 안전한 무해 기본값"이라 적었지만 부정확하다 — bankrupt 캐릭터 기준 `coins>=10`이면
-       `expMul *= 0.8`이 실제로 걸린다(99는 결코 "중립"이 아니라 "패널티 조건을 충족하는 값"이다).
-       현재 무해한 이유는 딱 하나, ctx 없이 호출되는 모든 "프리패스" 지점(예: SpinResolver의 3단계
-       재계산 중 1단계, GameSession.PreviewQuotaSpins 등)이 그 결과에서 `bonusSpins`/`SpinsPerStage`만
-       뽑아 쓰고 `expMul`은 읽지 않기 때문이다 — 즉 "필드 자체가 무해"가 아니라 "현재 소비처가 우연히
-       그 필드를 안 읽어서 무해"인 훨씬 좁고 깨지기 쉬운 보장이다. 향후 누군가 ctx-less Build() 결과의
-       expMul을 읽는 소비처를 추가하면 bankrupt 런에서 조용히 잘못된 페널티가 섞여 들어갈 수 있다 —
-       retake_form 항목과 같은 근본 원인(ctx 전달 누락)이라 함께 다룰 별도 슬라이스 대상.
+  - **후속 문서화만(코드 미반영, 별도 슬라이스 대상)** — ①②③ 전부 **P3.5(2026-08-08)에서 완료. 아래
+    §2-(U) 참조**:
+    1. ~~PERK_FAMILY 랭크 게이팅~~ → §2-(U) 항목①.
+    2. ~~retake_form의 RunCtx 누락~~ → §2-(U) 항목③.
+    3. ~~Mods.cs:107 "기본값 99 무해" 주석 정정~~ → §2-(U) 항목③.
+- **(U) 2026-08-08 완료(P3.5 "퍽 오퍼 알고리즘 웹 완전 동기화" — §2-(T) 후속①②③ 슬라이스, Opus
+  2차검수 필수4·권장3 반영 포함)**:
+  - **① PERK_FAMILY 랭크 게이팅 이식**: 신규 `Content/PerkFamily.cs` — 웹 `data.js:345-375`
+    (AUG_FAMILY 51종) + `data.js:603-621`(REL_FAMILY 45종) = 96종을 `(패밀리키, 랭크)` 튜플로 손전사
+    (bash로 Unity `Perks.cs`의 178개 id 전체와 대조해 96종이 전부 실존 id인지 사전 검증). `Shop.
+    PickPerksByTier`가 이제 `eligible(p) = rank == heldFamCount(fam)+1`(웹 engine.js:1233)로 후보를
+    거르고 `usedFams`로 오퍼 1개당 같은 패밀리 1개만 허용한다(engine.js:1236-1238). `heldFamCount`는
+    웹처럼 매 후보 평가마다 다시 reduce하지 않고 오퍼 시작 시점 `Dictionary`로 1회 집계(결과 동치,
+    성능만 개선 — 이 오퍼에서 새로 뽑은 항목은 웹과 동일하게 카운트에 반영 안 됨, `usedFams`가 같은
+    패밀리 중복 픽 자체를 막아주므로 문제 없음). 미등록 퍽(154-96=58종 미만, 실제로는 대부분)은
+    `PerkFamily.FamOf`가 `(자기id, 랭크1)`로 폴백해 항상 후보(웹 engine.js:15 `famOf` 그대로).
+    (`.meta` 파일은 별도 배치 처리 대상 — 이 슬라이스에서 건드리지 않음.)
+  - **② 오퍼 알고리즘 전면 웹 대조 — 차이점 전수 목록(웹 기준 정렬)**:
+    1. **티어 결정 — 스테이지 가중 롤(TierWeights/RollTier) 완전 제거**: 예전 `Shop.PickPerksByTier`는
+       Kotlin 유래의 스테이지별 SILVER/GOLD/PRISM 확률 가중 롤(forceTier가 없을 때만 타는 else 분기)을
+       갖고 있었는데, `NodeEvents.OfferPerks`가 **항상** forceTier를 확정해서 넘기는 현재 호출 구조에서
+       이 분기는 애초에 도달 불가능한 죽은 코드였다. 웹 `pickPerksByTier`(engine.js:1213-1241)에는
+       이런 가중 롤 개념 자체가 없다(항상 `tierForClearedStage`+10%등급업+`forceTier`로 결정형) — 죽은
+       분기를 전부 제거하고 시그니처를 `(rng, pool, held, forceTier, bossClear, favoredCat)`로 웹과
+       동형화했다. **주의**: 상점 구매 오퍼(`Shop.FreshOffer`가 쓰는 `PickAugments`/`PickRelics`)는
+       여전히 이 가중 롤(`TierWeights`/`RollTier`)을 그대로 쓴다 — 별개 함수라 영향 없음(아래 "발견한
+       추가 이탈" 참조, 이번 슬라이스 범위 밖).
+    2. **forceRare(불운 게이지 만땅) — 죽은 코드였음을 발견 + [Fable 결정] 범위 확정(Opus 2차검수
+       필수②)**: 예전 `forceRare`는 위 죽은 가중-롤 분기의 `silverW`를 0으로 만드는 것 말곤 아무 일도
+       하지 않아, 실제 게임플레이에서 게이지가 가득 차도 오퍼 티어에 **전혀 영향이 없는 버그**였다.
+       1차 재구현안(무조건 `TierUp` 한 단계)을 Opus 2차검수에서 재검토 — **Fable 결정: kotlin 원본
+       의도("silverW=0" = "GOLD 이상 보장")를 그대로 보존해 SILVER 노드일 때만 GOLD로 승급하고, GOLD/
+       PRISM 노드는 무승급**(이미 "희귀↑ 보장" 조건을 자연히 만족한 것으로 간주 — PRISM까지 계속
+       밀어올리는 건 원본 의도를 넘어서는 과승급이었다). **게이지는 만땅 상태에서 오퍼가 발생하면
+       (heldPerk 분기를 포함해) 항상 소모**한다 — 이미 GOLD+ 노드라 승급이 안 걸려도 "희귀↑ 보장"
+       조건 자체는 자연히 이행된 것으로 보고 리셋한다. `NodeEvents.OfferPerks`에서 nodeTier 확정
+       직후(10%롤+forceTier 처리 이후) `lucky && nodeTier==SILVER`면 `nodeTier=GOLD`로 결정적 후처리
+       (RNG 미소비)한다 — 게이지가 0인 절대다수 오퍼에서는 웹과 RNG 소비 순서가 완전히 동일하게
+       유지된다. **관련 테스트**: `Tests_P3_5_OfferFixedSeedRegression`의 gold4(SILVER→GOLD 승급
+       대조쌍)·gold5(GOLD 노드 무승급)·gold6(PRISM 노드 무승급) — 세 케이스 모두 `expectGaugeReset:
+       true`로 게이지 소모까지 확인.
+    2-1. **🗂️보류파일 오퍼 티어 혼용 회귀 제거(Opus 2차검수 필수①)**: 위 forceRare 재구현 1차안이
+       `heldPerk!=null`/`else` 분기 **밖**에 있어, 보류파일(`dev_holdfile`) 사용 중에 불운 게이지가
+       만땅이면 보류 티어(결정형)가 강제로 등급업되는 회귀가 있었다("보류 티어 결정형 우선" 원칙 위반).
+       `lucky` 판정을 `heldPerk==null`(보류 미사용) 분기 **안**으로 옮겨, 보류 사용 중엔 forceRare가
+       전혀 개입하지 않도록 정정했다 — `Tests_P3_5_OfferFixedSeedRegression` gold7(HeldAug="preview" +
+       게이지5 → 오퍼 티어가 SILVER로 유지되고 0번 칸이 정확히 "preview" 자신)로 직접 검증.
+    3. **티어 풀 소진 폴백 — "avail 전체(타티어 혼용)"→웹 기준 단계형(PRISM→GOLD→SILVER) 폴백으로 환원**:
+       예전엔 강제 티어 풀에 미보유 후보가 없으면 **모든 티어**를 섞은 `avail`로 폴백했다(2026-08-03
+       Fable 승인, ENGINE_PORT_DESIGN.md S16 §A — 당시 근거는 "BASE 22종 게이트로 대부분 풀이 텅 비어
+       오퍼가 통째로 EVENT로 새던 문제"). 웹은 "그 자리에서 멈추는" 단계형 폴백만 쓰고(PRISM 없으면
+       GOLD, GOLD도 없으면 SILVER, 그래도 없으면 그대로 빈 티어 — "3개 못 채우면 적게 제시, 타티어로
+       메우지 않음") avail 전체 폴백 개념이 없다. S16 §A의 근본 원인(BASE 22종 게이트)은 §2-(P)
+       슬라이스가 게이트 자체를 unlockLevel 8종 전용으로 단순화(154/162종 상시개방)하며 이미 해소돼
+       있어, 이번 슬라이스에서 웹 기준 단계형 폴백으로 되돌렸다(ENGINE_PORT_DESIGN.md S16 §A에 이
+       환원을 가리키는 역참조 각주 추가). `Tests_S4_TierPoolFallback`의 어서션을 Opus 2차검수 권장⑥
+       반영해 "GOLD 없음"에서 "전원 SILVER"(`All(tier==SILVER)`)로 강화했다 — GOLD 소진 시 단계형
+       폴백은 `[SILVER]`뿐이라 PRISM은 애초에 후보에 들지 않는다(구 주석의 "SILVER/PRISM 잔여" 서술은
+       부정확했던 것도 함께 정정).
+    4. **dev_major favoredCat — Kotlin 유래 빌드시너지 편향의 웹 기준 제거(밸런스 변경, Fable 승인
+       — "버그 수정"이 아님, Opus 2차검수 필수⑤ 반영해 문서 프레이밍 정정)**: 예전 코드에서 실제로
+       발견한 구현 결함은 `favoredCat`(dev_major 전용) 매개변수와 별개로 `var fav =
+       FavoredSymbol(held);`를 **매 호출마다 무조건** 계산해, dev_major를 장착하지 않은 절대다수의
+       오퍼에서도 "보유 퍽 중 가장 흔한 심볼" 편향 픽이 매번 섞여 들어가던 것(웹에 전혀 없는 RNG
+       소비 — RNG 순서가 웹과 항상 어긋나 있었다)이다. 이 자체는 명백한 코드 결함이라 고쳤다. 하지만
+       더 근본적으로는 **"보유 퍽 중 가장 흔한 심볼로 오퍼를 편향시킨다"는 발상 자체가 Kotlin 원본
+       (kotlin-reference)의 산물이며, 웹 `pickPerksByTier`엔 이런 개념이 애초에 존재하지 않는다** —
+       즉 "장착 여부와 무관하게 항상 적용되던 걸 dev_major 장착 시로 좁힌 것"은 버그 수정이 아니라
+       **웹 기준으로 이 빌드시너지 편향 자체를 (dev_major라는 Unity 전용 장치 하나로 한정해) 축소하는
+       밸런스 결정**이다(§0 "충돌 시 웹 채택이 기본" 원칙 적용, Fable 승인). dev_major(장치, 웹에
+       대응 없음)의 desc("주력 계열 증강 등장확률 소폭↑")가 유일한 실효과라 완전히 제거하면 장치가
+       no-op이 되므로, dev_holdfile/dev_retake와 동일한 원칙(미장착 시엔 웹과 100% 동일, 장착 시에만
+       추가 소비)으로 재배선했다 — `favoredCat`이 null(=dev_major 미장착이거나 RELIC 노드, 또는 held
+       가 비어 `FavoredSymbol([])`이 null을 반환하는 경우)이면 이 블록 자체가 RNG를 전혀 소비하지
+       않는다. **관련 테스트(Opus 2차검수 권장⑦ 반영)**: (a) 전 슬롯 기준(예전엔 슬롯0만 봐서
+       `PickPerksByTier` 끝의 `rng.Shuffle`이 위치를 다시 섞는다는 점을 놓쳐 신호가 희석됐다)으로
+       favored 심볼 포함율 대조, (b) held=[]로 favoredCat이 null로 귀결되는 상황에서 dev_major
+       장착·미장착 두 실행이 **완전히 동일한 오퍼**를 내는지(=RNG 미소비의 직접 증거) 40시드 확인.
+    5. **SetSynergyAug의 cat 필터 — 웹은 항상 AUGMENT, 예전 Unity는 node 종류로 분기**: 웹
+       `setSynergyPick`(engine.js:1170-1192)은 `cat` 매개변수를 시그니처에는 받지만 본문에서 절대
+       읽지 않고 `augById = Map(AUGMENTS...)`로 고정한다("이름이 setSynergyAug인 이유" — 코드 주석
+       원문) — 즉 **RELIC 노드 오퍼라도 5% 시너지 주입 조각은 항상 AUGMENT일 수 있다**(RELIC이 아님).
+       예전 Unity는 `node == Augment ? PCat.AUGMENT : PCat.RELIC`으로 실제로 필터링 카테고리를
+       갈랐었다 — `Shop.SetSynergyAug`를 웹과 동일하게 `cat` 인자 무시·항상 `PCat.AUGMENT`로 고쳤다.
+       `Tests_S4_SetSynergyInjection`의 RELIC 시나리오를 "set_combo(set_charm 주입)"→"set_cherry_net
+       (cherry_up 주입, AUGMENT)"으로 교체해 이 동작을 직접 검증한다(예전 페어는 새 규칙에서
+       injected=0%가 되어 그대로 두면 실패).
+    5-1. **5% 세트조각 주입 — `picks.Count>=2` 검사 위치 정정(Opus 2차검수 필수③)**: 웹
+       engine.js:1262 `if (rng.n(100) < 5 && picks.length >= 2) { ... setSynergyPick(...) ... }`는
+       `picks.length>=2`가 `&&` 우변이라 **`setSynergyPick`(RNG 소비) 호출 자체가 조건절 안에 있다**
+       — 1~2장짜리 오퍼에서는 100-roll이 성공해도 `setSynergyPick`을 아예 호출하지 않아 그만큼 RNG를
+       추가 소비하지 않는다. 1차 구현은 `SetSynergyAug`를 먼저 호출한 뒤에야 `picks.Count>=2`를
+       검사해, 1장짜리 오퍼에서도 웹에 없는 RNG 소비가 발생했다 — `picks.Count>=2`를 `SetSynergyAug`
+       호출 **앞**의 `&&` 조건절로 옮겨 웹과 동일한 단락 평가 순서로 정정했다.
+    6. **unlockLevel 게이트 위치 — PickPerksByTier 내부 → 호출자(NodeEvents.OfferPerks)로 이동**: 웹
+       `pickPerksByTier` 자체엔 게이트 개념이 없다 — 게이트는 `_augPool()`/`_relicPool()`(game.js:
+       234-235)이 호출 *전에* 미리 걸러서 넘긴다. `Shop.GatedPool` 호출을 `PickPerksByTier` 내부에서
+       `NodeEvents.OfferPerks`로 옮겨 웹과 동일한 "호출자가 먼저 거른다" 구조로 맞췄다(행동 동일, 구조만
+       정렬 — §2-(P)가 만든 게이트 규칙 자체는 그대로).
+    7. **bossClear 계산식의 `clearedStage>0` 누락(사문사 — 실질 영향 없음)**: `bossClear =
+       Formulas.IsBossStage(clearedStage)`가 `clearedStage==0`(0%5==0)을 보스클리어로 오판할 수 있었다
+       — 웹 `opts.bossClear ?? (clearedStage > 0 && clearedStage % 5 === 0)`(engine.js:1250)엔 `>0`
+       조건이 있다. `NodeEvents.OfferPerks`에서 노드 오퍼가 호출되는 시점엔 `clearedStage`가 0이 될 수
+       없어(스테이지 클리어 후에만 노드 선택이 뜬다) 실질 영향은 없지만, `bossClear`가
+       `RunEvent.offerBossPrism` 표시 필드로 그대로 노출되므로 문자 그대로 맞췄다.
+    - **RNG 소비 순서 최종 정리(Opus 2차검수 반영 후)** — dev_holdfile·dev_major 둘 다 미장착인 일반
+      경로는 이제 웹과 완전히 동일한 순서다: `[10%등급업 롤] → [forceTier 덮어쓰기, RNG 없음] →
+      [불운게이지 SILVER→GOLD 승급, RNG 없음, Unity 전용] → PickPerksByTier[티어폴백 RNG없음 →
+      family-gated 채움 루프(픽마다 1회) → 최종 shuffle] → [5%시너지 롤 → picks.Count>=2일 때만
+      SetSynergyAug(세트별 최대 1회 PickOrDefault)]`. dev_holdfile 장착 시엔 10%롤/불운승급/시너지
+      단계 전부를 스킵(보류 티어 결정형 우선, 웹에 대응 없는 Unity 전용 분기 — 게이지는 여전히
+      소모됨), dev_major 장착 시엔 family-gated 채움 루프 진입 전 1회 추가 `PickOrDefault`가
+      끼어든다(둘 다 장착 시에만 발생, 웹 파리티 예외로 문서화된 지점).
+    - **발견한 추가 웹 이탈(이번 슬라이스 범위 밖, 보고 대상)**: 웹 game.js:2334-2337(실제 상점 오퍼
+      생성)은 `E.offerPerks(...)`를 직접 호출한다 — 즉 **웹의 진짜 상점도 `pickPerksByTier`/
+      `offerPerks`(family게이팅·10%등급업 포함)를 쓰지, 별도의 스테이지 가중 확률표를 쓰지 않는다.**
+      Unity `Shop.FreshOffer`는 여전히 Kotlin 유래의 `PickAugments`/`PickRelics`(`TierWeights`/
+      `RollTier` 스테이지 가중 롤 + `GatePrism` 2택 컷)를 쓴다 — 이는 §2-(P)가 이미 "이전 슬라이스부터
+      갈라져 있던 기존 기술부채"로 기록한 항목과 같은 축이며, 이번 작업 지시가 명시한 범위
+      (`Shop.PickPerksByTier`/`NodeEvents.OfferPerks` — 노드 리워드 오퍼)에 상점 오퍼 생성부는
+      포함되지 않아 손대지 않았다. 상점 오퍼까지 웹과 동기화하려면 `Shop.FreshOffer`를 `offerPerks`
+      기반으로 재작성하는 별도 슬라이스가 필요하다(가격 정책·`GatePrism`·`allowPrism`(EVENT_PRISM_RATE)
+      로직과의 결합 방식을 새로 설계해야 함 — 단순 치환이 아님).
+  - **③ retake_form의 RunCtx 반영**: `ItemUse.UseRetakeForm`이 `SpinResolver.ResolveSpin`과 동일한
+    2단계 패턴(ctx 없는 1차 `ModsBuilder.Build`로 `EffSpins`/`QuotaOf` 산출 → 그 값으로
+    `SpinResolver.RunCtxOf`(신규 `internal`, 웹 `_ctx()` 대응) 구성 → ctx 포함 2차 `ModsBuilder.Build`)
+    으로 웹 `_freeReroll()`(game.js:1214-1224 → `_mods()`→`_ctx()`, game.js:443-445)과 동등하게 ctx를
+    채운다. 영향받는 ctx-조건부 퍽 14종(early_prep/growth_log/snowball/fortune_check/luck_accum/
+    fate_burst/late_focus/cliff_focus/sacrifice/black_diploma/bankrupt/abyss_scholar/curse_grad/
+    black_grad_photo/phoenix_thesis)이 이제 재굴림 시점에도 실제 run 상태(stage/stageExp/quota/
+    growthStack/snowStack/curseCount/unluckyGauge/boss/coins)를 정확히 반영한다. `Mods.cs`의
+    `RunCtx.coins` 기본값(99) 주석도 "미설정 호출부에서도 안전한 무해 기본값"이라던 부정확한 서술을
+    "우연히 소비처가 expMul을 안 읽어서 무해했을 뿐, 필드 자체는 결코 중립값이 아니다"로 정정했다.
+    **[Opus 2차검수 권장⑧ 반영]** 이 2단계 패턴은 오늘 시점 콘텐츠 기준으로는 `SpinResolver.
+    ResolveSpin`의 3단계 재계산과 **결과값이 동치**다(ctx-조건부 14종 중 `bonusSpins`/`quotaMul`에
+    영향을 주는 항목이 `black_diploma`의 `bonusSpins`뿐인데, 그 조건은 `ctx.curseCount`(=
+    `run.Curses.Count`, mods 계산과 무관하게 즉시 알 수 있는 값)만 보므로 이번 2단계로 정확히
+    포착된다) — 그러나 **구조적으로 3단계와 동일하지는 않다**. 향후 ctx-조건부 퍽이 `quotaMul`/
+    `bonusSpins`를 "다른 ctx 필드"(예: stage나 spinIndex)에 의존해 계산하도록 확장되면, 1차 mods로
+    산출한 `preSpins`/`preQuota`가 실제 최종값과 어긋나는 시나리오가 이론상 가능하다 — 그 경우엔
+    `ResolveSpin`처럼 진짜 3단계(혹은 고정점 반복)로 확장해야 한다.
+  - **테스트**: 신규 `Tests_P3_5_OfferParity.cs` — ⓐ`Tests_P3_5_PerkFamilyGolden`(96종 손전사 골든,
+    키 집합 완전 일치 검증 + 미등록 id 폴백 확인) ⓑ`Tests_P3_5_FamilyRankGating`(랭크1만 등장/랭크1
+    보유 후 랭크2 개방/exp_g 4랭크 순차 체인/오퍼당 같은 패밀리 1개 — `Shop.PickPerksByTier` 직접 호출
+    400시드×4시나리오) ⓒ`Tests_P3_5_OfferFixedSeedRegression`(Opus 2차검수 필수④ 반영 — `HardcodedGoldenCases`
+    7케이스: SILVER 평상 오퍼·GOLD+family게이팅 실사용·GOLD→SILVER 단계형 폴백·forceRare SILVER→GOLD
+    승급 대조쌍·forceRare GOLD 무승급·forceRare PRISM 무승급·보류파일 우선순위, 전부 실제 퍽 id 배열
+    하드코딩 + `offerTierBumped`/게이지 리셋까지 단정 — 티어·family게이팅·폴백 로직 중 하나라도
+    바뀌면 최소 1케이스가 실패한다. 기존 결정론/forceTier프리즘잉크/bossClear 구조 검증과 dev_major
+    전슬롯 편향·RNG 미소비 대조도 유지) ⓓ`Tests_P3_5_RetakeCtxPropagation`(bankrupt 캐릭터로 coins=0
+    vs coins=20 재굴림 — `SpinResult.mul`이 정확히 1.5 vs 0.8로 갈리고 `preMul`은 동일 시드라 완전히
+    같음을 확인, ctx 미반영이면 둘 다 0.8로 나와 실패했을 시나리오). `Tests_S4_TierPoolFallback`도
+    권장⑥ 반영해 강화(위 항목②-3). 어서션 19244 → 19848(+604), 0 실패.
 
 ## 3. 페이즈 로드맵
 

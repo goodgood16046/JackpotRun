@@ -602,8 +602,11 @@ namespace JackpotRun.Engine
             }
         }
 
-        // ── RunCtx 구성 헬퍼 (Kotlin runCtxOf, L71-78) ──
-        private static RunCtx RunCtxOf(RunState run, int spinIndex, int spinsPerStage, long quota) => new RunCtx
+        // ── RunCtx 구성 헬퍼 (Kotlin runCtxOf, L71-78 · 웹 game.js:431-440 `_ctx()`) ──
+        // internal(구 private) — 웹 파리티 P3.5(WEB_PARITY_DESIGN.md §2-(T) 후속③)에서 ItemUse.
+        // UseRetakeForm도 이 헬퍼를 재사용해 재굴림 mods를 ctx 포함으로 빌드하도록 확장했다(웹
+        // _freeReroll()이 this._mods() → this._ctx()를 그대로 타는 것과 동일한 값 구성).
+        internal static RunCtx RunCtxOf(RunState run, int spinIndex, int spinsPerStage, long quota) => new RunCtx
         {
             stage = run.Stage, spinIndex = spinIndex, spinsPerStage = spinsPerStage,
             stageExp = run.StageExp, quota = quota,

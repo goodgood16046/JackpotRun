@@ -658,19 +658,31 @@ namespace JackpotRun.EngineTests
     // 이루는지 검증한다. 두 시나리오 모두 "held 퍽이 정확히 하나의 미완성 세트에만 속하고, 그 세트의
     // 빠진 조각이 정확히 1개뿐"이 되도록 구성해 injected id를 결정론적으로 예측할 수 있게 했다(주입이
     // 발생하면 항상 그 id여야 함 — 우연히 통과하는 게 아님을 보장).
+    //
+    // 웹 파리티 P3.5(WEB_PARITY_DESIGN.md §2-(T) 후속②) — 웹 setSynergyPick(engine.js:1175-1192)은
+    // cat 인자를 절대 읽지 않고 항상 AUGMENTS에서만 조각을 찾는다("이름이 setSynergyAug인 이유").
+    // RELIC 노드 시나리오를 예전 "set_combo(set_sense,set_charm) — set_charm(RELIC) 주입"에서
+    // "set_cherry_net(cherry_up,cherry_jam) — cherry_jam(RELIC) 보유 → cherry_up(AUGMENT) 주입"으로
+    // 교체했다: 이제 RELIC 노드 오퍼라도 주입 조각이 AUGMENT일 수 있음을 직접 증명하는 시나리오다
+    // (예전 페어는 새 규칙에서 injected=0%가 되어 실패 — set_charm이 RELIC이라 cat==AUGMENT 필터에
+    // 걸러짐).
     internal static class Tests_S4_SetSynergyInjection
     {
         public static void Run(TestCtx t)
         {
             // AUGMENT 노드 — held=["cherry_up"] → set_orchard(cherry_up,cherry_farm) 진행 중.
-            // cherry_farm(GOLD·AUGMENT)이 유일한 후보. clearedStage=1(2번째 스테이지 클리어 아님, 3·5의
-            // 배수 아님) → baseTier=SILVER가 보통이라 GOLD인 cherry_farm이 "원래" 3택에 우연히 섞여
-            // 치환이 무산되는 충돌 확률을 최소화했다.
+            // cherry_farm(GOLD·AUGMENT, PERK_FAMILY 미등록=패밀리게이팅 무관)이 유일한 후보.
+            // clearedStage=1(2번째 스테이지 클리어 아님, 3·5의 배수 아님) → baseTier=SILVER가 보통이라
+            // GOLD인 cherry_farm이 "원래" 3택에 우연히 섞여 치환이 무산되는 충돌 확률을 최소화했다.
             SampleAndAssert(t, "AUGMENT", NodeKind.Augment, "cherry_up", "cherry_farm");
 
-            // RELIC 노드 — held=["set_sense"] → set_combo(set_sense,set_charm) 진행 중.
-            // set_charm(GOLD·RELIC)이 유일한 후보.
-            SampleAndAssert(t, "RELIC", NodeKind.Relic, "set_sense", "set_charm");
+            // RELIC 노드 — held=["cherry_jam"](RELIC) → set_cherry_net(cherry_up,cherry_jam) 진행 중
+            // (cherry_jam은 Sets.All 전체에서 이 세트에만 등장 — "정확히 하나의 미완성 세트" 불변식
+            // 자동 성립). 빠진 유일한 후보는 cherry_up(AUGMENT). RELIC 노드의 메인 3택 후보 풀은
+            // Perks.Relics로 고정돼 있어 AUGMENT인 cherry_up은 애초에 메인 픽 경로로 뽑힐 수 없다
+            // (풀 자체가 다름) — 그래서 오퍼에 cherry_up이 보이면 100% 이 시너지 주입 경로를 통과한
+            // 것이다(예전 티어 불일치 회피보다 더 확실한 충돌 회피).
+            SampleAndAssert(t, "RELIC", NodeKind.Relic, "cherry_jam", "cherry_up");
         }
 
         private static void SampleAndAssert(TestCtx t, string label, NodeKind node, string heldPerkId, string expectedSynId)
@@ -1519,12 +1531,15 @@ namespace JackpotRun.EngineTests
         }
     }
 
-    // ── S16 §A / 웹 파리티 P3-4 갱신 — 증강/유물 오퍼 티어 풀 소진 폴백(Shop.PickPerksByTier) ─────────
+    // ── S16 §A / 웹 파리티 P3-4·P3.5 갱신 — 증강/유물 오퍼 티어 풀 소진 폴백(Shop.PickPerksByTier) ────
     // 원래(S16 §A) 재현 경로는 Schools 기반 "BasePerkIds(전부 SILVER)로만 폴백된 게이트 풀"이었다 —
     // 웹 파리티 P3-4로 그 게이트 모델 자체가 폐기돼(154종 항상 개방, Shop.cs 헤더 각주) 더는 재현할
-    // 수 없다. `PickPerksByTier`의 폴백 로직 자체("강제 티어 풀에 unheld 후보가 없으면 avail 전체로
-    // 대체", Shop.cs `if (!tierPool.Any(...)) tierPool = avail;`)는 게이트와 무관한 범용 메커니즘이라,
-    // 이제는 "보유(held)로 그 티어를 완전히 고갈시키는" 방식으로 동일 코드 경로를 검증한다.
+    // 수 없다. "보유(held)로 그 티어를 완전히 고갈시키는" 방식으로 동일 상황(강제 티어에 unheld 후보
+    // 0개)을 재현한다.
+    // [P3.5 갱신] 폴백 로직 자체가 바뀌었다 — 예전엔 "avail 전체(타티어 혼용)로 대체"였지만(2026-08-03
+    // 승인 예외, WEB_PARITY_DESIGN.md §2-(U) 항목②-3에서 웹 기준 단계형(PRISM→GOLD→SILVER) 폴백으로
+    // 환원). 이 테스트의 어서션(오퍼가 GOLD 보유분과 무관·GOLD 자체가 없음)은 두 폴백 방식 모두에서
+    // 참이라 무수정으로 계속 통과한다(GOLD 소진 시 신·구 폴백 모두 SILVER/PRISM 잔여로 채움).
     internal static class Tests_S4_TierPoolFallback
     {
         public static void Run(TestCtx t)
@@ -1571,8 +1586,12 @@ namespace JackpotRun.EngineTests
             t.True(foundRun.PerkOfferIds.Count >= 1, $"[tier-fallback:{label}] 오퍼 최소 1건");
             t.True(foundRun.PerkOfferIds.All(id => !goldIds.Contains(id)),
                 $"[tier-fallback:{label}] 오퍼 전원이 GOLD 보유분과 무관(잔여 후보 폴백 풀에서 옴)");
-            t.True(foundRun.PerkOfferIds.All(id => Perks.ById(id)?.tier != Tier.GOLD),
-                $"[tier-fallback:{label}] 오퍼에 GOLD 없음(GOLD 전량 보유 — 폴백은 SILVER/PRISM 잔여에서만 채움)");
+            // Opus 2차검수 권장⑥(WEB_PARITY_DESIGN.md §2-(U)) — 웹 기준 단계형 폴백(tier==GOLD →
+            // fallbackOrder=[SILVER]뿐, PRISM은 후보에 없음)이라 "GOLD 없음"보다 강한 "전원 SILVER"까지
+            // 단정할 수 있다(PRISM 폴백 자체가 없음 — PRISM은 GOLD보다 상위 티어라 GOLD 소진 시 내려가는
+            // 폴백 경로에 아예 포함되지 않는다).
+            t.True(foundRun.PerkOfferIds.All(id => Perks.ById(id)?.tier == Tier.SILVER),
+                $"[tier-fallback:{label}] 오퍼 전원 SILVER(GOLD 소진 → 단계형 폴백은 SILVER까지만, PRISM 폴백 없음)");
         }
 
         // avail 자체가 고갈(증강 89종 전부 보유)되면 PickPerksByTier가 즉시 빈 리스트를 반환하는 기존

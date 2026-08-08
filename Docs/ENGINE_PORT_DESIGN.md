@@ -399,6 +399,15 @@ if (!tierPool.Any(p => !used.Contains(p.id))) tierPool = avail;
 - `Tests_S4_RetakeExhaustion`(RETAKE_EMPTY)·`GatedPoolBaseFallback`은 **avail 자체를 고갈**시키는
   방식이라 영향 없음(확인됨 — Tests_S4.cs L589-599).
 
+> ⚠️ **[2026-08-08 환원 — WEB_PARITY_DESIGN.md §2-(U) 항목②-3]** 위 "티어 풀 소진 시 `avail`
+> 전체(타티어 혼용)로 폴백" 수정은 **웹 파리티 P3.5 슬라이스에서 되돌려졌다**. 근본 원인이던
+> `Schools.BasePerkIds`(BASE 22종 게이트) 자체가 이후 §2-(P) 슬라이스(2026-08-08)에서 "unlockLevel
+> 있는 8종만 게이트, 나머지 154/162종 상시개방"으로 단순화되며 이미 해소됐고, 웹 `pickPerksByTier`
+> (engine.js:1213-1241)는 애초에 "avail 전체" 폴백 없이 PRISM→GOLD→SILVER **단계형(타티어 혼용 없는)**
+> 폴백만 쓴다 — §0 결정 원칙("충돌 시 웹 채택이 기본")에 따라 웹 기준으로 되돌렸다. 이 문서의 코드
+> 스니펫(`if (!tierPool.Any(...)) tierPool = avail;`)은 더 이상 `Shop.cs`의 실제 코드가 아니다(역사
+> 기록으로만 보존) — 현재 폴백 로직은 `Shop.PickPerksByTier`(웹 파리티 §2-(U) 항목②-3 주석) 참조.
+
 **신규 테스트** — `Tools/EngineTests/Tests_S4.cs`에 추가(기존 스타일·TestCtx 사용):
 - 잠긴 stat(`{"dummy_unrelated_key":1}` — GatedPool이 BASE로 폴백) + `run.Stage = 4`(클리어 3 →
   GOLD 강제) + `run.Phase = NodeSelect` + `NodeOptions = [Augment]` → `NodeEvents.Select(0)` 결과가

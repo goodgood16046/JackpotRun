@@ -4,6 +4,47 @@
 
 ---
 
+## 2026-08-08 - 웹 파리티 P3.5 — 퍽 오퍼 알고리즘 웹 완전 동기화 (P3-4 후속 3건)
+
+- **①PERK_FAMILY 랭크 게이팅 이식**: 신규 `Content/PerkFamily.cs` — 웹 `data.js` AUG_FAMILY(51)+
+  REL_FAMILY(45)=96종을 `(패밀리키,랭크)` 튜플로 손전사(Unity `Perks.cs` 178개 id와 bash로 사전 대조
+  검증). `Shop.PickPerksByTier`가 `eligible(p)=rank==heldFamCount(fam)+1` + 오퍼당 같은 패밀리 1개
+  (`usedFams`)로 후보를 거른다(웹 engine.js:1229-1239).
+- **②오퍼 알고리즘 전면 웹 대조·정렬**: `Shop.PickPerksByTier`를 웹 `pickPerksByTier`(engine.js:
+  1213-1241) 리터럴 포팅으로 재작성 — 스테이지 가중 확률 롤(TierWeights/RollTier, forceTire가 항상
+  확정돼 넘어오는 현재 호출구조에서 이미 죽어있던 코드) 제거, "티어 풀 소진 시 avail 전체 폴백"(2026-
+  08-03 승인 예외, 근본원인이던 BASE22종 게이트는 §2-(P)가 이미 해소)→웹 기준 PRISM→GOLD→SILVER
+  단계형 폴백으로 환원(ENGINE_PORT_DESIGN.md S16 §A에 역참조 각주 추가). **forceRare(불운게이지
+  만땅) — 죽은 분기만 건드려 실질적으로 무효과였던 버그를 발견**, `NodeEvents.OfferPerks`에서
+  nodeTier 재구현. **[Opus 2차검수 반영] Fable 결정으로 범위 확정**: kotlin 의도("silverW=0"=
+  "GOLD 이상 보장") 그대로 **SILVER 노드일 때만 GOLD로 승급, GOLD/PRISM 노드는 무승급** — 게이지는
+  오퍼 발생 시 항상 소모(heldPerk 분기 포함). 1차 구현이 이 승급 판정을 `heldPerk!=null`/`else` 분기
+  **밖**에 둬 보류파일(dev_holdfile) 사용 중 보류 티어가 강제 등급업되는 회귀가 있었던 것도 Opus
+  검수에서 발견해 `heldPerk==null` 분기 안으로 이동(보류 티어 결정형 우선 원칙 복원).
+  **dev_major favoredCat — Kotlin 유래 빌드시너지 편향의 웹 기준 제거(밸런스 변경, Fable 승인)**:
+  발견한 구현 결함(미장착 상태에서도 매 오퍼마다 몰래 추가 RNG 소비)은 명백한 버그라 고쳤지만,
+  "보유 퍽 중 가장 흔한 심볼로 오퍼를 편향시킨다"는 발상 자체는 웹에 없는 Kotlin 원본 산물이라
+  dev_major 장착 시로 좁힌 것은 버그 수정이 아니라 밸런스 결정으로 문서 프레이밍을 정정(Opus
+  2차검수 필수⑤). dev_holdfile과 같은 "장착시에만 소비" 패턴으로 재배선. `Shop.SetSynergyAug`도
+  웹처럼 node 종류와 무관하게 항상 AUGMENT만 주입하도록 정정(RELIC 노드도 AUGMENT 조각 주입 가능) +
+  **5% 시너지 롤의 `picks.Count>=2` 검사를 `SetSynergyAug` 호출 앞으로 이동**(웹 engine.js:1262 —
+  1~2장 오퍼에서 RNG 미소비, Opus 2차검수 필수③). unlockLevel 게이트를 PickPerksByTier 내부→
+  호출자(NodeEvents)로 이동(웹 `_augPool()` 패턴).
+  **범위 밖 발견**: 웹의 진짜 상점(game.js:2334-2337)도 `offerPerks`를 쓰는데 Unity `Shop.FreshOffer`
+  는 여전히 별도 Kotlin 유래 가중 롤을 쓴다 — 이번 슬라이스 범위 밖, 별도 슬라이스 필요(보고만).
+- **③retake_form ctx 반영**: `ItemUse.UseRetakeForm`이 `SpinResolver`와 동일한 2단계 패턴으로 ctx
+  포함 mods를 빌드하도록 수정(`SpinResolver.RunCtxOf` internal화, 웹 `_freeReroll()`↔`_mods()`↔
+  `_ctx()` 대응). ctx-조건부 퍽 14종이 재굴림 시점에도 실제 run 상태를 반영. `Mods.cs`의 `RunCtx.
+  coins=99` "무해 기본값" 주석을 "우연히 안 읽혀서 무해했을 뿐" 정정. 이 2단계는 현재 콘텐츠 기준
+  `ResolveSpin`의 3단계와 결과 동치이나 구조적으로는 다르다(향후 ctx-조건부 퍽이 quotaMul/bonusSpins를
+  다른 ctx 필드에 의존해 계산하게 되면 갈릴 수 있음) — 주석에 명시.
+- **테스트**: 신규 `Tests_P3_5_OfferParity.cs`(4클래스 — PERK_FAMILY 골든·랭크게이팅 경계 4종·오퍼
+  고정시드 회귀(7케이스 실제 퍽 id 배열 하드코딩 — SILVER 평상·GOLD+family게이팅·GOLD→SILVER 폴백·
+  forceRare 승급/GOLD무승급/PRISM무승급·보류파일 우선순위 + forceTier/bossClear/dev_major 전슬롯·
+  RNG미소비 대조)·retake ctx 전파). `Tests_S4_TierPoolFallback` 어서션도 "전원 SILVER"로 강화.
+  어서션 19244→19848(+604), 0 실패.
+- 상세: `Docs/WEB_PARITY_DESIGN.md` §2-(U). `Docs/ENGINE_PORT_DESIGN.md` S16 §A에 환원 역참조 각주.
+
 ## 2026-08-08 - 웹 파리티 P3-4 Opus 2차검수 반영 (필수4 + 웹 이탈 정리6 + 신규 골든1)
 
 - **필수 4건**: ①`NodeEvents.OfferPerks` 프리즘잉크 강제티어 — 10% 등급업 롤을 무조건 먼저 소비한
