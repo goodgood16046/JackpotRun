@@ -64,8 +64,11 @@ namespace JackpotRun.Engine
         }
 
         // ── dev_coin(🪙투입, ARMED) — Kotlin L1723-1732 ──
+        // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:1304-1310 insertCoin()) — A9+ 쿨다운
+        // (stage < DevCdUntil이면 거부, 성공 시 DevCdUntil = stage+2)만 이 메서드가 추가로 처리한다.
         private static List<RunEvent> HandleDevCoin(RunState run, bool isSecondary)
         {
+            if (run.Asc >= 9 && run.Stage < run.DevCdUntil) return RunEvents.Rejected("DEVICE_COOLDOWN");
             if (run.Coins < DevCoinCost) return RunEvents.Rejected("INSUFFICIENT_COINS");
             run.Coins -= DevCoinCost;
             if (isSecondary)
@@ -79,6 +82,7 @@ namespace JackpotRun.Engine
                 run.ArmItems.Add("dev_coin"); // ApplyItemMods의 "dev_coin" case가 다음 스핀에 expMul*=1.3 적용
             }
             run.UsedCmds.Add("dev_coin");
+            if (run.Asc >= 9) run.DevCdUntil = run.Stage + 2; // 웹 game.js:1309
             return RunEvents.One(new RunEvent { type = "DEVICE_ARMED", deviceId = "dev_coin", secondary = isSecondary });
         }
 
@@ -89,7 +93,7 @@ namespace JackpotRun.Engine
             // 실제 스핀 시점 재계산(§2)과 다를 수 있으나 원문 그대로 이식(정보성 게이트일 뿐 최종 판정은
             // dev_bell 발동 시 SpinResolver가 실제 mods로 다시 계산함, S3 기이식).
             var mods = ModsBuilder.ApplyItemMods(ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", levels: run.PerkLevels), run.PhaseItems);
-            long quota = SpinResolver.QuotaOf(run.Stage, mods);
+            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2);
             long shortfall = quota - run.StageExp;
             if (shortfall > DevBellMaxDeficit) return RunEvents.Rejected("DEV_BELL_DEFICIT_TOO_HIGH");
             run.ArmItems.Add("dev_bell");
@@ -111,7 +115,7 @@ namespace JackpotRun.Engine
             var mods = ModsBuilder.ApplyItemMods(
                 ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                 run.PhaseItems);
-            long quota = SpinResolver.QuotaOf(run.Stage, mods);
+            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2);
             long deficit = quota - run.StageExp;
             if (deficit > DevBellMaxDeficit) return RunEvents.Rejected("DEV_BELL_DEFICIT_TOO_HIGH");
 
@@ -126,20 +130,30 @@ namespace JackpotRun.Engine
                 newSpinIndex = run.SpinIndex, quota = quota, spins = spins, destroyDevice = true,
             };
             var clear = StageFlow.ClearStage(run, outcome);
-            return RunEvents.One(new RunEvent { type = "STAGE_CLEARED", spin = outcome, clear = clear, deviceId = "dev_bell" });
+            return RunEvents.One(StageFlow.BuildClearEvent(outcome, clear, "dev_bell"));
         }
 
         // ── dev_oracle/dev_syllabus 등 PEEK(🔮예언, 다음 스핀 확정) — Kotlin L1707-1717 ──
+        // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:1313-1317 oracle()) — A9+ 쿨다운은
+        // dev_oracle 전용(웹 `r.device !== "dev_oracle"` 게이트 그대로 — dev_syllabus는 웹에 대응 없는
+        // Unity 전용 장치라 쿨다운 대상이 아니다).
         private static List<RunEvent> HandlePeek(RunState run, DeviceDef dev)
         {
+            if (dev.id == "dev_oracle" && run.Asc >= 9 && run.Stage < run.DevCdUntil)
+                return RunEvents.Rejected("DEVICE_COOLDOWN");
             // [원본 버그 유지 — 신규 발견] PEEK 미리보기는 device/phasePerks를 생략하고 REEL을 고정으로 쓴다
             // (dev_subreel의 6칸 확장을 무시) — SlotV2Service.kt L1709-1711 그대로.
             var mods = ModsBuilder.ApplyItemMods(ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", levels: run.PerkLevels), run.PhaseItems);
+            AscRunHooks.ApplyRunAscMods(mods, run);
             var raw = SpinResolver.RollRaw(run.Rng, mods, Formulas.REEL, run.SeedNext);
             run.LockedNext.Clear();
             run.LockedNext.AddRange(raw.Select(c => c.sym.id));
             run.UsedCmds.Add(dev.id);
-            if (dev.id == "dev_oracle") run.UsedCmds.Add("RUNORACLE"); // 런 끝까지 보존(bld_jackpot_seer류 도전 판정용)
+            if (dev.id == "dev_oracle")
+            {
+                run.UsedCmds.Add("RUNORACLE"); // 런 끝까지 보존(bld_jackpot_seer류 도전 판정용)
+                if (run.Asc >= 9) run.DevCdUntil = run.Stage + 2; // 웹 game.js:1317
+            }
             return RunEvents.One(new RunEvent { type = "DEVICE_PEEK", deviceId = dev.id, peekCells = raw.Select(c => c.sym.id).ToList() });
         }
 
@@ -172,11 +186,12 @@ namespace JackpotRun.Engine
             // 33종 세트 중 reqDevice가 MANIP 장치(dev_reroll/pin/copy/swap)를 가리키는 항목은 없어 device
             // 생략의 실질 영향은 없지만, phasePerks(broken_prism 임시 프리즘) 생략은 실제로 결과를 바꾼다.
             var preModsM = ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", levels: run.PerkLevels);
-            var mCtx = BuildRunCtx(run, run.LastSpinNo, ModsBuilder.SpinsPerStage(preModsM), SpinResolver.QuotaOf(run.Stage, preModsM));
+            var mCtx = BuildRunCtx(run, run.LastSpinNo, ModsBuilder.SpinsPerStage(preModsM), SpinResolver.QuotaOf(run.Stage, preModsM, run.Asc, run.BossPhase2));
             var mods0 = ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", mCtx, run.PerkLevels);
             var mods = ModsBuilder.ApplyItemMods(mods0, run.PhaseItems);
+            AscRunHooks.ApplyRunAscMods(mods, run);
             int spins = SpinResolver.EffSpins(run, mods);
-            long quota = SpinResolver.QuotaOf(run.Stage, mods);
+            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2);
 
             // 위 §신규 발견 주석 그대로 — LastCellsFinal(이미 List<Cell>)을 얕은 복사해 조작 대상으로
             // 삼는다. Cell은 불변(readonly 필드)이라 리스트만 복사하면 원본 run.LastCellsFinal을 건드리지
@@ -261,7 +276,7 @@ namespace JackpotRun.Engine
             if (newExp >= quota)
             {
                 var clear = StageFlow.ClearStage(run, outcome);
-                return RunEvents.One(new RunEvent { type = "STAGE_CLEARED", spin = outcome, clear = clear, deviceId = dev.id });
+                return RunEvents.One(StageFlow.BuildClearEvent(outcome, clear, dev.id));
             }
             if (fromPost || run.LastSpinNo + 1 >= spins)
             {
@@ -288,13 +303,14 @@ namespace JackpotRun.Engine
             var combinedPerks = new List<string>(run.Perks);
             combinedPerks.AddRange(run.PhasePerks);
             var preMods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels);
-            var rrCtx = BuildRunCtx(run, run.LastSpinNo, ModsBuilder.SpinsPerStage(preMods0), SpinResolver.QuotaOf(run.Stage, preMods0));
+            var rrCtx = BuildRunCtx(run, run.LastSpinNo, ModsBuilder.SpinsPerStage(preMods0), SpinResolver.QuotaOf(run.Stage, preMods0, run.Asc, run.BossPhase2));
             var mods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, rrCtx, run.PerkLevels);
             var mods = ModsBuilder.ApplyItemMods(mods0, run.PhaseItems);
             var devEq = Devices.ById(run.Device);
             if (devEq != null && devEq.kind == "PASSIVE") mods = ModsBuilder.ApplyPassiveDevice(mods, devEq.id);
+            AscRunHooks.ApplyRunAscMods(mods, run);
             int spins = SpinResolver.EffSpins(run, mods);
-            long quota = SpinResolver.QuotaOf(run.Stage, mods);
+            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2);
 
             // 웹 파리티 P4-3 — 통합 manip()이 gambler "재굴림" 분기도 함께 타므로(game.js:1240-1245)
             // 여기도 HandleManip과 동일하게 LastCellsFinal에서 복원한다(전체 재굴림이라 셀 값 자체는
@@ -352,7 +368,7 @@ namespace JackpotRun.Engine
             if (newExp >= quota)
             {
                 var clear = StageFlow.ClearStage(run, outcome);
-                return RunEvents.One(new RunEvent { type = "STAGE_CLEARED", spin = outcome, clear = clear, deviceId = "GREROL" });
+                return RunEvents.One(StageFlow.BuildClearEvent(outcome, clear, "GREROL"));
             }
             if (fromPost || run.LastSpinNo + 1 >= spins)
             {

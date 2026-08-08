@@ -37,7 +37,7 @@ namespace JackpotRun.Engine
             return new NextStagePreviewInfo
             {
                 stage = run.Stage,
-                quota = SpinResolver.QuotaOf(run.Stage, mods),
+                quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2),
                 spins = SpinResolver.EffSpins(run, mods),
                 bossId = boss?.id ?? "",
             };

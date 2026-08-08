@@ -744,7 +744,10 @@ namespace JackpotRun.UI2
         private void OnStartClicked()
         {
             if (string.IsNullOrEmpty(_selChar) || string.IsNullOrEmpty(_selMac)) return;
-            appRoot?.StartRun(_selChar, _selMac, _selDev ?? "");
+            // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — 홈 승천 선택기(MenuView)가 세워 둔
+            // AppRoot.SelectedAsc를 그대로 넘긴다(GameSession 생성자가 해금 상한으로 다시 클램프).
+            int asc = appRoot != null ? appRoot.SelectedAsc : 0;
+            appRoot?.StartRun(_selChar, _selMac, _selDev ?? "", asc: asc);
         }
 
         // ── 정렬(PickScreen.SortIds/Metric 이관) ─────────────────────────────────────

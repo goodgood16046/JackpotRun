@@ -9,13 +9,13 @@ namespace JackpotRun.Engine
     // applyItemPurchase(L1438-1518)/instantQuota(L1430-1436)를 전사. 02_service.md §7-D·§7-E.
     public static class ItemUse
     {
-        // ITEM_SLOTS(Kotlin L45) 기본값 — 웹 파리티 P3-4 Opus 2차검수 필수③(WEB_PARITY_DESIGN.md §2):
-        // 웹 game.js:2301 `_giveItem` cap은 `3 + ascMods(r.asc).itemCapDelta + mods.itemCapBonus`(item_bag
-        // 증강 등)로 동적이다 — 승천(asc)은 P6 미구현이라 생략(곱연산 아니라 가산 항이라 나중에 그대로
-        // 끼워 넣을 수 있음). 정적 상수는 "기본값" 의미로만 남기고, 실사용은 EffectiveSlots(run)를 거친다.
+        // ITEM_SLOTS(Kotlin L45) 기본값 — 웹 game.js:2301 `_giveItem` cap은 `3 + ascMods(r.asc).itemCapDelta
+        // + mods.itemCapBonus`(item_bag 증강 등)로 동적이다. 정적 상수는 "기본값" 의미로만 남기고,
+        // 실사용은 EffectiveSlots(run)를 거친다.
         public const int BaseItemSlots = 3;
 
-        // 웹 game.js:2301 `_giveItem` cap 그대로 — Shop.Buy(가방 여유칸 확인)·BagPopup/RunView(표시)가 공용.
+        // 웹 game.js:2301 `_giveItem` cap 그대로(승천 P6 배선 포함) — Shop.Buy(가방 여유칸 확인)·
+        // BagPopup/RunView(표시)가 공용.
         public static int EffectiveSlots(RunState run)
         {
             var combinedPerks = new List<string>(run.Perks);
@@ -23,7 +23,7 @@ namespace JackpotRun.Engine
             var mods = ModsBuilder.ApplyItemMods(
                 ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                 run.PhaseItems);
-            return BaseItemSlots + mods.itemCapBonus;
+            return BaseItemSlots + AscMods.Get(run.Asc).ItemCapDelta + mods.itemCapBonus;
         }
 
         // INSTANT_CLEAR_ITEMS 6종 — SlotV2Engine.kt:1009-1012, S4 백로그 항목. 스테이지당 1회("ICLEAR" 마커,
@@ -43,7 +43,7 @@ namespace JackpotRun.Engine
             var mods = ModsBuilder.ApplyItemMods(
                 ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                 run.PhaseItems);
-            return SpinResolver.QuotaOf(run.Stage, mods);
+            return SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2);
         }
 
         // ══════════════════════════════════════════════════════════════════
@@ -102,7 +102,7 @@ namespace JackpotRun.Engine
                     ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                     run.PhaseItems);
                 int spins = SpinResolver.EffSpins(run, mods);
-                long quota = SpinResolver.QuotaOf(run.Stage, mods);
+                long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2);
                 var outcome = new SpinOutcome
                 {
                     rejected = false, mode = SpinMode.N, result = null, gained = 0,
@@ -110,7 +110,7 @@ namespace JackpotRun.Engine
                     newSpinIndex = run.SpinIndex, quota = quota, spins = spins,
                 };
                 var clear = StageFlow.ClearStage(run, outcome);
-                return new List<RunEvent> { ev, new RunEvent { type = "STAGE_CLEARED", spin = outcome, clear = clear } };
+                return new List<RunEvent> { ev, StageFlow.BuildClearEvent(outcome, clear) };
             }
 
             return RunEvents.One(ev);
@@ -147,12 +147,15 @@ namespace JackpotRun.Engine
             // 한다.
             var pre0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels);
             var preSpins = SpinResolver.EffSpins(run, pre0);
-            var preQuota = SpinResolver.QuotaOf(run.Stage, pre0);
+            var preQuota = SpinResolver.QuotaOf(run.Stage, pre0, run.Asc, run.BossPhase2);
             var ctx = SpinResolver.RunCtxOf(run, run.SpinIndex, preSpins, preQuota);
             var pmods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, ctx, run.PerkLevels);
             var pmods1 = ModsBuilder.ApplyItemMods(pmods0, run.PhaseItems);
             var devEq = Devices.ById(run.Device);
             var pmods = (devEq != null && devEq.kind == "PASSIVE") ? ModsBuilder.ApplyPassiveDevice(pmods1, devEq.id) : pmods1;
+            // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — 재시험도 웹 `_mods()`를 거치는 실제 롤이라
+            // A2/A8 규칙이 적용된다(AscRunHooks.cs 참조).
+            AscRunHooks.ApplyRunAscMods(pmods, run);
             int spins = SpinResolver.EffSpins(run, pmods);
 
             int n = run.LastCells.Count;
@@ -292,6 +295,7 @@ namespace JackpotRun.Engine
                     var pmods1 = ModsBuilder.ApplyItemMods(pmods0, run.PhaseItems);
                     var devEq = Devices.ById(run.Device);
                     var pmods = (devEq != null && devEq.kind == "PASSIVE") ? ModsBuilder.ApplyPassiveDevice(pmods1, devEq.id) : pmods1;
+                    AscRunHooks.ApplyRunAscMods(pmods, run);
                     int reel = (devEq != null && devEq.id == "dev_subreel") ? Formulas.REEL + 1 : Formulas.REEL;
                     int spins = SpinResolver.EffSpins(run, pmods);
                     var a = SpinResolver.RollRaw(run.Rng, pmods, reel, run.SeedNext);

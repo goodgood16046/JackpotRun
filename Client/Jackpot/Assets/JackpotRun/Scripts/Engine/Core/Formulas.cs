@@ -356,8 +356,9 @@ namespace JackpotRun.Engine
         // kind: "char"/"mac"/"dev". 5개 마일스톤 각각 독립 판정 후 충족 개수를 레벨로 삼는다(웹
         // masteryLevel L166-170: `for (const d of defs) { if (d.test(s)) lv++; ... }` — else-if 게이트가
         // 아니라 매 마일스톤을 항상 개별 평가한다. 예: bossClears가 낮아도 bestScore만 높으면 그
-        // 마일스톤만 별도로 인정된다). ascMax는 승천(P6) 미구현이라 항상 -1로 들어와 char[4]가 영구
-        // 미충족이다(코드 변경 불필요 — 기본값 자체가 자연히 막는다).
+        // 마일스톤만 별도로 인정된다). ascMax는 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18)부터
+        // MasteryStats.AscMax(PlayerProfile.BumpMastery가 졸업 시 갱신)를 실제로 전달한다 — 미졸업
+        // (기본값 -1)이면 char[4](ascMax>=5)가 자연히 미충족으로 막힌다.
         public static int MasteryTotal(string kind) => kind == "char" || kind == "mac" || kind == "dev" ? 5 : 0;
 
         public static int MasteryLevel(string kind, int runs, int bestStage, int bossClears, long bestScore, int ascMax)

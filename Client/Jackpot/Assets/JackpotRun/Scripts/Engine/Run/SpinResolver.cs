@@ -555,12 +555,23 @@ namespace JackpotRun.Engine
         public static int EffSpins(RunState run, Mods mods) =>
             Math.Max(SpinsPerStage(mods) + run.StageBonusSpins + Bosses.Spins(run.Stage), Formulas.MIN_SPINS);
 
-        public static long QuotaOf(int stage, Mods mods)
+        // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:423 `r.quota = Math.max(1, Math.floor(
+        // E.quota(stage) * mods.quotaMul * E.bossQuotaMul(stage) * am.quotaMul * (r.boss ? am.bossQuotaMul
+        // : 1) * (r._bossPhase2 ? 1.3 : 1) * this._deepPenalty())`)` — asc/bossPhase2는 기본값 0/false라
+        // 기존 호출부(2-인자 형태)는 전부 무변경 동작. am.quotaMul/am.bossQuotaMul은 asc=0이면 항상 1.0
+        // (AscMods.Get(0))이라 무조건 곱해도 안전 — Formulas.IsBossStage(stage)로 보스 스테이지 여부만
+        // 별도 판정한다(mods.quotaMul(머신/캐릭/퍽 보정)과는 별개 축).
+        public static long QuotaOf(int stage, Mods mods, int asc = 0, bool bossPhase2 = false)
         {
             int baseSpins = SpinsPerStage(mods);
             int bsp = Bosses.Spins(stage);
             double prop = (bsp > 0 && baseSpins > 0) ? (double)(baseSpins + bsp) / baseSpins : 1.0;
-            return (long)(Formulas.Quota(stage) * mods.quotaMul * Bosses.QuotaMulFor(stage) * prop);
+            double q = Formulas.Quota(stage) * mods.quotaMul * Bosses.QuotaMulFor(stage) * prop;
+            var am = AscMods.Get(asc);
+            q *= am.QuotaMul;
+            if (Formulas.IsBossStage(stage)) q *= am.BossQuotaMul;
+            if (bossPhase2) q *= 1.3;
+            return (long)q;
         }
 
         public static int CmdCoinCost(SpinMode mode, bool boss) => ModsBuilder.CmdCoinCost(mode, boss);
@@ -640,22 +651,25 @@ namespace JackpotRun.Engine
             // buildMods 호출(game.js:445)이라 이 3단계 재계산 자체가 Unity 고유 구조지만, 어느 단계든
             // levels를 빠뜨리면 그 단계에서만 레벨업 미반영 값이 섞여 다음 단계 재계산이 오염된다.
             var preMods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, levels: run.PerkLevels);
-            var preCtx = RunCtxOf(run, run.SpinIndex, SpinsPerStage(preMods0), QuotaOf(run.Stage, preMods0));
+            var preCtx = RunCtxOf(run, run.SpinIndex, SpinsPerStage(preMods0), QuotaOf(run.Stage, preMods0, run.Asc, run.BossPhase2));
             var preMods = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, preCtx, run.PerkLevels);
             int preEffSpins = EffSpins(run, preMods);
-            var runCtx = RunCtxOf(run, run.SpinIndex, preEffSpins, QuotaOf(run.Stage, preMods));
+            var runCtx = RunCtxOf(run, run.SpinIndex, preEffSpins, QuotaOf(run.Stage, preMods, run.Asc, run.BossPhase2));
             var baseMods = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, runCtx, run.PerkLevels);
             if (mode == SpinMode.Focus) baseMods.rareWeightMul *= 0.5; // 안정화: 고점 억제
 
             var mods = ModsBuilder.ApplyItemMods(baseMods, Concat(arm, phase));
             var devEq = Devices.ById(run.Device);
             if (devEq != null && devEq.kind == "PASSIVE") mods = ModsBuilder.ApplyPassiveDevice(mods, devEq.id);
+            // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 _mods() A2/A8 규칙) — "실제 롤에 쓰이는
+            // 최종 mods"에만 적용(QuotaOf 등 수치 전용 mods에는 불필요). AscRunHooks.cs 참조.
+            AscRunHooks.ApplyRunAscMods(mods, run);
 
             // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): 배율 상한(hasPrism 기반 capMul 클램프 + lastSpinExpMul
             // 5.0 상한) 제거 — 웹 engine.js에는 이 자리에 해당하는 캡이 없다(Formulas.cs 주석/§2-B 근거
             // 참조). mods.expMul/mods.lastSpinExpMul은 이제 ModsBuilder가 만든 값 그대로 쓰인다.
             int spins = EffSpins(run, mods);
-            long quota = QuotaOf(run.Stage, mods);
+            long quota = QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2);
 
             bool bossStage = Bosses.For(run.Stage) != null;
             int cmdCost = CmdCoinCost(mode, bossStage);

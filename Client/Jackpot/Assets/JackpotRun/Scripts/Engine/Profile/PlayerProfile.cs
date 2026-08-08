@@ -44,7 +44,9 @@ namespace JackpotRun.Engine
     //     Devices.cs의 unlockAch가 업적 id를 직접 담는다, AchievementEngine.cs 헤더 각주 참조).
     // 숙련도(mastery, P3, WEB_PARITY_DESIGN.md §1-A #11 — 웹 game.js:143-165/217-232 그대로) 성과 누적
     // 1건 — 웹 `{runs,bestStage,bossClears,bestScore,ascMax}`와 동일 필드. ascMax 기본값 -1은 웹
-    // `{...,ascMax:-1}`과 동일(승천 미졸업 표식) — 승천(P6) 미구현이라 영구 -1(갱신 코드 없음).
+    // `{...,ascMax:-1}`과 동일(승천 미졸업 표식) — 승천 P6(WEB_PARITY_DESIGN.md §1-A #18)에서
+    // PlayerProfile.BumpMastery(graduatedThisRun,asc)가 갱신한다(웹 game.js:226 `if (r.graduatedThisRun)
+    // s.ascMax = Math.max(s.ascMax??-1, r.asc)` 그대로).
     public sealed class MasteryStats
     {
         public int Runs;
@@ -117,6 +119,42 @@ namespace JackpotRun.Engine
         // 원칙 6과 동일 — 이 메서드는 플래그만 세운다).
         public bool TutDone;
         public void MarkTutorialDone() => TutDone = true;
+
+        // ── 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 defaultProfile ascMax:-1/bestAscScore:0/
+        // bestAscLevel:0) — 승천(심화 학기) 진행도. AscMax=-1(웹과 동일)은 "한 번도 졸업(스테이지15
+        // 클리어)하지 못함" — 이 상태에선 승천 자체가 잠겨 있다(AscUnlocked() 참조). StatTracker.
+        // ApplyGameOverTracking이 런 종료(GAME_OVER) 시점에 run.GraduatedThisRun을 보고 갱신한다.
+        public int AscMax = -1;
+        public long BestAscScore;
+        public int BestAscLevel;
+
+        // 웹 game.js:213 `ascUnlocked() { return (this.profile.ascMax ?? -1) >= 0; }` — 승천 1회 이상
+        // 졸업(일반 런 asc=0의 스테이지15 클리어도 포함 — AscMax가 -1에서 0으로 오른 시점부터 true).
+        public bool AscUnlocked() => AscMax >= 0;
+
+        // 웹 game.js:214 `maxPlayableAsc() { return Math.max(0, (this.profile.ascMax ?? -1) + 1); }`.
+        public int MaxPlayableAsc() => Math.Max(0, AscMax + 1);
+
+        // 웹 game.js:215 `ascInfo(a)` — 홈 승천 선택기(ascSelector)가 읽는 표시용 묶음.
+        public readonly struct AscInfo
+        {
+            public readonly int A;
+            public readonly double ScoreMul;
+            public readonly string Rule;
+            public readonly bool Cleared; // 이미 이 단계까지 졸업했는가(AscMax>=a)
+            public readonly int Max;      // AscMods.AscMax(10)
+
+            public AscInfo(int a, double scoreMul, string rule, bool cleared, int max)
+            {
+                A = a; ScoreMul = scoreMul; Rule = rule; Cleared = cleared; Max = max;
+            }
+        }
+
+        public AscInfo GetAscInfo(int asc)
+        {
+            var m = AscMods.Get(asc);
+            return new AscInfo(m.A, m.ScoreMul, AscMods.RuleOf(m.A), AscMax >= m.A, AscMods.AscMax);
+        }
 
         // ── bestScore/bestStage/runs 읽기 별칭 (Stats 딕셔너리가 단일 진실 공급원) ──────────────────
         public long BestScore => GetStat("bestScore");
@@ -281,7 +319,10 @@ namespace JackpotRun.Engine
         // 런 종료(GAME_OVER) 시 사용한 캐릭/머신/장치 성과 누적 — 웹 game.js:217-227 `_bumpMastery` 그대로.
         // 호출측(MasteryTracker.ApplyRunEnd)이 kind별로("char"/"mac"/"dev") 호출한다(장치는 장착 시만 —
         // 웹 game.js:2627 `if (r.device) this._bumpMastery("dev", r.device)`).
-        public void BumpMastery(string kind, string id, int stage, int bossClearsThisRun, long finalScore)
+        // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:226 `if (r.graduatedThisRun) s.ascMax =
+        // Math.max(s.ascMax ?? -1, r.asc)`) — graduatedThisRun/asc 매개변수 추가.
+        public void BumpMastery(string kind, string id, int stage, int bossClearsThisRun, long finalScore,
+            bool graduatedThisRun = false, int asc = 0)
         {
             if (string.IsNullOrEmpty(id)) return;
             if (!Mastery.TryGetValue(kind, out var bag)) { bag = new Dictionary<string, MasteryStats>(); Mastery[kind] = bag; }
@@ -290,8 +331,7 @@ namespace JackpotRun.Engine
             if (stage > s.BestStage) s.BestStage = stage;
             s.BossClears += bossClearsThisRun;
             if (finalScore > s.BestScore) s.BestScore = finalScore;
-            // ascMax: 승천(P6) 미구현 — 웹의 갱신 조건(r.graduatedThisRun) 자체가 Unity에 아직 없어
-            // 갱신 로직을 두지 않는다(항상 기본값 -1 그대로, MasteryStats 헤더 각주 참조).
+            if (graduatedThisRun) s.AscMax = Math.Max(s.AscMax, asc);
         }
 
         // 조회 — PickView/DexView ★ 표기용(Level=충족 마일스톤 수 0~5, Total=5). 미기록 id는 빈

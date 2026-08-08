@@ -49,6 +49,12 @@ namespace JackpotRun.Engine
         // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — PlayerProfile.TutDone 대응(웹 profile.tutDone).
         public bool tutDone;
 
+        // ── 승천(심화 학기, P6, WEB_PARITY_DESIGN.md §1-A #18) — PlayerProfile.AscMax/BestAscScore/
+        // BestAscLevel 대응(웹 defaultProfile ascMax:-1/bestAscScore:0/bestAscLevel:0).
+        public int ascMax = -1;
+        public long bestAscScore;
+        public int bestAscLevel;
+
         // ── 숙련도(mastery, P3, WEB_PARITY_DESIGN.md §1-A #11) — PlayerProfile.Mastery(kind->id->
         // MasteryStats) 대응. JsonUtility가 중첩 Dictionary를 직렬화하지 못해(헤더 각주 참조) (kind,id)
         // 조합당 1행으로 완전히 펼친 병렬 배열 5+2개로 담는다 — 인덱스로 1:1 대응(statKeys/Values와
@@ -124,6 +130,9 @@ namespace JackpotRun.Engine
                 playerXpSeeded = p.PlayerXpSeeded,
                 playerXpReseed34 = p.PlayerXpReseed34,
                 tutDone = p.TutDone,
+                ascMax = p.AscMax,
+                bestAscScore = p.BestAscScore,
+                bestAscLevel = p.BestAscLevel,
                 masteryKind = mKind.ToArray(),
                 masteryId = mId.ToArray(),
                 masteryRuns = mRuns.ToArray(),
@@ -227,6 +236,21 @@ namespace JackpotRun.Engine
             p.PlayerLevel = Formulas.PlayerLevelFromXp(p.PlayerXp); // 웹 game.js:193 — 로드마다 XP로부터 재산출.
 
             p.TutDone = dto.tutDone;
+
+            // 승천(P6) — dto 기본값(int/long 미도입 세이브)도 defaultProfile과 동일한 -1/0/0으로
+            // 자연히 떨어진다(PlayerProfileDto 필드 기본값 자체가 -1/0/0).
+            p.AscMax = dto.ascMax;
+            p.BestAscScore = dto.bestAscScore;
+            p.BestAscLevel = dto.bestAscLevel;
+
+            // Opus 2차검수(P6) 마이그레이션 가드 — Unity `JsonUtility`는 구현에 따라 필드 부재를 항상
+            // C# 필드 초기값(-1)으로 채운다고 보장할 수 없다(관측 근거: 0으로 채워지는 경로가 있음).
+            // 이 필드 도입 이전 세이브가 "ascMax=0"(=asc0 졸업 완료)으로 잘못 로드되면 아직 한 번도
+            // 졸업하지 못한 플레이어에게 승천 선택기가 부당하게 해금된다 — 정당한 ascMax=0은 반드시
+            // "graduations>=1"(asc0 졸업이 선행돼야만 StatTracker.ApplyClearTracking이 이 카운터를
+            // 올림)을 동반해야 하므로 논리적으로 무결한 판별식이다. graduations==0인데 ascMax==0으로
+            // 읽혔다면 마이그레이션 이전 세이브의 빈 필드일 뿐이므로 -1(미졸업)로 강제 정정한다.
+            if (p.AscMax == 0 && p.GetStat("graduations") == 0) p.AscMax = -1;
 
             return p;
         }

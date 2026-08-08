@@ -611,6 +611,16 @@ namespace JackpotRun.UI2
                         if (e.clear != null) { _lastClear = e.clear; notesFeed?.Append(ClearSummaryText(e.clear)); }
                         break;
 
+                    // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:1395-1397) — A10 2페이즈
+                    // 보스 재시작(진짜 클리어 아님). 릴은 갱신하되(실제 스핀이 있었으므로) 노드/클리어
+                    // 요약은 남기지 않는다 — _lastClear를 세우지 않아 NodePanel이 뜨지 않는다(run.Phase가
+                    // 계속 Spin이므로 애초에 RefreshPhasePanel도 NodeSelect 분기를 타지 않는다).
+                    case "BOSS_PHASE2":
+                        if (e.spin != null && e.spin.result != null) { spinToAnimate = e.spin; AppendSpinNotes(e.spin); }
+                        notesFeed?.Append("최종 보스 2페이즈 — 요구 EXP 상승, 한 번 더!");
+                        AppendBannedSymNoteIfAny(); // AscRunHooks.RollBannedSym이 재시작 시점에 재롤함.
+                        break;
+
                     case "GAME_OVER":
                         if (e.spin != null && e.spin.result != null) { spinToAnimate = e.spin; AppendSpinNotes(e.spin); }
                         _lastFailure = e.failure;
@@ -642,6 +652,10 @@ namespace JackpotRun.UI2
 
                     case "PERK_GRANTED":
                         notesFeed?.Append($"✅ 획득: {PerkLabel(e.perkId)}");
+                        // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:2150) — A7+ 프리즘
+                        // "증강" 픽에 저주가 동반될 때(NodeEvents.PickOffer 참조).
+                        if (!string.IsNullOrEmpty(e.curseGrantedId))
+                            notesFeed?.Append($"심화 규칙 — 저주 동반: {PerkLabel(e.curseGrantedId)}");
                         break;
 
                     case "PERK_HELD":
@@ -681,11 +695,14 @@ namespace JackpotRun.UI2
 
                     case "RUN_STARTED":
                         notesFeed?.Append($"런 시작 · 코인 {NumberFormat.Comma(e.coinsDelta)}");
+                        AppendBannedSymNoteIfAny();
                         break;
 
                     // 웹 파리티 P4 — RewardDone → Spin(ProceedToStage) 완료. 별도 로그 불필요(다음
-                    // 스핀 UI가 곧바로 새 스테이지 정보를 보여준다).
+                    // 스핀 UI가 곧바로 새 스테이지 정보를 보여준다) — 단 웹 파리티 P6(§1-A #18, 웹
+                    // game.js:425 `_beginStage()` A8 토스트)의 "이번 스테이지 금지 심볼" 안내는 여기서.
                     case "STAGE_STARTED":
+                        AppendBannedSymNoteIfAny();
                         break;
 
                     default:
@@ -700,6 +717,19 @@ namespace JackpotRun.UI2
         {
             if (spin?.notes == null || notesFeed == null) return;
             for (int i = 0; i < spin.notes.Count; i++) notesFeed.Append(spin.notes[i]);
+        }
+
+        // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:425 `_beginStage()` A8 토스트 —
+        // "🚫 심화 규칙 — 이번 스테이지 금지 심볼: {emoji}") — Unity는 astral 이모지 금지(S8 항목⑤)라
+        // 한글 이름만 쓴다. AscRunHooks.RollBannedSym이 스테이지 시작마다(런 시작·다음 스테이지 진입·
+        // A10 2페이즈 재시작) 이미 갱신해 둔 run.BannedSym을 그대로 읽기만 한다(엔진에 토스트 문자열
+        // 필드가 없음 — HudView.RefreshBossState와 동일한 "UI가 RunState를 직접 관찰" 패턴).
+        private void AppendBannedSymNoteIfAny()
+        {
+            var run = _session?.State;
+            if (run == null || run.Asc < 8 || string.IsNullOrEmpty(run.BannedSym)) return;
+            var sym = Symbols.ById(run.BannedSym);
+            notesFeed?.Append($"심화 규칙 — 이번 스테이지 금지 심볼: {(sym != null ? sym.name : run.BannedSym)}");
         }
 
         // ── 라벨/문구 헬퍼(이관 원본 RunPanels.cs/RunScreen.cs 그대로) ─────────────────────
@@ -813,6 +843,10 @@ namespace JackpotRun.UI2
             { "DEVICE_UNKNOWN", "알 수 없는 장치입니다" },
             { "POST_SPIN_ONLY_MANIP_OR_GAMBLER", "지금은 만회 장치만 사용할 수 있습니다" },
             { "DEVICE_ALREADY_USED", "이번 스테이지에 이미 사용한 장치입니다" },
+            // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:1306,1315 "♨️ 심화 규칙 — 장치
+            // 쿨다운(다음 스테이지에 사용)" 토스트 대응) — A9+ dev_coin/dev_oracle 쿨다운 거부
+            // (DeviceActions.HandleDevCoin/HandlePeek). astral ♨️ 금지, 한글 문구만.
+            { "DEVICE_COOLDOWN", "심화 규칙 — 장치 쿨다운(다음 스테이지에 사용)" },
             { "USE_HOLD_AUGMENT_ACTION", "보류는 증강 선택 화면에서 하세요" },
             { "USE_RETAKE_ACTION", "재추첨은 증강·유물 선택 화면에서 하세요" },
             { "DEVICE_NOT_SUPPORTED", "이 장치는 직접 명령할 수 없습니다" },

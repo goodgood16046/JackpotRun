@@ -52,12 +52,13 @@ namespace JackpotRun.Engine
         }
 
         // 웹 game.js:2327 `pm = max(0.4, ascMods(r.asc).shopPriceMul * (sm.shopPriceMul||1) * receiptMul)`
-        // — 승천(ascMods)·심화 영수증(receiptMul)은 P6/P7 미구현이라 생략(각각 곱연산 항이라 나중에
-        // 그대로 끼워 넣을 수 있다, 삭제 아님·주석 표기).
-        private static double ShopPriceMul(Mods mods) => Math.Max(0.4, mods.shopPriceMul);
+        // — 승천(ascMods)은 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18)로 배선했다. 심화 영수증
+        // (receiptMul)은 P7 미구현이라 여전히 생략(곱연산 항이라 나중에 그대로 끼워 넣을 수 있다).
+        private static double ShopPriceMul(RunState run, Mods mods) =>
+            Math.Max(0.4, AscMods.Get(run.Asc).ShopPriceMul * mods.shopPriceMul);
 
         // 웹 game.js:2328 `itemPm = max(0.4, pm * (sm.itemPriceMul||1))`.
-        private static double ItemPriceMul(Mods mods) => Math.Max(0.4, ShopPriceMul(mods) * mods.itemPriceMul);
+        private static double ItemPriceMul(RunState run, Mods mods) => Math.Max(0.4, ShopPriceMul(run, mods) * mods.itemPriceMul);
 
         // 웹 game.js:2330 `slot = max(0, min(3, (sm.shopSlotBonus||0) + cartBonus))` — cartBonus(🛒장바구니,
         // 심화 전용)는 P7 미구현이라 생략.
@@ -357,8 +358,8 @@ namespace JackpotRun.Engine
             var rng = run.Rng;
             bool allowPrism = rng.NextDouble() < EventPrismRate;
             var mods = ShopMods(run);
-            double pm = ShopPriceMul(mods);
-            double itemPm = ItemPriceMul(mods);
+            double pm = ShopPriceMul(run, mods);
+            double itemPm = ItemPriceMul(run, mods);
             int slot = ShopSlotBonus(mods);
 
             List<Perk> GatePrism(List<Perk> list)

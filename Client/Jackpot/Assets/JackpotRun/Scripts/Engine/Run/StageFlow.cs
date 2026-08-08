@@ -12,6 +12,10 @@ namespace JackpotRun.Engine
         Revived,    // 운명의종/보험증서로 스핀 소진 직전 자동 회생 — SPIN 유지
         PostSpin,   // 마지막 스핀 실패, MANIP/도박꾼재굴림 만회 기회 있음 → POST_SPIN 전환(S4가 처리)
         GameOver,   // 만회 수단 없음 → 게임오버
+        // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:1395-1397) — A10 승천 최종보스(15)
+        // 1페이즈 클리어: 진짜 클리어가 아니라 요구치↑ 후 같은 스테이지 재시작(StageFlow.ClearStage의
+        // BossPhase2Restart 분기). 보상/노드/카운터 전부 미반영 — SPIN 페이즈 그대로 유지.
+        BossPhase2,
     }
 
     // 스테이지 클리어 보상/진행 결과 — 02_service.md §3-D/§3-E/§3-F clearStage() 전사분.
@@ -52,6 +56,11 @@ namespace JackpotRun.Engine
         public int usedSpins;        // outcome.newSpinIndex
         public int totalSpins;       // outcome.spins
         public long lastSpinGain;    // outcome.gained — 웹 cs.lastSpinExp(Math.floor(r.lastExpApplied)) 대응
+
+        // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:1395-1397) — true면 A10 2페이즈 보스
+        // 재시작(진짜 클리어 아님). true일 때는 이 필드를 제외한 나머지 전부 기본값(0/false/null)이다 —
+        // 호출측은 이 플래그부터 확인할 것(StageFlow.BuildClearEvent가 이미 이 분기를 대신 처리해 준다).
+        public bool bossPhase2Restart;
     }
 
     // 스테이지 실패(폭망) 처리 결과 — 02_service.md §3-C 체인의 귀결.
@@ -106,6 +115,9 @@ namespace JackpotRun.Engine
             if (outcome.newExp >= outcome.quota)
             {
                 var clear = ClearStage(run, outcome);
+                // 웹 파리티 P6 — A10 2페이즈 보스 재시작은 진짜 클리어가 아니다(위 ClearStage 헤더 주석).
+                if (clear.bossPhase2Restart)
+                    return new SpinStepResult { kind = SpinStepKind.BossPhase2, spin = outcome, clear = clear };
                 return new SpinStepResult { kind = SpinStepKind.Cleared, spin = outcome, clear = clear };
             }
 
@@ -137,6 +149,38 @@ namespace JackpotRun.Engine
         internal static ClearOutcome ClearStage(RunState run, SpinOutcome outcome)
         {
             int clearedStage = run.Stage;
+
+            // ── 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:1395-1397) ──────────────────
+            // A10 승천: 최종보스(스테이지15) 1페이즈 클리어는 진짜 클리어가 아니라 요구치↑ 후 같은
+            // 스테이지 재시작이다 — 웹 `_clearStage()`가 이 시점에 곧장 `_beginStage()`를 다시 호출하고
+            // 리턴하는 것과 동일 파리티(점수/코인/노드/카운터 전부 미반영, 웹 원문에 그런 코드 자체가
+            // 없다). Unity는 스핀수/요구치를 스테이지마다 캐시하지 않고 매번 SpinResolver.EffSpins/
+            // QuotaOf로 즉석 계산하므로(StageFlow.ClearStage 헤더 주석) `_beginStage()`가 하던 일 중
+            // "다시 계산해 둬야 하는" 부분은 없다 — 여기서는 웹이 실제로 리셋하는 "스테이지 시작" 휘발성
+            // 필드만 그대로 되돌리면 된다(Unity가 다음 스테이지 진입 시 이미 리셋하는 필드들과 동일
+            // 부분집합 — 아래 참조). Score/Coins/Stage/NodeOptions/DebtStages/GrowthStack/SnowStack/
+            // RunBossClears 등 "진짜 클리어"에서만 갱신되는 상태는 전혀 건드리지 않는다.
+            if (clearedStage == 15 && run.Asc >= 10 && !run.BossPhase2)
+            {
+                run.BossPhase2 = true;
+                run.SpinIndex = 0;
+                run.StageExp = 0;
+                run.FlameNext = false;
+                run.SeedNext = false;
+                run.ArmItems.Clear();
+                run.PhaseItems.Clear();
+                run.StageBonusSpins = 0;
+                run.UsedCmds.RemoveWhere(cmd => cmd != "RUNSHOP" && cmd != "RUNORACLE");
+                run.PhasePerks.Clear();
+                run.LastCells.Clear();
+                run.LastGain = 0; run.LastScoreGain = 0; run.LastCoinGain = 0; run.LastSpinNo = -1;
+                run.PendingNextExpMul = 1.0;
+                run.LockedNext.Clear();
+                AscRunHooks.RollBannedSym(run); // 웹 _beginStage() A8 재롤(game.js:425) 그대로.
+                run.Phase = RunPhase.Spin;
+                return new ClearOutcome { clearedStage = clearedStage, bossPhase2Restart = true };
+            }
+
             int spins = outcome.spins;
             long quota = outcome.quota;
             long newExp = outcome.newExp;
@@ -151,6 +195,12 @@ namespace JackpotRun.Engine
             int leftSpins = Math.Max(spins - newIdx, 0);
             long leftover = Math.Max(newExp - quota, 0);
             bool boss = Formulas.IsBossStage(clearedStage);
+
+            // 웹 파리티 P6(웹 game.js:1401 `if (stage === 15) { r.graduatedThisRun = true; r._bossPhase2 =
+            // false; }`) — 스테이지15 클리어(2페이즈면 여기 도달한 시점=2페이즈 완료) = 졸업 확정.
+            // StatTracker.ApplyGameOverTracking이 이 플래그로 PlayerProfile.AscMax/BestAscScore/
+            // BestAscLevel/Mastery.AscMax를 런 종료 시점에 갱신한다.
+            if (clearedStage == 15) { run.GraduatedThisRun = true; run.BossPhase2 = false; }
 
             long clearScore = Formulas.StageClearScore(clearedStage, leftover, leftSpins, run.Curses.Count, boss);
 
@@ -272,6 +322,9 @@ namespace JackpotRun.Engine
             run.StageExp = 0;
             run.FlameNext = false;
             run.SeedNext = false;
+            // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — 다음 스테이지 진입(_beginStage() 대응)마다
+            // A8 금지 심볼을 재롤(asc<8이면 항상 ""로 리셋).
+            AscRunHooks.RollBannedSym(run);
             run.ArmItems.Clear();
             run.PhaseItems.Clear();
             run.StageBonusSpins = 0;
@@ -320,6 +373,19 @@ namespace JackpotRun.Engine
                 totalSpins = spins,
                 lastSpinGain = lastSpinGainSnapshot,
             };
+        }
+
+        // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — ClearStage(run, outcome) 호출 뒤 RunEvent를 짓는
+        // 공용 헬퍼. clear.bossPhase2Restart면 "STAGE_CLEARED" 대신 "BOSS_PHASE2"(진짜 클리어 아님 —
+        // StatTracker.ApplyOne이 클리어 통계를 건너뛰도록 하는 신호)를 낸다. StageFlow.ProcessSpin(주
+        // 스핀 경로)은 SpinStepResult.kind로 이미 분기하므로 이 헬퍼를 쓰지 않는다 — DeviceActions.cs/
+        // ItemUse.cs의 "스핀을 거치지 않고 직접 ClearStage를 호출"하는 3개 호출부(MANIP·도박꾼재굴림·
+        // dev_bell/즉시클리어 아이템) 전용.
+        public static RunEvent BuildClearEvent(SpinOutcome outcome, ClearOutcome clear, string deviceId = null)
+        {
+            if (clear.bossPhase2Restart)
+                return new RunEvent { type = "BOSS_PHASE2", spin = outcome, clear = clear, deviceId = deviceId };
+            return new RunEvent { type = "STAGE_CLEARED", spin = outcome, clear = clear, deviceId = deviceId };
         }
 
         // Kotlin clearStage L868-871: pool=[RELIC,SHOP,REST,GAMBLE,EVENT] (+CURSE,RISK if nextStage>=6)
@@ -398,10 +464,14 @@ namespace JackpotRun.Engine
 
         // S4가 POST_SPIN 만회 시도(MANIP/도박꾼재굴림, SpinResolver.cs 파일 끝 훅 주석 참조)에서도 끝내
         // 클리어시키지 못했을 때 호출할 최종 게임오버 경로. §3-C step4/§8-A(scoreModifier) 전사.
+        // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:2549-2551 `const mod =
+        // E.scoreModifier(...); const am = ascMods(r.asc); const finalScore = Math.floor(r.score * mod *
+        // am.scoreMul);`) — 승천 점수 보정(×(1+0.12a))을 여기서 곱한다. asc=0이면 am.scoreMul==1.0
+        // (정확히 1.0, 곱해도 무변화)이라 기존 asc 미도입 시절 결과와 완전히 동일하다.
         public static FailureOutcome ForceGameOver(RunState run, long deficitAtFailure)
         {
             run.Phase = RunPhase.GameOver;
-            long finalScore = (long)(run.Score * ScoreModifierFor(run.MachineId, run.CharId));
+            long finalScore = (long)(run.Score * ScoreModifierFor(run.MachineId, run.CharId) * AscMods.Get(run.Asc).ScoreMul);
             return new FailureOutcome
             {
                 kind = "GAME_OVER",

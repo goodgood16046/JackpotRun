@@ -277,6 +277,32 @@ namespace JackpotRun.Engine
         // 웹도 shopExit에서 `this.run.shopBought = [];`로 리셋하지만 이미 소비된 뒤라 결과는 동일).
         public readonly List<string> ShopBoughtLabels = new List<string>();
 
+        // ── 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:121-141 ascMods/game.js:285-291
+        // startRun) — 승천(심화 학기) A1~A10. 0=일반. 런 시작 후 절대 바뀌지 않는다(웹 `r.asc = useAsc`,
+        // 재대입 없음) — 클램프·해금 상한 판정은 RunController 생성 이전(호출측)에서 끝난다.
+        public int Asc = 0;
+
+        // 웹 game.js:291 `graduatedThisRun: false` — 이번 런에서 스테이지15 클리어(2페이즈 보스는 2페이즈
+        // 완료 시점)에 도달했는지. StatTracker.ApplyGameOverTracking이 이 플래그로 PlayerProfile.AscMax/
+        // BestAscScore/BestAscLevel/Mastery.AscMax 갱신 여부를 결정한다(웹 game.js:2562 그대로).
+        public bool GraduatedThisRun = false;
+
+        // 웹 game.js:321 `_bossPhase2: false` — A10 최종보스(스테이지15) 2페이즈 진행 중 표시. 1페이즈
+        // 클리어 시 true로 세워지고 요구치가 ×1.3 추가된 채 같은 스테이지를 재시작한다(StageFlow.
+        // ClearStage 참조) — 2페이즈까지 클리어해야 진짜 졸업(GraduatedThisRun=true)이 확정된다.
+        public bool BossPhase2 = false;
+
+        // 웹 game.js:321 `_devCdUntil: 0` — A9+ 능동장치(코인투입 dev_coin·예언 dev_oracle) 쿨다운.
+        // 사용 시 `run.Stage + 2`로 세팅되고, `run.Stage < DevCdUntil`인 동안 해당 장치 사용이 거부된다
+        // (DeviceActions.HandleDevCoin/HandlePeek 참조, 웹 game.js:1306,1315).
+        public int DevCdUntil = 0;
+
+        // 웹 game.js:425 `r._bannedSym` — A8+ 스테이지 진입마다 무작위 재추첨되는 금지 심볼 id(cherry/
+        // book/star/gem 중 1개, ""=없음/asc<8). AscRunHooks.RollBannedSym이 "스테이지 시작" 지점 3곳
+        // (런 시작·다음 스테이지 진입·A10 2페이즈 재시작)에서 갱신하고, ApplyRunAscMods가 실제 롤
+        // mods에 symbolWeightMul=0으로 반영한다.
+        public string BannedSym = "";
+
         public RunState(long seed)
         {
             Rng = new Rng(seed);

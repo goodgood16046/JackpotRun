@@ -43,6 +43,9 @@ namespace JackpotRun.UI2
 
         [SerializeField] private Text stageText;
         [SerializeField] private Text cursesText;
+        // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 renderPlay() HUD `st.asc>0`일 때만
+        // "🎓 심화 N ×M" 배지 표시, ui.js:704) — astral 이모지 금지(S8 항목⑤), "심화 N ×M" 텍스트만.
+        [SerializeField] private Text ascBadgeText;
         [SerializeField] private RectTransform expBarFill; // anchorMax.x를 0..1로 움직인다(RunScreen.cs와 동일 방식)
         [SerializeField] private Image expBarFillImage; // 골드 펄스/초록 전환 대상
         [SerializeField] private Text expBarText;
@@ -129,6 +132,17 @@ namespace JackpotRun.UI2
             int count = run.Curses.Count;
             if (_lastCurseCount >= 0 && count > _lastCurseCount) StartCoroutine(CurseFlashRoutine());
             _lastCurseCount = count;
+
+            // 웹 파리티 P6(웹 ui.js:704 `${st.asc>0 ? ...}`) — 승천 런에서만 표시. Opus 2차검수 권장—
+            // 빈 문자열 대입 대신 SetActive(false)로 완전히 비활성화한다(HorizontalLayoutGroup은 비활성
+            // 자식을 레이아웃에서 제외하므로, 일반 런은 이 칸이 차지하던 폭을 stageText/cursesText가
+            // 되돌려 받는다 — 텍스트만 지우면 빈 칸이 자리를 계속 차지했다). astral 🎓 금지, 한글만.
+            if (ascBadgeText != null)
+            {
+                bool showAsc = run.Asc > 0;
+                ascBadgeText.gameObject.SetActive(showAsc);
+                if (showAsc) ascBadgeText.text = $"심화 {run.Asc} ×{NumberFormat.Fmt(AscMods.Get(run.Asc).ScoreMul)}";
+            }
         }
 
         // S14 §D — 남은 스핀 1회 이하일 때 스핀 카운터를 적색으로 점멸(0.8s 주기).

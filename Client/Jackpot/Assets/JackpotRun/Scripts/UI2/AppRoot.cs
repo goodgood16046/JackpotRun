@@ -35,6 +35,13 @@ namespace JackpotRun.UI2
         /// <summary>진행 중인 게임 런 — StartRun 핸드오프 이후 Play 씬 등록 시 생성된다.</summary>
         public GameSession Session { get; private set; }
 
+        /// <summary>웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 `let selAsc = 0` 모듈 전역과 동일한
+        /// 취지) — 홈 승천 선택기(MenuView)가 조정하는 "다음 런에 쓸 승천 단계" 선택값. 앱 실행 내내
+        /// 메모리에만 유지되고(웹처럼 세이브 파일에 영속화하지 않음) 여러 화면(Pick 3단계)을 오가도
+        /// 유지되도록 AppRoot에 둔다. 클램프는 소비측(MenuView.RefreshAscSelector/GameSession 생성자)
+        /// 이 매번 다시 하므로 여기서는 원시값 그대로 저장한다.</summary>
+        public int SelectedAsc { get; set; }
+
         /// <summary>현재 로드된 씬(Intro 또는 Play)의 토스트/오버레이 레이어 — 각 SceneRoot가 등록 시 채운다.</summary>
         public ToastManager Toast { get; private set; }
         public RectTransform OverlayLayer { get; private set; }
@@ -51,6 +58,8 @@ namespace JackpotRun.UI2
             // WEB_PARITY P1 ②: 첫 판 즉시 시작(runs==0) 경로로 들어왔는지 — Play 씬 RunView가 최초
             // 갱신 시 안내 토스트를 1회만 띄우도록 ConsumeFirstRunToast()로 소비한다(웹 game.js:361 토스트 대응).
             public bool firstRunToast;
+            // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — StartRun 호출 시점의 SelectedAsc 스냅샷.
+            public int asc;
         }
 
         private PendingLaunchInfo _pending;
@@ -143,11 +152,13 @@ namespace JackpotRun.UI2
             OverlayLayer = root != null ? root.OverlayLayer : null;
 
             string charId, machineId, deviceId;
+            int asc;
             if (_pending.valid)
             {
                 charId = _pending.charId;
                 machineId = _pending.machineId;
                 deviceId = _pending.deviceId;
+                asc = _pending.asc;
                 _firstRunToastPending = _pending.firstRunToast;
                 _pending.valid = false;
             }
@@ -158,10 +169,11 @@ namespace JackpotRun.UI2
                 charId = "novice";
                 machineId = "basic";
                 deviceId = "";
+                asc = 0;
                 Debug.LogWarning("[JackpotRun] Play 씬 단독 실행 — PendingLaunch 없음, 기본 조합(novice/basic)으로 시작합니다.");
             }
 
-            Session = new GameSession(charId, machineId, deviceId ?? string.Empty);
+            Session = new GameSession(charId, machineId, deviceId ?? string.Empty, asc);
             root?.Bind(Session);
         }
 
@@ -186,8 +198,9 @@ namespace JackpotRun.UI2
 
         /// <summary>PickView "시작" → 실제 런 시작(구 JackpotRunApp.ShowRun/AppRoot.StartRun 계승).
         /// PendingLaunch를 저장하고 페이드아웃 → Play 씬 로드 → PlaySceneRoot가 세션을 만들어
-        /// 이어받는다(설계 S8 "전환 흐름").</summary>
-        public void StartRun(string charId, string machineId, string deviceId, bool firstRunToast = false)
+        /// 이어받는다(설계 S8 "전환 흐름"). asc: 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — 기본값
+        /// 0(첫 판 즉시시작 등 asc를 모르는 호출부는 그대로 일반 난이도로 시작).</summary>
+        public void StartRun(string charId, string machineId, string deviceId, bool firstRunToast = false, int asc = 0)
         {
             if (_transitioning) return;
             _pending = new PendingLaunchInfo
@@ -197,6 +210,7 @@ namespace JackpotRun.UI2
                 deviceId = deviceId ?? string.Empty,
                 valid = true,
                 firstRunToast = firstRunToast,
+                asc = asc,
             };
             StartCoroutine(TransitionToScene(PlaySceneName));
         }

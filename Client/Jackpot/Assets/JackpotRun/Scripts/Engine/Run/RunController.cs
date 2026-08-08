@@ -104,6 +104,9 @@ namespace JackpotRun.Engine
     //   SHOP_OFFER · SHOP_PURCHASED · SHOP_REROLLED · SHOP_LEFT
     //   ITEM_USED · DEVICE_ARMED · DEVICE_PEEK · RUN_STARTED
     //   STAGE_STARTED — 웹 파리티 P4(§1-A #15): RewardDone → Spin 전이(ProceedToStage) 완료 신호.
+    //   BOSS_PHASE2 — 웹 파리티 P6(§1-A #18): A10 승천 최종보스(15) 1페이즈 클리어(진짜 클리어 아님,
+    //     요구치↑ 후 같은 스테이지 재시작). StatTracker는 이 타입을 STAGE_CLEARED와 다르게 취급한다
+    //     (스핀 통계만 반영, 클리어/졸업 통계는 건너뜀 — StageFlow.BuildClearEvent/ClearStage 참조).
     //
     // ⚠️ UI 계약 주의:
     //   1) STAGE_CLEARED의 spin.result는 즉시클리어 아이템(grad_ring/gold_grad_bell) 경로에선 null이다
@@ -203,9 +206,13 @@ namespace JackpotRun.Engine
         // RunState.OwnedDeviceIds를 시드한다("미보유 장치" 판정 재료, NodeEvents EVENT-6/DEVICE 노드
         // 전용). deviceId2와 동일한 취지로 선택적 트레일링 매개변수로 추가했다(기존 호출부 100% 호환,
         // 최종 보고에 명시 — RunController.cs 헤더의 deviceId2 각주 참조).
+        // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — asc: 승천(심화 학기) 단계(0=일반). 해금 상한
+        // (profile.ascMax+1) 클램프는 호출측(GameSession, Engine/Profile을 아는 계층)이 먼저 끝내고
+        // 넘긴다 — 여기서는 웹 ascMods(asc)와 동일하게 [0,ASC_MAX] 방어적 재클램프만 한다(설계 원칙 6,
+        // deviceId2/ownedDeviceIds와 동일하게 선택적 트레일링 매개변수로 추가해 기존 호출부 100% 호환).
         public RunController(string charId, string machineId, string deviceId, long seed,
             IReadOnlyDictionary<string, long> stat, string deviceId2 = "",
-            IReadOnlyCollection<string> ownedDeviceIds = null)
+            IReadOnlyCollection<string> ownedDeviceIds = null, int asc = 0)
         {
             _stat = stat ?? new Dictionary<string, long>();
             var run = new RunState(seed);
@@ -218,16 +225,21 @@ namespace JackpotRun.Engine
             run.MachineId = m.id;
             run.Device = string.IsNullOrEmpty(deviceId) ? "" : deviceId;
             if (ownedDeviceIds != null) run.OwnedDeviceIds.UnionWith(ownedDeviceIds);
+            run.Asc = AscMods.Clamp(asc);
             // 보조 슬롯 입력 검증 — 원본 secondaryCandidates(SlotV2Service.kt:461-462): ARMED/PEEK 전용,
             // 메인과 동일 장치 금지. 조건 위반은 조용히 미장착 처리(선택 화면이 막는 게 정상 경로).
             var d2 = string.IsNullOrEmpty(deviceId2) ? null : Devices.ById(deviceId2);
             bool d2Ok = d2 != null && d2.id != run.Device && (d2.kind == "ARMED" || d2.kind == "PEEK");
             run.Device2 = d2Ok ? d2.id : "";
-            run.Coins = ch.startCoins;
+            // 웹 game.js:392 `r.coins = Math.max(0, (ch?.startCoins||0) + ascMods(r.asc).startCoinDelta);`
+            run.Coins = System.Math.Max(0, ch.startCoins + AscMods.Get(run.Asc).StartCoinDelta);
             run.Stage = 1;
             run.SpinIndex = 0;
             run.StageExp = 0;
             run.Phase = RunPhase.Spin;
+            // 웹 _beginStage()의 A8 금지 심볼 롤(game.js:425) — 스테이지1 시작(=_launch() 끝 _beginStage()
+            // 호출)과 동일 파리티. StageFlow.ClearStage(다음 스테이지 진입)/A10 2페이즈 재시작에서도 재롤한다.
+            AscRunHooks.RollBannedSym(run);
 
             // honor(수석졸업생) — 실버 증강 1개로 시작(launchRun L483-489).
             // 웹 파리티 P3-4 Opus 2차검수 웹 이탈 정리⑥(WEB_PARITY_DESIGN.md §2, 웹 game.js:393-397
@@ -297,7 +309,7 @@ namespace JackpotRun.Engine
             var mods = ModsBuilder.ApplyItemMods(
                 ModsBuilder.Build(State.MachineId, State.CharId, State.Perks, State.Curses, "", levels: State.PerkLevels),
                 State.PhaseItems);
-            long quota = SpinResolver.QuotaOf(State.Stage, mods);
+            long quota = SpinResolver.QuotaOf(State.Stage, mods, State.Asc, State.BossPhase2);
             long deficit = quota - State.StageExp;
             var fail = StageFlow.ForceGameOver(State, deficit);
             return RunEvents.One(new RunEvent { type = "GAME_OVER", failure = fail });
@@ -329,6 +341,9 @@ namespace JackpotRun.Engine
                     return RunEvents.One(new RunEvent { type = "REJECTED", reason = r.spin.rejectReason, spin = r.spin });
                 case SpinStepKind.Cleared:
                     return RunEvents.One(new RunEvent { type = "STAGE_CLEARED", spin = r.spin, clear = r.clear });
+                // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — A10 2페이즈 보스 재시작(진짜 클리어 아님).
+                case SpinStepKind.BossPhase2:
+                    return RunEvents.One(new RunEvent { type = "BOSS_PHASE2", spin = r.spin, clear = r.clear });
                 case SpinStepKind.Revived:
                     return RunEvents.One(new RunEvent { type = "REVIVED", spin = r.spin, failure = r.failure });
                 case SpinStepKind.PostSpin:

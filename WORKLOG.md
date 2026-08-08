@@ -4,6 +4,50 @@
 
 ---
 
+## 2026-08-09 - 웹 파리티 P6 — 승천(심화 학기) A1~A10
+
+상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(Z) 참조. 요약:
+
+- **ascMods 6축**: 신규 `Engine/Core/AscMods.cs` — 요구EXP×(1+0.08a)·보스요구 A4+·상점가 A3+·
+  아이템칸 A5+ -1·시작코인 A3+ 감소·점수×(1+0.12a) 전부 웹과 동일한 실제 계산 지점에 배선
+  (`SpinResolver.QuotaOf` 신규 오버로드 15곳 호출부·`Shop.ShopPriceMul/ItemPriceMul`·`ItemUse.
+  EffectiveSlots`·`RunController` 생성자 시작코인·`StageFlow.ForceGameOver` 최종점수).
+- **단계 규칙 5종**: 신규 `Engine/Run/AscRunHooks.cs` — A2 해골 weightAdd 가산 + A8 금지심볼
+  symbolWeightMul=0(실제 롤 mods 6곳에 적용) · A7 프리즘 증강 픽 저주 자동부착(RELIC/SILVER 이하는
+  제외, `NodeEvents.PickOffer`) · A9 코인투입/예언 쿨다운 stage+2(`DeviceActions`) · A10 최종보스
+  2페이즈(`StageFlow.ClearStage` — 1페이즈는 점수/코인/노드/카운터 미반영 후 요구치×1.3로 재시작,
+  신규 `RunEvent.BOSS_PHASE2` 타입으로 "진짜 클리어 아님"을 구분해 보스 카운트 중복을 막음).
+- **점수 격리 + 졸업**: `PlayerProfile.AscMax/BestAscScore/BestAscLevel` 신규 — asc>0 런은 bestScore
+  대신 별도 최고점으로 기록(단 웹 실소스 재확인 결과 totalScore/bestStage/runs는 asc 무관 항상
+  누적이라 그대로 채택 — 작업 지시 문면과 웹 실제 동작이 갈리는 지점, 상세는 §2-(Z) 결정 로그).
+  일반 런(asc=0)의 스테이지15 클리어도 졸업으로 인정돼 `ascMax=0` 확정 → 승천 선택기 해금.
+- **UI**: 홈 화면 승천 선택기(◀ 심화N ▶ + 규칙 설명, 졸업 전엔 숨김) · HUD 승천 배지 · 런 로그에
+  금지심볼/A7저주동반/A10 2페이즈 안내(웹은 지속 배지가 아니라 토스트 1회성임을 재확인 후 로그
+  방식으로 이식) · 런종료 보드 승천 표기. `Editor/UiSceneBuilder.cs`에 신규 UI 구성 전부 반영
+  (씬 리빌드는 Fable이 배치 처리).
+- **버그 발견 즉시 수정**: 테스트 작성 중 `StageFlow.ForceGameOver`가 최종점수에 ascMods.scoreMul을
+  전혀 곱하지 않던 누락을 발견해 그 자리에서 배선(asc=0은 완전 무변화라 회귀 없음, 신규 테스트로
+  직접 검증).
+- **테스트**: 신규 `Tests_P6_Ascension.cs`(6축 손계산·단계규칙 5종 고정시드·점수격리·졸업→ascMax→
+  선택상한·숙련도 배선·asc=10 자동플레이 하네스 등 14개 항목). 어서션 20016 → 20152(+136), 0 실패.
+- **스모크 컴파일**: Unity 에디터 미실행이라 `dotnet exec csc.dll` 오프라인 검증 — Assembly-CSharp
+  (81개, 신규 AscMods.cs/AscRunHooks.cs 포함)·Assembly-CSharp-Editor(6개) 둘 다 0에러·0경고.
+- **Opus 2차검수 반영(엔진 정확도 통과·totalScore 웹 채택 승인, 5건)**: ① `RunView.RejectReasons`에
+  `DEVICE_COOLDOWN` 한글 문구 추가(웹 토스트 대응, A9 쿨다운 거부 시 무안내였던 결함 해소). ②
+  `ProfileDto.FromDto`에 ascMax 로드 마이그레이션 가드 추가 — `(ascMax==0 && graduations==0)`이면
+  -1로 강제 정정(JsonUtility가 구세이브 빈 필드를 0으로 채워 "이미 asc0 졸업"으로 오판정할 위험 차단,
+  정당한 ascMax=0은 반드시 graduations>=1을 동반한다는 논리로 무결하게 구분). ③ §2-(Z)에 RewardDone
+  프리뷰의 웹 자체 회귀(웹은 미리보기에 ascMods 4항을 곱하지 않아 실제 quota보다 항상 작게 표시 —
+  Unity는 재현하지 않고 정확값 표시, §0 예외 조항) 명시. ④ `HandQuota` 순환검증을 보완하는 quota
+  리터럴 고정값 테스트 신설(stage15·asc10 조합, bossPhase2 true/false 각각 3010/2315). ⑤[권장]
+  HUD 승천 배지를 SetActive 토글로 전환(일반 런 HUD 폭 낭비 제거) + 상점가 테스트를 콘텐츠 원본
+  기준가로 재작성(시스템 산출값 간접 대조 → 직접 대조) + ASC_RULE[2] 문구가 웹 원문 자체의
+  미완성 오타임을 주석에 명시 + "16개 호출부"→"15곳" 표기 정정. 어서션 20152 → 20164(+12), 0 실패
+  (오프라인 스모크 컴파일 재검증 포함 0에러·0경고 불변).
+- **생략/보고 대상**: 랭킹 3노드 분리는 P7-4로 이관(bestAscScore 기록만 이번에 시작) · 심화모드(deep)
+  와의 상호배제는 P7에서(현재 주석만) · REWARD_DONE 능력치 패널에 ascMods 6축 개별 행 미노출(실제
+  계산에는 전부 반영, 표시 패널만 범위 밖).
+
 ## 2026-08-09 - 웹 파리티 P5(마지막 세부 페이즈) — 사운드(절차 합성 SFX 16종 + BGM)
 
 상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(Y) 참조. 요약:

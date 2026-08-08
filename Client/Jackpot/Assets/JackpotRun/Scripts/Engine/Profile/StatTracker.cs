@@ -239,6 +239,18 @@ namespace JackpotRun.Engine
                     break;
                 }
 
+                // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — A10 2페이즈 보스 재시작(진짜 클리어
+                // 아님, StageFlow.ClearStage 헤더 주석 참조). 이번 스핀 자체의 심볼/모드 통계는 실제로
+                // 발생한 스핀이라 그대로 반영하되, ApplyClearTracking(bestStage/bossClears/graduations
+                // 등 "클리어" 전용 카운터)은 호출하지 않는다 — 보스 카운트 중복 방지(작업 지시 그대로).
+                case "BOSS_PHASE2":
+                {
+                    bool realSpinP2 = string.IsNullOrEmpty(e.deviceId) && e.spin?.result != null;
+                    if (realSpinP2) ApplySpinIncrements(p, e.spin, scratch);
+                    else if (!string.IsNullOrEmpty(e.deviceId)) ApplyManipDeviceInc(p, e.deviceId, scratch);
+                    break;
+                }
+
                 case "GAME_OVER":
                 {
                     bool realSpin = string.IsNullOrEmpty(e.deviceId) && e.spin?.result != null;
@@ -578,7 +590,12 @@ namespace JackpotRun.Engine
 
             p.Inc("runs");
             p.SetMax("bestStage", run.Stage);
-            p.SetMax("bestScore", finalScore);
+            // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:2555-2559) — 승천(asc>0) 런의
+            // 최종점수는 일반 bestScore에 반영하지 않는다(랭킹 밸런스 보호, 별도 BestAscScore/
+            // BestAscLevel 추적). totalScore/runs/bestStage는 웹처럼 asc 무관하게 항상 갱신된다(위/
+            // 아래 라인 그대로 — 이 게이트는 bestScore 한 줄에만 건다, §0 결정 원칙: 웹 실제 동작 채택).
+            if (run.Asc <= 0) p.SetMax("bestScore", finalScore);
+            else if (finalScore > p.BestAscScore) { p.BestAscScore = finalScore; p.BestAscLevel = run.Asc; }
             if (scratch.PrayUsedThisStage) p.Inc("prayFails");
 
             int relicN = run.Perks.Count(id => Perks.ById(id)?.cat == PCat.RELIC);
@@ -622,15 +639,25 @@ namespace JackpotRun.Engine
             foreach (var id in EvalThemeBuilds(ctx)) p.SetMax(id, 1);
 
             // ── SlotV2ScoreRow 갱신(recordRun 상당) — achievement 판정과 무관한 표시/기록 필드 ──
-            p.TotalScore += finalScore;
+            p.TotalScore += finalScore; // 웹 game.js:2554 `p.totalScore += finalScore` — asc 무관 항상 누적.
             // L1(Opus 1차 검수): Kotlin recordRun L2179-2180 "finalScore >= (existing.bestScore ?: 0L)" —
             // >가 아니라 >=다. 동점(첫 런의 finalScore==0==priorBest 포함)도 이번 런의 캐릭/머신으로 갱신된다.
-            if (finalScore >= priorBest)
+            // 웹 파리티 P6 — BestChar/BestMachine은 Unity 전용 "일반 최고기록" 부가 필드라 위 bestScore
+            // 게이트와 짝을 맞춘다(승천 점수로 이 기록이 오염되지 않도록 asc==0일 때만 판정).
+            if (run.Asc <= 0 && finalScore >= priorBest)
             {
                 p.BestChar = run.CharId;
                 p.BestMachine = run.MachineId;
             }
             p.LastCombo = string.Join(",", run.CharId, run.MachineId, run.Device ?? "", run.Device2 ?? "");
+
+            // 웹 파리티 P6(웹 game.js:2561-2567) — 졸업(스테이지15 클리어) → 심화 학기 해금/승급.
+            // graduatedThisRun은 StageFlow.ClearStage가 stage==15 클리어 시점(2페이즈면 2페이즈 완료
+            // 시점)에 세운다 — 게임오버(런 종료) 시점에만 프로필에 반영해 "이 런의 최종 asc"를 정확히 쓴다.
+            if (run.GraduatedThisRun) p.AscMax = Math.Max(p.AscMax, run.Asc);
+            // 웹 game.js:2578 `cnt.ascMax = (p.ascMax ?? -1)` — 후반 업적(asc3/asc5) 카운터. 졸업 여부와
+            // 무관하게 매 게임오버마다 현재값을 스냅샷(playerLevel과 동일 관례).
+            p.SetStat("ascMax", p.AscMax);
 
             scratch.ResetStage();
         }

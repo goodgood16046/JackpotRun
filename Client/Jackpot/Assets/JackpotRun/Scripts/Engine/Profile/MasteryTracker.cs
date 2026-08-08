@@ -18,10 +18,14 @@ namespace JackpotRun.Engine
         {
             if (profile == null || run == null || failure == null) return;
             long finalScore = failure.finalScore;
-            profile.BumpMastery("char", run.CharId, run.Stage, run.RunBossClears, finalScore);
-            profile.BumpMastery("mac", run.MachineId, run.Stage, run.RunBossClears, finalScore);
+            // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — graduatedThisRun/asc를 그대로 전달해
+            // MasteryStats.AscMax(char[4] "심화 학기 5 졸업" 마일스톤 등)가 갱신되게 한다.
+            bool grad = run.GraduatedThisRun;
+            int asc = run.Asc;
+            profile.BumpMastery("char", run.CharId, run.Stage, run.RunBossClears, finalScore, grad, asc);
+            profile.BumpMastery("mac", run.MachineId, run.Stage, run.RunBossClears, finalScore, grad, asc);
             // 웹 game.js:2627 `if (r.device) this._bumpMastery("dev", r.device)` — 미장착(빈 문자열)이면 스킵.
-            if (!string.IsNullOrEmpty(run.Device)) profile.BumpMastery("dev", run.Device, run.Stage, run.RunBossClears, finalScore);
+            if (!string.IsNullOrEmpty(run.Device)) profile.BumpMastery("dev", run.Device, run.Stage, run.RunBossClears, finalScore, grad, asc);
         }
     }
 }

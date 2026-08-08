@@ -976,6 +976,173 @@
     Assembly-CSharp-Editor(6개) 둘 다 0에러·0경고(불변). `dotnet run --project Client/Jackpot/Tools/
     EngineTests` 20016 passed, 0 failed(불변, Engine/ 무접촉 재확인).
 
+- **(Z) 2026-08-09 완료(P6 "승천(심화 학기) A1~A10" — WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:121-141
+  ascMods/ASC_RULE·285-291 startRun·425/449-452 _mods()/_beginStage() A2/A8·1304-1317 insertCoin/oracle
+  A9·1395-1401 _clearStage A10·2147-2151 pickPerk A7·2549-2578 gameOver 점수격리, ui.js:572-590/704/2132
+  ascSelector/HUD배지/런종료표기 전수 대조)**:
+  - **엔진 — 6축**: 신규 `Engine/Core/AscMods.cs`(Core, Content 무의존) — `AscMods.Get(asc)`가 웹
+    `ascMods(a)`의 quotaMul/bossQuotaMul/shopPriceMul/itemCapDelta/startCoinDelta/scoreMul 6필드를
+    그대로 계산(`Clamp`로 [0,10] 방어), `RuleText`(웹 ASC_RULE 10단계 표시문구)도 포함. 6축 배선 지점은
+    전부 웹과 동일 위치 — `SpinResolver.QuotaOf(stage,mods,asc=0,bossPhase2=false)`(신규 오버로드,
+    기존 2-인자 호출 100% 호환 — Opus 2차검수 정정: 실제로는 15곳 전수 갱신(SpinResolver.ResolveSpin
+    3곳·DeviceActions 5곳·ItemUse 3곳·RunController.HandleContinue·RewardDoneInfo.NextPreview·
+    GameSession.PreviewQuotaSpins, grep 재확인 — 최초 보고했던 "16개"는 오산) · `Shop.
+    ShopPriceMul/ItemPriceMul`(신규 `RunState run` 매개변수 추가,
+    `AscMods.Get(run.Asc).ShopPriceMul` 곱연산) · `ItemUse.EffectiveSlots`(`+AscMods.Get(run.Asc).
+    ItemCapDelta`) · `RunController` 생성자(`run.Coins = Math.Max(0, ch.startCoins + AscMods.Get(run.Asc).
+    StartCoinDelta)`) · **`StageFlow.ForceGameOver`(최종점수)** — 웹 `_gameOver()`의 `const am =
+    ascMods(r.asc); const finalScore = Math.floor(r.score * mod * am.scoreMul);`(game.js:2549-2551)를
+    그대로 옮겨 `finalScore = (long)(run.Score * ScoreModifierFor(...) * AscMods.Get(run.Asc).ScoreMul)`
+    로 배선했다 — **작성 중 처음엔 이 축을 빠뜨렸다가**(`ForceGameOver`가 기존엔 `run.Score *
+    ScoreModifierFor(...)`만 계산해 asc 배수를 전혀 곱하지 않고 있었다) `Tests_P6_Ascension.cs` 작성
+    단계에서 "최종 점수" 축 자체를 명시적으로 손계산 검증하려다 발견해 즉시 수정했다(신규
+    `FinalScoreScoreMulWiring` 테스트로 asc=0/5/10 3케이스 직접 확인). `RunController.GiveUp()`(자발적
+    포기)도 동일 `ForceGameOver`를 재사용하므로 자동으로 함께 반영된다. asc=0이면 `ScoreMul`이 정확히
+    1.0이라 기존(P6 이전) 결과와 완전히 동일 — 회귀 없음(전체 20152 어서션 재검증 완료).
+  - **엔진 — 단계 규칙 5종**: 신규 `Engine/Run/AscRunHooks.cs`(internal) — `RollBannedSym(run)`(A8,
+    stage 진입 3곳: RunController 생성자·StageFlow.ClearStage 다음스테이지 진입·A10 2페이즈 재시작에서
+    호출) · `ApplyRunAscMods(mods, run)`(A2 weightAdd.skull 가산 + A8 symbolWeightMul[banned]=0 대입 —
+    실제 롤에 쓰이는 최종 mods에만 적용하는 6개 지점: SpinResolver.ResolveSpin·DeviceActions.
+    HandlePeek/HandleManip/GamblerReroll·ItemUse.UseRetakeForm/timeline_ticket). A7(프리즘 저주)은
+    `NodeEvents.PickOffer`에 인라인(node==Augment && tier==PRISM && asc>=7일 때만, RELIC 노드/SILVER
+    이하 티어는 미부착 — 웹 `_pickKind==="AUG"` 조건 그대로, `RunEvent.curseGrantedId` 기존 필드
+    재사용). A9(장치 쿨다운)은 `RunState.DevCdUntil`(신규) + `DeviceActions.HandleDevCoin`/
+    `HandlePeek`(dev_oracle 한정, dev_syllabus는 웹에 대응 없어 제외)에 가드 삽입. A10(2페이즈
+    보스)은 `StageFlow.ClearStage` 최상단 단락 — `clearedStage==15 && asc>=10 && !run.BossPhase2`면
+    점수/코인/노드/카운터를 전혀 건드리지 않고 스테이지 시작 휘발성 필드만 리셋 후 `ClearOutcome{
+    bossPhase2Restart=true}`로 즉시 반환(웹 `_clearStage()`가 이 시점에 `_beginStage()`로 리턴하는 것과
+    동일 파리티) — 신규 `SpinStepKind.BossPhase2`/`RunEvent.type="BOSS_PHASE2"`/`StageFlow.
+    BuildClearEvent(outcome,clear,deviceId)` 헬퍼(DeviceActions 3곳·ItemUse 1곳의 "스핀 없이 직접
+    ClearStage 호출" 경로가 공유)로 "진짜 클리어 아님"을 호출측에 알린다. `StatTracker.ApplyOne`에
+    `"BOSS_PHASE2"` 케이스 추가 — 스핀 자체의 심볼 통계(`ApplySpinIncrements`)는 반영하되
+    `ApplyClearTracking`(bestStage/bossClears/graduations 등)은 건너뛰어 **보스 카운트 중복을
+    방지**한다(작업 지시 명시 요구사항, `Tests_P6_Ascension.BossPhase2A10`이 `RunBossClears==1`로 직접
+    검증). 2페이즈 완료 시점(`clearedStage==15` 도달, 웹 game.js:1401 그대로)에 `run.GraduatedThisRun
+    =true; run.BossPhase2=false;`를 세운다 — 일반 런(asc=0)의 stage15 클리어도 이 조건을 그대로
+    통과하므로(2페이즈 게이트는 `asc>=10`에서만 걸림) 동일 메커니즘으로 처리된다.
+  - **엔진 — 점수 격리 + 졸업/ascMax**: `PlayerProfile`에 `AscMax`(-1 기본)·`BestAscScore`·
+    `BestAscLevel`(웹 defaultProfile과 동일 기본값) + `AscUnlocked()`/`MaxPlayableAsc()`/`GetAscInfo(a)`
+    (웹 ascUnlocked/maxPlayableAsc/ascInfo 그대로) 신규. `StatTracker.ApplyGameOverTracking`이
+    `run.Asc<=0`이면 `bestScore`만 갱신하고 asc>0이면 `BestAscScore/BestAscLevel`로 분기(웹 game.js:
+    2555-2559) — `runs`/`totalScore`/`bestStage`는 웹처럼 asc 무관하게 항상 갱신(아래 §2-(Z) 결정 로그
+    참조, 작업 지시 문면과 실제 웹 소스가 갈리는 지점). `run.GraduatedThisRun`이 서면 `p.AscMax =
+    Math.Max(p.AscMax, run.Asc)`(웹 2564-2565 그대로, "일반 런(asc=0) S15 클리어 → ascMax=0 확정"
+    작업 지시 요구사항 충족 — `Tests_P6_Ascension.GraduationAscMaxSelectionCap`으로 직접 검증).
+    `Stats["ascMax"]`를 매 게임오버마다 `p.AscMax`로 스냅샷(웹 `cnt.ascMax`, asc3/asc5 업적 카운터 —
+    이미 P3-2에 데이터만 준비돼 있던 두 업적이 이제 실제로 달성 가능해짐). `PlayerProfile.BumpMastery`
+    에 `graduatedThisRun`/`asc` 매개변수 추가(웹 game.js:226 `s.ascMax = Math.max(s.ascMax??-1, r.asc)`)
+    — `MasteryTracker.ApplyRunEnd`가 `run.GraduatedThisRun`/`run.Asc`를 그대로 전달해 char[4](심화
+    학기5 졸업) 마일스톤이 이제 실제로 충족 가능(예전엔 `ascMax` 매개변수가 항상 -1로 고정돼 있었음,
+    `Formulas.MasteryLevel` 자체는 P3-3부터 이미 이 매개변수를 받고 있었다). `ProfileDto`
+    ascMax/bestAscScore/bestAscLevel 왕복 3필드 추가.
+  - **엔진 — 런 시작 파이프라인**: `RunController` 생성자에 `int asc=0`(방어적 `AscMods.Clamp`) 추가.
+    `GameSession` 생성자에 `int asc=0` 추가 — `profile.MaxPlayableAsc()`로 재클램프 후 `RunController`에
+    전달(웹 game.js:288-289 `maxAsc`/`useAsc` 그대로, "해금 상한 클램프는 Engine/Profile을 아는 계층이
+    담당" 설계 원칙 6 유지 — RunController 자신은 `[0,10]` 방어적 클램프만).
+  - **UI**: `AppRoot.SelectedAsc`(신규 int 프로퍼티, 웹 `let selAsc=0` 모듈 전역과 동일 — 앱 실행 내내
+    메모리 유지, 세이브 미영속) + `StartRun(...,int asc=0)`/`PendingLaunchInfo.asc` 핸드오프.
+    `MenuView`에 승천 선택기(웹 ascSelector 순서 그대로 — 배지 "일반"/"심화 N" + ◀/▶ + "점수 보정
+    ×N"/"이번 단계: ..." + 힌트문구, `profile.AscUnlocked()==false`면 섹션 SetActive(false) — 웹은 렌더
+    자체를 생략하지만 이 프로젝트는 씬이 전부 코드생성 uGUI라 "짓되 숨김"으로 동치 구현). `PickView.
+    OnStartClicked`가 `appRoot.SelectedAsc`를 `StartRun`에 전달. `Editor/UiSceneBuilder.cs`
+    `BuildAscSelector`(신규, `BuildModeCard`와 동일 카드 룩 재사용) + `MenuBuildResult`/`WireMenuView`
+    필드 7종 추가. **HUD 승천 배지**: `HudView.ascBadgeText`(신규) — `RefreshStageCurses`에서
+    `run.Asc>0`일 때만 "심화 N ×M"(웹 ui.js:704 asc-hud, astral 🎓 금지) 표시, `UiSceneBuilder.
+    BuildRunHud` topRow에 stageText/cursesText 사이 삽입. **금지 심볼(A8) 표시**: 웹을 재확인한 결과
+    HUD에 지속 표시되는 배지가 아니라 **스테이지 진입 시 1회성 토스트뿐**이다(웹 game.js:425
+    `this.toast(...)`, ui.js `renderPlay()`에 별도 HUD 요소 없음 — 전수 grep 확인) → 작업 지시의
+    "금지 심볼 표시"를 이 웹 실제 동작에 맞춰 **`RunView`의 게임 로그(notesFeed) 안내**로 구현했다
+    (지속 배지를 새로 발명하지 않음 — §0 "웹 정확 전사" 원칙). `RunView.AppendBannedSymNoteIfAny()`가
+    `RUN_STARTED`/`STAGE_STARTED`/`BOSS_PHASE2` 이벤트 처리 시 `run.BannedSym`을 직접 읽어 안내
+    (엔진에 토스트 문자열 필드가 없음 — `HudView.RefreshBossState`와 동일한 "UI가 RunState를 직접
+    관찰" 기존 패턴 재사용). A7 저주 동반/A10 2페이즈 안내도 같은 로그에 추가(`PERK_GRANTED` 케이스
+    확장 + 신규 `BOSS_PHASE2` 케이스). **런종료 보드**: `GameOverPanel.ascResultRoot/ascResultText`
+    (신규, 웹 ui.js:2132 `.asc-result` — "심화 학기 N · 점수 보정 ×M", `run.Asc>0`일 때만 활성화) +
+    `UiSceneBuilder` stageReachedText 다음 자리에 삽입.
+  - **랭킹 3노드 분리**: 작업 지시대로 이번 슬라이스는 다루지 않는다(P7-4 일괄 예정, 주석 예약도 이미
+    기존 코드(`RankingService`/`RankView` 등)에 손대지 않는 방식으로 범위 밖 유지) — 단
+    `PlayerProfile.BestAscScore/BestAscLevel` 기록 자체는 이번 슬라이스부터 시작됐다(작업 지시 "단
+    bestAscScore 기록은 지금부터" 그대로 충족, 실제 랭킹 서버 제출(`RankingService.
+    submitAscScore` 상당)은 P7-4 대상).
+  - **결정 로그 — 점수 격리 축(§0 "웹 채택이 기본" 적용, 작업 지시 문면과 실제 웹 소스 대조 후 실제
+    소스 채택)**: 작업 지시는 "asc>0 런은 `bestScore`/`totalScore` 일반 기록에 미반영"이라 적었으나,
+    `public/play/game.js:2554-2560`을 직접 재확인한 결과 `p.runs += 1; p.totalScore += finalScore;`
+    (무조건 누적)와 `p.bestStage = Math.max(p.bestStage, r.stage);`(무조건 갱신)는 **asc 여부와
+    무관하게 항상 실행**되고, asc 게이트가 실제로 걸리는 것은 `p.bestScore` 대입 한 줄뿐이다
+    (`if(deep){...} else if(asc>0){bestAscScore...} else p.bestScore=Math.max(...)`). 이 슬라이스는
+    실제 웹 소스를 정답으로 채택해 `StatTracker.ApplyGameOverTracking`에서 `bestScore`(+ Unity 전용
+    부가 필드 `BestChar`/`BestMachine`, 같은 취지로 asc==0에서만 갱신하도록 함께 게이트)만 asc로
+    분기하고 `runs`/`totalScore`/`bestStage`는 그대로 무조건 갱신한다 — 작업 지시 문면의 "totalScore도
+    격리"는 웹 원문과 다르므로 채택하지 않았다(Fable 최종검수 시 재확인 요망 — 의도적으로 문면이
+    아니라 웹 실제 동작을 따른 판단).
+  - **테스트**: 신규 `Tests_P6_Ascension.cs` — ①ascMods 6축 손계산(a=0/1/3/5/10 경계 + 상하한 클램프)
+    ②QuotaOf 배선(비보스/보스/2페이즈 3케이스 손계산 + 실제 `RunController.Do(Spin)` 라이브 교차검증)
+    ③A2 skull weightAdd(a=1/3/10 경계) ④A8 금지심볼 3000회 롤 실측 0건 + RollBannedSym 대조군
+    ⑤A7 프리즘저주(정타 케이스 + asc<7/RELIC노드/SILVER티어 3대조군) ⑥A9 장치쿨다운(dev_coin/
+    dev_oracle 2종 + asc<9 대조군, 거부→해제→재사용 3단계) ⑦A10 2페이즈(1페이즈 상태보존 확인·quota
+    ×1.3 손계산·2페이즈 완료 후 졸업확정·보스카운트 중복없음·BuildClearEvent 타입 분기) ⑧상점가·
+    아이템칸 배선(동일시드 오퍼 비교로 가격만 다름을 검증) ⑨시작코인 배선(parttime 캐릭터, 하한
+    클램프 포함) ⑩**최종점수 scoreMul 배선**(asc=0/5/10, 위 발견 항목 직접 검증) ⑪점수격리(asc>0/
+    asc=0 양쪽 대조) ⑫졸업→ascMax→선택상한(3단계 순차 시나리오 + 낮은 asc 재졸업이 ascMax를 낮추지
+    않음) ⑬숙련도 AscMax 배선(졸업/미졸업 대조) ⑭자동플레이 하네스 asc=10 5시드×20000틱(BOSS_PHASE2
+    이벤트 화이트리스트 포함, 예외 없이 게임오버 도달). 기존 `Tests_S4_RunControllerAutoplay`의
+    `KnownEventTypes`에도 `"BOSS_PHASE2"`를 방어적으로 추가(asc=0 기본 정책으론 도달 불가하지만 향후
+    확장 대비). 어서션 20016 → 20152(+136), 0 실패.
+  - **스모크 컴파일**: Unity 에디터 미실행(프로세스 확인 결과 미기동) — 기존 슬라이스와 동일하게
+    `dotnet exec csc.dll` 오프라인 검증. `Assembly-CSharp`(런타임, 신규 2파일 AscMods.cs/AscRunHooks.cs
+    포함 81개) · `Assembly-CSharp-Editor`(6개) 둘 다 0에러·0경고(CS0169/0649/0414만 억제, 기존 관례
+    동일, `ForceGameOver` 수정 후 재검증 포함). `dotnet run --project Client/Jackpot/Tools/EngineTests`
+    20152 passed, 0 failed.
+  - **2026-08-09 Opus 2차검수 반영(엔진 정확도 통과·totalScore 웹 소스 채택 판단 승인, 아래 5건)**:
+    ①`RunView.RejectReasons`에 `"DEVICE_COOLDOWN"` 한글 문구 추가 — 웹 game.js:1306/1315 토스트
+    "♨️ 심화 규칙 — 장치 쿨다운(다음 스테이지에 사용)"의 astral 제거판("심화 규칙 — 장치 쿨다운(다음
+    스테이지에 사용)"). A9 쿨다운 거부 시 아무 안내 없이 무시되던 결함 해소.
+    ②**ascMax 로드 마이그레이션 가드** — `ProfileDto.FromDto`가 `p.AscMax = dto.ascMax` 대입 직후
+    `if (p.AscMax == 0 && p.GetStat("graduations") == 0) p.AscMax = -1;`을 추가했다. Unity
+    `JsonUtility`가 이 필드 도입 이전 세이브(필드 자체가 JSON에 없음)를 역직렬화할 때 C# 필드
+    초기값(-1)을 항상 보장한다고 볼 수 없다는 지적(관측 근거: 0으로 채워지는 경로가 있음) — 0으로
+    채워지면 "이번 앱 첫 실행부터 이미 asc0을 졸업한 것"으로 오판정돼 승천 선택기가 부당하게
+    해금될 위험이 있었다. 판별식 근거: 정당한 `ascMax=0`은 반드시 `graduations>=1`을 동반한다(asc0
+    졸업이 선행돼야 `StatTracker.ApplyClearTracking`이 `graduations`를 올리므로 두 값이 함께 0인
+    경우는 "필드 부재"뿐 — 논리적으로 무결한 구분). `Tests_P6_Ascension.AscMaxLoadGuard` 4케이스로
+    직접 검증: (ascMax=0,graduations=0)→-1 · (0,1)→0(정당한 졸업, 미정정) · (3,2)→3(0이 아니면 가드
+    미개입) · statKeys 자체가 없는 완전 구세이브도 -1.
+    ③**RewardDone 프리뷰의 웹 자체 회귀(§0 예외 조항 적용, 문서화만)** — 웹 `_enterRewardDone`
+    (game.js:1577-1580)의 `r.nextPreview.quota` 계산은 `E.quota(stage) * mods.quotaMul *
+    E.bossQuotaMul(stage) * this._deepPenalty()`뿐이고 `ascMods(r.asc)`(am.quotaMul/am.bossQuotaMul/
+    bossPhase2 ×1.3)를 전혀 곱하지 않는다 — 반면 실제 `_beginStage()`가 계산하는 진짜 `r.quota`
+    (game.js:423)는 이 4항을 전부 곱한다. 즉 **웹 자신도 REWARD_DONE 화면에서 다음 스테이지 요구
+    EXP를 승천 배수만큼 과소 표시하는 회귀가 있다**(미리보기가 실제보다 항상 작게 보임, asc가 높을수록
+    괴리가 커짐 — a=10이면 실제 대비 최대 절반 이하로 표시될 수 있음). `RewardDoneView.NextPreview`가
+    이미 `SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2)`(6축 전부 포함)를 쓰고 있어
+    Unity는 이 회귀를 재현하지 않고 정확한 값을 보여준다 — §0 "웹 쪽이 명백한 회귀 버그일 때만 예외"
+    조항 적용(의도적 이탈, 버그 아님).
+    ④**quota 리터럴 기대값 신설** — `Tests_P6_Ascension.QuotaOfLiteralGolden`이 `HandQuota`(코드와
+    동일 수식을 다시 써서 대조하는 순환검증) 없이 stage15·기본`Mods()`·asc10 축 조합의 결과를
+    정수 리터럴로 고정한다(bossPhase2=false→2315, true→3010 — 계산 근거는 테스트 파일 주석에 단계별
+    수치로 남김). `QuotaOfWiring`의 기존 `HandQuota` 비교들은 "실제 배선 지점이 같은 인자를 정확히
+    전달하는지"를 확인하는 용도로는 여전히 유효해 남겨 두고, 이 리터럴 테스트가 "수식 자체의 정확성"
+    을 보완한다.
+    ⑤**[권장 3건]** HUD 승천 배지: 빈 문자열 대입(칸은 계속 차지) 대신 `ascBadgeText.gameObject.
+    SetActive(run.Asc>0)`로 전환 — 일반 런에서 HUD 상단 행이 승천 배지 칸(130px)만큼 낭비되던 것을
+    해소(`HorizontalLayoutGroup`이 비활성 자식을 레이아웃에서 자동 제외). 상점가 테스트
+    (`ShopPriceAndItemCapWiring`): `offerA[i].price`(시스템 산출값)를 "기준가" 대용으로 쓰던 것을
+    걷어내고, `Perks.ById(id).tier`/`.price`·`Items.ById(id).coinCost`에서 직접 기준가를 구해 asc=0/
+    asc=3 두 오퍼를 각각 독립적으로 검증하도록 재작성(간접 대조→직접 대조). ASC_RULE[2] 문구
+    ("요구 EXP 추가 +", 뒤가 잘려 있음)는 웹 `data.js` ASC_RULE[2] 원문 자체의 오타/미완성 문구를
+    그대로 옮긴 것이다(Unity가 만든 결함이 아님, §0 "웹 채택이 기본" — 임의로 문장을 완성하지 않고
+    원문 그대로 보존) — `Engine/Core/AscMods.cs` 주석에도 이 사실을 명시. "16개 호출부" 표기는 실제
+    grep 결과 15곳으로 정정(위 6축 문단에서 직접 수정).
+    재검증: `dotnet run --project Client/Jackpot/Tools/EngineTests` 20152 → 20164(+12), 0 실패.
+  - **웹 대비 생략/보고 대상**: ① 랭킹 3노드 분리(P7-4 예정, 위 참조). ② `RewardDoneView.CurrentStats`
+    (다음 스테이지 능력치 미리보기 패널)가 개별 mods 필드(quotaMul 등)는 보여주지만 ascMods 6축을
+    별도 행으로 노출하지 않는다(작업 지시 범위 밖 — 6축은 QuotaOf/가격/시작코인/최종점수 등 실제
+    계산에는 전부 반영되지만 이 특정 표시 패널 갱신은 하지 않았음). ③ 심화모드(deep) 상호배제는
+    `MenuView`/`UiSceneBuilder` 주석으로만 자리를 예약(P7에서 deep 토글 상태가 생기면 `ascSelector`도
+    웹처럼 `if(selDeep) hide`를 추가해야 함). ④ 씬 리빌드·프리팹·.meta 파일 생성은 다루지 않았다 —
+    Fable이 에디터에서 배치 실행 예정(신규 SerializeField 7+3+2종의 실제 GameObject 배선·시각 검수
+    포함, 기존 슬라이스들과 동일 분업).
+
 ## 3. 페이즈 로드맵
 
 | 페이즈 | 내용 | 상태 |
@@ -985,7 +1152,7 @@
 | P3 | 메타 웹화: XP/레벨/레벨보상 · 업적 34종 교체 · 숙련도 · 증강 레벨업 · 해금 OR · 콘텐츠 증보(+3캐릭/+3머신/+장치/+증강9/+유물12/+아이템5) | ✅ 2026-08-08 완료 |
 | P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | ✅ 2026-08-09 완료(3/3) |
 | P5 | 사운드(절차 합성 SFX 16종 + BGM 루프) | ✅ 2026-08-09 완료 |
-| P6 | 승천 A1~A10 + 승천 랭킹 분리 | 대기 |
+| P6 | 승천 A1~A10 + 승천 랭킹 분리 | ✅ 2026-08-09 완료(랭킹 분리는 P7-4로 이관, bestAscScore 기록은 완료) |
 | P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버) + 심화 랭킹 | 대기 |
 
 각 페이즈는 FABLE_RULES 4단계 파이프라인으로 진행하고, EngineTests 골든망을 웹 수치로 갱신하며 통과를 유지한다.

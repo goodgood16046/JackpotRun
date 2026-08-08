@@ -475,12 +475,32 @@ namespace JackpotRun.Engine
                 return RunEvents.One(new RunEvent { type = "PERK_LEVELED", perkId = perkId, perkLevelBefore = before, perkLevelAfter = after });
             }
 
+            // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:2147-2151 pickPerk) — 이 시점의
+            // run.Phase는 EventAugLevel이 이미 위에서 빠져나갔으므로 EventAugment/EventRelic 둘 중
+            // 하나다("_pickKind === 'AUG'"에 대응). A7+ 프리즘 "증강"(node==Augment 한정 — 프리즘
+            // "유물" 픽은 웹도 대상이 아니다) 픽 시 저주 1개가 자동으로 붙는다.
+            bool isAugPick = run.Phase == RunPhase.EventAugment;
             run.Perks.Add(perkId);
             run.PerkOfferIds.Clear();
-            // 웹 파리티 P4 — 웹 game.js:2185 "${e} ${n} 획득!".
             var grantedPerk = Perks.ById(perkId);
-            RewardFlow.Enter(run, $"{(grantedPerk != null ? grantedPerk.name : perkId)} 획득!");
-            return RunEvents.One(new RunEvent { type = "PERK_GRANTED", perkId = perkId });
+
+            string attachedCurseId = null;
+            if (isAugPick && grantedPerk != null && grantedPerk.tier == Tier.PRISM && run.Asc >= 7)
+            {
+                var curse = run.Rng.Pick(Perks.Curses); // 웹 `this.rng.pick(CURSES)` — Perks.Curses는 항상 16종 비어있지 않음.
+                run.Curses.Add(curse.id);
+                attachedCurseId = curse.id;
+            }
+
+            // 웹 파리티 P4 — 웹 game.js:2185 "${e} ${n} 획득!" (+ A7 저주 동반 시 game.js:2150 안내 병기).
+            string msg = $"{(grantedPerk != null ? grantedPerk.name : perkId)} 획득!";
+            if (attachedCurseId != null)
+            {
+                var curseInfo = Perks.ById(attachedCurseId);
+                msg += $" · 심화 규칙 — 저주 {(curseInfo != null ? curseInfo.name : attachedCurseId)} 동반";
+            }
+            RewardFlow.Enter(run, msg);
+            return RunEvents.One(new RunEvent { type = "PERK_GRANTED", perkId = perkId, curseGrantedId = attachedCurseId });
         }
 
         // ── 🗂️보류파일 (handleHoldAug, Kotlin L1336-1351) — EVENT_AUGMENT 전용 ──

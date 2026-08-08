@@ -8,9 +8,9 @@ namespace JackpotRun.UI2
 {
     // 메인 메뉴 화면 = 웹 단독판 renderHome 이식 — ENGINE_PORT_DESIGN.md S12 §4 + 웹 파리티 P4
     // (WEB_PARITY_DESIGN.md §1-A #15 A). scr-title(타이틀+부제) → **레벨 카드**(클릭형, 레벨 보상
-    // 화면으로) → **게임 모드 선택기**(일반/심화, 심화는 P7 미구현이라 "준비 중" 잠금) → (승천 선택기는
-    // P6 미구현이라 렌더 생략 — Editor/UiSceneBuilder.cs BuildMenuScreen 안의 "P4 A.3" 주석 자리 참조)
-    // → hud 카드(칭호 +
+    // 화면으로) → **게임 모드 선택기**(일반/심화, 심화는 P7 미구현이라 "준비 중" 잠금) → **승천(심화
+    // 학기) 선택기**(웹 파리티 P6, WEB_PARITY_DESIGN.md §1-A #18 — profile.AscUnlocked()==false(한 번도
+    // 졸업 못함)면 섹션 비활성화) → hud 카드(칭호 +
     // 최고점수/최고스테이지/플레이 3칸) → "업적 n/34 · 장치 n/16 해금" 요약줄 → 게임 시작(골드) +
     // 랭킹/도감(고스트 2개) → 설명 2줄 → **데이터 초기화**(신규). 레이아웃은 UiSceneBuilder가 정적으로
     // 짓고 [SerializeField]로 이 컴포넌트에 와이어링한다 — 이 클래스는 "화면을 열 때마다 최신 프로필로
@@ -28,10 +28,8 @@ namespace JackpotRun.UI2
     // 완성했다 — 웹 renderHome(ui.js:630) `<button class="reset-link sndtog withlabel"
     // data-act="soundToggle">${sndIcon()} 소리</button>`를 "데이터 초기화" 링크 버튼과 같은 행에
     // 나란히 짓는다(soundToggleButton/soundToggleLabel 신규 필드, UiSceneBuilder.BuildMenuScreen).
-    // 승천 선택기(`ascSelector`)는
-    // 웹도 `ascUnlocked()`(profile.ascMax>=0, 승천 1회 이상 졸업)가 false면 아예 렌더하지 않는데, 승천
-    // 자체가 P6 미구현이라 Unity는 항상 이 조건이 거짓이다 — 그래서 지금은 렌더 자체를 생략한다(엔진에
-    // ascMax 필드가 없어 조건 판정 코드조차 쓸 수 없음, §1-A #18 P6에서 이 자리를 다시 연다).
+    // 승천 선택기(`ascSelector`)는 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18)에서 구현했다 — 웹처럼
+    // `ascUnlocked()`(profile.AscMax>=0, 승천 1회 이상 졸업)가 false면 SetActive(false)로 숨긴다.
     public sealed class MenuView : MonoBehaviour
     {
         private AppRoot appRoot => AppRoot.Instance;
@@ -53,6 +51,18 @@ namespace JackpotRun.UI2
 
         // ── P4 A.2 — 게임 모드 선택기(웹 deepSelector(), ui.js:559-570) — 심화는 P7 미구현이라 잠금 ──
         [SerializeField] private Button modeDeepButton;
+
+        // ── P6 — 승천(심화 학기) 선택기(웹 ascSelector(), ui.js:572-590) ───────────────────────
+        // profile.AscUnlocked()==false(한 번도 졸업 못함)면 전체 섹션을 비활성화한다(웹은 아예 렌더
+        // 자체를 생략 — Unity는 씬 구조를 유지한 채 SetActive(false)로 동등하게 구현). 심화모드(deep)
+        // 상호배제는 P7에서(주석만 — 지금은 deep 자체가 없어 선택기가 항상 노출 가능 상태).
+        [SerializeField] private RectTransform ascSectionRoot;
+        [SerializeField] private Text ascBadgeText;  // "일반" / "심화 N"
+        [SerializeField] private Text ascLevelText;  // "일반 난이도" / "점수 보정 ×N"
+        [SerializeField] private Text ascRuleText;   // "표준 규칙..." / "이번 단계: ..." / "누적 난이도 상승"
+        [SerializeField] private Text ascHintText;   // "다음 단계는 심화 N 졸업 후 열려요" / "승천 점수는 별도 집계..."
+        [SerializeField] private Button ascPrevButton;
+        [SerializeField] private Button ascNextButton;
 
         // ── P4 A.5 — 데이터 초기화(웹 resetAsk/resetConfirm, ui.js:207-210) ────────────────────
         [SerializeField] private Button resetButton;
@@ -76,6 +86,8 @@ namespace JackpotRun.UI2
             if (resetButton != null) resetButton.onClick.AddListener(OnResetClicked);
             if (settingsButton != null) settingsButton.onClick.AddListener(OnSettingsClicked);
             if (soundToggleButton != null) soundToggleButton.onClick.AddListener(OnSoundToggleClicked);
+            if (ascPrevButton != null) ascPrevButton.onClick.AddListener(OnAscPrevClicked);
+            if (ascNextButton != null) ascNextButton.onClick.AddListener(OnAscNextClicked);
         }
 
         // 설정 시트의 "데이터 초기화"도 이 화면의 기존 확인 흐름(OnResetConfirmed)을 그대로 재사용한다
@@ -168,7 +180,53 @@ namespace JackpotRun.UI2
             }
 
             RefreshLevelCard(profile);
+            RefreshAscSelector(profile);
             RefreshSoundToggle();
+        }
+
+        // ── P6 — 승천(심화 학기) 선택기(웹 ascSelector(), ui.js:572-590) ───────────────────────
+        private void RefreshAscSelector(PlayerProfile profile)
+        {
+            bool unlocked = profile.AscUnlocked();
+            if (ascSectionRoot != null) ascSectionRoot.gameObject.SetActive(unlocked);
+            if (!unlocked) return;
+
+            int maxA = profile.MaxPlayableAsc();
+            // 웹 game.js:576 `selAsc = Math.max(0, Math.min(maxA, selAsc));` — 매 렌더마다 재클램프.
+            int sel = Mathf.Clamp(appRoot.SelectedAsc, 0, maxA);
+            appRoot.SelectedAsc = sel;
+            var info = profile.GetAscInfo(sel);
+
+            if (ascBadgeText != null) ascBadgeText.text = sel == 0 ? "일반" : $"심화 {sel}";
+            if (ascLevelText != null)
+                ascLevelText.text = sel == 0 ? "일반 난이도" : $"점수 보정 ×{NumberFormat.Fmt(info.ScoreMul)}";
+            if (ascRuleText != null)
+                ascRuleText.text = sel == 0
+                    ? "표준 규칙 · 점수 랭킹 반영"
+                    : (!string.IsNullOrEmpty(info.Rule) ? "이번 단계: " + info.Rule : "누적 난이도 상승");
+            if (ascHintText != null)
+                ascHintText.text = (sel >= maxA && sel < info.Max)
+                    ? $"다음 단계는 심화 {sel} 졸업(스테이지 15 클리어) 후 열려요"
+                    : "승천 점수는 별도 집계 — 일반 랭킹은 안전";
+            if (ascPrevButton != null) ascPrevButton.interactable = sel > 0;
+            if (ascNextButton != null) ascNextButton.interactable = sel < maxA;
+        }
+
+        private void OnAscPrevClicked()
+        {
+            var profile = appRoot != null ? appRoot.Profile : null;
+            if (profile == null) return;
+            appRoot.SelectedAsc = Mathf.Max(0, appRoot.SelectedAsc - 1);
+            RefreshAscSelector(profile);
+        }
+
+        private void OnAscNextClicked()
+        {
+            var profile = appRoot != null ? appRoot.Profile : null;
+            if (profile == null) return;
+            int maxA = profile.MaxPlayableAsc();
+            appRoot.SelectedAsc = Mathf.Min(maxA, appRoot.SelectedAsc + 1);
+            RefreshAscSelector(profile);
         }
 
         private void RefreshLevelCard(PlayerProfile profile)

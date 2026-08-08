@@ -34,6 +34,10 @@ namespace JackpotRun.UI2
         [SerializeField] private Text titleScoreText;
         [SerializeField] private Text finalScoreText;
         [SerializeField] private Text stageReachedText;
+        // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 ui.js:2132 `.asc-result`) — 승천 런에서만
+        // 노출("심화 학기 N · 점수 보정 ×M"). astral 🎓 금지, 한글만.
+        [SerializeField] private RectTransform ascResultRoot;
+        [SerializeField] private Text ascResultText;
         [SerializeField] private Text recordsText;
         [SerializeField] private RectTransform achHeaderRow;
         [SerializeField] private Text achHeaderText;
@@ -82,6 +86,9 @@ namespace JackpotRun.UI2
             if (titleScoreText != null) titleScoreText.text = voluntary ? "포기 — 즉시 결산" : $"{titleEmoji} {titleLabel}";
             if (finalScoreText != null) finalScoreText.text = $"최종 점수 {NumberFormat.Comma(finalScore)}";
             if (stageReachedText != null) stageReachedText.text = $"도달 스테이지 {run.Stage}";
+            if (ascResultRoot != null) ascResultRoot.gameObject.SetActive(run.Asc > 0);
+            if (run.Asc > 0 && ascResultText != null)
+                ascResultText.text = $"심화 학기 {run.Asc} · 점수 보정 ×{NumberFormat.Fmt(AscMods.Get(run.Asc).ScoreMul)}";
             if (recordsText != null)
                 recordsText.text = $"최고점수 {NumberFormat.Comma(profile.BestScore)} · 최고 스테이지 {profile.BestStage} · 통산 런 {profile.Runs}";
 

@@ -94,9 +94,9 @@ namespace JackpotRun.Engine
             // lv20/lv40: "playerLevel" 카운터 — StatTracker.ApplyGameOverTracking이 PlayerLevelTracker
             // 실행 *직전*(1런 지연) 스냅샷을 기록한다(웹 game.js:2578과 동일한 지연, 작업 지시 3번).
             new AchDef { id = "lv20", emoji = "⭐", name = "베테랑", desc = "플레이어 레벨 20 달성", cat = "기타", tier = "브론즈", reward = "", req = new[] { new StatReq("playerLevel", 20L) } }, // ⭐ U+2B50 BMP — 웹 그대로 유지
-            // asc3/asc5: "ascMax" — 승천(심화 학기, P6·WEB_PARITY_DESIGN.md §1-A #18)은 아직 미이식이라
-            // ascMax 카운터가 영원히 0(미기록)이다 — 심화 13종과 동일한 "카운터 없음, 데이터만 포함"
-            // 상태(작업 지시 1번 유예 대상, deep 플래그는 안 붙지만 실질은 동일).
+            // asc3/asc5: "ascMax" — 승천 P6(WEB_PARITY_DESIGN.md §1-A #18)부터 StatTracker.
+            // ApplyGameOverTracking이 매 게임오버마다 `Stats["ascMax"] = PlayerProfile.AscMax`를
+            // 스냅샷한다(웹 game.js:2578 cnt.ascMax 그대로).
             new AchDef { id = "asc3", emoji = "", name = "심화 3 수료", desc = "심화 학기 3 졸업", cat = "기타", tier = "브론즈", reward = "", req = new[] { new StatReq("ascMax", 3L) } }, // 📈(astral→빈 문자열)
             new AchDef { id = "asc5", emoji = "", name = "심화 5 석사", desc = "심화 학기 5 졸업", cat = "기타", tier = "브론즈", reward = "", req = new[] { new StatReq("ascMax", 5L) } }, // 🔥(astral→빈 문자열)
             new AchDef { id = "lv40", emoji = "", name = "고인물", desc = "플레이어 레벨 40 달성", cat = "기타", tier = "브론즈", reward = "", req = new[] { new StatReq("playerLevel", 40L) } }, // 🌌(astral→빈 문자열)

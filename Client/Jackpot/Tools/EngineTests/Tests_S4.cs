@@ -1249,6 +1249,8 @@ namespace JackpotRun.EngineTests
             "DEVICE_OFFER", // WEB_PARITY P1 ④: DEVICE 노드 오퍼(RunPhase.DeviceNode 진입 이벤트)
             "PERK_LEVELED", // 웹 파리티 P3-3: AUGLEVEL 노드 선택(PickOffer) 결과
             "STAGE_STARTED", // 웹 파리티 P4: RewardDone → Spin(ProceedToStage) 결과
+            "BOSS_PHASE2", // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18): A10 2페이즈 보스 재시작 — 이
+                            // 하네스의 기본 asc=0 정책으로는 실전 도달 불가하지만 방어적으로 화이트리스트.
         };
 
         // 결정론적 자동 플레이 정책: Spin(N) 반복 → NodeSelect는 항상 0번 선택 → 증강/유물 오퍼도 항상

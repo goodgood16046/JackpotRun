@@ -382,6 +382,16 @@ namespace JackpotRun.EditorTools
             public RectTransform levelBarFill;
             public Image levelBarFillImage;
             public Button modeDeepButton;
+
+            // ── 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — 승천(심화 학기) 선택기(웹 ascSelector()) ──
+            public RectTransform ascSectionRoot;
+            public Text ascBadgeText;
+            public Text ascLevelText;
+            public Text ascRuleText;
+            public Text ascHintText;
+            public Button ascPrevButton;
+            public Button ascNextButton;
+
             public Button resetButton;
             // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17) — 홈 소리 토글(reset 링크 버튼과 같은 행).
             public Button soundToggleButton;
@@ -440,6 +450,8 @@ namespace JackpotRun.EditorTools
 
             public RectTransform hudRoot;
             public Text stageText, cursesText, expBarText, spinsText, coinsText, scoreText;
+            // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — HUD 승천 배지(웹 ui.js:704 asc-hud).
+            public Text ascBadgeText;
             public RectTransform expBarFill;
             public Image expBarFillImage;
             public RectTransform expLeadDot; // S14 §D — EXP 바 선두 광점
@@ -960,9 +972,8 @@ namespace JackpotRun.EditorTools
             // ── P4 A.2: 게임 모드 선택기(일반/심화) — 웹 deepSelector() ─────────────────────
             BuildGameModeSelector(col, result);
 
-            // P4 A.3: 승천(심화 학기) 선택기 자리 — 웹 ascSelector()는 profile.ascMax>=0(승천 1회 이상
-            // 졸업)일 때만 렌더된다. 승천 자체가 P6(WEB_PARITY_DESIGN.md §1-A #18) 미구현이라 이 조건을
-            // 판정할 프로필 필드조차 아직 없다 — 지금은 렌더를 통째로 생략한다(P6에서 이 자리에 추가).
+            // ── P6: 승천(심화 학기) 선택기 — 웹 ascSelector()(WEB_PARITY_DESIGN.md §1-A #18) ──────
+            BuildAscSelector(col, result);
 
             // ── hud 카드: w_panel_grad + bd 테두리 + r-xl ───────────────────────────────
             var panelGradSprite = UiSpriteGen.Load("w_panel_grad");
@@ -1090,6 +1101,13 @@ namespace JackpotRun.EditorTools
             so.FindProperty("levelBarFill").objectReferenceValue = r.levelBarFill;
             so.FindProperty("levelBarFillImage").objectReferenceValue = r.levelBarFillImage;
             so.FindProperty("modeDeepButton").objectReferenceValue = r.modeDeepButton;
+            so.FindProperty("ascSectionRoot").objectReferenceValue = r.ascSectionRoot;
+            so.FindProperty("ascBadgeText").objectReferenceValue = r.ascBadgeText;
+            so.FindProperty("ascLevelText").objectReferenceValue = r.ascLevelText;
+            so.FindProperty("ascRuleText").objectReferenceValue = r.ascRuleText;
+            so.FindProperty("ascHintText").objectReferenceValue = r.ascHintText;
+            so.FindProperty("ascPrevButton").objectReferenceValue = r.ascPrevButton;
+            so.FindProperty("ascNextButton").objectReferenceValue = r.ascNextButton;
             so.FindProperty("resetButton").objectReferenceValue = r.resetButton;
             so.FindProperty("resetConfirmPopup").objectReferenceValue = r.resetConfirmPopup;
             so.FindProperty("settingsButton").objectReferenceValue = r.settingsButton;
@@ -1196,6 +1214,50 @@ namespace JackpotRun.EditorTools
             }
 
             return card;
+        }
+
+        // ── 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — 승천(심화 학기) 선택기(웹 ascSelector(),
+        // ui.js:572-590) — header(제목+배지) → 카드(◀ 배지/점수보정·규칙문구 ▶) → 힌트 1줄.
+        // MenuView.RefreshAscSelector가 profile.AscUnlocked()==false면 sectionRoot 전체를 SetActive(false)
+        // 한다(웹은 렌더 자체를 생략 — Unity는 씬 구조 유지 + 비활성으로 동등 구현, BuildModeCard와
+        // 동일한 카드 룩을 재사용해 게임 모드 선택기 바로 아래 자리에 놓는다).
+        private static void BuildAscSelector(RectTransform col, MenuBuildResult result)
+        {
+            var section = UiKit.VGroup(col, 10, new RectOffset(), true, true, autoSizeH: true);
+            result.ascSectionRoot = section;
+
+            var headerRow = UiKit.HGroup(section, 10, new RectOffset(), true, true);
+            UiKit.SizeHint(headerRow, preferredHeight: 30, flexibleHeight: 0);
+            var header = UiKit.Text(headerRow, "심화 학기", 22, UiKit.TextSecondary, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(header, flexibleWidth: 1, flexibleHeight: 0);
+            result.ascBadgeText = UiKit.Text(headerRow, "", 20, UiKit.Accent, TextAnchor.MiddleRight, true);
+            UiKit.SizeHint(result.ascBadgeText, preferredWidth: 140, flexibleHeight: 0);
+
+            var card = UiKit.Panel(section, "AscCard", Color.white, UiSpriteGen.Load("w_card_grad"));
+            UiKit.SizeHint(card, preferredHeight: 146, flexibleHeight: 0);
+            UiKit.AddGlowOutline(card.gameObject, UiKit.Bd, 2f).enabled = true;
+
+            var cardCol = UiKit.VGroup(card, 6, new RectOffset(16, 16, 14, 12), true, true);
+            UiKit.Fill(cardCol);
+
+            var ctlRow = UiKit.HGroup(cardCol, 10, new RectOffset(), true, true);
+            UiKit.SizeHint(ctlRow, preferredHeight: 60, flexibleHeight: 0);
+            var pillBtn56 = UiKit.PillSprite(56f);
+            result.ascPrevButton = UiKit.Button(ctlRow, "◀", new Vector2(56f, 56f), UiKit.Panel2, UiKit.TextPrimary, null, pillBtn56);
+            UiKit.SizeHint(result.ascPrevButton, preferredWidth: 56, preferredHeight: 56, flexibleWidth: 0, flexibleHeight: 0);
+
+            var midCol = UiKit.VGroup(ctlRow, 2, new RectOffset(), true, true);
+            UiKit.SizeHint(midCol, flexibleWidth: 1, flexibleHeight: 0);
+            result.ascLevelText = UiKit.Text(midCol, "", 19, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(result.ascLevelText, preferredHeight: 26, flexibleHeight: 0);
+            result.ascRuleText = UiKit.Text(midCol, "", 15, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(result.ascRuleText, preferredHeight: 22, flexibleHeight: 0);
+
+            result.ascNextButton = UiKit.Button(ctlRow, "▶", new Vector2(56f, 56f), UiKit.Panel2, UiKit.TextPrimary, null, pillBtn56);
+            UiKit.SizeHint(result.ascNextButton, preferredWidth: 56, preferredHeight: 56, flexibleWidth: 0, flexibleHeight: 0);
+
+            result.ascHintText = UiKit.Text(cardCol, "", 14, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(result.ascHintText, preferredHeight: 40, flexibleHeight: 0);
         }
 
         // ── PickView 화면 — S10: public/jackpotpick/index.html DOM 순서 그대로 재구성 ──────
@@ -1787,6 +1849,10 @@ namespace JackpotRun.EditorTools
             UiKit.SizeHint(topRow, preferredHeight: 44, flexibleHeight: 0);
             result.stageText = UiKit.Text(topRow, "", 26, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
             UiKit.SizeHint(result.stageText, flexibleWidth: 1, flexibleHeight: 0);
+            // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 ui.js:704 asc-hud) — 승천 런에서만 텍스트가
+            // 채워진다(HudView.RefreshStageCurses, 일반 런은 빈 문자열이라 자리만 차지하지 않게 보임).
+            result.ascBadgeText = UiKit.Text(topRow, "", 18, UiKit.Accent, TextAnchor.MiddleRight, true);
+            UiKit.SizeHint(result.ascBadgeText, preferredWidth: 130, flexibleHeight: 0);
             result.cursesText = UiKit.Text(topRow, "", 20, UiKit.Bad, TextAnchor.MiddleRight, true);
             UiKit.SizeHint(result.cursesText, preferredWidth: 140, flexibleHeight: 0);
 
@@ -2253,6 +2319,7 @@ namespace JackpotRun.EditorTools
             var so = new SerializedObject(view);
             so.FindProperty("stageText").objectReferenceValue = r.stageText;
             so.FindProperty("cursesText").objectReferenceValue = r.cursesText;
+            so.FindProperty("ascBadgeText").objectReferenceValue = r.ascBadgeText;
             so.FindProperty("expBarFill").objectReferenceValue = r.expBarFill;
             so.FindProperty("expBarFillImage").objectReferenceValue = r.expBarFillImage;
             so.FindProperty("expBarText").objectReferenceValue = r.expBarText;
@@ -3266,6 +3333,15 @@ namespace JackpotRun.EditorTools
             UiKit.SizeHint(finalScoreText, preferredHeight: 42, flexibleHeight: 0);
             var stageReachedText = UiKit.Text(content, "", 22, UiKit.TextSecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(stageReachedText, preferredHeight: 32, flexibleHeight: 0);
+
+            // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 ui.js:2132 `.asc-result`) — 승천 런에서만
+            // GameOverPanel.Show가 SetActive(true)로 켠다(기본은 꺼둠).
+            var ascResultRoot = UiKit.Panel(content, "AscResult", new Color(0, 0, 0, 0));
+            UiKit.SizeHint(ascResultRoot, preferredHeight: 30, flexibleHeight: 0);
+            var ascResultText = UiKit.Text(ascResultRoot, "", 19, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.Fill(ascResultText.rectTransform);
+            ascResultRoot.gameObject.SetActive(false);
+
             var recordsText = UiKit.Text(content, "", 19, UiKit.TextSecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(recordsText, preferredHeight: 30, flexibleHeight: 0);
 
@@ -3333,6 +3409,8 @@ namespace JackpotRun.EditorTools
             so.FindProperty("titleScoreText").objectReferenceValue = titleScoreText;
             so.FindProperty("finalScoreText").objectReferenceValue = finalScoreText;
             so.FindProperty("stageReachedText").objectReferenceValue = stageReachedText;
+            so.FindProperty("ascResultRoot").objectReferenceValue = ascResultRoot;
+            so.FindProperty("ascResultText").objectReferenceValue = ascResultText;
             so.FindProperty("recordsText").objectReferenceValue = recordsText;
             so.FindProperty("achHeaderRow").objectReferenceValue = achHeaderRow;
             so.FindProperty("achHeaderText").objectReferenceValue = achHeaderText;
