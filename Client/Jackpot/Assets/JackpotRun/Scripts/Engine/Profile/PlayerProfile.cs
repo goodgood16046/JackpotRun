@@ -111,6 +111,13 @@ namespace JackpotRun.Engine
         // 자체가 없었음). ProfileDto.FromDto가 로드 시점에 관리한다(직접 조작하지 말 것).
         public bool PlayerXpReseed34;
 
+        // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 `profile.tutDone` + `markTutorialDone()`
+        // game.js:2633 `this.profile.tutDone = true; this._saveProfile();`) — 튜토리얼 3단(스포트라이트
+        // 투어→결과해설→라이브)을 마쳤는지. 저장은 엔진 밖(호출측이 ProfileStore.Save)에서 한다(설계
+        // 원칙 6과 동일 — 이 메서드는 플래그만 세운다).
+        public bool TutDone;
+        public void MarkTutorialDone() => TutDone = true;
+
         // ── bestScore/bestStage/runs 읽기 별칭 (Stats 딕셔너리가 단일 진실 공급원) ──────────────────
         public long BestScore => GetStat("bestScore");
         public long BestStage => GetStat("bestStage");

@@ -120,6 +120,8 @@ namespace JackpotRun.EditorTools
             // 웹 파리티 P4(§1-A #15 A.5) — 데이터 초기화 확인 시트. overlay가 확보된 뒤에만 지을 수 있어
             // BuildMenuScreen 안이 아니라 여기서 채운다(giveUpConfirmPopup과 동일하게 overlay 산하).
             menu.resetConfirmPopup = BuildConfirmSheetPopup(overlay, "ResetConfirmPopup", dismissOnScrimClick: true);
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — 설정 시트(홈 진입점).
+            menu.settingsSheet = BuildSettingsSheet(overlay, "MenuSettingsSheet", includeReset: true);
             ((RectTransform)overlay).SetAsLastSibling();
 
             var toast = BuildToast(canvasRoot);
@@ -383,6 +385,10 @@ namespace JackpotRun.EditorTools
             public Button resetButton;
             // BuildIntroScene이 overlay 확보 후 별도로 채운다(BuildMenuScreen 시점엔 overlay가 아직 없음).
             public UI2.ConfirmSheetPopup resetConfirmPopup;
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — 설정 진입점(우상단 ⚙). settingsSheet도
+            // resetConfirmPopup과 동일하게 overlay 확보 후 BuildIntroScene이 채운다.
+            public Button settingsButton;
+            public UI2.SettingsSheet settingsSheet;
         }
 
         private sealed class PickBuildResult
@@ -440,6 +446,9 @@ namespace JackpotRun.EditorTools
             public RectTransform bossBannerRect;
             public Text bossBannerText;
             public CanvasGroup bossVignetteGroup; // S14 §D — 보스 진입 적색 비네트 펄스
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — HUD "?" 튜토리얼 재시작 + "⚙" 설정 진입점.
+            public Button tutorialButton;
+            public Button settingsButton;
 
             public RectTransform reelSectionRoot;
             public RectTransform reelRow;
@@ -476,6 +485,11 @@ namespace JackpotRun.EditorTools
             public RectTransform deviceButtonTemplate;
             // WEB_PARITY P1 ⑤: "게임 포기" 액션바 진입점(웹 ui.js:849-871).
             public Button giveUpButton;
+
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — 튜토리얼 오버레이 + 설정 시트(overlay
+            // 확보 후 BuildPlayScene이 별도로 채운다 — BuildRunScreen 시점엔 overlay가 아직 없음).
+            public UI2.TutorialOverlay tutorialOverlay;
+            public UI2.SettingsSheet settingsSheet;
         }
 
         // S12c §6 — BuildSheetChrome(...)이 반환하는 "시트" 골격 3요소. scrim(전체화면, 클릭 차단) →
@@ -506,6 +520,9 @@ namespace JackpotRun.EditorTools
             public UI2.RewardDonePanel rewardDonePanel;
             // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 셀 정보 탭(openCellSheet 대응).
             public UI2.CellInfoSheet cellInfoSheet;
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — 튜토리얼 오버레이 + 설정 시트.
+            public UI2.TutorialOverlay tutorialOverlay;
+            public UI2.SettingsSheet settingsSheet;
         }
 
         private sealed class DexBuildResult
@@ -1000,7 +1017,27 @@ namespace JackpotRun.EditorTools
             var footerSpacer = UiKit.Panel(col, "FooterSpacer", new Color(0f, 0f, 0f, 0f));
             UiKit.SizeHint(footerSpacer, flexibleHeight: 1);
 
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 gearbtn — 인트로/플레이 화면 우상단
+            // 고정 진입점) — MenuView는 화면 전체가 col(VerticalLayoutGroup) 흐름이라, root의 최상위
+            // 형제로 절대좌표 아이콘 버튼을 얹는다(BuildDropBanner와 동일 top-anchor 기법).
+            result.settingsButton = BuildCornerIconButton(root, "⚙", "SettingsButton");
+
             return result;
+        }
+
+        // 우상단 고정 원형 아이콘 버튼(⚙ 설정 등 — U+2699 BMP라 레거시 Text에서 정상 렌더링된다, S8
+        // 항목⑤ 기준 안전) — MenuView/RunHud 양쪽의 설정 진입점이 공유하는 작은 헬퍼.
+        private static Button BuildCornerIconButton(Transform parent, string glyph, string name)
+        {
+            var btn = UiKit.Button(parent, glyph, new Vector2(64f, 64f), UiKit.Panel2, UiKit.TextPrimary, null, UiKit.PillSprite(64f));
+            var rt = btn.GetComponent<RectTransform>();
+            rt.name = name;
+            rt.anchorMin = rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot = new Vector2(1f, 1f);
+            rt.sizeDelta = new Vector2(64f, 64f);
+            rt.anchoredPosition = new Vector2(-20f, -20f);
+            UiKit.AddGlowOutline(btn.gameObject, UiKit.Bd2, 1.5f).enabled = true;
+            return btn;
         }
 
         // hud-stats 한 칸 — rgba(0,0,0,.25) + bd + r-md + 상단 gloss, k(라벨)/v(값) 텍스트. v를
@@ -1042,6 +1079,8 @@ namespace JackpotRun.EditorTools
             so.FindProperty("modeDeepButton").objectReferenceValue = r.modeDeepButton;
             so.FindProperty("resetButton").objectReferenceValue = r.resetButton;
             so.FindProperty("resetConfirmPopup").objectReferenceValue = r.resetConfirmPopup;
+            so.FindProperty("settingsButton").objectReferenceValue = r.settingsButton;
+            so.FindProperty("settingsSheet").objectReferenceValue = r.settingsSheet;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
@@ -1734,7 +1773,14 @@ namespace JackpotRun.EditorTools
             result.stageText = UiKit.Text(topRow, "", 26, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
             UiKit.SizeHint(result.stageText, flexibleWidth: 1, flexibleHeight: 0);
             result.cursesText = UiKit.Text(topRow, "", 20, UiKit.Bad, TextAnchor.MiddleRight, true);
-            UiKit.SizeHint(result.cursesText, preferredWidth: 180, flexibleHeight: 0);
+            UiKit.SizeHint(result.cursesText, preferredWidth: 140, flexibleHeight: 0);
+
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 ❓ 튜토리얼 재시작 + gearbtn 설정) — HUD
+            // 우측 소형 아이콘 2개. "?"는 ASCII, "⚙"(U+2699)는 BMP라 둘 다 레거시 Text에서 안전(S8 항목⑤).
+            result.tutorialButton = UiKit.Button(topRow, "?", new Vector2(40f, 40f), UiKit.Panel2, UiKit.TextPrimary, null, UiKit.PillSprite(40f));
+            UiKit.SizeHint(result.tutorialButton, preferredWidth: 40, preferredHeight: 40, flexibleWidth: 0, flexibleHeight: 0);
+            result.settingsButton = UiKit.Button(topRow, "⚙", new Vector2(40f, 40f), UiKit.Panel2, UiKit.TextPrimary, null, UiKit.PillSprite(40f));
+            UiKit.SizeHint(result.settingsButton, preferredWidth: 40, preferredHeight: 40, flexibleWidth: 0, flexibleHeight: 0);
 
             var barBg = UiKit.Panel(hudCol, "ExpBarBg", UiKit.Hex("#2A3048"), UiSpriteGen.Load("bar_bg_r12"));
             UiKit.SizeHint(barBg, preferredHeight: 36, flexibleHeight: 0);
@@ -2178,6 +2224,11 @@ namespace JackpotRun.EditorTools
             so.FindProperty("deviceOfferPopup").objectReferenceValue = overlay.deviceOfferPopup;
             so.FindProperty("rewardDonePanel").objectReferenceValue = overlay.rewardDonePanel;
             so.FindProperty("cellInfoSheet").objectReferenceValue = overlay.cellInfoSheet;
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — 튜토리얼 + 설정.
+            so.FindProperty("tutorialOverlay").objectReferenceValue = overlay.tutorialOverlay;
+            so.FindProperty("settingsSheet").objectReferenceValue = overlay.settingsSheet;
+            so.FindProperty("tutorialButton").objectReferenceValue = r.tutorialButton;
+            so.FindProperty("settingsButton").objectReferenceValue = r.settingsButton;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
@@ -2301,6 +2352,11 @@ namespace JackpotRun.EditorTools
                 deviceOfferPopup = BuildConfirmSheetPopup(overlay, "DeviceOfferPopup", dismissOnScrimClick: false),
                 rewardDonePanel = BuildRewardDonePanel(overlay),
                 cellInfoSheet = BuildCellInfoSheet(overlay),
+                // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — 튜토리얼 오버레이 + 설정 시트.
+                tutorialOverlay = BuildTutorialOverlay(overlay),
+                // Opus 2차검수 필수⑥ — 런 화면 설정 시트엔 데이터 초기화 행을 짓지 않는다(웹 설정
+                // 시트에 없는 요소, 홈 전용 진입점만 유지).
+                settingsSheet = BuildSettingsSheet(overlay, "RunSettingsSheet", includeReset: false),
             };
         }
 
@@ -2401,6 +2457,13 @@ namespace JackpotRun.EditorTools
             var subText = UiKit.Text(bannerCol, "", 17, UiKit.TextSecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(subText, flexibleHeight: 1);
 
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 renderStageClear ui.js:1627-1671) — 카드
+            // 스크롤 영역(뜬 배너와 달리 이미 스크롤 가능해 가변 높이를 안전하게 담는다) 맨 위에 삽입.
+            // 뜬 배너(위 bannerPanel) 자체 구조/좌표/애니메이션은 건드리지 않는다.
+            var (detailSection, expLabel, expFill, spinsLabel, spinsFill, cellTexts, gainText, notesText,
+                totalText, toggleBtn, toggleLabel, detailRowsRoot, detailRowsContent, detailRowTemplate)
+                = BuildNodeClearDetail(chrome.cardCol);
+
             var title = UiKit.Text(chrome.cardCol, "다음 노드를 선택하세요", 30, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
             UiKit.SizeHint(title, preferredHeight: 56, flexibleHeight: 0);
 
@@ -2408,6 +2471,7 @@ namespace JackpotRun.EditorTools
             UiKit.SizeHint(scroll, flexibleHeight: 1);
             SetupStackContent(cardsContent, 4, 12, 16);
             var cardTemplate = BuildNodeCardTemplate(cardsContent);
+            detailSection.SetAsFirstSibling(); // 스크롤/타이틀보다 위(웹 순서: 클리어 상세 → 다음 노드)
 
             var view = scrim.gameObject.AddComponent<UI2.NodePanel>();
             var so = new SerializedObject(view);
@@ -2420,7 +2484,217 @@ namespace JackpotRun.EditorTools
             so.FindProperty("cardsContent").objectReferenceValue = cardsContent;
             so.FindProperty("cardTemplate").objectReferenceValue = cardTemplate;
             so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
+            so.FindProperty("expDetailLabel").objectReferenceValue = expLabel;
+            so.FindProperty("expDetailBarFill").objectReferenceValue = expFill;
+            so.FindProperty("spinsDetailLabel").objectReferenceValue = spinsLabel;
+            so.FindProperty("spinsDetailBarFill").objectReferenceValue = spinsFill;
+            SetObjectArray(so, "lastCellTexts", cellTexts);
+            so.FindProperty("lastGainText").objectReferenceValue = gainText;
+            so.FindProperty("lastNotesText").objectReferenceValue = notesText;
+            so.FindProperty("totalScoreText").objectReferenceValue = totalText;
+            so.FindProperty("detailToggleButton").objectReferenceValue = toggleBtn;
+            so.FindProperty("detailToggleLabel").objectReferenceValue = toggleLabel;
+            so.FindProperty("detailRowsRoot").objectReferenceValue = detailRowsRoot;
+            so.FindProperty("detailRowsContent").objectReferenceValue = detailRowsContent;
+            so.FindProperty("detailRowTemplate").objectReferenceValue = detailRowTemplate;
             so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // 클리어 상세 블록 — 2바(EXP%·사용 스핀) + 마지막 스핀 5칸/획득 내역 + 누적 총점 + "점수 상세"
+        // 토글. VerticalLayoutGroup+ContentSizeFitter(autoSizeH) 조합으로 스크롤 콘텐츠 흐름에 자연스럽게
+        // 얹힌다(GameOverPanel xpBlock과 동일 관례 — 고정 높이 없음).
+        private static (RectTransform section, Text expLabel, RectTransform expFill, Text spinsLabel,
+            RectTransform spinsFill, Text[] cellTexts, Text gainText, Text notesText, Text totalText,
+            Button toggleBtn, Text toggleLabel, RectTransform detailRowsRoot, RectTransform detailRowsContent,
+            RectTransform detailRowTemplate) BuildNodeClearDetail(RectTransform parent)
+        {
+            var section = UiKit.VGroup(parent, 10, new RectOffset(0, 0, 0, 12), true, true, autoSizeH: true);
+            section.name = "ClearDetail";
+
+            var (expLabel, expFill) = BuildMiniBarRow(section, "ExpBar");
+            var (spinsLabel, spinsFill) = BuildMiniBarRow(section, "SpinsBar");
+
+            var cellsRow = UiKit.HGroup(section, 6, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(cellsRow, preferredHeight: 54, flexibleHeight: 0);
+            var cellTexts = new Text[Formulas.REEL];
+            for (int i = 0; i < cellTexts.Length; i++)
+            {
+                var cell = UiKit.Panel(cellsRow, "Cell_" + i, UiKit.Hex("#2A3048"), UiSpriteGen.Load("w_r12"));
+                UiKit.SizeHint(cell, flexibleWidth: 1, preferredHeight: 54, flexibleHeight: 0);
+                cellTexts[i] = UiKit.Text(cell, "", 13, UiKit.TextSecondary, TextAnchor.MiddleCenter, true);
+                UiKit.Fill(cellTexts[i].rectTransform);
+            }
+
+            var gainText = UiKit.Text(section, "", 17, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(gainText, preferredHeight: 24, flexibleHeight: 0);
+            var notesText = UiKit.Text(section, "", 15, UiKit.TextSecondary, TextAnchor.UpperCenter);
+            UiKit.SizeHint(notesText, preferredHeight: 40, flexibleHeight: 0);
+
+            var totalText = UiKit.Text(section, "", 19, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(totalText, preferredHeight: 28, flexibleHeight: 0);
+
+            var toggleBtn = UiKit.Button(section, "▼ 점수 상세", new Vector2(0, 48), UiKit.Panel2, UiKit.TextSecondary, null, UiSpriteGen.Load("w_ghost_btn"));
+            UiKit.SizeHint(toggleBtn, preferredHeight: 48, flexibleHeight: 0);
+            var toggleLabel = toggleBtn.GetComponentInChildren<Text>();
+
+            // DetailRows — 배경 패널 자신에 VerticalLayoutGroup+ContentSizeFitter를 직접 얹는다(xpBlock
+            // 관례 그대로, GameOverPanel BuildGameOverPanel 참조) — 별도 Fill 자식 래퍼를 두면
+            // ContentSizeFitter(세로 자동)와 Fill(부모 높이로 늘림)이 서로 충돌해 높이가 0으로 접힌다.
+            var detailRowsRoot = UiKit.Panel(section, "DetailRows", new Color(0f, 0f, 0f, 0.18f), UiSpriteGen.Load("w_r16"));
+            var detailRowsVlg = detailRowsRoot.gameObject.AddComponent<VerticalLayoutGroup>();
+            detailRowsVlg.padding = new RectOffset(16, 16, 10, 10);
+            detailRowsVlg.spacing = 2;
+            detailRowsVlg.childControlWidth = true;
+            detailRowsVlg.childControlHeight = true;
+            detailRowsVlg.childForceExpandWidth = true;
+            detailRowsVlg.childForceExpandHeight = false;
+            UiKit.SizeHint(detailRowsRoot, preferredHeight: 0, flexibleHeight: 0, minHeight: 0);
+            var detailRowsCsf = detailRowsRoot.gameObject.AddComponent<ContentSizeFitter>();
+            detailRowsCsf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            var detailRowTemplate = BuildRewardStatRowTemplate(detailRowsRoot);
+
+            return (section, expLabel, expFill, spinsLabel, spinsFill, cellTexts, gainText, notesText,
+                totalText, toggleBtn, toggleLabel, detailRowsRoot, detailRowsRoot, detailRowTemplate);
+        }
+
+        // 라벨(위) + 바(아래) 1행 — NodePanel의 EXP%/사용 스핀 2바 공용(BuildLevelCard의 barBg+Fill 관례).
+        private static (Text label, RectTransform fill) BuildMiniBarRow(RectTransform parent, string name)
+        {
+            var col = UiKit.VGroup(parent, 4, new RectOffset(0, 0, 0, 0), true, true);
+            col.name = name;
+            UiKit.SizeHint(col, preferredHeight: 40, flexibleHeight: 0);
+            var label = UiKit.Text(col, "", 15, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(label, preferredHeight: 20, flexibleHeight: 0);
+            var barBg = UiKit.Panel(col, "Bar", UiKit.Hex("#2A3048"), UiSpriteGen.Load("bar_bg_r12"));
+            UiKit.SizeHint(barBg, preferredHeight: 16, flexibleHeight: 0);
+            var fill = UiKit.Panel(barBg, "Fill", UiKit.Accent, UiSpriteGen.Load("bar_fill_r12"));
+            UiKit.SetAnchors(fill, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
+            return (label, fill);
+        }
+
+        // ── TutorialOverlay ─────────────────────────────────────────────────────────
+        // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 TOUR/tutSpot ui.js:1741-1785). 1단(스포트라이트
+        // 6스텝) + 2/3단 공용 배너(결과 해설·라이브 안내). RunView가 소유·구동(TutorialOverlay.cs 헤더 참조).
+        private static UI2.TutorialOverlay BuildTutorialOverlay(Transform overlay)
+        {
+            var root = UiKit.Panel(overlay, "TutorialOverlay", new Color(0f, 0f, 0f, 0f));
+            UiKit.Fill(root);
+            var rootImg = root.GetComponent<Image>();
+            if (rootImg != null) rootImg.raycastTarget = false;
+
+            // ── 1단: 스포트라이트 ──
+            var spotRoot = UiKit.Panel(root, "SpotRoot", new Color(0f, 0f, 0f, 0f));
+            UiKit.Fill(spotRoot);
+            spotRoot.GetComponent<Image>().raycastTarget = false;
+
+            var dimImg = UiKit.Panel(spotRoot, "Dim", new Color(0f, 0f, 0f, 0.62f));
+            UiKit.Fill(dimImg);
+            var spotDimGroup = dimImg.gameObject.AddComponent<CanvasGroup>();
+            spotDimGroup.alpha = 1f;
+            // block:!action 이 실제 클릭 통과를 결정 — Image.raycastTarget은 항상 켜 두고
+            // CanvasGroup.blocksRaycasts를 스텝마다 토글한다(TutorialOverlay.RenderTourStep).
+
+            // 대상 하이라이트 — 진짜 컷아웃(투명 구멍) 대신 골드 테두리 프레임으로 강조(§7 "코드생성
+            // uGUI로 실현 가능한 방식" 재해석, 작업 지시가 명시적으로 허용한 대안).
+            var highlightFrame = UiKit.Panel(spotRoot, "HighlightFrame", new Color(0f, 0f, 0f, 0f), UiSpriteGen.Load("w_r16"));
+            highlightFrame.GetComponent<Image>().raycastTarget = false;
+            highlightFrame.anchorMin = highlightFrame.anchorMax = new Vector2(0.5f, 0.5f);
+            highlightFrame.pivot = new Vector2(0.5f, 0.5f);
+            UiKit.AddGlowOutline(highlightFrame.gameObject, UiKit.Accent, 4f).enabled = true;
+
+            // 툴팁 카드 — 화면 중앙 폭 고정, 세로 위치는 TutorialOverlay가 대상 위/아래로 옮긴다.
+            var tooltip = UiKit.Panel(spotRoot, "Tooltip", Color.white, UiSpriteGen.Load("w_panel_grad"));
+            UiKit.AddGlowOutline(tooltip.gameObject, UiKit.Bd2, 2f).enabled = true;
+            tooltip.anchorMin = tooltip.anchorMax = new Vector2(0.5f, 0.5f);
+            tooltip.pivot = new Vector2(0.5f, 0.5f);
+            tooltip.sizeDelta = new Vector2(860f, 320f);
+            // Opus 2차검수 필수③ — 배경 자신은 라캐스트를 받지 않게 한다. dim의 blocksRaycasts가
+            // action 스텝에서 false가 되어 클릭을 실제 스핀버튼까지 통과시켜야 하는데, 배경 Image가
+            // raycastTarget=true인 채로 남아 있으면(기하 계산이 어긋나 툴팁이 버튼과 겹치는 극단적
+            // 경우) 그 배경이 클릭을 대신 삼켜버릴 수 있다. Skip/Next 버튼은 각자 자기 Image를
+            // targetGraphic으로 쓰는 별도 Button이라 이 설정과 무관하게 계속 클릭된다.
+            tooltip.GetComponent<Image>().raycastTarget = false;
+
+            var tipCol = UiKit.VGroup(tooltip, 10, new RectOffset(26, 26, 20, 20), true, true);
+            UiKit.Fill(tipCol);
+            var stepRow = UiKit.HGroup(tipCol, 8, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(stepRow, preferredHeight: 26, flexibleHeight: 0);
+            var stepLabelText = UiKit.Text(stepRow, "", 16, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(stepLabelText, flexibleWidth: 1, flexibleHeight: 0);
+            var dotsRow = UiKit.HGroup(stepRow, 6, new RectOffset(0, 0, 0, 0), false, true);
+            UiKit.SizeHint(dotsRow, preferredWidth: 160, flexibleWidth: 0, flexibleHeight: 0);
+            var dotImages = new Image[UI2.TutorialOverlay.TourStepCount]; // TOUR 스텝 수와 반드시 일치
+            var dotSprite = UiKit.PillSprite(14f);
+            for (int i = 0; i < dotImages.Length; i++)
+            {
+                var dot = UiKit.Panel(dotsRow, "Dot_" + i, UiKit.Card, dotSprite);
+                UiKit.SizeHint(dot, preferredWidth: 14, preferredHeight: 14, flexibleWidth: 0, flexibleHeight: 0);
+                dotImages[i] = dot.GetComponent<Image>();
+            }
+
+            var tourTitleText = UiKit.Text(tipCol, "", 26, UiKit.Accent, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(tourTitleText, preferredHeight: 36, flexibleHeight: 0);
+            var tourBodyText = UiKit.Text(tipCol, "", 19, UiKit.TextPrimary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(tourBodyText, flexibleHeight: 1);
+
+            var tipBtnRow = UiKit.HGroup(tipCol, 12, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(tipBtnRow, preferredHeight: 64, flexibleHeight: 0);
+            var skipButton = UiKit.Button(tipBtnRow, "건너뛰기", new Vector2(0, 64), UiKit.Panel2, UiKit.TextSecondary, null, UiSpriteGen.Load("w_ghost_btn"));
+            UiKit.SizeHint(skipButton, flexibleWidth: 1, preferredHeight: 64, flexibleHeight: 0);
+            var nextButton = UiKit.Button(tipBtnRow, "다음 ▶", new Vector2(0, 64), UiKit.Accent, UiKit.Ink, null, UiSpriteGen.Load("w_gold_btn"));
+            UiKit.SizeHint(nextButton, flexibleWidth: 1, preferredHeight: 64, flexibleHeight: 0);
+
+            // ── 2/3단: 배너(결과 해설 · 라이브 안내 공용) ──
+            var bannerRoot = UiKit.Panel(root, "BannerRoot", new Color(0f, 0f, 0f, 0f));
+            UiKit.Fill(bannerRoot);
+            bannerRoot.SetAsLastSibling();
+            var bannerDim = UiKit.Panel(bannerRoot, "Dim", new Color(0f, 0f, 0f, 0.72f));
+            UiKit.Fill(bannerDim);
+            var bannerDimGroup = bannerDim.gameObject.AddComponent<CanvasGroup>();
+            bannerDimGroup.alpha = 1f;
+
+            var bannerCard = UiKit.Panel(bannerRoot, "Card", Color.white, UiSpriteGen.Load("w_panel_grad"));
+            UiKit.AddGlowOutline(bannerCard.gameObject, UiKit.Bd2, 2f).enabled = true;
+            bannerCard.anchorMin = bannerCard.anchorMax = new Vector2(0.5f, 0.5f);
+            bannerCard.pivot = new Vector2(0.5f, 0.5f);
+            bannerCard.sizeDelta = new Vector2(880f, 0f);
+            var bannerVlg = bannerCard.gameObject.AddComponent<VerticalLayoutGroup>();
+            bannerVlg.padding = new RectOffset(28, 28, 26, 26);
+            bannerVlg.spacing = 20;
+            bannerVlg.childControlWidth = true;
+            bannerVlg.childControlHeight = true;
+            bannerVlg.childForceExpandWidth = true;
+            bannerVlg.childForceExpandHeight = false;
+            var bannerCsf = bannerCard.gameObject.AddComponent<ContentSizeFitter>();
+            bannerCsf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            var bannerBodyText = UiKit.Text(bannerCard, "", 21, UiKit.TextPrimary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(bannerBodyText, preferredHeight: 160, flexibleHeight: 0);
+            var bannerOkButton = UiKit.Button(bannerCard, "확인 ▶", new Vector2(0, 76), UiKit.Accent, UiKit.Ink, null, UiSpriteGen.Load("w_gold_btn"));
+            UiKit.SizeHint(bannerOkButton, preferredHeight: 76, flexibleHeight: 0);
+
+            var view = root.gameObject.AddComponent<UI2.TutorialOverlay>();
+            var so = new SerializedObject(view);
+            so.FindProperty("spotRoot").objectReferenceValue = spotRoot;
+            so.FindProperty("spotDimGroup").objectReferenceValue = spotDimGroup;
+            so.FindProperty("highlightFrame").objectReferenceValue = highlightFrame;
+            so.FindProperty("tooltipRect").objectReferenceValue = tooltip;
+            so.FindProperty("stepLabelText").objectReferenceValue = stepLabelText;
+            SetObjectArray(so, "dotImages", dotImages);
+            so.FindProperty("tourTitleText").objectReferenceValue = tourTitleText;
+            so.FindProperty("tourBodyText").objectReferenceValue = tourBodyText;
+            so.FindProperty("skipButton").objectReferenceValue = skipButton;
+            so.FindProperty("nextButton").objectReferenceValue = nextButton;
+            so.FindProperty("bannerRoot").objectReferenceValue = bannerRoot;
+            so.FindProperty("bannerDimGroup").objectReferenceValue = bannerDimGroup;
+            so.FindProperty("bannerBodyText").objectReferenceValue = bannerBodyText;
+            so.FindProperty("bannerOkButton").objectReferenceValue = bannerOkButton;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            root.gameObject.SetActive(true); // 자식 spotRoot/bannerRoot 자체는 Awake에서 비활성화된다.
+            spotRoot.gameObject.SetActive(false);
+            bannerRoot.gameObject.SetActive(false);
             return view;
         }
 
@@ -3224,6 +3498,94 @@ namespace JackpotRun.EditorTools
             so.FindProperty("secondaryButtonLabel").objectReferenceValue = secondaryLabel;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
+        }
+
+        // ── SettingsSheet ────────────────────────────────────────────────────────────
+        // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 openSettings ui.js:881-908) — 진동 토글(즉시
+        // 동작) + 소리/볼륨(P5 예약, 비활성 행+"준비 중") + 데이터 초기화(자기 자신의 ConfirmSheetPopup
+        // 재사용) + 닫기. Intro(MenuView)·Play(RunView) 양쪽에서 각자 인스턴스로 호출한다.
+        // Opus 2차검수 필수⑥(2026-08-09) — 웹 설정 시트(ui.js:881-908 openSettings)엔 데이터 초기화
+        // 행이 없다(그건 홈 화면 전용 `.reset-link`, ui.js:630 — 별개 UI 요소). includeReset=false면
+        // resetButton/resetConfirmPopup 자체를 짓지 않는다(SettingsSheet.cs는 두 필드 모두 null 안전).
+        private static UI2.SettingsSheet BuildSettingsSheet(Transform overlay, string name, bool includeReset)
+        {
+            var chrome = BuildSheetChrome(overlay, name, 760f, dismissOnScrimClick: true);
+            var scrim = chrome.scrim;
+            var scrimButton = scrim.GetComponent<Button>();
+            var col = chrome.cardCol;
+
+            var titleRow = UiKit.HGroup(col, 8, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(titleRow, preferredHeight: 48, flexibleHeight: 0);
+            var titleText = UiKit.Text(titleRow, "⚙ 설정", 26, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(titleText, flexibleWidth: 1, flexibleHeight: 0);
+            var closeButton = UiKit.Button(titleRow, "닫기", new Vector2(120f, 48f), UiKit.Panel2, UiKit.TextSecondary, null, UiSpriteGen.Load("w_ghost_btn"));
+            UiKit.SizeHint(closeButton, preferredWidth: 120, preferredHeight: 48, flexibleWidth: 0, flexibleHeight: 0);
+
+            var (vibeRow, vibeToggleButton, vibeToggleLabel) = BuildSettingsToggleRow(col, "진동", true);
+
+            // 소리/볼륨 — P5(사운드) 예약. 비활성 행 + "준비 중"(작업 지시 그대로, 버튼/슬라이더는
+            // 짓지 않는다 — 상호작용 불가한 정적 안내 행만).
+            BuildSettingsDisabledRow(col, "소리");
+            BuildSettingsDisabledRow(col, "볼륨");
+            var hint = UiKit.Text(col, "소리·볼륨 조절은 준비 중이에요.", 15, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(hint, preferredHeight: 30, flexibleHeight: 0);
+
+            var spacer = UiKit.Panel(col, "Spacer", new Color(0, 0, 0, 0));
+            UiKit.SizeHint(spacer, flexibleHeight: 1);
+
+            Button resetButton = null;
+            UI2.ConfirmSheetPopup resetConfirmPopup = null;
+            if (includeReset)
+            {
+                resetButton = UiKit.Button(col, "⚠ 데이터 초기화", new Vector2(0f, 76f), UiKit.Panel2, UiKit.Bad, null, UiSpriteGen.Load("w_ghost_btn"));
+                UiKit.SizeHint(resetButton, preferredHeight: 76, flexibleHeight: 0);
+                UiKit.AddGlowOutline(resetButton.gameObject, UiKit.Bd2, 2f).enabled = true;
+                // giveUpConfirmPopup/deviceOfferPopup과 동일 관례 — overlay 산하에 별도 GameObject로 짓는다.
+                resetConfirmPopup = BuildConfirmSheetPopup(overlay, name + "_ResetConfirm", dismissOnScrimClick: true);
+            }
+
+            var view = scrim.gameObject.AddComponent<UI2.SettingsSheet>();
+            var so = new SerializedObject(view);
+            so.FindProperty("scrimButton").objectReferenceValue = scrimButton;
+            so.FindProperty("cardRect").objectReferenceValue = chrome.card;
+            so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
+            so.FindProperty("vibeToggleButton").objectReferenceValue = vibeToggleButton;
+            so.FindProperty("vibeToggleLabel").objectReferenceValue = vibeToggleLabel;
+            so.FindProperty("resetButton").objectReferenceValue = resetButton;
+            so.FindProperty("resetConfirmPopup").objectReferenceValue = resetConfirmPopup;
+            so.FindProperty("closeButton").objectReferenceValue = closeButton;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // 토글 행(라벨 + on/off 버튼) — 진동 전용(소리는 P5까지 짓지 않음). 반환한 Button/Text를
+        // SettingsSheet가 직접 채운다(웹 .set-tog 관례를 라벨색 반전으로 근사).
+        private static (RectTransform row, Button toggle, Text label) BuildSettingsToggleRow(RectTransform parent, string title, bool defaultOn)
+        {
+            var row = UiKit.HGroup(parent, 12, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(row, preferredHeight: 56, flexibleHeight: 0);
+            var label = UiKit.Text(row, title, 19, UiKit.TextPrimary, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(label, flexibleWidth: 1, flexibleHeight: 0);
+            var toggle = UiKit.Button(row, defaultOn ? "켜짐" : "꺼짐", new Vector2(120f, 48f),
+                defaultOn ? UiKit.Accent : UiKit.Panel2, defaultOn ? UiKit.Bg : UiKit.TextSecondary, null, UiKit.PillSprite(48f));
+            UiKit.SizeHint(toggle, preferredWidth: 120, preferredHeight: 48, flexibleWidth: 0, flexibleHeight: 0);
+            var toggleLabel = toggle.GetComponentInChildren<Text>();
+            return (row, toggle, toggleLabel);
+        }
+
+        // 비활성(정적) 행 — 소리/볼륨 P5 예약 자리. 상호작용 불가, "준비 중" 라벨만.
+        private static void BuildSettingsDisabledRow(RectTransform parent, string title)
+        {
+            var row = UiKit.HGroup(parent, 12, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(row, preferredHeight: 48, flexibleHeight: 0);
+            var label = UiKit.Text(row, title, 19, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(label, flexibleWidth: 1, flexibleHeight: 0);
+            var value = UiKit.Text(row, "준비 중", 17, UiKit.TextSecondary, TextAnchor.MiddleRight);
+            UiKit.SizeHint(value, preferredWidth: 120, flexibleHeight: 0);
+            var g = row.gameObject.AddComponent<CanvasGroup>();
+            g.alpha = 0.55f;
+            g.interactable = false;
+            g.blocksRaycasts = false;
         }
 
         // 라벨 1개짜리 버튼 템플릿(공용) — 자식 경로 계약: "Label"(Text). name/height를 호출측이 지정한다.

@@ -789,6 +789,7 @@ namespace JackpotRun.Engine
             // res(=SpinResult).cells는 폭탄 제거/자석 복사/성장/와일드 주입이 전부 반영된 "최종" 칸이라
             // 위 run.LastCells(rawIds, Evaluate 이전 원시 입력)와 값이 다를 수 있다.
             run.LastCellsFinal.Clear(); run.LastCellsFinal.AddRange(res.cells);
+            run.LastNotes.Clear(); if (res.notes != null) run.LastNotes.AddRange(res.notes);
             run.LastGain = gained;
             run.LastScoreGain = res.score;
             run.LastCoinGain = res.coins;

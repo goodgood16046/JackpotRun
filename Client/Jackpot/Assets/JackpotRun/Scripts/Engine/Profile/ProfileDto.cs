@@ -46,6 +46,9 @@ namespace JackpotRun.Engine
         // PlayerXpReseed34 대응, Unity 전용(웹에 직접 대응물 없음).
         public bool playerXpReseed34;
 
+        // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — PlayerProfile.TutDone 대응(웹 profile.tutDone).
+        public bool tutDone;
+
         // ── 숙련도(mastery, P3, WEB_PARITY_DESIGN.md §1-A #11) — PlayerProfile.Mastery(kind->id->
         // MasteryStats) 대응. JsonUtility가 중첩 Dictionary를 직렬화하지 못해(헤더 각주 참조) (kind,id)
         // 조합당 1행으로 완전히 펼친 병렬 배열 5+2개로 담는다 — 인덱스로 1:1 대응(statKeys/Values와
@@ -120,6 +123,7 @@ namespace JackpotRun.Engine
                 playerLevel = p.PlayerLevel,
                 playerXpSeeded = p.PlayerXpSeeded,
                 playerXpReseed34 = p.PlayerXpReseed34,
+                tutDone = p.TutDone,
                 masteryKind = mKind.ToArray(),
                 masteryId = mId.ToArray(),
                 masteryRuns = mRuns.ToArray(),
@@ -221,6 +225,8 @@ namespace JackpotRun.Engine
             }
 
             p.PlayerLevel = Formulas.PlayerLevelFromXp(p.PlayerXp); // 웹 game.js:193 — 로드마다 XP로부터 재산출.
+
+            p.TutDone = dto.tutDone;
 
             return p;
         }

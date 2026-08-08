@@ -31,13 +31,42 @@ namespace JackpotRun.UI2
         [SerializeField] private RectTransform cardTemplate;
         [SerializeField] private CanvasGroup dimGroup; // S14 §E — 배경 딤(scrim 자체의 CanvasGroup) 페이드
 
+        // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 renderStageClear ui.js:1615-1676) — 카드
+        // 스크롤 영역(chrome.cardCol) 맨 위, "다음 노드를 선택하세요" 제목 위에 삽입한다(뜬 배너와 달리
+        // 이 영역은 이미 스크롤 가능해 가변 높이 콘텐츠를 안전하게 담을 수 있다 — 배너 자체 구조/애니메이션은
+        // 건드리지 않는다는 §7 재해석 원칙 유지).
+        [Header("클리어 상세 — 2바(EXP%·사용 스핀)")]
+        [SerializeField] private Text expDetailLabel;
+        [SerializeField] private RectTransform expDetailBarFill;
+        [SerializeField] private Text spinsDetailLabel;
+        [SerializeField] private RectTransform spinsDetailBarFill;
+
+        [Header("클리어 상세 — 마지막 스핀 5칸 + 획득 내역")]
+        [SerializeField] private Text[] lastCellTexts = Array.Empty<Text>(); // 고정 5칸(Formulas.REEL)
+        [SerializeField] private Text lastGainText;
+        [SerializeField] private Text lastNotesText;
+
+        [Header("클리어 상세 — 누적 총점 + 점수 상세 토글")]
+        [SerializeField] private Text totalScoreText;
+        [SerializeField] private Button detailToggleButton;
+        [SerializeField] private Text detailToggleLabel;
+        [SerializeField] private RectTransform detailRowsRoot;
+        [SerializeField] private RectTransform detailRowsContent;
+        [SerializeField] private RectTransform detailRowTemplate; // Inner/Label·Value(RewardDonePanel과 동일 관례)
+
+        private bool _detailExpanded;
+
         private Coroutine _routine;
 
         private void Awake()
         {
             if (cardTemplate != null) cardTemplate.gameObject.SetActive(false);
+            if (detailRowTemplate != null) detailRowTemplate.gameObject.SetActive(false);
             if (bannerGroup != null) bannerGroup.alpha = 0f;
             if (dimGroup != null) dimGroup.alpha = 0f;
+            _detailExpanded = false;
+            if (detailRowsRoot != null) detailRowsRoot.gameObject.SetActive(false);
+            if (detailToggleButton != null) detailToggleButton.onClick.AddListener(ToggleDetail);
         }
 
         // onShake — 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) stageClearFx의 화면 흔들림 escalation.
@@ -48,10 +77,23 @@ namespace JackpotRun.UI2
             bool firstShow = !gameObject.activeSelf;
             gameObject.SetActive(true);
             BuildCards(run, onChoose);
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — 매번 접힌 상태로 다시 연다(웹도 매 클리어
+            // 화면 진입마다 cb-calc가 display:none으로 새로 렌더됨, ui.js:1671).
+            _detailExpanded = false;
+            if (detailRowsRoot != null) detailRowsRoot.gameObject.SetActive(false);
+            if (detailToggleLabel != null) detailToggleLabel.text = "▼ 점수 상세";
+            BuildClearDetail(clear, run);
 
             if (_routine != null) StopCoroutine(_routine);
             if (firstShow) _routine = StartCoroutine(EnterRoutine(clear, onShake));
             else SnapToRest();
+        }
+
+        private void ToggleDetail()
+        {
+            _detailExpanded = !_detailExpanded;
+            if (detailRowsRoot != null) detailRowsRoot.gameObject.SetActive(_detailExpanded);
+            if (detailToggleLabel != null) detailToggleLabel.text = _detailExpanded ? "▲ 점수 상세 닫기" : "▼ 점수 상세";
         }
 
         public void Hide()
@@ -172,8 +214,108 @@ namespace JackpotRun.UI2
                 // 오해되므로 "점수 보상 0"으로 문구를 좁혔다.
                 string debt = clear.inDebt ? " (빚 상환 중·점수 보상 0)" : "";
                 string prism = clear.nextNodeForcedPrism ? " · 다음 프리즘 확정" : "";
-                bannerSubText.text = $"스테이지 {clear.clearedStage} 클리어 · 코인+{NumberFormat.Comma(clear.clearCoin)}{debt}{prism}";
+                // 웹 파리티 P4-3(웹 clear-sub, ui.js:1668) — "🪙 코인 N (+M) · 남은 스핀 N · 다음 STAGE N"
+                // 순서 그대로 남은 스핀·다음 스테이지를 추가(코인/빚/프리즘 문구는 기존 그대로 유지).
+                bannerSubText.text = $"스테이지 {clear.clearedStage} 클리어 · 코인+{NumberFormat.Comma(clear.clearCoin)} · " +
+                    $"남은 스핀 {clear.leftSpins} · 다음 STAGE {clear.clearedStage + 1}{debt}{prism}";
             }
+        }
+
+        // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 renderStageClear ui.js:1627-1671) — 2바(달성
+        // EXP%·사용 스핀) + 마지막 스핀 5칸/획득 내역 + 누적 총점 + "점수 상세" 토글(stage×50·초과×2·
+        // 남은스핀×100·보스·연승 분해). 스크롤 카드 영역 상단에 삽입 — 뜬 배너 자체는 건드리지 않는다.
+        private void BuildClearDetail(ClearOutcome clear, RunState run)
+        {
+            // Opus 2차검수 필수⑤ 계열(MED) — Show(clear=null, ...)로 불려도(예: _lastClear 캐시 미스)
+            // 죽지 않게 방어(EnterRoutine의 기존 `if (clear != null)` 가드와 동일 원칙).
+            if (clear == null || run == null) return;
+
+            long quota = clear.quotaAtClear;
+            long stageExp = clear.stageExpAtClear;
+            // Opus 2차검수 필수⑤(MED) — 웹 pct(라벨 "(N%)")는 클램프하지 않는다("320%"까지 그대로
+            // 표시). expFill(바 너비)만 100으로 클램프한다(ui.js:1628-1629 `const pct = ...; const
+            // expFill = Math.min(100, pct);`) — 이전엔 라벨까지 100%로 잘려 보였다.
+            int expPctRaw = quota > 0 ? Mathf.RoundToInt((float)(stageExp / (double)quota * 100.0)) : 100;
+            int expFillPct = Mathf.Min(100, expPctRaw);
+            int spinPct = clear.totalSpins > 0 ? Mathf.Clamp(Mathf.RoundToInt(clear.usedSpins / (float)clear.totalSpins * 100f), 0, 100) : 100;
+
+            if (expDetailBarFill != null) expDetailBarFill.anchorMax = new Vector2(expFillPct / 100f, 1f);
+            if (expDetailLabel != null)
+                expDetailLabel.text = $"총 경험치 / 요구  {NumberFormat.Comma(stageExp)} / {NumberFormat.Comma(quota)} ({expPctRaw}%)";
+
+            if (spinsDetailBarFill != null) spinsDetailBarFill.anchorMax = new Vector2(spinPct / 100f, 1f);
+            if (spinsDetailLabel != null)
+                spinsDetailLabel.text = $"사용 스핀 / 최대  {clear.usedSpins} / {clear.totalSpins}";
+
+            // 마지막 스핀 5칸(LastCellsFinal — 폭탄 제거/자석 복사 등 반영된 "화면에 실제로 보인" 최종
+            // 칸, §2-(W) LastCellsFinal 도입 근거 그대로) — S8 항목⑤: astral 이모지는 렌더링되지 않아
+            // 한글 이름으로 대체(CellInfoSheet 제목 관례와 동일).
+            var cells = run.LastCellsFinal;
+            for (int i = 0; i < lastCellTexts.Length; i++)
+            {
+                if (lastCellTexts[i] == null) continue;
+                bool has = i < cells.Count;
+                lastCellTexts[i].gameObject.SetActive(has);
+                if (!has) continue;
+                var c = cells[i];
+                string tag = string.IsNullOrEmpty(c.tag) ? "" : "\n" + TextSanitize.StripAstral(c.tag);
+                lastCellTexts[i].text = TextSanitize.StripAstral(c.sym.name) + tag;
+            }
+            if (lastGainText != null)
+                lastGainText.text = $"이 스핀에서 +{NumberFormat.Comma(clear.lastSpinGain)} EXP 획득";
+            if (lastNotesText != null)
+            {
+                var notes = run.LastNotes;
+                lastNotesText.text = (notes != null && notes.Count > 0)
+                    ? TextSanitize.StripAstral(string.Join(" · ", notes))
+                    : "기본 심볼 EXP만 · 특수 효과 없음";
+            }
+
+            if (totalScoreText != null) totalScoreText.text = $"누적 총점수 {NumberFormat.Comma(run.Score)}";
+
+            BuildDetailRows(clear);
+        }
+
+        // "점수 상세" 토글 내용 — 웹 bd(ui.js:1619-1625) row 구성 그대로: 스테이지 보너스(고정 표시) →
+        // 초과 EXP(있을 때만) → 남은 스핀(있을 때만) → 보스 보너스(보스일 때만) → 연승 보너스(있을
+        // 때만) → "= 클리어 점수"(합계, 빚문서면 "0 (빚문서)"). Formulas 공개 상수를 UI에서 직접 읽는
+        // 것은 RewardDoneView 등 기존 표시 전용 계산부와 동일 관례.
+        private void BuildDetailRows(ClearOutcome clear)
+        {
+            if (detailRowsContent == null || detailRowTemplate == null) return;
+            for (int i = detailRowsContent.childCount - 1; i >= 0; i--)
+            {
+                var child = detailRowsContent.GetChild(i);
+                if (child == detailRowTemplate) continue;
+                Destroy(child.gameObject);
+            }
+
+            long sBase = clear.clearedStage * 50L;
+            long sLeft = clear.leftover * Formulas.SCORE_PER_LEFTOVER;
+            long sSpins = clear.leftSpins * Formulas.SCORE_PER_LEFTSPIN;
+            long sBoss = clear.boss ? Formulas.BOSS_CLEAR_SCORE : 0L;
+
+            AddDetailRow($"스테이지 보너스 ({clear.clearedStage}×50)", "+" + NumberFormat.Comma(sBase), false);
+            if (sLeft > 0) AddDetailRow($"초과 EXP ({NumberFormat.Comma(clear.leftover)}×2)", "+" + NumberFormat.Comma(sLeft), false);
+            if (sSpins > 0) AddDetailRow($"남은 스핀 ({clear.leftSpins}×100)", "+" + NumberFormat.Comma(sSpins), false);
+            if (clear.boss)
+            {
+                var boss = Bosses.For(clear.clearedStage);
+                AddDetailRow($"보스 보너스 ({TextSanitize.StripAstral(boss?.name ?? "보스")})", "+" + NumberFormat.Comma(sBoss), false);
+            }
+            if (clear.streakBonus > 0) AddDetailRow("연승 보너스", "+" + NumberFormat.Comma(clear.streakBonus), false);
+            string total = clear.inDebt ? "0 (빚문서)" : "+" + NumberFormat.Comma(clear.clearScore + clear.streakBonus);
+            AddDetailRow("= 클리어 점수", total, true);
+        }
+
+        private void AddDetailRow(string label, string value, bool emphasize)
+        {
+            var row = Instantiate(detailRowTemplate, detailRowsContent);
+            row.gameObject.SetActive(true);
+            var labelText = row.Find("Inner/Label")?.GetComponent<Text>();
+            var valueText = row.Find("Inner/Value")?.GetComponent<Text>();
+            if (labelText != null) { labelText.text = label; labelText.color = emphasize ? UiKit.TextPrimary : UiKit.TextSecondary; }
+            if (valueText != null) { valueText.text = value; valueText.color = emphasize ? UiKit.Accent : UiKit.TextSecondary; }
         }
 
         private void BuildCards(RunState run, Action<int> onChoose)

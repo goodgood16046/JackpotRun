@@ -282,6 +282,9 @@ namespace JackpotRun.EngineTests
             run.SpinIndex = 1;
             run.LastSpinNo = 0;
             run.LastCells.AddRange(new[] { "cherry", "cherry", "book", "gem", "crown" });
+            // 웹 파리티 P4-3 — HandleManip이 이제 LastCellsFinal(웹 r.lastCells 대응, "화면에 보이는" 최종
+            // 칸)에서 조작 대상을 복원한다(DeviceActions.cs §신규 발견 주석) — 픽스처도 함께 채워야 한다.
+            run.LastCellsFinal.AddRange(SpinResolver.CellsFromIds(run.LastCells));
             long oldStageExp = 20, oldScore = 5, oldCoins = 30;
             long oldLastGain = 20, oldLastScoreGain = 5;
             int oldLastCoinGain = 1;
@@ -311,6 +314,8 @@ namespace JackpotRun.EngineTests
             {
                 run.LastCells.Clear();
                 run.LastCells.AddRange(new[] { "cherry", "cherry", "book", "gem", "crown" });
+                run.LastCellsFinal.Clear();
+                run.LastCellsFinal.AddRange(SpinResolver.CellsFromIds(run.LastCells));
                 run.LastSpinNo = run.SpinIndex; // 방어적 재설정
                 var second = DeviceActions.Handle(run, deviceId, arg);
                 t.Eq("REJECTED", second[0].type, $"[manip:{deviceId}] 같은 스테이지 재사용 거부");
@@ -329,6 +334,8 @@ namespace JackpotRun.EngineTests
 
             // 장착하지 않은 장치.
             run.LastCells.AddRange(new[] { "cherry", "book", "star", "gem", "crown" });
+            // 웹 파리티 P4-3 — HandleManip이 LastCellsFinal에서 복원한다(DeviceActions.cs §신규 발견 주석).
+            run.LastCellsFinal.AddRange(SpinResolver.CellsFromIds(run.LastCells));
             run.LastSpinNo = 0;
             var ev2 = DeviceActions.Handle(run, "dev_pin", 1);
             t.Eq("REJECTED", ev2[0].type, "[manip-guard] 미장착 장치 거부");

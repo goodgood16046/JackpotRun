@@ -176,6 +176,10 @@ namespace JackpotRun.Engine
             // 정확히 이 웹 동작을 재현한다(파리티, 버그 아님 — LastMods 미갱신은 이 함수만의 예외가
             // 아니라 웹 원본의 실제 동작).
             run.LastCellsFinal.Clear(); run.LastCellsFinal.AddRange(res2.cells);
+            // 웹 파리티 P4-3 — LastMods와 달리 LastNotes는 여기서도 갱신한다(웹 `_freeReroll()`도
+            // `r.lastResult = res`는 한다, game.js:1222 — r.lastMods만 예외적으로 안 건드림. 위 LastMods
+            // 미갱신 주석과 혼동하지 말 것).
+            run.LastNotes.Clear(); if (res2.notes != null) run.LastNotes.AddRange(res2.notes);
             run.LastGain = res2.exp;
             run.LastScoreGain = res2.score;
             run.LastCoinGain = res2.coins;

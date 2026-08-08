@@ -51,7 +51,11 @@ namespace JackpotRun.UI2
             if (headText != null) headText.text = $"{dev.emoji} {dev.name} — 칸 선택";
             if (descText != null) descText.text = dev.desc;
 
-            BuildCellButtons(run.LastCells.Count, dev.id, onConfirm);
+            // Opus 2차검수 LOW③(2026-08-09) — 칸 수 소스를 LastCellsFinal(웹 r.lastCells 대응, 화면에
+            // 보이는 최종 칸)로 통일. dev_pin/copy/swap의 조작 대상 자체가 이미 DeviceActions.HandleManip
+            // 에서 LastCellsFinal 기준으로 바뀌었으니(§2-(X) D 항목), 칸 개수를 세는 소스도 같은 필드로
+            // 맞춰 둔다(현재는 항상 같은 개수라 동작 차이는 없음 — 소스 일치성 문제).
+            BuildCellButtons(run.LastCellsFinal.Count, dev.id, onConfirm);
 
             StopAllCoroutines();
             if (firstShow) StartCoroutine(EnterRoutine());

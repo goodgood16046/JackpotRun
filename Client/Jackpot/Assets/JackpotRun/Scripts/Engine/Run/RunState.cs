@@ -152,6 +152,17 @@ namespace JackpotRun.Engine
         // ItemUse.UseRetakeForm(재시험) 총 4곳에서 Evaluate 직후 갱신한다.
         public readonly List<Cell> LastCellsFinal = new List<Cell>();
 
+        // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 `r.lastResult.notes` — 스핀 3경로가 모두
+        // `r.lastResult = res`로 채우는 SpinResult.notes) — STAGE_CLEAR 보드의 "이 스핀에서 얻은 방법"
+        // 안내(§2-(W) renderStageClear cs.lastNotes)에 필요해 LastCellsFinal과 동일한 4곳(SpinResolver.
+        // ResolveSpin·DeviceActions의 MANIP 재계산·도박꾼 무료재굴림·ItemUse.UseRetakeForm)에서 함께
+        // 갱신한다 — LastMods와 달리 UseRetakeForm도 갱신한다(웹 `_freeReroll()`도 `r.lastResult = res`는
+        // 하되 `r.lastMods`만 건드리지 않는다, game.js:1222 참조).
+        // Opus 2차검수 LOW③(2026-08-09) — LastCellsFinal과 동일하게 readonly 리스트를 Clear+AddRange로
+        // 갱신한다(직접 재대입은 SpinResult.notes 내부 리스트 참조를 그대로 공유해 버려, 그 SpinResult가
+        // 나중에 재사용/변형되면 캐시가 몰래 바뀔 위험이 있었다).
+        public readonly List<string> LastNotes = new List<string>();
+
         public long LastGain = 0;
         public long LastScoreGain = 0;
         public int LastCoinGain = 0;

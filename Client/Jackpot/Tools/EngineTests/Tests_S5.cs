@@ -335,6 +335,8 @@ namespace JackpotRun.EngineTests
             profile.LastPlayedAtUnixMs = 1_700_000_000_000L;
             profile.PinnedChallenge = "ch_disarm";
             profile.LastCombo = "novice,basic,dev_safe,";
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 profile.tutDone) — PlayerProfile.TutDone.
+            profile.MarkTutorialDone();
 
             var dto = ProfileDto.ToDto(profile);
             var restored = ProfileDto.FromDto(dto);
@@ -357,12 +359,14 @@ namespace JackpotRun.EngineTests
             t.Eq(profile.LastPlayedAtUnixMs, restored.LastPlayedAtUnixMs, "[dto-roundtrip] LastPlayedAtUnixMs 동일");
             t.Eq(profile.PinnedChallenge, restored.PinnedChallenge, "[dto-roundtrip] PinnedChallenge 동일");
             t.Eq(profile.LastCombo, restored.LastCombo, "[dto-roundtrip] LastCombo 동일");
+            t.True(restored.TutDone, "[dto-roundtrip] TutDone 왕복 보존(true)");
 
             // 빈 프로필(최초 실행 상태)도 왕복이 안전한지 확인.
             var emptyDto = ProfileDto.ToDto(new PlayerProfile());
             var emptyRestored = ProfileDto.FromDto(emptyDto);
             t.Eq(0, emptyRestored.Stats.Count, "[dto-roundtrip] 빈 프로필 Stats.Count == 0");
             t.Eq(0, emptyRestored.AchievedIds.Count, "[dto-roundtrip] 빈 프로필 AchievedIds.Count == 0");
+            t.True(!emptyRestored.TutDone, "[dto-roundtrip] 빈 프로필 TutDone 기본값 false");
 
             // FromDto(null)도 예외 없이 빈 프로필을 반환해야 한다(손상된 저장 파일 방어, ProfileStore.cs 계약).
             var nullRestored = ProfileDto.FromDto(null);
@@ -1088,6 +1092,8 @@ namespace JackpotRun.EngineTests
             run.SpinIndex = 1;
             run.LastSpinNo = 0;
             run.LastCells.AddRange(new[] { "cherry", "cherry", "book", "gem", "crown" });
+            // 웹 파리티 P4-3 — HandleManip이 LastCellsFinal에서 복원한다(DeviceActions.cs §신규 발견 주석).
+            run.LastCellsFinal.AddRange(SpinResolver.CellsFromIds(run.LastCells));
             run.StageExp = 20; run.Score = 5; run.Coins = 30;
             run.LastGain = 20; run.LastScoreGain = 5; run.LastCoinGain = 1;
             var scratch = new StatTracker.RunScratch();

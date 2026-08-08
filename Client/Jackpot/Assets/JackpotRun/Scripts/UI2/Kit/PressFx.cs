@@ -60,7 +60,15 @@ namespace JackpotRun.UI2
         {
             if (target != null && !target.interactable) return;
             RestartScale(_baseScale * PressedScale, PressDuration, UiTween.Ease.OutQuad);
-            if (isGoldButton) FxKit.I?.Play(FxId.BtnPress, _rt);
+            if (isGoldButton)
+            {
+                FxKit.I?.Play(FxId.BtnPress, _rt);
+                // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 작업 지시 B "Handheld.Vibrate 훅은 탭
+                // 피드백 위치에") — fx_btn_press와 동일하게 "골드 버튼만"(설계 표 그대로, 진동도 주요
+                // 액션에만 한정) 탭 시 짧게 진동한다. SettingsSheet.VibeEnabled(PlayerPrefs) 꺼져 있으면
+                // 무동작.
+                SettingsSheet.SafeVibrate();
+            }
         }
 
         public void OnPointerUp(PointerEventData eventData) => Release();

@@ -150,6 +150,16 @@ namespace JackpotRun.Engine
         private static List<RunEvent> HandleManip(RunState run, DeviceDef dev, int? argN, bool fromPost)
         {
             if (run.LastCells.Count == 0 || run.LastSpinNo < 0) return RunEvents.Rejected("NO_LAST_SPIN");
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §2-(W) "신규 발견" — 2026-08-09 Opus 2차검수가 P4-2에서
+            // 발견해 다음 슬라이스로 넘긴 항목): 웹 통합 manip()의 `let cells = r.lastCells.map(...)`
+            // (game.js:1238)은 `r.lastCells`가 항상 "최종" 칸(res.cells, Evaluate 이후 — 폭탄 제거·자석
+            // 복사·성장 전부 반영, 모든 스핀 경로가 `r.lastCells = res.cells`로 채움)이라 화면에 실제로
+            // 보이는 칸에서 조작을 시작한다. Unity의 run.LastCells는 반대로 "재굴림 입력용 원시 스냅샷"
+            // (Evaluate 이전 — 폭탄/자석 미반영)이라, 이전 슬라이스까지는 폭탄/자석 스핀 직후 MANIP을
+            // 쓰면 "화면에 보이는 빈칸"이 아니라 "그 뒤에 있던 원본 심볼"을 조작하는 파리티 차이가 있었다
+            // — run.LastCellsFinal(웹 r.lastCells 대응, 이미 List&lt;Cell&gt; 형태라 CellsFromIds 변환도
+            // 불필요)에서 복원하도록 정정한다(dev_pin 고정/dev_copy 복사 대상이 이제 릴 표시와 일치).
+            if (run.LastCellsFinal.Count == 0) return RunEvents.Rejected("LAST_CELLS_UNAVAILABLE");
             bool needsArg = dev.id == "dev_pin" || dev.id == "dev_copy" || dev.id == "dev_swap";
             if (needsArg && (argN == null || argN < 1)) return RunEvents.Rejected("ARG_REQUIRED");
             int cost = (dev.id == "dev_reroll" || dev.id == "dev_pin") ? ManipCostLow
@@ -168,8 +178,10 @@ namespace JackpotRun.Engine
             int spins = SpinResolver.EffSpins(run, mods);
             long quota = SpinResolver.QuotaOf(run.Stage, mods);
 
-            var raw = SpinResolver.CellsFromIds(run.LastCells);
-            if (raw.Count == 0) return RunEvents.Rejected("LAST_CELLS_UNAVAILABLE");
+            // 위 §신규 발견 주석 그대로 — LastCellsFinal(이미 List<Cell>)을 얕은 복사해 조작 대상으로
+            // 삼는다. Cell은 불변(readonly 필드)이라 리스트만 복사하면 원본 run.LastCellsFinal을 건드리지
+            // 않고 인덱스 교체(dev_pin/dev_copy/dev_swap)를 안전하게 할 수 있다.
+            var raw = new List<Cell>(run.LastCellsFinal);
             int n = raw.Count;
             switch (dev.id)
             {
@@ -226,6 +238,7 @@ namespace JackpotRun.Engine
             // raw(재굴림 입력) 그대로 두고, LastCellsFinal만 res.cells(Evaluate 이후 최종 칸)로 채운다.
             run.LastMods = mods;
             run.LastCellsFinal.Clear(); run.LastCellsFinal.AddRange(res.cells);
+            run.LastNotes.Clear(); if (res.notes != null) run.LastNotes.AddRange(res.notes);
             run.LastGain = gained;
             run.LastScoreGain = res.score;
             run.LastCoinGain = res.coins;
@@ -270,6 +283,7 @@ namespace JackpotRun.Engine
             if (run.CharId != "gambler") return RunEvents.Rejected("NOT_GAMBLER");
             if (run.UsedCmds.Contains("GREROL")) return RunEvents.Rejected("ALREADY_USED");
             if (run.LastCells.Count == 0 || run.LastSpinNo < 0) return RunEvents.Rejected("NO_LAST_SPIN");
+            if (run.LastCellsFinal.Count == 0) return RunEvents.Rejected("LAST_CELLS_UNAVAILABLE");
 
             var combinedPerks = new List<string>(run.Perks);
             combinedPerks.AddRange(run.PhasePerks);
@@ -282,8 +296,10 @@ namespace JackpotRun.Engine
             int spins = SpinResolver.EffSpins(run, mods);
             long quota = SpinResolver.QuotaOf(run.Stage, mods);
 
-            var raw = SpinResolver.CellsFromIds(run.LastCells);
-            if (raw.Count == 0) return RunEvents.Rejected("LAST_CELLS_UNAVAILABLE");
+            // 웹 파리티 P4-3 — 통합 manip()이 gambler "재굴림" 분기도 함께 타므로(game.js:1240-1245)
+            // 여기도 HandleManip과 동일하게 LastCellsFinal에서 복원한다(전체 재굴림이라 셀 값 자체는
+            // 무관하지만 원본 소스를 일치시켜 둔다 — 위 HandleManip §신규 발견 주석 참조).
+            var raw = new List<Cell>(run.LastCellsFinal);
             for (int i = 0; i < raw.Count; i++) raw[i] = SpinResolver.RollOne(run.Rng, mods);
 
             // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): hasPrism/capMul(총배율 캡) 제거 — 웹 engine.js에는
@@ -313,6 +329,7 @@ namespace JackpotRun.Engine
             // LastMods를 갱신하지 않는다, ItemUse.cs 주석 참조).
             run.LastMods = mods;
             run.LastCellsFinal.Clear(); run.LastCellsFinal.AddRange(res.cells);
+            run.LastNotes.Clear(); if (res.notes != null) run.LastNotes.AddRange(res.notes);
             run.LastGain = gained;
             run.LastScoreGain = res.score;
             run.LastCoinGain = res.coins;

@@ -42,6 +42,16 @@ namespace JackpotRun.Engine
         public bool inDebt;
         public List<NodeKind> nodeOptions; // 항상 3개(AUGMENT 필수 + 무작위 2개)
         public bool nextNodeForcedPrism;   // 보스 클리어 직후 = 다음 AUGMENT/RELIC 노드 PRISM 확정(§3-F)
+
+        // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 renderStageClear cs.stageExp/cs.quota/
+        // cs.usedSpins/cs.totalSpins) — STAGE_CLEAR 보드의 2바(달성 EXP%·사용 스핀) 표시 전용. run.
+        // StageExp/run.Stage는 이 함수 끝의 "상태 반영" 블록에서 이미 리셋/전진되므로 그 이전 값을
+        // 별도로 들고 나가야 한다(run 재조회로는 복원 불가).
+        public long stageExpAtClear; // outcome.newExp — 클리어 확정 순간의 스테이지 EXP(요구치 이상)
+        public long quotaAtClear;    // outcome.quota
+        public int usedSpins;        // outcome.newSpinIndex
+        public int totalSpins;       // outcome.spins
+        public long lastSpinGain;    // outcome.gained — 웹 cs.lastSpinExp(Math.floor(r.lastExpApplied)) 대응
     }
 
     // 스테이지 실패(폭망) 처리 결과 — 02_service.md §3-C 체인의 귀결.
@@ -131,6 +141,12 @@ namespace JackpotRun.Engine
             long quota = outcome.quota;
             long newExp = outcome.newExp;
             int newIdx = outcome.newSpinIndex;
+            // Opus 2차검수 필수⑤(2026-08-09) — 웹 cs.lastSpinExp = Math.floor(r.lastExpApplied || 0)
+            // 대응. outcome.gained는 벨/즉시클리어 아이템 경로에서 항상 0으로 합성돼(DeviceActions.
+            // HandlePostSpinBell 등 result=null/gained=0 SpinOutcome) "+0 EXP 획득"으로 잘못 표시된다 —
+            // run.LastGain(=웹 r.lastExpApplied, "마지막 실제 스핀"의 기여분·벨/아이템이 건드리지 않음)을
+            // 아래 상태 반영 블록이 0으로 리셋하기 전에 스냅샷해 둔다.
+            long lastSpinGainSnapshot = run.LastGain;
 
             int leftSpins = Math.Max(spins - newIdx, 0);
             long leftover = Math.Max(newExp - quota, 0);
@@ -298,6 +314,11 @@ namespace JackpotRun.Engine
                 inDebt = inDebt,
                 nodeOptions = nodes,
                 nextNodeForcedPrism = boss, // §3-F: bossClear = clearedStage%5==0 → 다음 AUGMENT/RELIC PRISM 확정
+                stageExpAtClear = newExp,
+                quotaAtClear = quota,
+                usedSpins = newIdx,
+                totalSpins = spins,
+                lastSpinGain = lastSpinGainSnapshot,
             };
         }
 

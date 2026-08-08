@@ -54,6 +54,10 @@ namespace JackpotRun.UI2
         [SerializeField] private Button resetButton;
         [SerializeField] private ConfirmSheetPopup resetConfirmPopup;
 
+        // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 gearbtn) — 설정 진입점(홈).
+        [SerializeField] private Button settingsButton;
+        [SerializeField] private SettingsSheet settingsSheet;
+
         private ParticleSystem _mainButtonAura;
 
         private void Awake()
@@ -62,7 +66,12 @@ namespace JackpotRun.UI2
             if (levelCardButton != null) levelCardButton.onClick.AddListener(OnLevelCardClicked);
             if (modeDeepButton != null) modeDeepButton.onClick.AddListener(OnDeepModeClicked);
             if (resetButton != null) resetButton.onClick.AddListener(OnResetClicked);
+            if (settingsButton != null) settingsButton.onClick.AddListener(OnSettingsClicked);
         }
+
+        // 설정 시트의 "데이터 초기화"도 이 화면의 기존 확인 흐름(OnResetConfirmed)을 그대로 재사용한다
+        // (작업 지시 "홈과 동일 확인 시트 재사용").
+        private void OnSettingsClicked() => settingsSheet?.Show(OnResetConfirmed);
 
         private void OnEnable()
         {

@@ -405,6 +405,81 @@ namespace JackpotRun.EngineTests
         }
     }
 
+    // F-3-2. WEB_PARITY_DESIGN.md §2-(W) "신규 발견"(2026-08-09 Opus 2차검수, P4-3 슬라이스에서 해소) —
+    // DeviceActions.HandleManip이 조작 대상을 run.LastCellsFinal(웹 통합 manip()의 `r.lastCells` =
+    // Evaluate 이후 최종 칸)에서 복원하는지, 폭탄으로 실제로 빈칸이 된 자리를 dev_pin/dev_copy가
+    // "화면에 보이는 대로"(빈칸) 취급하는지 실제 폭탄 스핀으로 검증한다. 이 수정 전에는 run.LastCells
+    // (raw, Evaluate 이전 원본 심볼)에서 복원해 폭탄이 지운 칸의 "원래 심볼"이 되살아나는 파리티 차이가
+    // 있었다.
+    internal static class Tests_P4_3_ManipUsesFinalCells
+    {
+        public static void Run(TestCtx t)
+        {
+            var stat = S4TestHelpers.GenerousStat();
+            bool pinVerified = Verify(t, stat, "dev_pin", 3, "pin");
+            bool copyVerified = Verify(t, stat, "dev_copy", 5, "copy");
+            t.True(pinVerified, "[manip-final:pin] 6000시드 내 검증 케이스 최소 1건 확보");
+            t.True(copyVerified, "[manip-final:copy] 6000시드 내 검증 케이스 최소 1건 확보");
+        }
+
+        // 장치를 처음부터 장착한 채(다른 F-3 테스트와 동일하게 RunController 3번째 인자로 직접 지정 —
+        // 별도 RunState 재구성 없이 동일 RNG 스트림으로 "찾기"와 "검증"을 한 번에 한다) 1회 스핀해 폭탄이
+        // 실제로 칸을 지웠는지 찾고, 그 자리에서 곧바로 dev_pin/dev_copy를 발동해 결과 칸을 확인한다.
+        private static bool Verify(TestCtx t, IReadOnlyDictionary<string, long> stat, string deviceId, int cost, string tag)
+        {
+            int nPhaseOk = 0, nBombFound = 0, nRejected = 0;
+            string lastRejectReason = "";
+            for (long seed = 1; seed < 6000; seed++)
+            {
+                var rc = new RunController("gambler", "basic", deviceId, seed, stat);
+                rc.Do(new Spin(SpinMode.N));
+                var run = rc.State;
+                if (run.Phase != RunPhase.Spin || run.LastCellsFinal.Count == 0) continue;
+                run.Coins = System.Math.Max(run.Coins, 100); // 코인 부족은 이 테스트의 관찰 대상이 아니다(셀 기준만 검증).
+                nPhaseOk++;
+
+                int bombIdx = -1;
+                for (int i = 0; i < run.LastCellsFinal.Count; i++)
+                {
+                    if (run.LastCellsFinal[i].sym.id != "empty" || run.LastCellsFinal[i].tag != "💥") continue;
+                    // raw(LastCells, Evaluate 이전)에는 이 칸이 empty가 아니었어야 한다 — 폭탄이 실제로
+                    // 뭔가를 지웠다는 전제(F-2 Tests_P4_CellInfo_BombMagnetFinalCells와 동일 검사).
+                    if (i < run.LastCells.Count && run.LastCells[i] != "empty") { bombIdx = i; break; }
+                }
+                if (bombIdx < 0) continue;
+                nBombFound++;
+
+                if (deviceId == "dev_pin")
+                {
+                    var ev = DeviceActions.Handle(run, deviceId, bombIdx + 1); // 폭탄이 지운 칸을 그대로 "고정"
+                    if (ev.Count == 0 || ev[0].type == "REJECTED" || ev[0].spin?.result == null)
+                    { nRejected++; lastRejectReason = ev.Count > 0 ? ev[0].reason : "no-event"; continue; }
+                    var cells = ev[0].spin.result.cells;
+                    t.Eq("empty", cells[bombIdx].sym.id,
+                        $"[manip-final:{tag} seed={seed}] dev_pin으로 고정한 칸이 화면 표시대로(빈칸) 유지됨 — " +
+                        "raw(LastCells)를 썼다면 폭탄 이전 원본 심볼이 되살아났을 것");
+                    return true;
+                }
+                else
+                {
+                    int dst = bombIdx + 1 < run.LastCellsFinal.Count ? bombIdx + 1 : bombIdx - 1;
+                    if (dst < 0) continue;
+                    // 폭탄이 지운 칸(bombIdx)을 인접 칸(dst)에 "복사" — 화면대로면 dst도 빈칸이 돼야 한다.
+                    var ev = DeviceActions.Handle(run, deviceId, bombIdx + 1);
+                    if (ev.Count == 0 || ev[0].type == "REJECTED" || ev[0].spin?.result == null)
+                    { nRejected++; lastRejectReason = ev.Count > 0 ? ev[0].reason : "no-event"; continue; }
+                    var cells = ev[0].spin.result.cells;
+                    t.Eq("empty", cells[dst].sym.id,
+                        $"[manip-final:{tag} seed={seed}] dev_copy가 폭탄으로 빈 칸을 그대로(빈칸) 복사함 — " +
+                        "raw(LastCells)를 썼다면 폭탄 이전 원본 심볼이 복사됐을 것");
+                    return true;
+                }
+            }
+            t.Report($"manip-final:{tag} diag", $"phaseOk={nPhaseOk} bombFound={nBombFound} rejected={nRejected} lastReason={lastRejectReason}");
+            return false;
+        }
+    }
+
     // F-4. EVENT 10종 표 결과의 RewardMessage 정확한 문구 — EventRewardMessage가 coinsDelta를
     // scoreDelta보다 먼저 조립한다는 실제 필드 순서까지 정확히 검증(순서를 잘못 가정하면 이 테스트가
     // 바로 깨진다 — NodeEvents.cs:170-171 실제 순서 그대로).

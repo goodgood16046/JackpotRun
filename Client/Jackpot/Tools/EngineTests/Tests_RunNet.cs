@@ -1162,6 +1162,13 @@ namespace JackpotRun.EngineTests
             t.Eq(1, run.GrowthStack, "[clearA] GrowthStack 0→1(클리어마다 +1, 상한5)");
             t.Eq(0, run.SnowStack, "[clearA] SnowStack 변화 없음(fastClear=false,leftSpins=0<2, boss아님)");
             t.Eq(stageBefore + 1, run.Stage, "[clearA] Stage+1");
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, STAGE_CLEAR 보드 2바+마지막스핀 EXP 표시 전용
+            // 신규 필드) — run 리셋 전 스냅샷이 clear 쪽에 정확히 보존되는지 확인.
+            t.Eq(101L, step.clear.quotaAtClear, "[clearA] quotaAtClear=101(Quota(1)×novice0.92)");
+            t.Eq(104L, step.clear.stageExpAtClear, "[clearA] stageExpAtClear=86+18=104(leftover3+quota101)");
+            t.Eq(5, step.clear.usedSpins, "[clearA] usedSpins=newIdx5(막판 클리어)");
+            t.Eq(5, step.clear.totalSpins, "[clearA] totalSpins=spins5");
+            t.Eq(18L, step.clear.lastSpinGain, "[clearA] lastSpinGain=이 스핀 gained=104-86=18");
         }
 
         // B: leftover=8, 막판 아님(leftSpins=3>=2 → fastClear) → SnowStack+1. 웹 파리티 P2: streakBonus만
@@ -1236,6 +1243,16 @@ namespace JackpotRun.EngineTests
             // leftover555/quota165=336.4%(>=200%) → tier5, boss라 min(5,5+1)=5(상한) → 최고단계 그대로.
             t.Eq("전설적인 대폭발!!", step.clear.grade, "[clearE] leftover555/quota165=336%(>=200%)→tier5, boss+1도 5 상한(웹 clearGrade, 옛 👹괴물 아님)");
             t.Eq(2060L, step.clear.gainedScore, "[clearE] gainedScore=clearScore1960+streakBonus100=2060(옛 2560 아님, gradeBonus500 제거)");
+            // Opus 2차검수 LOW⑤(2026-08-09) — NodePanel "점수 상세" 토글이 그리는 5행(스테이지×50·
+            // 초과×2·남은스핀×100·보스·연승) 분해 합이 gainedScore와 정확히 일치하는지(inDebt 아닐 때)
+            // 회귀 가드. clearA(§clearA)는 보스=false·streak=0이라 이 항목들이 항상 0으로 위장돼 실수를
+            // 못 잡는다 — sBase/sLeft/sSpins/sBoss/streak 5항이 전부 0이 아닌 이 케이스로 검증한다.
+            long sBase = step.clear.clearedStage * 50L;
+            long sLeft = step.clear.leftover * Formulas.SCORE_PER_LEFTOVER;
+            long sSpins = step.clear.leftSpins * Formulas.SCORE_PER_LEFTSPIN;
+            long sBoss = step.clear.boss ? Formulas.BOSS_CLEAR_SCORE : 0L;
+            t.Eq(step.clear.gainedScore, sBase + sLeft + sSpins + sBoss + step.clear.streakBonus,
+                $"[clearE] 점수 상세 분해 합(스테이지{sBase}+초과{sLeft}+남은스핀{sSpins}+보스{sBoss}+연승{step.clear.streakBonus}) == gainedScore");
             // 웹 파리티 P2(웹 game.js:1419): clearCoin=CLEAR_COIN(5)+BOSS_COIN(12)+0=17 — 옛 코드(및
             // kotlin-reference)는 boss일 때 CLEAR_COIN 대신 BOSS_COIN으로 "교체"해 12였지만, 웹은
             // "가산"이라 17이 맞다(StageFlow.cs §2-B 근거 주석 참조, 웹 채택 원칙).

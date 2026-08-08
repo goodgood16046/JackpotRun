@@ -45,6 +45,12 @@ namespace JackpotRun.UI2
         [SerializeField] private Button giveUpButton;
         [SerializeField] private RectTransform deviceButtonTemplate; // 자식 경로 계약: Label(Text)
 
+        // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — HUD "?"(튜토리얼 재시작)/"⚙"(설정) 버튼.
+        [SerializeField] private Button tutorialButton;
+        [SerializeField] private Button settingsButton;
+        [SerializeField] private TutorialOverlay tutorialOverlay;
+        [SerializeField] private SettingsSheet settingsSheet;
+
         [Header("페이즈 패널 / 팝업")]
         [SerializeField] private NodePanel nodePanel;
         [SerializeField] private PerkOfferPanel perkOfferPanel;
@@ -102,7 +108,44 @@ namespace JackpotRun.UI2
                 giveUpButton.onClick.AddListener(OnGiveUpClicked);
             // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 셀 탭 → CellInfoSheet.
             reelView?.SetCellTapHandler(OnCellTapped);
+
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — HUD "?"/"⚙".
+            if (tutorialButton != null) tutorialButton.onClick.AddListener(OnTutorialButtonClicked);
+            if (settingsButton != null) settingsButton.onClick.AddListener(OnSettingsButtonClicked);
+
+            // 웹 TOUR 6스텝 대상(#hud/#reels/#spinbtn/#ab-extra/#abicons) — RunView가 이미 들고 있는
+            // 필드에서 직접 뽑는다(별도 빌더 배선 불필요): 특수스핀 4버튼 행(#ab-extra)은
+            // modeButtons[0]의 부모(HGroup), 아이템/장치 열(#abicons)은 bagButton의 부모(HGroup)로
+            // 근사한다(UiSceneBuilder.BuildRunControls의 실제 행 구조와 일치 — modeRow/toolRow). toolRow는
+            // 아이템/장치칸뿐 아니라 giveUpButton("포기")까지 한 행에 담고 있어 이 근사는 웹 #abicons
+            // (아이템/장치/상태 확인 전용)보다 살짝 넓다 — "포기" 버튼도 하이라이트 범위에 함께 들어온다
+            // (Opus 2차검수 LOW⑥, 사소한 범위 확장이라 손대지 않음, 5단계 문구 "아이템 사용 · 장치 발동 ·
+            // 내 빌드 확인"과 완전히 무관한 요소는 아님 — 그대로 유지).
+            RectTransform extraRow = modeButtons.Length > 0 && modeButtons[0] != null
+                ? modeButtons[0].transform.parent as RectTransform : null;
+            RectTransform iconsRow = bagButton != null ? bagButton.transform.parent as RectTransform : null;
+            tutorialOverlay?.SetTargets(
+                hudView != null ? (RectTransform)hudView.transform : null,
+                reelView != null ? (RectTransform)reelView.transform : null,
+                spinButton != null ? spinButton.GetComponent<RectTransform>() : null,
+                extraRow, iconsRow);
         }
+
+        // 웹 tut(ui.js:201 "tut": startTutorial()) — 언제든 눌러서 처음부터 다시 볼 수 있다(웹은
+        // st.phase가 SPIN/POST_SPIN일 때만 재생 — startTutorial 가드 그대로).
+        private void OnTutorialButtonClicked()
+        {
+            if (_session == null) return;
+            var phase = _session.State.Phase;
+            if (phase != RunPhase.Spin && phase != RunPhase.PostSpin) return;
+            tutorialOverlay?.StartTour();
+        }
+
+        // 웹 gearbtn — Opus 2차검수 필수⑥(2026-08-09): 웹 설정 시트(ui.js:881-908 openSettings)엔
+        // 데이터 초기화 행 자체가 없다(그건 홈 화면 전용 `.reset-link`, ui.js:630 — 별개 UI). 런 화면의
+        // settingsSheet는 애초에 reset 관련 필드를 짓지 않으므로(UiSceneBuilder.BuildSettingsSheet
+        // includeReset:false) 여기서 콜백을 넘길 필요가 없다.
+        private void OnSettingsButtonClicked() => settingsSheet?.Show();
 
         // Opus 2차검수 LOW⑤(2026-08-09) — _session은 Bind() 이전(씬 로드 직후 등)엔 null일 수 있고,
         // _busy(스핀/연출 처리 중)일 때 탭하면 애니메이션 도중 상태를 읽어 화면과 안 맞는 셀 정보가 뜰
@@ -183,6 +226,9 @@ namespace JackpotRun.UI2
                 appRoot.Toast?.Show("첫 판은 바로 시작! (초보학생 + 기본 슬롯) — 다음 판부터 직접 선택해요");
 
             StartCoroutine(PlayRoutine(_session.Controller.LaunchEvents));
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 render() ui.js:736-737 — 자동 시작 재검사는
+            // 이제 PlayRoutine 꼬리의 tutorialOverlay.MaybeAutoStart 호출이 담당한다, Opus 2차검수 LOW①.
+            // 위 PlayRoutine이 LaunchEvents를 처리하면서 그 꼬리에서 1차 평가가 자연히 일어난다).
         }
 
         private void OnDisable()
@@ -217,6 +263,8 @@ namespace JackpotRun.UI2
             cellInfoSheet?.Hide();
             giveUpConfirmPopup?.Hide();
             deviceOfferPopup?.Hide();
+            settingsSheet?.Hide();
+            tutorialOverlay?.HideImmediate();
         }
 
         // ── 액션 전송 + 전체 갱신 ────────────────────────────────────────────────────────
@@ -238,14 +286,18 @@ namespace JackpotRun.UI2
             {
                 long expBefore = spinToAnimate.newExp - spinToAnimate.gained;
                 var res = spinToAnimate.result;
+                var quotaSpins = _session.PreviewQuotaSpins();
                 yield return reelView.PlaySpinRoutine(spinToAnimate.result, () =>
                 {
-                    hudView.RefreshAfterSpin(_session.State, _session.PreviewQuotaSpins(), expBefore);
+                    hudView.RefreshAfterSpin(_session.State, quotaSpins, expBefore);
                     // S16 — "정지 후 획득 라인 표시": 결과 패널(GainPanel)이 대문짝 카운트업 + 기여
                     // 내역 스태거를 재생한다(구 ScorePopupRoutine 대체).
                     gainPanel?.Show(spinToAnimate);
                     // S7c 연출 훅: "코인 증가 시 Coin(릴→코인 라벨 flyTo)".
                     hudView.PlayCoinFx((RectTransform)reelView.transform, res.coins);
+                    // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 doSpin 꼬리 ui.js:379-382) —
+                    // 튜토리얼 1단 action 스텝 중 실제 스핀이었다면 결과 해설(2단)로 이어간다.
+                    tutorialOverlay?.NotifySpinResult(_session.State, quotaSpins.quota, quotaSpins.spins);
                 });
             }
             else
@@ -260,6 +312,16 @@ namespace JackpotRun.UI2
             RefreshDeviceRow();
             RefreshModeButtons();
             RefreshPhasePanel();
+            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 tutLive 호출 지점 — render() 매번) — 3단
+            // 라이브 안내는 모든 액션 배치 처리 후 현재 phase/stage를 본다(스핀뿐 아니라 노드선택·상점
+            // 등에서도 트리거되어야 하므로 RefreshPhasePanel 다음, PlayRoutine 공통 꼬리에 둔다).
+            // Opus 2차검수 LOW①(2026-08-09) — 자동 시작(MaybeAutoStart)도 여기서 매번 재평가한다(웹
+            // render()가 매번 조건을 다시 보는 것과 동일 취지, 1회성 코루틴이었던 이전 버전을 대체).
+            if (_session != null)
+            {
+                tutorialOverlay?.NotifyPhase(_session.State.Phase, _session.State.Stage);
+                tutorialOverlay?.MaybeAutoStart(_session.State, appRoot == null || appRoot.Profile == null || appRoot.Profile.TutDone);
+            }
 
             SetControlsInteractable(true);
             _busy = false;

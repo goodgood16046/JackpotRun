@@ -4,6 +4,59 @@
 
 ---
 
+## 2026-08-09 - 웹 파리티 P4(3/3, 마지막) — 튜토리얼 + 설정 시트 + STAGE_CLEAR 보드 정합 + MANIP final 파리티
+
+P4 마지막 슬라이스. 상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(X) 참조. 요약:
+
+- **A. 튜토리얼 3단**: 신규 `UI2/Run/TutorialOverlay.cs`(RunView 소유) — 웹 TOUR 6스텝(스포트라이트,
+  astral 제거) → 결과 해설(첫 스핀 후 0.26s 지연 배너) → 라이브 안내(phase 전환마다, REWARD_DONE에서
+  종료+`PlayerProfile.MarkTutorialDone()`). 대상 하이라이트는 진짜 컷아웃 대신 골드 테두리 프레임
+  (`RectTransformUtility.CalculateRelativeRectTransformBounds`로 다른 컴포넌트 소유 RectTransform
+  위치를 매 스텝 재계산) — 작업 지시가 명시적으로 허용한 대안. 트리거: 미완료+stage1/spinIndex0이면
+  420ms 후 자동 시작(웹 동일 지연) + HUD "?" 버튼으로 수동 재시작. `PlayerProfile.TutDone`+
+  `ProfileDto.tutDone` 신규.
+- **B. 설정 시트**: 신규 `UI2/SettingsSheet.cs` — 진동 토글(PlayerPrefs, 즉시 동작)·소리/볼륨(P5
+  예약, 비활성 "준비 중")·닫기. 홈(MenuView 우상단 ⚙)+런(HUD "?"+"⚙") 양쪽 진입점, 화면별 전용
+  인스턴스. 데이터 초기화 행은 홈 인스턴스에만 짓는다(웹 설정 시트엔 애초에 없는 요소, 홈 전용
+  `.reset-link`와 별개 — `BuildSettingsSheet` `includeReset` 매개변수). 진동은 `AndroidJavaObject`
+  경유 `VibrationEffect.createOneShot(15ms)`(API 26+, 구버전 폴백)로 웹의 짧은 확인 진동에 근사—
+  `PressFx`(골드 버튼 탭 피드백)에 훅.
+- **C. STAGE_CLEAR 보드 웹 정합**: `StageFlow.ClearOutcome`에 `stageExpAtClear`/`quotaAtClear`/
+  `usedSpins`/`totalSpins`/`lastSpinGain` 5필드 신설(런 리셋 전 스냅샷). `NodePanel`에 2바(달성
+  EXP%·사용 스핀)+마지막 스핀 5칸/획득 내역+누적 총점수+"점수 상세" 토글(stage×50·초과×2·
+  남은스핀×100·보스·연승 분해) 섹션을 스크롤 카드 영역 상단에 추가(뜬 배너 구조는 무변경).
+- **D. MANIP final 파리티**: `DeviceActions.HandleManip`/`GamblerReroll`이 `run.LastCells`(raw)
+  대신 `run.LastCellsFinal`(웹 `manip()`의 `r.lastCells` = 항상 최종 칸)에서 조작 대상을 복원하도록
+  정정 — 폭탄/자석 스핀 직후 dev_pin/dev_copy가 화면에 보이는 칸 기준으로 동작한다(§2-(W) "신규
+  발견" 해소). 재수강(`ItemUse.UseRetakeForm`)은 웹이 애초에 `r.lastCells` 값을 안 읽어 대상 아님.
+  부수: `run.LastNotes` 신규(웹 `r.lastResult.notes` 대응, STAGE_CLEAR 보드 "획득 내역"이 소비).
+- **테스트**: 폭탄 탐색 후 dev_pin/dev_copy가 화면 기준으로 동작하는지 신규 검증(6000시드) + 기존
+  MANIP 픽스처 3곳 보정(LastCellsFinal도 함께 채움) + ClearOutcome 신규 필드 손계산 + TutDone 왕복 +
+  점수 상세 분해 합==gainedScore 회귀 가드. 어서션 20004 → 20016(+12), 0 실패. 스모크 컴파일
+  (csc.dll 오프라인, Unity 2022.3.39f1) 0에러.
+- **Opus 2차검수 반영(필수6·MED4·LOW6)**: ①[CRITICAL] `TutorialOverlay` 배너 콜백이 자기 자신을
+  넘겨 확인 버튼에서 무한 재귀(스택 오버플로)로 이어지던 결함 수정 — 일반 라이브 배너는 웹처럼
+  닫기만(null), REWARD_DONE 배너만 확인 클릭 시 `EndTutorial` 실행(이전엔 배너를 띄우자마자
+  사라졌음). ②[HIGH] stage≥2 폴백 종료를 `phase==Spin||PostSpin`에서만 평가하도록 한정 — 이전엔
+  스테이지 클리어 직후 NodeSelect 진입 즉시 라이브 배너 4종을 못 보여주고 튜토리얼이 조기 종료됐다.
+  ③[HIGH] 툴팁 세로 배치에 툴팁 자신의 반높이 반영 + 화면 클램프 추가(action 스텝 스핀 버튼과
+  겹침 방지), 툴팁 배경 raycastTarget=false. ④[MED] 진동을 `Handheld.Vibrate()`(안드로이드 ~500ms
+  롱버즈)에서 `VibrationEffect.createOneShot(15ms)`로 교체(웹 근사 길이). ⑤[MED] NodePanel EXP%
+  라벨 언클램프(바만 100 클램프) + `lastSpinGain`을 `run.LastGain` 스냅샷 기준으로(벨/아이템
+  클리어 "+0" 오표시 해소) + `BuildClearDetail` 널가드. ⑥[MED] 런 화면 설정 시트에서 데이터
+  초기화 행 자체를 제거(웹 설정 시트에 없는 요소 — "안내 토스트로 대체" 절충안 폐기). ⑦[LOW
+  일괄] 자동 시작을 1회성 코루틴에서 매 액션 후 재평가(`MaybeAutoStart`)로 · 결과해설 배너가
+  0.26s 대기 후 `_active`/`_live` 재확인 · `RunState.LastNotes`를 readonly+Clear/AddRange로
+  통일(LastCellsFinal과 대칭) · `ManipPickPopup` 칸 수 소스를 LastCellsFinal로 · 점수 상세 분해
+  합 회귀 어서션 · RunView 주석 정정.
+- **웹 대비 생략/보고 대상**: 튜토리얼 하이라이트는 테두리 강조(컷아웃 아님) · 라이브 안내 5단계를
+  Unity 화면 구조에 맞춰 4단계로 병합(STAGE_CLEAR+NODE_SELECT 합본) · 설정 시트 볼륨은 정적 비활성
+  행(실 Slider는 P5) · 마지막 스핀 5칸 표시는 보조릴 6칸 스핀의 6번째 칸 미표시(로직 무관, 표시만)
+  · 씬 리빌드·프리팹·.meta·시각 검수는 Fable 담당.
+
+P4 페이즈 완료(1/3 홈·2/3 REWARD_DONE/셀정보/클리어등급·3/3 이번 슬라이스 + Opus 2차검수 반영).
+다음은 P5(사운드).
+
 ## 2026-08-09 - 웹 파리티 P4(2/3) — REWARD_DONE 화면 + 셀 정보 탭 + 클리어 등급 연출
 
 - **A. REWARD_DONE 페이즈(웹 `_enterRewardDone`, game.js:1573-1585)**: `RunPhase.RewardDone` 신설.
