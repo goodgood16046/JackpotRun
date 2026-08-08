@@ -199,10 +199,12 @@ namespace JackpotRun.Engine
         }
 
         // Kotlin `private val EMPTY = Sym("empty", "▫", "빈칸")`(SlotV2Engine.kt L108) — Symbols.cs의
-        // 14종 목록(All)엔 포함되지 않는 원본과 동일한 별도 센티널이라 여기서 직접 구성한다(Symbols.cs
+        // 목록(All)엔 포함되지 않는 원본과 동일한 별도 센티널이라 여기서 직접 구성한다(Symbols.cs
         // 수정 금지). sym(Sym enum) 필드값은 empty에 대해 의미가 없다(아래 Evaluate 주석 참조) — 임의로
         // Sym.Cherry를 채우되, 모든 실사용 코드는 .id/.special/.tags만 보고 .sym은 참조하지 않는다.
-        private static readonly SymInfo EmptySym = new SymInfo
+        // 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19) — internal로 승격해 Content/Pouch.cs·
+        // Run/DeepRunHooks.cs(주머니 "empty"/pity 처리)가 새 센티널을 중복 정의하지 않고 재사용한다.
+        internal static readonly SymInfo EmptySym = new SymInfo
         {
             sym = Sym.Cherry, id = "empty", emoji = "▫", name = "빈칸",
             exp = 0, score = 0, coin = 0, weight = 0, special = Sp.NONE, rare = false, dormant = true,
@@ -561,7 +563,12 @@ namespace JackpotRun.Engine
         // 기존 호출부(2-인자 형태)는 전부 무변경 동작. am.quotaMul/am.bossQuotaMul은 asc=0이면 항상 1.0
         // (AscMods.Get(0))이라 무조건 곱해도 안전 — Formulas.IsBossStage(stage)로 보스 스테이지 여부만
         // 별도 판정한다(mods.quotaMul(머신/캐릭/퍽 보정)과는 별개 축).
-        public static long QuotaOf(int stage, Mods mods, int asc = 0, bool bossPhase2 = false)
+        // 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19) — deepPenaltyMul: 웹 공식의 마지막 곱셈 인자
+        // `this._deepPenalty()`(DeepRunHooks.DeepPenalty(run) 대응). 기본값 1.0이라 기존 호출부(4-인자
+        // 이하 형태)는 전부 무변경 동작 — asc/bossPhase2와 동일하게 P6에서 다졌던 "트레일링 기본값
+        // 추가 + 전 호출부 갱신" 패턴을 그대로 반복한다(호출측이 run.DeepMode를 보고 DeepRunHooks.
+        // DeepPenalty(run)을 넘기거나, 심화 무관 호출부는 그냥 생략).
+        public static long QuotaOf(int stage, Mods mods, int asc = 0, bool bossPhase2 = false, double deepPenaltyMul = 1.0)
         {
             int baseSpins = SpinsPerStage(mods);
             int bsp = Bosses.Spins(stage);
@@ -571,6 +578,7 @@ namespace JackpotRun.Engine
             q *= am.QuotaMul;
             if (Formulas.IsBossStage(stage)) q *= am.BossQuotaMul;
             if (bossPhase2) q *= 1.3;
+            q *= deepPenaltyMul;
             return (long)q;
         }
 
@@ -651,10 +659,11 @@ namespace JackpotRun.Engine
             // buildMods 호출(game.js:445)이라 이 3단계 재계산 자체가 Unity 고유 구조지만, 어느 단계든
             // levels를 빠뜨리면 그 단계에서만 레벨업 미반영 값이 섞여 다음 단계 재계산이 오염된다.
             var preMods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, levels: run.PerkLevels);
-            var preCtx = RunCtxOf(run, run.SpinIndex, SpinsPerStage(preMods0), QuotaOf(run.Stage, preMods0, run.Asc, run.BossPhase2));
+            double deepPenalty = DeepRunHooks.DeepPenalty(run);
+            var preCtx = RunCtxOf(run, run.SpinIndex, SpinsPerStage(preMods0), QuotaOf(run.Stage, preMods0, run.Asc, run.BossPhase2, deepPenalty));
             var preMods = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, preCtx, run.PerkLevels);
             int preEffSpins = EffSpins(run, preMods);
-            var runCtx = RunCtxOf(run, run.SpinIndex, preEffSpins, QuotaOf(run.Stage, preMods, run.Asc, run.BossPhase2));
+            var runCtx = RunCtxOf(run, run.SpinIndex, preEffSpins, QuotaOf(run.Stage, preMods, run.Asc, run.BossPhase2, deepPenalty));
             var baseMods = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, runCtx, run.PerkLevels);
             if (mode == SpinMode.Focus) baseMods.rareWeightMul *= 0.5; // 안정화: 고점 억제
 
@@ -669,7 +678,7 @@ namespace JackpotRun.Engine
             // 5.0 상한) 제거 — 웹 engine.js에는 이 자리에 해당하는 캡이 없다(Formulas.cs 주석/§2-B 근거
             // 참조). mods.expMul/mods.lastSpinExpMul은 이제 ModsBuilder가 만든 값 그대로 쓰인다.
             int spins = EffSpins(run, mods);
-            long quota = QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2);
+            long quota = QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, deepPenalty);
 
             bool bossStage = Bosses.For(run.Stage) != null;
             int cmdCost = CmdCoinCost(mode, bossStage);
@@ -690,10 +699,21 @@ namespace JackpotRun.Engine
             }
 
             int reel = (devEq != null && devEq.id == "dev_subreel") ? Formulas.REEL + 1 : Formulas.REEL;
+            // 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19, 웹 game.js:657-691 `_roll`/903) — 심화모드는
+            // 가중추첨(Weighted/RollRaw) 대신 주머니 추출(PouchOps.PouchDraw)을 탄다. LockedNext(예언/
+            // timeline_ticket으로 확정된 다음 스핀)는 웹과 동일하게 fresh 굴림이 아니므로 deepPity를
+            // 태우지 않는다(웹 `_pityRoll`은 `_roll(...)` 체인에만 걸리고 예언 확정 굴림은 별도 시점에서
+            // 자체적으로 pity를 소진한다 — 이 슬라이스는 오퍼/예언 진입점이 없어 LockedNext 경로에서의
+            // deepPity 처리는 P7-2/3 대상, 상태·치환 로직만 준비하라는 작업 지시 5번 그대로).
             List<Cell> raw = run.LockedNext.Count > 0
                 ? CellsFromIds(run.LockedNext)
-                : RollRaw(run.Rng, mods, reel, run.SeedNext);
+                : (run.DeepMode
+                    ? DeepRunHooks.ApplyDeepPity(run, PouchOps.PouchDraw(run.Rng, run.Pouch, reel))
+                    : RollRaw(run.Rng, mods, reel, run.SeedNext));
             ApplyCellOps(raw, arm, run.Rng);
+            // 웹 파리티 P7-1 작업 지시 6번 — "등장 즉시 덱 -1"인 instant 소모 심볼(POUCH_USE)의 단순화
+            // 버전(실제 개별 효과는 P7-2/3). DeepRunHooks.ConsumeInstantSymbols 헤더 각주 참조.
+            if (run.DeepMode) DeepRunHooks.ConsumeInstantSymbols(run, raw);
             var rawIds = raw.Select(c => c.sym.id).ToList();
 
             var res = Evaluate(run.Rng, raw, mods, run.SpinIndex, spins, run.FlameNext);

@@ -42,6 +42,13 @@ namespace JackpotRun.UI2
         /// 이 매번 다시 하므로 여기서는 원시값 그대로 저장한다.</summary>
         public int SelectedAsc { get; set; }
 
+        /// <summary>웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19, 웹 심화모드 게임모드 선택기의 "다음
+        /// 런에 쓸 모드" 값과 동일 취지) — SelectedAsc와 나란히 두는 심화모드 선택값. 모드 진입 배선만
+        /// (작업 지시 §범위) — MenuView 게임모드 선택기는 P7-4까지 심화를 잠가 두므로 아직 이 값을
+        /// true로 바꾸는 UI 코드가 없다(항상 false). SelectedAsc와 동일하게 세이브에 영속화하지
+        /// 않는다.</summary>
+        public bool SelectedDeep { get; set; }
+
         /// <summary>현재 로드된 씬(Intro 또는 Play)의 토스트/오버레이 레이어 — 각 SceneRoot가 등록 시 채운다.</summary>
         public ToastManager Toast { get; private set; }
         public RectTransform OverlayLayer { get; private set; }
@@ -60,6 +67,12 @@ namespace JackpotRun.UI2
             public bool firstRunToast;
             // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — StartRun 호출 시점의 SelectedAsc 스냅샷.
             public int asc;
+            // 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19) — StartRun 호출 시점의 심화모드 진입 여부
+            // 스냅샷(모드 진입 배선만, 작업 지시 §범위 "UI2(모드 진입 배선만)"). 현재 MenuView 게임모드
+            // 선택기는 심화를 잠가 두므로(§2-(W) 참조, P7-4 예정) 실제 호출부는 아직 전부 기본값
+            // false만 넘긴다 — P7-4가 MenuView에 토글을 달면 SelectedDeep을 세우고 여기로 흘려보내면
+            // 곧장 동작한다.
+            public bool deep;
         }
 
         private PendingLaunchInfo _pending;
@@ -153,12 +166,14 @@ namespace JackpotRun.UI2
 
             string charId, machineId, deviceId;
             int asc;
+            bool deep;
             if (_pending.valid)
             {
                 charId = _pending.charId;
                 machineId = _pending.machineId;
                 deviceId = _pending.deviceId;
                 asc = _pending.asc;
+                deep = _pending.deep;
                 _firstRunToastPending = _pending.firstRunToast;
                 _pending.valid = false;
             }
@@ -170,10 +185,11 @@ namespace JackpotRun.UI2
                 machineId = "basic";
                 deviceId = "";
                 asc = 0;
+                deep = false;
                 Debug.LogWarning("[JackpotRun] Play 씬 단독 실행 — PendingLaunch 없음, 기본 조합(novice/basic)으로 시작합니다.");
             }
 
-            Session = new GameSession(charId, machineId, deviceId ?? string.Empty, asc);
+            Session = new GameSession(charId, machineId, deviceId ?? string.Empty, asc, deep);
             root?.Bind(Session);
         }
 
@@ -199,8 +215,9 @@ namespace JackpotRun.UI2
         /// <summary>PickView "시작" → 실제 런 시작(구 JackpotRunApp.ShowRun/AppRoot.StartRun 계승).
         /// PendingLaunch를 저장하고 페이드아웃 → Play 씬 로드 → PlaySceneRoot가 세션을 만들어
         /// 이어받는다(설계 S8 "전환 흐름"). asc: 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — 기본값
-        /// 0(첫 판 즉시시작 등 asc를 모르는 호출부는 그대로 일반 난이도로 시작).</summary>
-        public void StartRun(string charId, string machineId, string deviceId, bool firstRunToast = false, int asc = 0)
+        /// 0(첫 판 즉시시작 등 asc를 모르는 호출부는 그대로 일반 난이도로 시작). deep: 웹 파리티 P7-1
+        /// (WEB_PARITY_DESIGN.md §1-A #19) — 기본값 false(모드 진입 배선만, UI 토글은 P7-4).</summary>
+        public void StartRun(string charId, string machineId, string deviceId, bool firstRunToast = false, int asc = 0, bool deep = false)
         {
             if (_transitioning) return;
             _pending = new PendingLaunchInfo
@@ -211,6 +228,7 @@ namespace JackpotRun.UI2
                 valid = true,
                 firstRunToast = firstRunToast,
                 asc = asc,
+                deep = deep,
             };
             StartCoroutine(TransitionToScene(PlaySceneName));
         }

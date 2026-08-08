@@ -210,9 +210,14 @@ namespace JackpotRun.Engine
         // (profile.ascMax+1) 클램프는 호출측(GameSession, Engine/Profile을 아는 계층)이 먼저 끝내고
         // 넘긴다 — 여기서는 웹 ascMods(asc)와 동일하게 [0,ASC_MAX] 방어적 재클램프만 한다(설계 원칙 6,
         // deviceId2/ownedDeviceIds와 동일하게 선택적 트레일링 매개변수로 추가해 기존 호출부 100% 호환).
+        // 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19, 웹 game.js:285-289 startRun) — deep: 심화모드
+        // (심볼 덱/주머니) 진입 여부. deep이면 asc는 무조건 0으로 강제한다(웹 "wantDeep이면 asc 강제
+        // 0" — 요구치 이중 가중 방지, 승천과 심화는 상호 배제). 호출측 클램프(GameSession)가 이미 0을
+        // 넘기더라도 여기서 다시 한번 방어적으로 강제해 RunController를 직접 호출하는 테스트 등에서도
+        // 실수로 asc>0+deep=true 조합이 새지 않게 한다.
         public RunController(string charId, string machineId, string deviceId, long seed,
             IReadOnlyDictionary<string, long> stat, string deviceId2 = "",
-            IReadOnlyCollection<string> ownedDeviceIds = null, int asc = 0)
+            IReadOnlyCollection<string> ownedDeviceIds = null, int asc = 0, bool deep = false)
         {
             _stat = stat ?? new Dictionary<string, long>();
             var run = new RunState(seed);
@@ -225,7 +230,13 @@ namespace JackpotRun.Engine
             run.MachineId = m.id;
             run.Device = string.IsNullOrEmpty(deviceId) ? "" : deviceId;
             if (ownedDeviceIds != null) run.OwnedDeviceIds.UnionWith(ownedDeviceIds);
-            run.Asc = AscMods.Clamp(asc);
+            run.DeepMode = deep;
+            run.Asc = deep ? 0 : AscMods.Clamp(asc);
+            if (deep)
+            {
+                foreach (var kv in Pouch.NewStartPouch()) run.Pouch[kv.Key] = kv.Value;
+                run.DeepStats = new DeepStats { MaxTotal = Pouch.Total(run.Pouch) };
+            }
             // 보조 슬롯 입력 검증 — 원본 secondaryCandidates(SlotV2Service.kt:461-462): ARMED/PEEK 전용,
             // 메인과 동일 장치 금지. 조건 위반은 조용히 미장착 처리(선택 화면이 막는 게 정상 경로).
             var d2 = string.IsNullOrEmpty(deviceId2) ? null : Devices.ById(deviceId2);
@@ -309,7 +320,7 @@ namespace JackpotRun.Engine
             var mods = ModsBuilder.ApplyItemMods(
                 ModsBuilder.Build(State.MachineId, State.CharId, State.Perks, State.Curses, "", levels: State.PerkLevels),
                 State.PhaseItems);
-            long quota = SpinResolver.QuotaOf(State.Stage, mods, State.Asc, State.BossPhase2);
+            long quota = SpinResolver.QuotaOf(State.Stage, mods, State.Asc, State.BossPhase2, DeepRunHooks.DeepPenalty(State));
             long deficit = quota - State.StageExp;
             var fail = StageFlow.ForceGameOver(State, deficit);
             return RunEvents.One(new RunEvent { type = "GAME_OVER", failure = fail });

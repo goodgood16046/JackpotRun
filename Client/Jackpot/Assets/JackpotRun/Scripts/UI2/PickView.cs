@@ -747,7 +747,10 @@ namespace JackpotRun.UI2
             // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — 홈 승천 선택기(MenuView)가 세워 둔
             // AppRoot.SelectedAsc를 그대로 넘긴다(GameSession 생성자가 해금 상한으로 다시 클램프).
             int asc = appRoot != null ? appRoot.SelectedAsc : 0;
-            appRoot?.StartRun(_selChar, _selMac, _selDev ?? "", asc: asc);
+            // 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19) — 모드 진입 배선만(AppRoot.SelectedDeep은
+            // 아직 아무 UI도 true로 세우지 않는다, MenuView 게임모드 선택기는 P7-4까지 심화 잠금 유지).
+            bool deep = appRoot != null && appRoot.SelectedDeep;
+            appRoot?.StartRun(_selChar, _selMac, _selDev ?? "", asc: asc, deep: deep);
         }
 
         // ── 정렬(PickScreen.SortIds/Metric 이관) ─────────────────────────────────────

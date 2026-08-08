@@ -128,6 +128,14 @@ namespace JackpotRun.Engine
         public long BestAscScore;
         public int BestAscLevel;
 
+        // ── 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19, 웹 defaultProfile bestDeepScore:0/
+        // bestDeepStage:0, game.js:2557 `if (finalScore > (p.bestDeepScore||0)) { p.bestDeepScore =
+        // finalScore; p.bestDeepStage = r.stage; }`) — 심화모드(주머니 덱) 런의 최고 기록. 승천과
+        // 마찬가지로 일반 bestScore/랭킹과 완전히 격리된다(주머니 덱은 확률 소스가 달라 별개 게임).
+        // StatTracker.ApplyGameOverTracking이 run.DeepMode 분기에서 갱신한다.
+        public long BestDeepScore;
+        public int BestDeepStage;
+
         // 웹 game.js:213 `ascUnlocked() { return (this.profile.ascMax ?? -1) >= 0; }` — 승천 1회 이상
         // 졸업(일반 런 asc=0의 스테이지15 클리어도 포함 — AscMax가 -1에서 0으로 오른 시점부터 true).
         public bool AscUnlocked() => AscMax >= 0;

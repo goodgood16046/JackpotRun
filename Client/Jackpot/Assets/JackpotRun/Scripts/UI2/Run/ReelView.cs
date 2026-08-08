@@ -1069,10 +1069,17 @@ namespace JackpotRun.UI2
             return TagTranslate.TryGetValue(tag, out var safe) ? safe : tag;
         }
 
+        // Opus 2차검수(P7-1, 2026-08-09) [HIGH]① — 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19)로
+        // `Symbols.All`이 14→72종으로 늘면서, 신규 58종(심화모드 주머니 전용, 전부 weight=0)은
+        // `unity-assets/manifest.json`에 스프라이트 자산 자체가 없다(P7-2/3/4 이후 아트 파이프라인
+        // 별도 요청 대상). 이 필러는 일반 릴의 "스핀 중 지나가는 임시 심볼"·니어미스·첫 프레임
+        // 채움용이라 신규 58종이 섞이면 ~80%(58/72) 확률로 스프라이트 미스 → 빈 사각형이 보이는
+        // 회귀가 생긴다. 릴에 실제로 등장 가능한 심볼(weight>0인 원본 10종 + 머신/퍽이 주입하는
+        // 휴면 4종)은 전부 `Symbols.LegacyCount`(14) 안에 있으므로 그 범위로만 필러를 고른다.
         private static SymInfo RandomSymbol()
         {
             var syms = Symbols.All;
-            return syms[UnityEngine.Random.Range(0, syms.Length)];
+            return syms[UnityEngine.Random.Range(0, Symbols.LegacyCount)];
         }
 
         private static Color HexColor(string hex) => ColorUtility.TryParseHtmlString(hex, out var c) ? c : Color.white;

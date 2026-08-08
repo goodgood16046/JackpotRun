@@ -55,6 +55,13 @@ namespace JackpotRun.Engine
         public long bestAscScore;
         public int bestAscLevel;
 
+        // 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19) — PlayerProfile.BestDeepScore/BestDeepStage
+        // 대응(웹 defaultProfile bestDeepScore:0/bestDeepStage:0). 기본값 0은 "심화 런 미완주"와
+        // 동일 취지 — 승천의 -1(미졸업)과 달리 심화는 별도 해금 축이 없어(웹도 0 기본값) 마이그레이션
+        // 가드가 필요 없다(AscMax의 "0인지 -1인지" 구분과 다른 문제 — §ProfileDto.FromDto 참조).
+        public long bestDeepScore;
+        public int bestDeepStage;
+
         // ── 숙련도(mastery, P3, WEB_PARITY_DESIGN.md §1-A #11) — PlayerProfile.Mastery(kind->id->
         // MasteryStats) 대응. JsonUtility가 중첩 Dictionary를 직렬화하지 못해(헤더 각주 참조) (kind,id)
         // 조합당 1행으로 완전히 펼친 병렬 배열 5+2개로 담는다 — 인덱스로 1:1 대응(statKeys/Values와
@@ -133,6 +140,8 @@ namespace JackpotRun.Engine
                 ascMax = p.AscMax,
                 bestAscScore = p.BestAscScore,
                 bestAscLevel = p.BestAscLevel,
+                bestDeepScore = p.BestDeepScore,
+                bestDeepStage = p.BestDeepStage,
                 masteryKind = mKind.ToArray(),
                 masteryId = mId.ToArray(),
                 masteryRuns = mRuns.ToArray(),
@@ -251,6 +260,12 @@ namespace JackpotRun.Engine
             // 올림)을 동반해야 하므로 논리적으로 무결한 판별식이다. graduations==0인데 ascMax==0으로
             // 읽혔다면 마이그레이션 이전 세이브의 빈 필드일 뿐이므로 -1(미졸업)로 강제 정정한다.
             if (p.AscMax == 0 && p.GetStat("graduations") == 0) p.AscMax = -1;
+
+            // 웹 파리티 P7-1 — PlayerProfile.BestDeepScore/BestDeepStage 왕복(기본값 0/0, dto 미도입
+            // 세이브도 자연히 0/0으로 떨어짐 — AscMax와 달리 마이그레이션 가드 불필요, 위 dto 필드
+            // 각주 참조).
+            p.BestDeepScore = dto.bestDeepScore;
+            p.BestDeepStage = dto.bestDeepStage;
 
             return p;
         }

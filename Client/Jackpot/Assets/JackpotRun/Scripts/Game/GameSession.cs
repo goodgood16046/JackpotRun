@@ -32,10 +32,14 @@ namespace JackpotRun.Game
         private readonly StatTracker.RunScratch _scratch = new StatTracker.RunScratch();
 
         // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:285-289 startRun(asc,deep)) — asc:
-        // 요청된 승천 단계. 심화모드(deep)는 P7 미구현이라 웹의 "wantDeep이면 asc 강제 0" 분기는
-        // 항상 지나가지 않는다(해당 없음). 해금 상한 클램프(maxAsc = profile.ascMax+1)는 Engine/Profile을
-        // 아는 이 어댑터 계층이 담당 — RunController는 [0,ASC_MAX] 방어적 재클램프만 한다(설계 원칙 6).
-        public GameSession(string charId, string machineId, string deviceId, int asc = 0)
+        // 요청된 승천 단계. 해금 상한 클램프(maxAsc = profile.ascMax+1)는 Engine/Profile을 아는 이
+        // 어댑터 계층이 담당 — RunController는 [0,ASC_MAX] 방어적 재클램프만 한다(설계 원칙 6).
+        // 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19, 웹 game.js:285-289 startRun) — deep: 심화모드
+        // 진입 여부. "wantDeep이면 asc 강제 0"(useAsc 계산에서 직접 처리 — 웹과 동일 지점) —
+        // RunController 생성자도 방어적으로 동일 강제를 한 번 더 하므로(§RunController.cs 헤더 각주)
+        // 이중 안전망이다. UI(MenuView 게임모드 선택기)는 아직 심화를 잠가 두므로(P7-4) 이 매개변수는
+        // 현재 테스트/향후 UI 배선 진입점으로만 쓰인다.
+        public GameSession(string charId, string machineId, string deviceId, int asc = 0, bool deep = false)
         {
             Profile = ProfileStore.Load();
             // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #9/#13, game.js:179 `this._grantLevelDevices()`) —
@@ -58,9 +62,9 @@ namespace JackpotRun.Game
             // 웹 game.js:288-289 `maxAsc = Math.max(0,(profile.ascMax??-1)+1); useAsc = Math.max(0,
             // Math.min(maxAsc, Math.floor(asc||0)))`.
             int maxAsc = Profile.MaxPlayableAsc();
-            int useAsc = Math.Max(0, Math.Min(maxAsc, asc));
+            int useAsc = deep ? 0 : Math.Max(0, Math.Min(maxAsc, asc));
             Controller = new RunController(charId, machineId, deviceId, seed, Profile.Stats, deviceId2: "",
-                ownedDeviceIds: Profile.UnlockedDevices().Select(d => d.id).ToList(), asc: useAsc);
+                ownedDeviceIds: Profile.UnlockedDevices().Select(d => d.id).ToList(), asc: useAsc, deep: deep);
             StatTracker.Apply(Profile, Controller.State, Controller.LaunchEvents, _scratch);
         }
 
@@ -124,7 +128,7 @@ namespace JackpotRun.Game
                     ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                     run.Device),
                 run.PhaseItems);
-            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2);
+            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
             int spins = SpinResolver.EffSpins(run, mods);
             return (quota, spins);
         }

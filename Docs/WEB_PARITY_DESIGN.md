@@ -1142,6 +1142,195 @@
     웹처럼 `if(selDeep) hide`를 추가해야 함). ④ 씬 리빌드·프리팹·.meta 파일 생성은 다루지 않았다 —
     Fable이 에디터에서 배치 실행 예정(신규 SerializeField 7+3+2종의 실제 GameObject 배선·시각 검수
     포함, 기존 슬라이스들과 동일 분업).
+- **(AA) 2026-08-09 완료(P7-1 "심화모드(심볼 덱/주머니) 코어" — WEB_PARITY_DESIGN.md §1-A #19 1/4
+  슬라이스, 웹 `data.js` SYMS/POUCH_*/DEEP·`engine.js` pouchTotal/compressionPenalty/symCatOf/
+  symTierOf/pouchValidate/pouchDraw/rollFromPouch·`game.js` startRun/deepPity/_deepPenalty/gameOver
+  전수 대조)**:
+  - **심볼 카탈로그 72종**: `Symbols.cs` 14종 → 72종(웹 SYMS L26-131 그대로, 신규 58종은 원본 배열
+    뒤에 그대로 이어붙임 — 순서를 지켜야 하는 건 원본 14종의 §10.1 누적가중치 스캔뿐이라 뒤에
+    추가하는 한 영향 없음). `Sym` enum도 58개 추가(72종), `Sp` enum도 신규 51개 추가(61종 — 신규
+    58종 중 4종은 기존 COIN/SKULL/FLAME/KEY를 재사용). 신규 58종은 전부 `weight=0/dormant=true`
+    (심화모드 주머니로만 등장, 일반모드 확률 무영향) — `Symbols.Count`를 72로, 신규
+    `Symbols.LegacyCount=14`를 원본 경계로 추가했다. **불변식 테스트**(작업 지시 "weight>0 심볼
+    집합이 바뀌면 안 됨"): `Tests_Core_Symbols`에 ①신규 58종 전부 weight==0·dormant==true ②weight>0
+    심볼 집합이 정확히 원본 10종(cherry/book/star/gem/coin/skull/flame/magnet/bomb/crown)과 일치
+    (정렬 비교) 2개 검증을 추가 — `SpinResolver.Weighted()`가 이제 72개를 순회하지만 0-가중치
+    항목은 누적합 스캔에서 폭을 전혀 차지하지 않으므로 원본 14종의 절단 지점이 하나도 옮겨가지
+    않는다(수학적으로 자명하나 테스트로 고정).
+  - **주머니 데이터 — 신규 `Content/Pouch.cs`**: 웹 `POUCH_CAT`(71)·`POUCH_RARITY`(71)·`POUCH_USE`
+    (12)·`TIER_BY_RARITY`(5)·`POUCH_SYMBOLS`(71, 순서 그대로 `Symbols71`)·`DEFAULT_UNLOCKED_SYMS`
+    (58)·`JACKPOT_TAG`(18)·`JACKPOT_TAG_DECK_MAX`(8)·`DEEP.START_POUCH`(9종/총30)·`DEEP.DECK_MIN/MAX`
+    (20/40)·`DEEP.MIN_KINDS`(7)·`DEEP.TAG_MAX_RATIO`(0.60)·`DEEP.CROWN_MAX/WILD_MAX`(2/4)·
+    `DEEP.RARITY_MAX`(SILVER10/GOLD6/PRISM2)·`DEEP.COMPRESSION`(22/24/26/28→1.15/1.09/1.06/1.03)·
+    `DEEP.EARLY_QUOTA`(stage1~4 램프) 전부 손전사(id 오탈자 방지를 위해 python 정규식으로 data.js를
+    직접 파싱해 C# 리터럴을 생성한 뒤 육안 대조 — Tests_P7_1_Pouch.cs의
+    `SymbolCatalogCrossReference`가 개수/키집합을 golden으로 재확인). **결정 — 주머니 스캔 순서**:
+    C# `Dictionary<string,int>`는 순서 보장이 없어(JS 객체의 삽입 순서 보장과 다름) `PouchOps.
+    PouchDraw`의 누적가중치 스캔이 `Pouch.Symbols71`(고정 배열)의 선언 순서를 단일 진실 공급원으로
+    쓴다(웹은 `Object.entries(pouch)` 삽입순 — 이 둘은 START_POUCH 9종에 한해 우연히 같은 상대순서라
+    시작 상태의 스캔 순서는 사실상 동일하지만, 이후 보상으로 새 종류가 추가되면 갈라질 수 있다. §D
+    RNG 결정 원칙 그대로 "자체 재현성만 보장, 비트스트림 일치 불필요"이므로 파리티 위반 아님 —
+    Pouch.cs/PouchOps.cs 헤더 각주에 근거 명시).
+  - **덱 검증 7규칙 — `Pouch.Validate`**: 총량 20~40·종류≥7·왕관≤2·와일드≤4·특수 티어 상한(SILVER
+    ≤10/GOLD≤6/PRISM≤2)·같은 태그≤60%·잭팟태그 특수심볼≤8을 웹 `pouchValidate` 그대로(에러 메시지
+    한글 문구 포함, opts로 상하한 오버라이드 가능한 구조까지 — 실제 오버라이드 호출은 P7-2/3 정비소
+    슬라이스가 시작). 표시 반올림만 JS `Math.round`(항상 +∞ 방향)와 C# `Math.Round` 기본(은행가
+    반올림)이 정확히 .5%p일 때 어긋날 수 있어 `JsRound(x)=Floor(x+0.5)` 헬퍼로 통일(ok/errors 존재
+    여부 자체는 이 반올림과 무관 — 순수 표시 문구 정확도 문제, 발견 즉시 수정).
+  - **주머니 추출 — 신규 `Run/PouchOps.cs`**: `PouchDraw(rng, pouch, reel, bias=null)`가 웹
+    `pouchDraw`/`pouchDrawOne`을 그대로 전사(비중 가중랜덤, "empty"=빈칸, "random"=실심볼만 재추첨
+    후 없으면 빈칸 폴백, 총량0/빈 주머니 방어). `PouchBias`(Mul/Add/RareMul) 타입과 분기 골격을
+    미리 마련해 뒀다 — 이번 슬라이스는 `SpinResolver.ResolveSpin`이 항상 `bias=null`로 호출해(심화
+    퍽 자체가 P7-2/3 범위) 순수 count 비중과 100% 동일하게 동작한다.
+  - **심화 런 스핀 진입점 배선**: `SpinResolver.ResolveSpin`의 롤 분기를 `run.DeepMode ?
+    DeepRunHooks.ApplyDeepPity(run, PouchOps.PouchDraw(...)) : RollRaw(...)`로 교체(LockedNext 예언
+    경로는 기존과 동일 — 웹도 `_pityRoll`이 `_roll(...)` fresh 체인에만 걸림, 예언/오퍼 진입점이
+    이 슬라이스에 없어 LockedNext 경로 pity는 P7-2/3로 미룸). Evaluate는 완전히 그대로 재사용(작업
+    지시 6번 "세트/잭팟 등 기존 평가는 심볼 확장으로 자연 동작" — `s.exp/s.score/s.coin/s.tags`만
+    읽는 범용 로직이라 신규 심볼도 무추가 코드로 기본 이득이 반영된다. `Sp` 신규 51종은
+    `Evaluate`의 switch에 case가 없어 NONE과 동일하게 흡수만 되고 특수효과는 발동하지 않는다 —
+    웹의 "미지 special은 NONE 취급" 그대로, 진짜 효과는 P7-2/3). VALUE_IDS(cherry/star/book/gem/
+    crown)는 무변경 확인.
+  - **deepPity — 신규 `Run/DeepRunHooks.cs`**: `ApplyDeepPity(run, raw)`가 웹 `_pityRoll` 그대로
+    (자연 등장 시 소진, 미등장 시 무작위 1칸 강제 치환 후 소진, spinsLeft 안전망). 이 슬라이스는
+    지급 진입점(오퍼/보상, P7-2/3)이 없어 "상태·치환 로직만 준비"(작업 지시 5번) — 테스트는
+    `RunState.DeepPity`를 직접 세팅해 검증한다. `RunState.DeepPity`(신규 `DeepPityState` 참조형,
+    null 가능)·`RunState.DeepCompressExtra`(신규, 정비소 누적 요구율 — 이번 슬라이스는 항상 0)도
+    함께 추가.
+  - **압축 패널티 — `DeepRunHooks.DeepPenalty(run)`**: 웹 `_deepPenalty()`를 `base = compressionPenalty
+    (pouchTotal) × (1+deepCompressExtra)` → `× EARLY_QUOTA[stage]` 순서로 그대로 이식하되, 웹 공식의
+    나머지 두 항(심볼퍽 penaltyMul "초과분에만 적용" 완화 클램프·전설봉인함 보스요구 25% 감쇄)은
+    심볼퍽 자체(웹 `_symMods()`)가 P7-2/3 범위라 존재하지 않는다 — 함수 안에 그 두 항이 들어갈
+    자리(`TODO(P7-2/3)` 주석)를 이미 "base → 심볼퍽 배수 → EARLY_QUOTA" 순서로 비워 뒀다. **quota
+    배선**: 웹 파리티 P6 때와 동일한 패턴으로 `SpinResolver.QuotaOf`에 5번째 인자
+    `deepPenaltyMul=1.0`(기본값, 기존 호출부 100% 호환)을 추가하고 실사용 15곳(SpinResolver
+    ResolveSpin 3곳·DeviceActions 6곳·ItemUse 3곳·RunController.HandleContinue·RewardDoneInfo.
+    NextPreview·GameSession.PreviewQuotaSpins) 전부에 `DeepRunHooks.DeepPenalty(run)`을 갱신했다
+    (asc/bossPhase2 배선 시 다졌던 "트레일링 기본값 + 전 호출부 갱신" 패턴 재사용, grep으로 15곳
+    전수 확인).
+  - **instant 소모 — 단순화 버전(작업 지시 6번)**: 웹은 붕대/매듭/에너지팩/가짜왕관/진화핵 5종
+    각각의 실제 효과(evaluate 내부 분기, P7-2/3)가 발동하는 순간 자기 자신을 -1 한다. 이 슬라이스는
+    그 실제 효과가 없으므로 `DeepRunHooks.ConsumeInstantSymbols(run, raw)`가 "`Pouch.Use[id]==
+    "instant"`인 심볼이 이번 스핀에 등장한 횟수만큼(중복 등장 포함, 0 하한) 무조건 -1"만 일반화해
+    적용한다(fuse 12종 중 "fuse" 값은 이 슬라이스에서 전혀 소비하지 않음 — 조건부 발동 자체가
+    없음). **웹 대조 범위 명시(§0 승인 필요 사항 아님, 의도된 단순화)**: 실제 효과가 붙는 P7-2/3에서
+    이 함수를 대체/확장해야 이중 소모가 안 생긴다 — 헤더 주석에 통합 지침을 남겼다.
+  - **RunState/RunController/GameSession/UI 배선**: `RunState`에 `DeepMode`(bool)·`Pouch`
+    (Dictionary<string,int>)·`DeepPity`·`DeepCompressExtra`·`DeepStats`(신규 클래스, 아래 참조) 5필드
+    추가. `RunController` 생성자에 `bool deep=false` 트레일링 매개변수 추가 — `run.Asc = deep ? 0 :
+    AscMods.Clamp(asc)`로 웹 `startRun(asc,deep)`의 "wantDeep이면 asc 강제 0"을 그대로 재현(§0 결정
+    원칙: 승천/심화 상호배제, P6 §2-(Z) 미해결 항목 ③ 완료). deep이면 `Pouch.NewStartPouch()`로
+    시작 덱을 채우고 `DeepStats{MaxTotal=...}`를 만든다. `GameSession` 생성자에도 동일하게
+    `bool deep=false` 추가(`useAsc = deep ? 0 : ...` — 이중 안전망, RunController가 방어적으로 한 번
+    더 강제하므로 실제로는 어느 한쪽만 있어도 안전하다). **UI(모드 진입 배선만, 작업 지시 범위)**:
+    `AppRoot.SelectedDeep`(신규, `SelectedAsc`와 나란히) → `StartRun(...,deep)` →
+    `PendingLaunchInfo.deep` → `RegisterPlay`의 `new GameSession(...,deep)`까지 값이 흐르도록
+    배선했지만, `PickView.OnStartClicked`가 넘기는 값은 `appRoot.SelectedDeep`이고 이 값을 true로
+    세우는 UI 컨트롤이 아직 없다(`MenuView` 게임모드 선택기는 P7-4까지 "준비 중" 토스트로 계속
+    잠김 — 배선 자체는 끝나 있어 P7-4가 토글만 추가하면 즉시 동작).
+  - **DeepStats 골격만(작업 지시 8번)**: 신규 `DeepStats` 클래스(웹 `r.deepStats` 전체 필드 —
+    RewardsPicked/Repairs/MaxTotal/BossClears/Compress95Clear 등 8개 불리언 플래그/RaresSeen·
+    LegendsSeen 두 집합) — `RunController`가 심화 런 시작 시 `MaxTotal`만 시작 덱 총량으로 채우고
+    나머지는 전부 0/false/빈 컬렉션. 실제 증가/갱신(P7-2/3 보상·정비소·보스클리어 훅)과 StatTracker/
+    AchievementEngine 소비(P7-4 심화 업적 13종)는 전부 다음 슬라이스.
+  - **점수 격리**: `PlayerProfile.BestDeepScore/BestDeepStage`(신규, 웹 defaultProfile
+    bestDeepScore:0/bestDeepStage:0 그대로) + `ProfileDto` 왕복 필드(마이그레이션 가드 불필요 —
+    AscMax의 -1/0 구분과 달리 기본값 0이 곧 "미달성"이라 dto 미도입 세이브도 자연히 0/0으로
+    떨어짐). `StatTracker.ApplyGameOverTracking`을 웹 game.js:2557 `if(deep){...bestDeepScore...}
+    else if(asc>0){...bestAscScore...} else p.bestScore=...`와 동일한 순서(deep 우선 — deep이면
+    asc가 항상 0으로 강제돼 있어 순서가 바뀌면 asc<=0 분기가 먼저 걸려 deep 런이 bestScore를
+    오염시킨다)로 재작성. `BestChar/BestMachine`(Unity 전용 부가 필드) 갱신 게이트에도 `!run.
+    DeepMode` 조건을 추가(P6 때는 asc만 게이트했던 것을 이번에 deep까지 확장). `runs`/`totalScore`/
+    `bestStage`는 웹처럼 deep 무관 항상 갱신.
+  - **asc 상호배제 검증**: `RunController(...,asc:7,deep:true)` → `State.Asc==0` 확인(요청값 무시) +
+    `deep:false,asc:7` 대조군은 그대로 7 반영 — `Tests_P7_1_Pouch.DeepModeAscMutualExclusion`.
+  - **테스트 — 신규 `Tests_P7_1_Pouch.cs`**: ①신규 58종 손전사 골든(Symbols.cs를 보지 않고 data.js를
+    다시 읽어 옮긴 독립 대조축, id/emoji/name/exp/score/coin/special/rare/tags 전수) ②심볼 카탈로그
+    ↔ Pouch.Symbols71/Cat/Rarity 교차 대조(개수·키집합·71=72-3(key/dice/seed)+2(empty/random))
+    ③START_POUCH golden(9종/총30/새 Dictionary 반환 확인)+자체 validate 통과 ④pouchTotal/
+    compressionPenalty 표 8개 경계값 ⑤EARLY_QUOTA 5개 값 + DeepPenalty 배선 4케이스(일반모드
+    무영향·stage1 압축전·압축후 손계산·deepCompressExtra 반영) ⑥PouchValidate 7규칙 각각 최소
+    1개(가능하면 단독) 위반 케이스 + 경계 정확값(20/40/60%) 통과 확인 + opts 오버라이드 구조 확인
+    ⑦PouchDraw 20000회 비중 실측(75/25 분포 ±2%)·같은 seed 결정론·빈 주머니 방어 ⑧empty/random
+    특수 처리 3케이스 ⑨deepPity 4케이스(자연소진·강제치환·DeepMode=false 무개입·안전망만료)
+    ⑩instant 소모 4케이스(소진시 키제거·fuse 미소비·부분차감·DeepMode=false 무시) ⑪asc 상호배제
+    3케이스 ⑫점수격리(deep/asc/일반 3분기 대조군 + BestChar/Machine 오염 없음 확인) ⑬deep 런
+    자동플레이 스모크 5시드×20000틱(웹 `_harness.mjs` 동형 불변식 — Score/Coins/StageExp NaN·음수
+    없음, Pouch 카운트 음수 없음, 알려진 RunEvent.type 화이트리스트) ⑭심화 런 XP 획득(작업 지시 8번
+    첫 절 — 코드 변경 없이 자연 동작함을 `PlayerLevelTracker.ApplyRunEnd` 직접 호출로 재확인).
+  - **스모크 컴파일**: Unity 에디터 미실행 확인 후 기존 슬라이스와 동일한 `dotnet exec csc.dll`
+    오프라인 검증(`D:\Unity\2022.3.39f1`의 Roslyn csc.dll + NetCoreRuntime\dotnet.exe, Library/Bee의
+    직전 성공 컴파일 rsp를 재사용해 신규 3파일만 파일목록에 추가) — `Assembly-CSharp`(런타임, 84개
+    — 신규 `Content/Pouch.cs`·`Run/PouchOps.cs`·`Run/DeepRunHooks.cs` 포함, `Scripts/Game/
+    GameSession.cs`·`Scripts/UI2/AppRoot.cs`·`PickView.cs` 등 이번에 수정한 UI2/Game 파일도 이
+    rsp 하나로 전부 커버)·`Assembly-CSharp-Editor`(6개, 무변경) 둘 다 0에러·0경고.
+  - **웹 대비 생략/이월 — 전부 작업 지시 §범위 그대로(보고 대상 아님, 계획된 다음 슬라이스)**: ①
+    심볼퍽(SYM_AUGMENTS/SYM_RELICS 21+15종) ②정비소(REPAIR_SERVICES 11종, 상점 심화 탭) ③전공
+    아키타입 6계열(ARCH_T1/T2 발동) ④잭팟 태그 6종의 실제 발동(잭팟 판정 시 태그 매칭 — 이번
+    슬라이스는 덱검증 상한 계산에만 `JackpotTag`/`JackpotTagDeckMax` 사용, evaluate 개입 없음)
+    ⑤피버 게이지(FEVER_*) ⑥POUCH 오퍼 2-step(RANDPACK_*/DESIGNATED_UPGRADE_CHANCE/PACKAGE_CHANCE)
+    ⑦심볼 해금(ACH_SYMBOL_UNLOCK 13종, profile.symUnlocked) ⑧심화 업적 13종/장치 9종(P7-4) ⑨UI
+    보드(주머니 시각화·정비소 화면·심화 HUD, P7-4) ⑩랭킹 3노드 분리(P6~P7 연동, P7-4) ⑪MenuView
+    게임모드 선택기 잠금 해제(작업 지시 명시 유지 — 주석은 이미 있고 이번엔 실배선까지만).
+  - **🚧 P7-2/3 착수 전 선행 blocker(Opus 2차검수 확정, 아래 반영 내역 참조) — 장치 경로 DeepMode
+    미적용 + LockedNext 센티널 왕복 재설계**: 장치(예언 `dev_oracle`/`dev_syllabus`·재굴림
+    `dev_reroll`/`GamblerReroll`·MANIP `dev_pin`/`dev_copy`/`dev_swap`) 경로는 이번 슬라이스에서
+    `run.DeepMode`를 전혀 보지 않는다 — `DeviceActions.HandlePeek`/`HandleManip`/`GamblerReroll`은
+    여전히 `SpinResolver.RollRaw`(일반 가중추첨)로 셀을 만든다. 메인 스핀 경로
+    (`SpinResolver.ResolveSpin`)만 주머니 추출로 전환하라는 작업 지시 2번 문면("심화 런의 스핀
+    굴림이... 분기") 그대로의 범위 해석이지만, 실제 플레이에서는 심화 런 중 이 장치들을 쓰면
+    주머니에 없는 심볼이 섞여 나올 수 있다는 뜻이다. 근본적으로는 `RunState.LockedNext`(문자열 id
+    리스트)가 `CellsFromIds`(→`Symbols.ById`)로만 복원돼 "empty"/"random" 같은 주머니 전용
+    센티널을 왕복시키지 못하는 구조적 제약도 있어(pouch draw 결과에 "empty"가 섞이면
+    `CellsFromIds`가 그 칸을 통째로 누락시켜 셀 개수가 줄어드는 별도 버그까지 유발할 수 있음),
+    단순히 `run.DeepMode` 분기만 추가해서는 안전하게 고칠 수 없다 — **장치/정비소가 본격적으로
+    들어오는 P7-2/3는 이 두 가지(장치 경로 DeepMode 인식 + LockedNext의 empty/random 센티널
+    왕복 재설계)를 먼저 해결하고 시작해야 한다**(선행 blocker로 명시, 스코프 누락이 아니라 다음
+    슬라이스의 0순위 작업 항목).
+  - **Opus 2차검수 반영(2026-08-09, HIGH2·MED2·LOW일괄 — 아래 5건)**:
+    ①**[HIGH] `ReelView.RandomSymbol()` 필러 범위 회귀**: `Symbols.All`이 72종으로 늘면서 이 함수
+    (릴 스핀 중 지나가는 필러·니어미스·첫 프레임 채움, 호출부 5곳)가 균등 난수로 72종 전체에서
+    고르다 보니 신규 58종(스프라이트 없음)이 뽑힐 때마다 빈 사각형이 보이는 회귀가 생겼다(58/72≈
+    80%) — `UnityEngine.Random.Range(0, syms.Length)`를 `Range(0, Symbols.LegacyCount)`로 한정해
+    실제 등장 가능한 14종 안에서만 고르도록 수정.
+    ②**[HIGH] `UiSceneBuilder` 스프라이트 굽기 오염**: 타이틀 화면 장식 릴(`TitleBuildResult.
+    symbolSprites`, :795-798) — 소비처 `TitleView.SymbolCycleLoop()`가 null 스프라이트를 걸러내지
+    않고 그대로 대입해(TitleView.cs:149) ①과 동일한 "타이틀 릴 80% 빈칸" 버그를 유발했다.
+    `Symbols.LegacyCount` 범위로 한정 + null 방어(List로 모아 압축)로 수정. 게임 릴(`ReelView.
+    symbolSprites`, :1973-1977, id-keyed 튜플) 쪽은 `ReelView.Awake()`가 이미 null을 걸러내
+    (ReelView.cs:225) 기능 버그는 아니었지만, 씬 리빌드마다 58개를 굽고 버리는 낭비("다음 씬
+    리빌드 오염")라 동일하게 LegacyCount로 한정.
+    ③**[MED] instant 소모 웹 정합**: 웹 game.js:814-828을 재확인한 결과 evaluate()가 뽑은
+    "이번 스핀에 등장했는가"(불리언 플래그, 개수 아님)만 보고 `remove n:1`을 **id당 최대 1회만**
+    적용한다 — 같은 instant 심볼이 5칸 중 여러 번 나와도 덱에서는 정확히 1개만 빠진다.
+    `DeepRunHooks.ConsumeInstantSymbols`가 등장 횟수만큼 매번 -1 하던 것을(예: knot 2회 등장 시
+    5→3) `HashSet`으로 이번 스핀에 처리한 id를 추적해 id당 1회로 정정(5→4). 골든 테스트
+    (`Tests_P7_1_Pouch.InstantSymbolConsumption`)도 5→4로 재산출하고, 서로 다른 instant id 2종이
+    각각 독립적으로 최대 1개씩만 빠지는 케이스를 추가했다.
+    ④**[MED] 어서션 수치 정정**: §2-(Z)(P6 최종)가 남긴 마지막 공식 기록은 20164였다 — 이 슬라이스는
+    그 값을 기준선으로 삼는다(아래 최종 수치 참조).
+    ⑤**[LOW 일괄]**: `Tests_S5_ProfileDtoRoundTrip`에 `AscMax`/`BestAscScore`/`BestAscLevel`/
+    `BestDeepScore`/`BestDeepStage` 왕복 검증(값 케이스 + 빈 프로필 기본값 케이스) 추가 — 그동안
+    이 5필드는 각자 도입 슬라이스(P6/P7-1)의 전용 테스트에서만 개별 검증되고 공용 DTO 왕복 테스트엔
+    없었다. `PouchOps.PouchDraw`가 `Pouch.Symbols71` 밖 id를 구조적으로 무시함을 헤더 주석으로
+    명문화하고 `PouchDrawIgnoresUnknownIds` 테스트로 직접 실증(미지 id에 압도적 카운트를 줘도 절대
+    안 뽑힘 + `Pouch.Total()`은 그 카운트까지 합산해 "실제 뽑히는 총량"과 갈라질 수 있음을 함께
+    확인). `PouchValidateRules`에 "정확히 상한" 통과 케이스 6종 추가(왕관==2·와일드==4·SILVER
+    특수==10·GOLD 특수==6·PRISM 특수==2·잭팟태그 특수==8, 전부 strict `>` 비교라 경계값 자체는
+    통과해야 함을 각각 확인).
+    **재검증**: `dotnet run --project Client/Jackpot/Tools/EngineTests` 20164 → 22758(+2594),
+    0 실패. 오프라인 스모크 컴파일도 재검증(`Assembly-CSharp` 84개·`Assembly-CSharp-Editor` 6개
+    둘 다 0에러·0경고) — 이 과정에서 스모크 절차 자체의 맹점 하나를 발견해 함께 고쳤다: Editor rsp가
+    참조하는 `Assembly-CSharp.ref.dll`은 항상 Library/Bee 캐시의 **원본 경로**(내 스크래치 `-refout`
+    산출물이 아니라, 최후로 실제 Unity 에디터가 컴파일해 둔 스테일 dll)를 그대로 가리킨다 — 이번
+    슬라이스 최초 스모크(이 review 이전)때는 Editor 쪽 코드가 P7-1 신규 API를 전혀 참조하지 않아
+    우연히 문제가 안 됐지만, 이번 반영①②로 `UiSceneBuilder.cs`가 신규 `Symbols.LegacyCount`를
+    참조하게 되자 그 스테일 dll엔 그 상수가 없어 `CS0117`로 즉시 걸렸다. Editor rsp의
+    `-r:".../Assembly-CSharp.ref.dll"`을 이번에 새로 빌드한 런타임 스크래치 ref dll로 가리키도록
+    정정한 뒤에야 진짜 0에러가 확인됐다 — **향후 슬라이스가 Editor 코드에서 그 회차의 신규 Engine
+    API를 참조하게 될 때마다 이 rsp 참조 정정을 함께 챙겨야 한다**(안 그러면 런타임 어셈블리는
+    최신인데 Editor 스모크만 조용히 스테일 레퍼런스로 "우연히 통과"할 위험이 있음, 이번처럼 매번
+    걸리리라는 보장이 없다).
 
 ## 3. 페이즈 로드맵
 
@@ -1153,6 +1342,6 @@
 | P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | ✅ 2026-08-09 완료(3/3) |
 | P5 | 사운드(절차 합성 SFX 16종 + BGM 루프) | ✅ 2026-08-09 완료 |
 | P6 | 승천 A1~A10 + 승천 랭킹 분리 | ✅ 2026-08-09 완료(랭킹 분리는 P7-4로 이관, bestAscScore 기록은 완료) |
-| P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버) + 심화 랭킹 | 대기 |
+| P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버) + 심화 랭킹 | 🔶 진행 중(1/4 — 코어: 주머니+심볼72 완료, §2-(AA)) |
 
 각 페이즈는 FABLE_RULES 4단계 파이프라인으로 진행하고, EngineTests 골든망을 웹 수치로 갱신하며 통과를 유지한다.

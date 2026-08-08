@@ -592,9 +592,16 @@ namespace JackpotRun.Engine
             p.SetMax("bestStage", run.Stage);
             // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:2555-2559) — 승천(asc>0) 런의
             // 최종점수는 일반 bestScore에 반영하지 않는다(랭킹 밸런스 보호, 별도 BestAscScore/
-            // BestAscLevel 추적). totalScore/runs/bestStage는 웹처럼 asc 무관하게 항상 갱신된다(위/
-            // 아래 라인 그대로 — 이 게이트는 bestScore 한 줄에만 건다, §0 결정 원칙: 웹 실제 동작 채택).
-            if (run.Asc <= 0) p.SetMax("bestScore", finalScore);
+            // BestAscLevel 추적). totalScore/runs/bestStage는 웹처럼 asc/deep 무관하게 항상 갱신된다
+            // (위/아래 라인 그대로 — 이 게이트는 bestScore 계열 한 줄에만 건다, §0 결정 원칙: 웹 실제
+            // 동작 채택). 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19, 웹 game.js:2557 `if (r.deepMode)
+            // {...bestDeepScore...} else if (r.asc>0) {...bestAscScore...} else p.bestScore=...`) —
+            // 심화(deepMode) 런은 주머니 덱이라 확률 소스 자체가 다른 별개 게임 취급, bestScore/
+            // bestAscScore 어느 쪽에도 반영하지 않고 BestDeepScore/BestDeepStage로만 격리한다. deep이면
+            // run.Asc가 항상 0으로 강제돼 있어(RunController 생성자) 순서상 deep 분기를 asc 분기보다
+            // 먼저 검사해야 한다(그렇지 않으면 asc<=0 분기로 먼저 빠져 deep 런이 bestScore를 오염시킴).
+            if (run.DeepMode) { if (finalScore > p.BestDeepScore) { p.BestDeepScore = finalScore; p.BestDeepStage = run.Stage; } }
+            else if (run.Asc <= 0) p.SetMax("bestScore", finalScore);
             else if (finalScore > p.BestAscScore) { p.BestAscScore = finalScore; p.BestAscLevel = run.Asc; }
             if (scratch.PrayUsedThisStage) p.Inc("prayFails");
 
@@ -642,9 +649,10 @@ namespace JackpotRun.Engine
             p.TotalScore += finalScore; // 웹 game.js:2554 `p.totalScore += finalScore` — asc 무관 항상 누적.
             // L1(Opus 1차 검수): Kotlin recordRun L2179-2180 "finalScore >= (existing.bestScore ?: 0L)" —
             // >가 아니라 >=다. 동점(첫 런의 finalScore==0==priorBest 포함)도 이번 런의 캐릭/머신으로 갱신된다.
-            // 웹 파리티 P6 — BestChar/BestMachine은 Unity 전용 "일반 최고기록" 부가 필드라 위 bestScore
-            // 게이트와 짝을 맞춘다(승천 점수로 이 기록이 오염되지 않도록 asc==0일 때만 판정).
-            if (run.Asc <= 0 && finalScore >= priorBest)
+            // 웹 파리티 P6/P7-1 — BestChar/BestMachine은 Unity 전용 "일반 최고기록" 부가 필드라 위
+            // bestScore 게이트와 짝을 맞춘다(승천/심화 점수로 이 기록이 오염되지 않도록 asc==0·
+            // !deepMode일 때만 판정 — deep은 이미 asc가 항상 0이라 사실상 DeepMode 체크만 실효).
+            if (!run.DeepMode && run.Asc <= 0 && finalScore >= priorBest)
             {
                 p.BestChar = run.CharId;
                 p.BestMachine = run.MachineId;

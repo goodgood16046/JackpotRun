@@ -43,7 +43,7 @@ namespace JackpotRun.Engine
             var mods = ModsBuilder.ApplyItemMods(
                 ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                 run.PhaseItems);
-            return SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2);
+            return SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
         }
 
         // ══════════════════════════════════════════════════════════════════
@@ -102,7 +102,7 @@ namespace JackpotRun.Engine
                     ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                     run.PhaseItems);
                 int spins = SpinResolver.EffSpins(run, mods);
-                long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2);
+                long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
                 var outcome = new SpinOutcome
                 {
                     rejected = false, mode = SpinMode.N, result = null, gained = 0,
@@ -147,7 +147,7 @@ namespace JackpotRun.Engine
             // 한다.
             var pre0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels);
             var preSpins = SpinResolver.EffSpins(run, pre0);
-            var preQuota = SpinResolver.QuotaOf(run.Stage, pre0, run.Asc, run.BossPhase2);
+            var preQuota = SpinResolver.QuotaOf(run.Stage, pre0, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
             var ctx = SpinResolver.RunCtxOf(run, run.SpinIndex, preSpins, preQuota);
             var pmods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, ctx, run.PerkLevels);
             var pmods1 = ModsBuilder.ApplyItemMods(pmods0, run.PhaseItems);

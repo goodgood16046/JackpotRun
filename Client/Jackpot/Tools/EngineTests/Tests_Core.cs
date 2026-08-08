@@ -284,8 +284,11 @@ namespace JackpotRun.EngineTests
     {
         public static void Run(TestCtx t)
         {
-            t.Eq(14, Symbols.Count, "Symbols.Count");
-            t.Eq(14, Symbols.All.Length, "Symbols.All.Length");
+            // 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19) — 72종으로 확장. LegacyCount(14)는 아래
+            // 불변식 검증에 쓴다(Tests_P7_1_Pouch.cs가 신규 58종의 값 자체를 골든으로 검증).
+            t.Eq(72, Symbols.Count, "Symbols.Count");
+            t.Eq(72, Symbols.All.Length, "Symbols.All.Length");
+            t.Eq(14, Symbols.LegacyCount, "Symbols.LegacyCount");
 
             AssertSym(t, Sym.Cherry, "cherry", "🍒", "체리", 3, 0, 0, 25, Sp.NONE, false, new[] { "생명" });
             AssertSym(t, Sym.Book, "book", "📘", "책", 6, 0, 0, 18, Sp.NONE, false, new[] { "학습" });
@@ -318,6 +321,34 @@ namespace JackpotRun.EngineTests
             // SET_EXP / SET_SCORE (SlotV2Engine.kt L134-135)
             TestHelpers.CollectionEq(t, new[] { 0, 0, 8, 18, 42, 100 }, Symbols.SetExp, "SetExp");
             TestHelpers.CollectionEq(t, new[] { 0, 0, 3, 9, 24, 70 }, Symbols.SetScore, "SetScore");
+
+            // 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19 작업 지시 "기존 14종의 필드 불변 — 일반
+            // 모드 골든 보호, weight>0 심볼 집합이 바뀌면 안 됨을 테스트로 고정") — 신규 58종은 전부
+            // Symbols.LegacyCount(14) 뒤에 붙어 있고, 전부 weight==0·dormant==true여야 한다. 이 두
+            // 불변식이 성립하는 한 SpinResolver.Weighted()의 누적가중치 스캔에서 원본 14종의 절단
+            // 지점이 단 하나도 옮겨가지 않는다(0-가중치 항목은 스캔 중 r을 전혀 소모하지 않으므로).
+            int weightPositiveCount = 0;
+            for (int i = Symbols.LegacyCount; i < Symbols.All.Length; i++)
+            {
+                var s = Symbols.All[i];
+                t.Eq(0, s.weight, $"Symbols.All[{i}]({s.id}).weight == 0 (신규 58종은 전부 휴면)");
+                t.True(s.dormant, $"Symbols.All[{i}]({s.id}).dormant == true");
+                if (s.weight > 0) weightPositiveCount++;
+            }
+            t.Eq(0, weightPositiveCount, "신규 58종 중 weight>0인 항목 없음(일반모드 확률 무영향)");
+
+            // weight>0 심볼 집합 자체 = 원본 10종(cherry/book/star/gem/coin/skull/flame/magnet/bomb/
+            // crown)과 정확히 일치 — 웹 파리티 이전/이후 동일해야 하는 골든 목록.
+            var expectedWeightPositive = new HashSet<string>
+            {
+                "cherry", "book", "star", "gem", "coin", "skull", "flame", "magnet", "bomb", "crown",
+            };
+            var actualWeightPositive = new HashSet<string>();
+            foreach (var s in Symbols.All) if (s.weight > 0) actualWeightPositive.Add(s.id);
+            TestHelpers.CollectionEq(t,
+                new List<string>(expectedWeightPositive).OrderBy(x => x, StringComparer.Ordinal).ToList(),
+                new List<string>(actualWeightPositive).OrderBy(x => x, StringComparer.Ordinal).ToList(),
+                "weight>0 심볼 집합(정렬 비교) — 일반모드 골든 보호");
         }
 
         private static void AssertSym(

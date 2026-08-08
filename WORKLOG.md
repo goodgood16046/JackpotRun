@@ -4,6 +4,51 @@
 
 ---
 
+## 2026-08-09 - 웹 파리티 P7-1(심화모드 1/4) — 주머니 코어 + 심볼 카탈로그
+
+상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(AA) 참조. 요약:
+
+- **심볼 카탈로그 72종**: `Symbols.cs` 14종 → 72종(웹 `data.js` SYMS 전사, 신규 58종은 전부
+  weight=0/dormant=true — 원본 14종의 가중치 스캔·일반모드 확률에 무영향). `Sym`/`Sp` enum도
+  각각 58/51개 확장. `Symbols.LegacyCount=14` 신규 + "weight>0 심볼 집합 불변" 불변식 테스트 추가.
+- **주머니 코어**: 신규 `Content/Pouch.cs`(POUCH_CAT/RARITY/USE·TIER_BY_RARITY·POUCH_SYMBOLS(71)·
+  DEFAULT_UNLOCKED_SYMS(58)·JACKPOT_TAG·START_POUCH(총30)·DECK_MIN/MAX·MIN_KINDS·TAG_MAX_RATIO·
+  CROWN/WILD_MAX·RARITY_MAX·COMPRESSION 표·EARLY_QUOTA 전부 웹 손전사) + `Pouch.Validate`(덱 검증
+  7규칙 — 총량20~40·종류≥7·왕관≤2·와일드≤4·특수 티어 상한·같은 태그≤60%·잭팟태그≤8, 에러 메시지
+  포함). 신규 `Run/PouchOps.cs`(`PouchDraw` — 웹 `pouchDraw`/`pouchDrawOne` 전사, empty/random 특수
+  처리, bias 구조는 P7-2/3용으로 미리 마련). 신규 `Run/DeepRunHooks.cs`(`DeepPenalty` — 압축패널티×
+  EARLY_QUOTA 램프, `ApplyDeepPity` — 획득심볼 2스핀 보장, `ConsumeInstantSymbols` — instant 소모
+  단순화 버전).
+- **배선**: `SpinResolver.ResolveSpin`이 `run.DeepMode`면 가중추첨 대신 주머니 추출을 탄다.
+  `SpinResolver.QuotaOf`에 `deepPenaltyMul` 5번째 인자 추가 + 실사용 15곳 전부 갱신. `RunController`/
+  `GameSession` 생성자에 `deep` 매개변수 추가 — deep이면 asc를 항상 0으로 강제(승천/심화 상호배제,
+  P6에서 미해결로 남겨뒀던 항목 완료). `PlayerProfile.BestDeepScore/BestDeepStage`로 점수 격리(웹
+  `if(deep){...}else if(asc>0){...}else{...}` 순서 그대로). UI는 모드 진입 배선만(`AppRoot.
+  SelectedDeep`→`StartRun`→`GameSession`) — 실제 토글은 `MenuView`가 P7-4까지 계속 잠가 둔다.
+- **범위 밖(P7-2/3/4로 이월, 계획대로)**: 심볼퍽 21+15종·정비소 11종·전공 아키타입·잭팟태그 실제
+  발동·피버 게이지·POUCH 오퍼 2-step·심볼 해금 13종·심화 업적/장치·UI 보드·랭킹 3노드 분리.
+  **🚧 P7-2/3 선행 blocker(Opus 2차검수 확정)**: 장치(예언/재굴림/MANIP) 경로가 아직 `DeepMode`를
+  인식하지 못하고(일반 가중추첨을 그대로 씀) + `RunState.LockedNext`가 "empty"/"random" 주머니
+  센티널을 왕복시키지 못하는 구조적 제약 — P7-2/3 착수 전 먼저 해결해야 함(§2-(AA) 참조).
+- **테스트**: 신규 `Tests_P7_1_Pouch.cs`(58종 골든·카탈로그 교차대조·START_POUCH·압축패널티/
+  EARLY_QUOTA 배선·검증 7규칙 경계(정확히 상한 통과 6종 포함)·PouchDraw 분포+결정론+미지id방어·
+  empty/random·deepPity·instant소모(id당 최대1회, 웹 golden 재산출)·asc 상호배제·점수격리·DTO
+  왕복(Asc/Deep 최고기록)·deep 런 XP 획득·deep 자동플레이 스모크 5시드). 어서션 20164 →
+  22758(+2594), 0 실패.
+- **스모크 컴파일**: Unity 에디터 미실행 — `dotnet exec csc.dll` 오프라인 검증(Assembly-CSharp
+  런타임 84개·Assembly-CSharp-Editor 6개) 둘 다 0에러·0경고.
+- **Opus 2차검수 반영(HIGH2·MED2·LOW일괄, 상세 §2-(AA) 하단)**: ①[HIGH] `ReelView.RandomSymbol()`
+  (릴 필러 5곳)이 72종 전체에서 균등 추첨해 신규 58종(스프라이트 없음)이 뽑힐 때마다 빈칸이 보이던
+  회귀를 `Symbols.LegacyCount`(14)로 한정해 해소. ②[HIGH] `UiSceneBuilder`의 타이틀/릴 스프라이트
+  굽기 루프도 동일하게 LegacyCount로 한정(타이틀 화면은 null 미필터라 실제 회귀, 게임 릴은 소비처가
+  이미 null을 걸러 기능 버그는 아니었지만 오염 방지 차원에서 함께 정리). ③[MED] instant 소모를
+  웹(game.js:814-828) 그대로 "id당 최대 1회"로 정정(중복 등장해도 1개만 차감 — knot 골든값 5→3에서
+  5→4로 재산출). ④[MED] 어서션 기준선을 P6 마지막 공식 기록(20164)으로 정정. ⑤[LOW 일괄] DTO 왕복
+  테스트에 승천/심화 최고기록 5필드 추가, PouchOps의 미지 id 무시 계약을 주석+테스트로 명문화, 덱
+  검증 7규칙 중 상한형 5규칙의 "정확히 상한" 통과 케이스 6종 추가, 장치/LockedNext 이슈를 P7-2/3
+  선행 blocker로 명시. 부수 발견: Editor 스모크가 스테일 참조 dll을 그대로 썼던 절차 결함도
+  함께 정정(§2-(AA) 하단 "재검증" 각주).
+
 ## 2026-08-09 - 웹 파리티 P6 — 승천(심화 학기) A1~A10
 
 상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(Z) 참조. 요약:

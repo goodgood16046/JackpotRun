@@ -337,6 +337,15 @@ namespace JackpotRun.EngineTests
             profile.LastCombo = "novice,basic,dev_safe,";
             // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 profile.tutDone) — PlayerProfile.TutDone.
             profile.MarkTutorialDone();
+            // Opus 2차검수(P7-1, 2026-08-09) [LOW]⑤ — 승천(P6)/심화(P7-1) 최고기록 필드도 이 공용
+            // 왕복 테스트에서 함께 검증한다(그동안 별도 테스트가 없었음). AscMax=3(0이 아닌 값 —
+            // ProfileDto.FromDto의 "(ascMax==0 && graduations==0)→-1" 마이그레이션 가드를 건드리지
+            // 않는 값으로 골라 이 테스트의 관심사(원시 왕복)를 그 가드 로직과 분리한다).
+            profile.AscMax = 3;
+            profile.BestAscScore = 4200;
+            profile.BestAscLevel = 3;
+            profile.BestDeepScore = 5300;
+            profile.BestDeepStage = 11;
 
             var dto = ProfileDto.ToDto(profile);
             var restored = ProfileDto.FromDto(dto);
@@ -360,6 +369,12 @@ namespace JackpotRun.EngineTests
             t.Eq(profile.PinnedChallenge, restored.PinnedChallenge, "[dto-roundtrip] PinnedChallenge 동일");
             t.Eq(profile.LastCombo, restored.LastCombo, "[dto-roundtrip] LastCombo 동일");
             t.True(restored.TutDone, "[dto-roundtrip] TutDone 왕복 보존(true)");
+            // 승천(P6)/심화(P7-1) 최고기록 왕복.
+            t.Eq(profile.AscMax, restored.AscMax, "[dto-roundtrip] AscMax 동일(P6)");
+            t.Eq(profile.BestAscScore, restored.BestAscScore, "[dto-roundtrip] BestAscScore 동일(P6)");
+            t.Eq(profile.BestAscLevel, restored.BestAscLevel, "[dto-roundtrip] BestAscLevel 동일(P6)");
+            t.Eq(profile.BestDeepScore, restored.BestDeepScore, "[dto-roundtrip] BestDeepScore 동일(P7-1)");
+            t.Eq(profile.BestDeepStage, restored.BestDeepStage, "[dto-roundtrip] BestDeepStage 동일(P7-1)");
 
             // 빈 프로필(최초 실행 상태)도 왕복이 안전한지 확인.
             var emptyDto = ProfileDto.ToDto(new PlayerProfile());
@@ -367,6 +382,11 @@ namespace JackpotRun.EngineTests
             t.Eq(0, emptyRestored.Stats.Count, "[dto-roundtrip] 빈 프로필 Stats.Count == 0");
             t.Eq(0, emptyRestored.AchievedIds.Count, "[dto-roundtrip] 빈 프로필 AchievedIds.Count == 0");
             t.True(!emptyRestored.TutDone, "[dto-roundtrip] 빈 프로필 TutDone 기본값 false");
+            t.Eq(-1, emptyRestored.AscMax, "[dto-roundtrip] 빈 프로필 AscMax 기본값 -1(미졸업)");
+            t.Eq(0L, emptyRestored.BestAscScore, "[dto-roundtrip] 빈 프로필 BestAscScore 기본값 0");
+            t.Eq(0, emptyRestored.BestAscLevel, "[dto-roundtrip] 빈 프로필 BestAscLevel 기본값 0");
+            t.Eq(0L, emptyRestored.BestDeepScore, "[dto-roundtrip] 빈 프로필 BestDeepScore 기본값 0(P7-1)");
+            t.Eq(0, emptyRestored.BestDeepStage, "[dto-roundtrip] 빈 프로필 BestDeepStage 기본값 0(P7-1)");
 
             // FromDto(null)도 예외 없이 빈 프로필을 반환해야 한다(손상된 저장 파일 방어, ProfileStore.cs 계약).
             var nullRestored = ProfileDto.FromDto(null);

@@ -303,6 +303,37 @@ namespace JackpotRun.Engine
         // mods에 symbolWeightMul=0으로 반영한다.
         public string BannedSym = "";
 
+        // ── 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19, 웹 game.js:285-337 startRun 심화 필드군) ──
+        // 심화모드(심볼 덱/주머니) — 사실상 제2의 게임. 이 슬라이스(P7-1)는 코어(주머니 추출/덱검증/
+        // 압축패널티/deepPity/instant소모/점수격리)만 배선한다 — 심볼퍽/정비소/전공/잭팟태그/피버/
+        // 오퍼는 P7-2/3, UI 보드는 P7-4.
+        //
+        // 웹 game.js:292 `deepMode: wantDeep` — 이 런이 심화모드인지. RunController 생성자가 세팅한
+        // 뒤 런 내내 바뀌지 않는다(Asc와 동일 취급). 심화 런은 asc가 항상 0으로 강제된다(웹 game.js:
+        // 285-289 "wantDeep이면 asc 강제 0" — RunController 생성자 참조).
+        public bool DeepMode = false;
+
+        // 웹 game.js:293 `pouch: wantDeep ? E.startPouch() : null` — 심볼 주머니 { [symId]: count }.
+        // 일반 런은 항상 빈 상태(DeepMode=false면 아무도 채우지 않음) — RunController가 DeepMode=true일
+        // 때만 Content.Pouch.NewStartPouch()로 채운다. PouchOps.PouchDraw(추출)·Pouch.Validate(검증)가
+        // 이 필드를 읽는다.
+        public readonly Dictionary<string, int> Pouch = new Dictionary<string, int>();
+
+        // 배치F P2(웹 game.js:337 `deepPity: null`) — 획득 심볼 2스핀 보장 상태. add/upgrade(P7-2/3
+        // 보상 지급) 직후 설정되고 DeepRunHooks.ApplyDeepPity가 첫 fresh 굴림에서 소진한다. 이 슬라이스는
+        // 지급 진입점(오퍼)이 없어 상태·치환 로직만 준비 — 테스트는 이 필드를 직접 세팅해 검증한다.
+        public DeepPityState DeepPity = null;
+
+        // 웹 game.js:308 `deepCompressExtra: 0` — 상점 '덱 압축' 서비스 누적 요구율(+5%씩,
+        // DeepRunHooks.DeepPenalty 곱셈 인자). 정비소 자체는 P7-2/3라 이 슬라이스에서는 항상 0으로
+        // 고정된다(필드만 미리 준비 — 정비소 슬라이스가 이 값을 갱신하기만 하면 곧장 반영됨).
+        public double DeepCompressExtra = 0.0;
+
+        // 웹 game.js:295-304 `deepStats` — 심화 전용 추적(랭킹 오염 방지·요약 + P7-4 심화 업적 카운터
+        // 소스). 이번 슬라이스는 상태 골격만 준비한다(작업 지시 8번) — StatTracker 카운터 반영(P7-4)은
+        // 아직 이 필드를 읽지 않는다. DeepMode=false면 항상 null.
+        public DeepStats DeepStats = null;
+
         public RunState(long seed)
         {
             Rng = new Rng(seed);

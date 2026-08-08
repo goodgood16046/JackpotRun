@@ -792,10 +792,22 @@ namespace JackpotRun.EditorTools
 
             // 심볼 스프라이트 14종 — 런타임은 Editor 전용 UiSpriteGen을 참조할 수 없어 빌드 시점에
             // 구워 넘긴다(ReelView.symbolSprites와 동일한 "빌더가 와이어링" 관례).
+            // Opus 2차검수(P7-1, 2026-08-09) [HIGH]② — 웹 파리티 P7-1로 `Symbols.All`이 14→72종으로
+            // 늘었다. 신규 58종(심화모드 주머니 전용, weight=0)은 `unity-assets/manifest.json`에
+            // 스프라이트 자산이 없어 `UiSpriteGen.Load`가 null을 반환한다. 이 배열의 소비처인
+            // `TitleView.SymbolCycleLoop()`(타이틀 화면 장식 릴)는 null 스프라이트를 걸러내지 않고
+            // 그대로 대입하므로(TitleView.cs:149), 신규분을 그대로 구우면 타이틀 릴이 ~80%(58/72)
+            // 확률로 빈 사각형을 보여주는 회귀가 생긴다 — `Symbols.LegacyCount`(14, 실제 릴에 등장
+            // 가능한 심볼 전체) 범위로 한정하고, 혹시 모를 개별 누락에도 방어적으로 null은 아예
+            // 배열에 넣지 않는다(리스트로 모아 압축).
             var syms = JackpotRun.Engine.Symbols.All;
-            var symSprites = new Sprite[syms.Length];
-            for (int i = 0; i < syms.Length; i++) symSprites[i] = UiSpriteGen.Load("sym_" + syms[i].id);
-            result.symbolSprites = symSprites;
+            var symSpriteList = new System.Collections.Generic.List<Sprite>(JackpotRun.Engine.Symbols.LegacyCount);
+            for (int i = 0; i < JackpotRun.Engine.Symbols.LegacyCount; i++)
+            {
+                var sp = UiSpriteGen.Load("sym_" + syms[i].id);
+                if (sp != null) symSpriteList.Add(sp);
+            }
+            result.symbolSprites = symSpriteList.ToArray();
 
             // ── 타이틀/부제/최고기록/시작 버튼/힌트 ──────────────────────────────────────
             // 그라데이션 텍스트(#ffe87a→gold2)는 uGUI 불가 → #ffdd5c 단색 + 골드 글로우(Outline)로 근사
@@ -1970,9 +1982,15 @@ namespace JackpotRun.EditorTools
 
             // 심볼 스프라이트 14종을 빌드 시점에 구워 ReelView.symbolSprites로 넘긴다(런타임은 Editor 전용
             // UiSpriteGen을 참조할 수 없다 — ReelView.cs 헤더 주석 "빌더가 와이어링" 참조).
+            // Opus 2차검수(P7-1, 2026-08-09) [HIGH]② — `Symbols.All`이 72종으로 늘었지만 신규 58종은
+            // 아직 스프라이트 자산이 없다(위 TitleBuildResult.symbolSprites 각주와 동일 근거).
+            // `ReelView.Awake()`는 이미 null 스프라이트를 걸러내므로(ReelView.cs:225) 기능적으로는
+            // 안전하지만, 72개를 전부 굽고 그중 58개를 즉시 버리는 것은 씬 리빌드마다 불필요한
+            // `Resources.Load` 호출과 직렬화 데이터 낭비("다음 씬 리빌드 오염")라 여기서도
+            // `Symbols.LegacyCount`(14)로 한정한다.
             var syms = JackpotRun.Engine.Symbols.All;
-            var sprites = new (string id, Sprite sprite)[syms.Length];
-            for (int i = 0; i < syms.Length; i++)
+            var sprites = new (string id, Sprite sprite)[JackpotRun.Engine.Symbols.LegacyCount];
+            for (int i = 0; i < JackpotRun.Engine.Symbols.LegacyCount; i++)
                 sprites[i] = (syms[i].id, UiSpriteGen.Load("sym_" + syms[i].id));
             result.symbolSprites = sprites;
         }
