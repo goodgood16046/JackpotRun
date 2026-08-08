@@ -92,6 +92,16 @@ namespace JackpotRun.Engine
     // 끝나 있다 — 이 액션은 순수 phase 게이트일 뿐이다.
     public sealed class ProceedToStage : RunAction { }
 
+    // 웹 파리티 P7-2(WEB_PARITY_DESIGN.md §1-A #19 2/4 슬라이스 C) — 심화모드 상점 '심볼 정비' 서비스
+    // 구매(11종, Content/RepairServices.cs). args는 targetPick 서비스(addBasic/addHigh/addRare/remove/
+    // swap/upgrade/tagbuff)에서만 필요 — 나머지(purify/expand/compress/curseCleanse)는 null로 충분.
+    public sealed class RepairBuy : RunAction
+    {
+        public readonly string serviceId;
+        public readonly RepairArgs args;
+        public RepairBuy(string serviceId, RepairArgs args = null) { this.serviceId = serviceId; this.args = args; }
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // RunEvent — UI가 연출로 번역할 구조화 이벤트. 카톡 출력 문자열을 조립하지 않는다(설계 원칙 5) —
     // 기존 S3 산출물(SpinOutcome/ClearOutcome/FailureOutcome)을 그대로 페이로드로 재사용하고, S4가 새로
@@ -107,6 +117,9 @@ namespace JackpotRun.Engine
     //   BOSS_PHASE2 — 웹 파리티 P6(§1-A #18): A10 승천 최종보스(15) 1페이즈 클리어(진짜 클리어 아님,
     //     요구치↑ 후 같은 스테이지 재시작). StatTracker는 이 타입을 STAGE_CLEARED와 다르게 취급한다
     //     (스핀 통계만 반영, 클리어/졸업 통계는 건너뜀 — StageFlow.BuildClearEvent/ClearStage 참조).
+    //   REPAIR_DONE / ARCHETYPE_CHANGED — 웹 파리티 P7-2(§1-A #19 2/4): 정비소 구매 성공 / 전공
+    //     발동·승급. RepairBuy 성공 시 REPAIR_DONE 1개 + (전공 변화가 있으면) ARCHETYPE_CHANGED 1개,
+    //     최대 2개 이벤트가 함께 반환된다(Run/RepairShop.cs 참조).
     //
     // ⚠️ UI 계약 주의:
     //   1) STAGE_CLEARED의 spin.result는 즉시클리어 아이템(grad_ring/gold_grad_bell) 경로에선 null이다
@@ -164,6 +177,17 @@ namespace JackpotRun.Engine
         public string deviceId;
         public bool secondary;
         public IReadOnlyList<string> peekCells;
+
+        // 웹 파리티 P7-2(WEB_PARITY_DESIGN.md §1-A #19 2/4 슬라이스 C) — REPAIR_DONE(정비소 구매 성공)
+        // 전용. curseCleanse는 curseRemovedId(위 노드 델타 필드, 기존 재사용)에 제거된 저주 id를 채운다.
+        public string repairServiceId;
+        public int repairPrice;
+
+        // 웹 파리티 P7-2(§1-A #19 B) — ARCHETYPE_CHANGED(전공 발동/승급) 전용. archUpgraded=false면
+        // "발동"(새 계열), true면 "승급"(같은 계열 tier↑) — 웹 game.js:554 `fam !== prevFam ? "발동" : "승급"`.
+        public string archFamily;
+        public int archTier;
+        public bool archUpgraded;
         // WEB_PARITY P1 ④: 장치가 "영구 보유"로 지급된 이벤트(EVENT 10분기표 6번 / DEVICE 노드)의
         // 장치id — 엔진은 Engine/Profile을 참조하지 않으므로(설계 원칙 6) PlayerProfile.OwnedDevices
         // 반영은 이 필드를 관찰하는 StatTracker(호출측 글루 레이어)가 담당한다. 비어있으면 이 이벤트로
@@ -293,6 +317,7 @@ namespace JackpotRun.Engine
                 case Continue _: return HandleContinue();
                 case TakeDevice td: return NodeEvents.TakeDevice(State, td.equip);
                 case ProceedToStage _: return HandleProceedToStage();
+                case RepairBuy r: return RepairShop.Execute(State, r.serviceId, r.args);
                 default: return RunEvents.Rejected("UNKNOWN_ACTION");
             }
         }

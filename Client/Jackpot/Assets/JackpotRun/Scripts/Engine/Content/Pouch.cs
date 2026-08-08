@@ -11,11 +11,13 @@ namespace JackpotRun.Engine
     // 이 파일은 Content 계층(Run/RunState 비의존) — Symbols.cs(같은 계층)만 참조한다. 주머니에서 실제
     // 릴 칸을 뽑는 PouchDraw(Rng+Cell 필요)는 Run 계층(Engine/Run/PouchOps.cs)에 있다.
     //
-    // [P7-1 범위 밖 — 데이터는 옮기지 않음, 보고 대상] REPAIR_SERVICES(정비소)·RANDPACK_DIST/COUNT/
-    // PRISM_BONUS·DESIGNATED_UPGRADE_CHANCE·PACKAGE_CHANCE(오퍼 2-step)·REL_MIN/REL_MIN_BY_SYM(전공
-    // 게이트)·ARCH_T1/T2(전공 발동)·FEVER_*(피버 게이지)·BELL_FEST_MUL·EARLY_EXP_BOOST_IDS(오퍼 가중)·
-    // ACH_SYMBOL_UNLOCK(심볼 해금)·POUCH_UPGRADE(상위계열 매핑, upgrade 서비스 전용) — 전부 P7-2/3
-    // (심볼퍽/정비소/전공/잭팟태그/피버/오퍼) 또는 P7-4(업적) 범위. 작업 지시 §범위 그대로.
+    // [P7-1 범위 밖이었으나 P7-2에서 편입] REPAIR_SERVICES(정비소)는 Content/RepairServices.cs로,
+    // POUCH_UPGRADE(상위계열 매핑)는 바로 아래 Upgrade/UpgradeParent로, ARCH_T1/T2(전공 발동)는
+    // Content/Archetypes.cs로 각각 이식했다(WEB_PARITY_DESIGN.md §1-A #19 2/4 슬라이스).
+    // [여전히 범위 밖 — 데이터는 옮기지 않음, 보고 대상] RANDPACK_DIST/COUNT/PRISM_BONUS·
+    // DESIGNATED_UPGRADE_CHANCE·PACKAGE_CHANCE(오퍼 2-step)·REL_MIN/REL_MIN_BY_SYM(전공 게이트)·
+    // FEVER_*(피버 게이지)·BELL_FEST_MUL·EARLY_EXP_BOOST_IDS(오퍼 가중)·ACH_SYMBOL_UNLOCK(심볼 해금)
+    // — 전부 P7-3(잭팟태그/피버/오퍼) 또는 P7-4(업적) 범위. 작업 지시 §범위 그대로.
     public static class Pouch
     {
         // ── §1.1 V3P1 심볼 카테고리 — base(9)/harmful(해골·빈칸·저주 계열)/special(나머지) 전수 분류.
@@ -465,5 +467,122 @@ namespace JackpotRun.Engine
         // JS는 63) 에러 메시지 표시 문구에서만 이 헬퍼로 통일한다(ok/errors 존재 여부 판정 자체는
         // ratio > tagMax 비교로만 결정되므로 이 반올림 방식과 무관 — 순수 표시 정확도 문제).
         private static int JsRound(double x) => (int)System.Math.Floor(x + 0.5);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 웹 파리티 P7-2(WEB_PARITY_DESIGN.md §1-A #19 2/4 슬라이스) — 웹 data.js POUCH_UPGRADE ·
+        // engine.js pouchTagCounts/mostCommonTag/familyCount/applySymbolReward 전사. 심볼퍽 집계
+        // (Content/SymPerks.cs)·전공 아키타입(Content/Archetypes.cs)·정비소(Run/RepairShop.cs) 공용.
+        // ══════════════════════════════════════════════════════════════════════
+
+        // 상위계열 매핑(업그레이드 보상/정비 대상) — 웹 data.js POUCH_UPGRADE(6개) 그대로.
+        public static readonly Dictionary<string, string> Upgrade = new Dictionary<string, string>
+        {
+            { "cherry", "cherry_ripe" }, { "book", "tome" }, { "gem", "gem_cut" },
+            { "coin", "coin_bag" }, { "skull", "skull_black" }, { "flame", "ember" },
+        };
+
+        // 역매핑: 상위 심볼 → base(cherry_ripe→cherry 등) — 웹 `UPG_PARENT`. 계열 아키타입의
+        // "셀 id → base 계열" 판정(SpinResolver.Evaluate ArchMul)에 쓴다.
+        public static readonly Dictionary<string, string> UpgradeParent = BuildUpgradeParent();
+        private static Dictionary<string, string> BuildUpgradeParent()
+        {
+            var d = new Dictionary<string, string>();
+            foreach (var kv in Upgrade) d[kv.Value] = kv.Key;
+            return d;
+        }
+
+        // 주머니 태그별 총 개수 — 웹 `pouchTagCounts`. 0 이하 카운트는 무시.
+        public static Dictionary<string, int> TagCounts(IReadOnlyDictionary<string, int> pouch)
+        {
+            var byTag = new Dictionary<string, int>();
+            if (pouch == null) return byTag;
+            foreach (var kv in pouch)
+            {
+                if (kv.Value <= 0) continue;
+                var info = Symbols.ById(kv.Key);
+                if (info?.tags == null) continue;
+                for (int i = 0; i < info.tags.Length; i++)
+                {
+                    var tag = info.tags[i];
+                    byTag[tag] = byTag.TryGetValue(tag, out var c) ? c + kv.Value : kv.Value;
+                }
+            }
+            return byTag;
+        }
+
+        // 주머니에서 가장 많은 태그(동률=사전순 첫) — 웹 `mostCommonTag`. 없으면 null.
+        public static string MostCommonTag(IReadOnlyDictionary<string, int> pouch)
+        {
+            var byTag = TagCounts(pouch);
+            string best = null; int bn = -1;
+            var keys = new List<string>(byTag.Keys);
+            keys.Sort(System.StringComparer.Ordinal);
+            foreach (var tag in keys) if (byTag[tag] > bn) { bn = byTag[tag]; best = tag; }
+            return best;
+        }
+
+        // 참조 계열 보유수 — ref="tag:X"면 태그 총수, 아니면 계열(자신+상위) 합 — 웹 `familyCount`
+        // (`POUCH_FAMILY[ref] || [ref]` 폴백과 동치: ref가 Upgrade의 base키가 아니면 자기 자신만 합산).
+        public static int FamilyCount(IReadOnlyDictionary<string, int> pouch, string reference)
+        {
+            if (pouch == null || string.IsNullOrEmpty(reference)) return 0;
+            if (reference.StartsWith("tag:", System.StringComparison.Ordinal))
+            {
+                var tag = reference.Substring(4);
+                var counts = TagCounts(pouch);
+                return counts.TryGetValue(tag, out var c) ? c : 0;
+            }
+            int sum = pouch.TryGetValue(reference, out var b) ? b : 0;
+            if (Upgrade.TryGetValue(reference, out var up) && pouch.TryGetValue(up, out var u)) sum += u;
+            return sum;
+        }
+
+        // ── 보상/정비 공용 주머니 연산(순수·불변, 항상 새 Dictionary 반환) — 웹 `applySymbolReward` ──
+        public enum PouchRewardType { Add, Remove, Swap, Upgrade }
+
+        public sealed class PouchReward
+        {
+            public PouchRewardType Type;
+            public string Id;   // Add/Remove/Upgrade 대상
+            public string From; // Swap 원본
+            public string To;   // Swap 대상
+            public int N;
+        }
+
+        // { type:"add", id, n } → id +n · "remove" → id -n(0 하한) · "swap" → from -n,to +n(실제
+        // 이동량=min(보유,n)) · "upgrade" → id -n, Upgrade[id] +n(매핑 없으면 무효과) — 웹과 동일.
+        public static Dictionary<string, int> ApplyReward(IReadOnlyDictionary<string, int> pouch, PouchReward reward)
+        {
+            var p = new Dictionary<string, int>(pouch ?? new Dictionary<string, int>());
+            void Inc(string id, int d)
+            {
+                if (string.IsNullOrEmpty(id)) return;
+                int v = System.Math.Max(0, (p.TryGetValue(id, out var c) ? c : 0) + d);
+                if (v == 0) p.Remove(id); else p[id] = v;
+            }
+            if (reward == null) return p;
+            int n = System.Math.Max(0, reward.N);
+            switch (reward.Type)
+            {
+                case PouchRewardType.Add: Inc(reward.Id, n); break;
+                case PouchRewardType.Remove: Inc(reward.Id, -n); break;
+                case PouchRewardType.Swap:
+                {
+                    int moved = System.Math.Min(p.TryGetValue(reward.From, out var fc) ? fc : 0, n);
+                    Inc(reward.From, -moved); Inc(reward.To, moved);
+                    break;
+                }
+                case PouchRewardType.Upgrade:
+                {
+                    if (Upgrade.TryGetValue(reward.Id, out var up))
+                    {
+                        int moved = System.Math.Min(p.TryGetValue(reward.Id, out var ic) ? ic : 0, n);
+                        Inc(reward.Id, -moved); Inc(up, moved);
+                    }
+                    break;
+                }
+            }
+            return p;
+        }
     }
 }

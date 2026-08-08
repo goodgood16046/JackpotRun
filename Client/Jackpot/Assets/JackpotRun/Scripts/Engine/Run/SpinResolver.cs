@@ -127,19 +127,57 @@ namespace JackpotRun.Engine
             return cells;
         }
 
-        public static List<Cell> CellsFromIds(IReadOnlyList<string> ids)
+        // 웹 파리티 P7-2 blocker(§0, WEB_PARITY_DESIGN.md §2-(AA) 선행 blocker) — "empty"/"random"
+        // 주머니 전용 센티널이 LockedNext(문자열 id 리스트) → Cell 왕복에서 조용히 드롭되던 버그를
+        // 고쳤다. 이전 구현은 `Symbols.ById(id)`가 null을 반환하는 모든 id(센티널 포함, 순수 오타/미지
+        // id 포함)를 그냥 건너뛰어 반환 리스트가 입력보다 짧아질 수 있었다(웹 대조: 웹은 lockedNext에
+        // 항상 `res.cells`/`raw`를 그대로 넣으므로 센티널이 섞여도 칸 수가 절대 안 준다) — 5칸 예언
+        // 결과에 "empty"가 하나라도 섞이면 다음 스핀이 4칸으로 줄어드는 별도 버그를 유발했다.
+        // rng/pouch(둘 다 선택)를 넘기면 "random"도 PouchOps.DrawOne과 동일하게 완전히 재해석해
+        // 복원한다(현재 유일한 호출부 ResolveSpin은 항상 run.Rng/run.Pouch를 넘긴다 — "random"이
+        // LockedNext에 literal로 남는 경로는 PouchOps.DrawOne이 draw 시점에 이미 실심볼로 해석해
+        // 버리므로 사실상 없지만, 방어적으로 완전 지원한다). rng/pouch 생략(테스트 등 기존 호출부)
+        // 시에는 "random"을 EmptySym으로 안전 대체한다 — 어느 경로든 **입력 id 개수 = 출력 칸 개수**를
+        // 구조적으로 보장한다(미지 id도 더 이상 드롭하지 않고 EmptySym으로 대체).
+        public static List<Cell> CellsFromIds(IReadOnlyList<string> ids, Rng rng = null, IReadOnlyDictionary<string, int> pouch = null)
         {
             var list = new List<Cell>();
             if (ids == null) return list;
             for (int i = 0; i < ids.Count; i++)
             {
-                var info = Symbols.ById(ids[i]);
-                if (info != null) list.Add(new Cell(info));
+                var id = ids[i];
+                if (id == "empty") { list.Add(new Cell(EmptySym)); continue; }
+                if (id == "random")
+                {
+                    list.Add(rng != null && pouch != null ? PouchOps.DrawOne(id, rng, pouch) : new Cell(EmptySym, "🎲칸"));
+                    continue;
+                }
+                var info = Symbols.ById(id);
+                list.Add(new Cell(info ?? EmptySym));
             }
             return list;
         }
 
         public static Cell RollOne(Rng rng, Mods mods) => new Cell(Weighted(rng, mods));
+
+        // 웹 파리티 P7-2 blocker(§0) — 심화모드 인식 굴림 단일 진입점. 웹의 단일 `this._roll(mods,
+        // seedActive)`(game.js:657-691)에 대응: DeepMode면 mods의 symbolWeightMul/weightAdd/
+        // rareWeightMul을 PouchBias로 변환(DeepRunHooks.BuildPouchBias)해 PouchOps.PouchDraw를,
+        // 아니면 기존 RollRaw를 그대로 호출한다. PEEK(DeviceActions.HandlePeek)·MANIP 4종
+        // (DeviceActions.HandleManip)·도박꾼 무료재굴림(DeviceActions.GamblerReroll)·재시험
+        // (ItemUse.UseRetakeForm)·timeline_ticket(ItemUse.ApplyItemPurchase)이 전부 이 헬퍼(와 아래
+        // RollCellOne)로 수렴해, 심화 런에서 이 경로들이 주머니 밖 심볼을 섞어 내지 않게 한다 — 이전에는
+        // 전부 RollRaw/RollOne(일반 가중추첨)을 직접 호출해 심화 런에서도 72종 전체에서 뽑고 있었다.
+        public static List<Cell> RollCells(RunState run, Mods mods, int reel, bool seedActive) =>
+            run.DeepMode
+                ? PouchOps.PouchDraw(run.Rng, run.Pouch, reel, DeepRunHooks.BuildPouchBias(mods))
+                : RollRaw(run.Rng, mods, reel, seedActive);
+
+        // RollCells의 1칸 버전 — MANIP(부분/전체 재굴림)·재시험처럼 칸을 하나씩 굴리는 호출부용.
+        public static Cell RollCellOne(RunState run, Mods mods) =>
+            run.DeepMode
+                ? PouchOps.PouchDraw(run.Rng, run.Pouch, 1, DeepRunHooks.BuildPouchBias(mods))[0]
+                : RollOne(run.Rng, mods);
 
         // ── 셀 조작 (Kotlin applyCellOps L2114-2125) — NEXTSPIN 아이템의 "셀 치환" 레버, 평가 직전 적용.
         // eraser_old/eraser_fine은 동일 case(최저가치 1칸 제거), eraser_god은 2회 반복.
@@ -242,6 +280,16 @@ namespace JackpotRun.Engine
             return mods.perSymbolScore.TryGetValue(info.sym, out var v) ? v : 0;
         }
 
+        // 웹 파리티 P7-2(§1-A #19 B, 웹 engine.js:671-672 `famBase`/`archMul`) — 심볼 id → base 계열
+        // (상위계열이면 Pouch.UpgradeParent로 환산, 아니면 자기 자신) 기준으로 계열 아키타입 곱셈
+        // 증가분을 조회한다. map이 비어있으면(일반모드 항상 이 경우) 즉시 0 — 무회귀.
+        private static double ArchMul(IReadOnlyDictionary<string, double> map, string sid)
+        {
+            if (map == null || map.Count == 0) return 0;
+            string fam = Pouch.UpgradeParent.TryGetValue(sid, out var p) ? p : sid;
+            return map.TryGetValue(fam, out var v) ? v : 0;
+        }
+
         // ── evaluate() (Kotlin L2131-2356) — 원시 셀 → 폭탄/자석/세트/잭팟/위치/해골/신규16종/전역배수.
         // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): capMul 매개변수 제거 — 웹 engine.js에는 이 함수가 갖던
         // "총배율 캡"(위치/불꽃/첫막스핀/전역배수 곱을 capBase 대비 클램프) 자체가 없다.
@@ -330,7 +378,11 @@ namespace JackpotRun.Engine
 
             // 기본 EXP/점수/코인 + 즉발 심볼효과 + 태그 집계
             double exp = 0.0, score = 0.0;
-            int coins = 0;
+            // 웹 파리티 P7-2(§1-A #19 B) — 아키타입 코인 곱(조폐국)이 셀당 소수 배율을 낼 수 있어
+            // (예 s.coin × 1.10) int 누산이면 매 칸 절삭 오차가 누적된다. 웹은 JS number(부동소수)라
+            // 최종 1회만 절삭한다 — coinsAcc를 double로 두고, 최종 결과(SpinResult.coins, int 필드)로
+            // 변환하는 아래 finalCoins 시점에만 캐스트한다.
+            double coinsAcc = 0.0;
             double jackpotFixed = 0.0;
             int symCoinGain = 0;
             int keyCount = 0;
@@ -349,10 +401,35 @@ namespace JackpotRun.Engine
                         cellExp += mods.tagExpBonus.TryGetValue(tag, out var teb) ? teb : 0;
                     }
                 }
+                // 웹 파리티 P7-2(§1-A #19 A, 웹 engine.js:679-683) — 심화 태그강화(정비소 '태그 강화'
+                // sv_tagbuff + 심볼퍽 tagBuff류 sa_tag_sense/sa_tag_major/sp_solo_major/sr_compass 병합,
+                // Mods.deepTagMul) 곱. 셀이 가진 모든 태그의 배수를 합산해 ±50%로 클램프한 뒤 곱한다 —
+                // 아키타입 곱(아래 archMul)과 별개 축, 웹과 동일하게 이쪽을 먼저 적용한다. 일반모드는
+                // mods.deepTagMul이 항상 빈 dict라 무회귀.
+                if (mods.deepTagMul.Count > 0 && s.tags != null)
+                {
+                    double tagMul = 0;
+                    for (int ti2 = 0; ti2 < s.tags.Length; ti2++)
+                        tagMul += mods.deepTagMul.TryGetValue(s.tags[ti2], out var tv) ? tv : 0;
+                    tagMul = Math.Max(-0.5, Math.Min(0.5, tagMul));
+                    if (tagMul != 0) cellExp *= (1 + tagMul);
+                }
+                // 웹 파리티 P7-2(§1-A #19 B, 웹 engine.js:685 `archMul(mods.deepFamilyExpMul, s.id)`) —
+                // 계열 아키타입 EXP 곱(체리/도서관/화력·강령학파). 태그버프와 별개 축(clamp 무관·순수
+                // 계열) — centerExpMul 이전에 곱한다(웹과 동일 순서). 일반모드는 mods.deepFamilyExpMul이
+                // 항상 빈 dict라 ArchMul이 0을 반환해 무회귀.
+                double aem = ArchMul(mods.deepFamilyExpMul, s.id);
+                if (aem != 0) cellExp *= (1 + aem);
                 if (idx == reel / 2) cellExp *= mods.centerExpMul; // 가운데 칸 강화
                 exp += cellExp;
-                score += s.score + PerSymScoreBonus(mods, s.id);
-                coins += (int)s.coin;
+                // 웹 engine.js:690 — 계열 아키타입 점수 곱(보석상).
+                double cellScore = s.score + PerSymScoreBonus(mods, s.id);
+                double asm = ArchMul(mods.deepFamilyScoreMul, s.id);
+                if (asm != 0) cellScore *= (1 + asm);
+                score += cellScore;
+                // 웹 engine.js:693 — 계열 아키타입 코인 곱(조폐국).
+                double acm = ArchMul(mods.deepFamilyCoinMul, s.id);
+                coinsAcc += acm != 0 ? s.coin * (1 + acm) : s.coin;
                 switch (s.special)
                 {
                     case Sp.DICE:
@@ -360,10 +437,15 @@ namespace JackpotRun.Engine
                         exp += d; notes.Add($"🎲 +{d}");
                         break;
                     case Sp.SKULL:
+                    {
                         skulls++;
                         double se = mods.skullExp + mods.perSkullExp;
-                        exp += se; score += mods.skullScoreBonus;
+                        // 웹 engine.js:696 — 강령학파(skull 계열) t2는 해골 EXP 가산분에도 아키타입 곱 적용.
+                        double ase = ArchMul(mods.deepFamilyExpMul, s.id);
+                        exp += ase != 0 ? se * (1 + ase) : se;
+                        score += mods.skullScoreBonus;
                         break;
+                    }
                     case Sp.COIN:
                         symCoinGain += (int)s.coin;
                         break;
@@ -377,7 +459,7 @@ namespace JackpotRun.Engine
             if (keyCount > 0)
             {
                 int keyCoins = keyCount * Formulas.KEY_COIN_PER;
-                coins += keyCoins;
+                coinsAcc += keyCoins;
                 notes.Add($"🗝 보물 +{keyCoins}🪙");
             }
             if (symCoinGain > 0) notes.Add($"🪙 +{symCoinGain}🪙");
@@ -519,7 +601,7 @@ namespace JackpotRun.Engine
                 notes.Add($"👁️해골관찰 ☠{skulls} 점수 ×{FmtMul(mods.skull3ScoreMul)}");
             }
             score = score * mods.scoreMul + mods.flatScore;
-            coins = (int)(coins * mods.coinMul) + Formulas.COIN_BASE;
+            int coins = (int)(coinsAcc * mods.coinMul) + Formulas.COIN_BASE;
 
             return new SpinResult
             {
@@ -673,6 +755,10 @@ namespace JackpotRun.Engine
             // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 _mods() A2/A8 규칙) — "실제 롤에 쓰이는
             // 최종 mods"에만 적용(QuotaOf 등 수치 전용 mods에는 불필요). AscRunHooks.cs 참조.
             AscRunHooks.ApplyRunAscMods(mods, run);
+            // 웹 파리티 P7-2(§1-A #19 B, 웹 game.js:483-505) — 계열 아키타입(전공) mods 주입. 반드시
+            // 위 AscRunHooks 직후(더 이상 클론/오버레이가 없는 최종 mods 자리)에 호출한다. 일반모드는
+            // 즉시 반환(무회귀) — DeepRunHooks.ApplyDeepMods 헤더 주석 참조.
+            DeepRunHooks.ApplyDeepMods(mods, run);
 
             // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): 배율 상한(hasPrism 기반 capMul 클램프 + lastSpinExpMul
             // 5.0 상한) 제거 — 웹 engine.js에는 이 자리에 해당하는 캡이 없다(Formulas.cs 주석/§2-B 근거
@@ -700,16 +786,23 @@ namespace JackpotRun.Engine
 
             int reel = (devEq != null && devEq.id == "dev_subreel") ? Formulas.REEL + 1 : Formulas.REEL;
             // 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19, 웹 game.js:657-691 `_roll`/903) — 심화모드는
-            // 가중추첨(Weighted/RollRaw) 대신 주머니 추출(PouchOps.PouchDraw)을 탄다. LockedNext(예언/
-            // timeline_ticket으로 확정된 다음 스핀)는 웹과 동일하게 fresh 굴림이 아니므로 deepPity를
-            // 태우지 않는다(웹 `_pityRoll`은 `_roll(...)` 체인에만 걸리고 예언 확정 굴림은 별도 시점에서
-            // 자체적으로 pity를 소진한다 — 이 슬라이스는 오퍼/예언 진입점이 없어 LockedNext 경로에서의
-            // deepPity 처리는 P7-2/3 대상, 상태·치환 로직만 준비하라는 작업 지시 5번 그대로).
-            List<Cell> raw = run.LockedNext.Count > 0
-                ? CellsFromIds(run.LockedNext)
-                : (run.DeepMode
-                    ? DeepRunHooks.ApplyDeepPity(run, PouchOps.PouchDraw(run.Rng, run.Pouch, reel))
-                    : RollRaw(run.Rng, mods, reel, run.SeedNext));
+            // 가중추첨(Weighted/RollRaw) 대신 주머니 추출(RollCells → PouchOps.PouchDraw)을 탄다.
+            // LockedNext(예언/timeline_ticket으로 확정된 다음 스핀)는 웹과 동일하게 fresh 굴림이 아니므로
+            // deepPity를 태우지 않는다(웹 `_pityRoll`은 `_roll(...)` 체인에만 걸리고, PEEK만 예외적으로
+            // 그 확정 굴림 시점에 자체적으로 pity를 소진한다 — DeviceActions.HandlePeek 참조, §0 blocker).
+            // 웹 파리티 P7-2 blocker(§0) — `Symbols.ById("empty")`가 null이라 LockedNext 경로가
+            // CellsFromIds(구버전)를 타면 "empty" 칸이 조용히 드롭돼 릴 칸수가 줄어들 수 있었다(위
+            // CellsFromIds 헤더 주석 참조) — rng/pouch를 함께 넘겨 "random"까지 안전하게 왕복시킨다.
+            List<Cell> raw;
+            if (run.LockedNext.Count > 0)
+            {
+                raw = CellsFromIds(run.LockedNext, run.Rng, run.Pouch);
+            }
+            else
+            {
+                raw = RollCells(run, mods, reel, run.SeedNext);
+                if (run.DeepMode) raw = DeepRunHooks.ApplyDeepPity(run, raw);
+            }
             ApplyCellOps(raw, arm, run.Rng);
             // 웹 파리티 P7-1 작업 지시 6번 — "등장 즉시 덱 -1"인 instant 소모 심볼(POUCH_USE)의 단순화
             // 버전(실제 개별 효과는 P7-2/3). DeepRunHooks.ConsumeInstantSymbols 헤더 각주 참조.

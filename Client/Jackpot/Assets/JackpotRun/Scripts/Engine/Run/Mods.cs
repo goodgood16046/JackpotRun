@@ -8,10 +8,13 @@ namespace JackpotRun.Engine
     // fx 명명 규칙)가 이 필드명을 문자열로 그대로 참조하므로 이름이 어긋나면 해석기가 깨진다.
     //
     // [죽은 필드 — 01_engine.md §11-14 / ENGINE_PORT_DESIGN.md 부록] flatScore(항상 0, buildMods 반환문에
-    // 미포함), skullPenaltyMul(항상 1.0), overkillScoreMul/carryoverPct(선언만, 전체 미사용) — 콘텐츠가
-    // 값을 바꾸지 않는다는 사실까지 포함해 그대로 이식한다. 주의: overkillScoreMul/carryoverPct는
-    // ApplyScalarFx에 case가 없어 콘텐츠가 fx 키로 쓰면 예외가 난다(원본에도 사용 콘텐츠 없음 —
-    // 확장하려면 해석기 case부터 추가할 것).
+    // 미포함), overkillScoreMul/carryoverPct(선언만, 전체 미사용) — 콘텐츠가 값을 바꾸지 않는다는 사실까지
+    // 포함해 그대로 이식한다. 주의: overkillScoreMul/carryoverPct는 ApplyScalarFx에 case가 없어 콘텐츠가
+    // fx 키로 쓰면 예외가 난다(원본에도 사용 콘텐츠 없음 — 확장하려면 해석기 case부터 추가할 것).
+    // skullPenaltyMul은 위 주석이 예전에 "항상 1.0(죽은 필드)"라 적었지만 웹 파리티 P7-2(WEB_PARITY_
+    // DESIGN.md §1-A #19 2/4 슬라이스)부터는 죽지 않았다 — 심화 런의 전공(Archetypes 강령학파 t2)·
+    // 심볼퍽(sa_expand_build/sr_big_bag)이 DeepRunHooks.ApplyDeepMods를 통해 이 필드에 직접 곱한다
+    // (ApplyScalarFx의 fx 문자열 키로는 여전히 도달 불가 — 일반모드 콘텐츠는 여전히 이 필드를 안 건드림).
     public sealed class Mods
     {
         public double expMul = 1.0;
@@ -60,6 +63,26 @@ namespace JackpotRun.Engine
         public int shopSlotBonus = 0;
         public int shopRerollDelta = 0;
 
+        // ── 웹 파리티 P7-2(WEB_PARITY_DESIGN.md §1-A #19 2/4 슬라이스 B) 신규 필드 ──────────────
+        // 배치 G 계열 아키타입(전공) — 웹 engine.js:96-99 `deepFamilyExpMul/ScoreMul/CoinMul`. 심화
+        // 런에서만 채워진다(DeepRunHooks.ApplyDeepMods, AscRunHooks.ApplyRunAscMods 직후 호출) — 일반
+        // 모드는 항상 빈 dict라 SpinResolver.Evaluate의 ArchMul이 0을 반환해 무회귀. key=계열 base id
+        // (cherry/book/gem/skull/coin/flame), value=곱셈 증가분(예 0.15=+15%).
+        public readonly Dictionary<string, double> deepFamilyExpMul = new Dictionary<string, double>();
+        public readonly Dictionary<string, double> deepFamilyScoreMul = new Dictionary<string, double>();
+        public readonly Dictionary<string, double> deepFamilyCoinMul = new Dictionary<string, double>();
+
+        // Opus 2차검수(P7-2, 2026-08-09) 필수①③ — 웹 game.js:454 `deepTagMul: {...r.deepTagBuff}` +
+        // engine.js:96 `deepTagMul: {}`(태그별 곱셈 증가분, 정비소 '태그 강화' + 심볼퍽 tagBuff류 합산).
+        // SpinResolver.Evaluate가 셀 태그 합을 [-0.5,0.5]로 클램프해 EXP에 곱한다(웹 evaluate:682-683).
+        public readonly Dictionary<string, double> deepTagMul = new Dictionary<string, double>();
+
+        // Opus 2차검수(P7-2) 필수⑤[권장] — DeepRunHooks.ApplyDeepMods 이중 호출 안전장치. 이 함수는
+        // "최종 mods에 딱 1회" 주입되는 게 계약이라(호출부 헤더 주석) 같은 Mods 인스턴스에 실수로
+        // 두 번 불려도(예: 향후 리팩터로 호출 지점이 늘어날 때) 아키타입/심볼퍽 배수가 중복 누적되지
+        // 않도록 방어한다. Clone() 이후에도 이 표식은 그대로 넘어가야 안전해 아래서 함께 복사한다.
+        internal bool DeepModsApplied = false;
+
         // Kotlin data class copy()의 "새 Map 인스턴스" 관용구 대응 — 01_engine.md §11-8: C# Dictionary는
         // 기본 가변(mutable)이라 참조를 공유한 채 두면 한 스핀의 수정이 다른 곳에 누출된다. applyItemMods/
         // applyPassiveDevice처럼 "base 위에 오버레이"가 필요한 지점은 전부 Clone() 후 수정해야 한다.
@@ -80,12 +103,17 @@ namespace JackpotRun.Engine
                 perfectShapeExpMul = perfectShapeExpMul,
                 cliffBurstExpMul = cliffBurstExpMul, shopPriceMul = shopPriceMul, itemPriceMul = itemPriceMul,
                 itemCapBonus = itemCapBonus, shopSlotBonus = shopSlotBonus, shopRerollDelta = shopRerollDelta,
+                DeepModsApplied = DeepModsApplied,
             };
             foreach (var kv in perSymbolExp) m.perSymbolExp[kv.Key] = kv.Value;
             foreach (var kv in tagExpBonus) m.tagExpBonus[kv.Key] = kv.Value;
             foreach (var kv in symbolWeightMul) m.symbolWeightMul[kv.Key] = kv.Value;
             foreach (var kv in weightAdd) m.weightAdd[kv.Key] = kv.Value;
             foreach (var kv in perSymbolScore) m.perSymbolScore[kv.Key] = kv.Value;
+            foreach (var kv in deepFamilyExpMul) m.deepFamilyExpMul[kv.Key] = kv.Value;
+            foreach (var kv in deepFamilyScoreMul) m.deepFamilyScoreMul[kv.Key] = kv.Value;
+            foreach (var kv in deepFamilyCoinMul) m.deepFamilyCoinMul[kv.Key] = kv.Value;
+            foreach (var kv in deepTagMul) m.deepTagMul[kv.Key] = kv.Value;
             return m;
         }
     }

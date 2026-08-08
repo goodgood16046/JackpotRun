@@ -26,8 +26,10 @@ namespace JackpotRun.Engine
     public static class PouchOps
     {
         // id → 셀. "empty"=빈칸, "random"=랜덤칸(빈칸/랜덤칸 제외 실심볼 재추첨), 나머지=Symbols.ById —
-        // 웹 `pouchDrawOne`.
-        private static Cell DrawOne(string id, Rng rng, IReadOnlyDictionary<string, int> pouch)
+        // 웹 `pouchDrawOne`. 웹 파리티 P7-2 blocker(§0, WEB_PARITY_DESIGN.md §2-(AA)) — internal로
+        // 승격해 SpinResolver.CellsFromIds가 LockedNext의 "random" 센티널을 동일 로직으로 왕복 복원할
+        // 수 있게 한다(중복 정의 방지).
+        internal static Cell DrawOne(string id, Rng rng, IReadOnlyDictionary<string, int> pouch)
         {
             if (id == "empty") return new Cell(SpinResolver.EmptySym);
             if (id == "random")

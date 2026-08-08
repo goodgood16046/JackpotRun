@@ -4,6 +4,54 @@
 
 ---
 
+## 2026-08-09 - 웹 파리티 P7-2(심화모드 2/4) — 심볼퍽21+15·전공 아키타입·정비소11 + 선행 blocker 해소
+
+상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(BB) 참조. 요약:
+
+- **§0 선행 blocker 해소**(§2-(AA)가 남긴 항목): `SpinResolver.RollCells`/`RollCellOne`(신규
+  단일 굴림 진입점 — DeepMode면 mods를 PouchBias로 변환해 주머니 추출, 아니면 기존 가중추첨)로
+  PEEK/MANIP(재굴림/고정)/도박꾼재굴림/재시험/timeline_ticket을 전부 통합 — 이전엔 심화 런에서도
+  일반 가중추첨(72종 전체)을 그대로 썼다. `CellsFromIds`에 rng/pouch 선택 인자 추가 —
+  "empty"/"random"/미지 id를 더 이상 드롭하지 않고 안전하게 복원(입력=출력 칸수 보장, PEEK→다음
+  스핀 5칸 유지 확인).
+- **심볼증강21+심볼유물15+레벨8종**: 신규 `Content/SymPerks.cs` — 데이터 전사 +
+  `SymPerks.ComputeMods`가 웹 `symPerkMods` 21개 훅 카테고리를 그대로 집계(일반 buildMods와 분리된
+  순수 함수). 보유 저장소는 신규 필드 대신 **기존 RunState.Perks/PerkLevels 재사용**(웹 실제 구조
+  대조 후 결정 — 이탈 사항, 근거는 SymPerks.cs/RunState.cs 헤더). 배선: `DeepRunHooks.DeepPenalty`가
+  심볼퍽 penaltyMul(초과분에만)+bossQuotaMul(전설봉인함 25%감쇄)까지 완성(웹 `_deepPenalty()` 전체
+  공식). pouch bias는 기존 mods.symbolWeightMul/weightAdd/rareWeightMul→PouchBias 변환으로 배선
+  (addBoost는 POUCH 오퍼 전용이라 값만 계산, 소비처는 P7-3).
+- **전공 아키타입 6계열**: 신규 `Content/Archetypes.cs`(cherry/book/gem/skull/coin/flame, 임계
+  0.25/0.40, 단일전공, exp/score+15·30%·coin+10·20%·강령학파 skullPenaltyMul0.5). `Mods.
+  deepFamilyExpMul/ScoreMul/CoinMul` 신규 + `DeepRunHooks.ApplyDeepMods`가 최종 mods에 주입 +
+  `SpinResolver.Evaluate`에 계열 곱 반영(EXP/점수/코인/해골가산 4곳, 웹 engine.js 정확 대조).
+- **정비소 11 서비스**: 신규 `Content/RepairServices.cs`(카탈로그) + `Run/RepairShop.cs`
+  (`Execute` — 검증 실패/변화없음/코인부족 시 미차감 거부, 심볼증강 할인 반영 가격, 교체/정화 부수
+  코인효과, 전공 발동/승급 이벤트). `RunController.RepairBuy` 액션 신규 배선.
+- **테스트**: 신규 `Tests_P7_2_SymPerks.cs`(심볼퍽 36종+레벨8종 골든·symPerkMods 손계산 5조합·
+  아키타입 임계/tie-break/보너스+Evaluate 반영 6케이스·DeepPenalty 전체식·정비소 11종 실행(성공/
+  거부/부수효과/가격할인/전공이벤트)·blocker 6종(왕복+PEEK/MANIP/재굴림/재시험 pouch전용 등장)·
+  RepairBuy를 섞은 심화 자동플레이 스모크). 어서션 22758 → 23858(+1100), 0 실패(1차 제출 시점).
+- **스모크 컴파일**: Unity 에디터 미실행 확인 후 `dotnet exec csc.dll` 오프라인 검증(런타임 88개 —
+  신규 4파일 포함·Editor 6개, Editor rsp의 Assembly-CSharp.ref.dll 참조를 새 스크래치 ref로 정정)
+  둘 다 0에러·0경고.
+- **Opus 2차검수 반영("됐다고 문서화됐지만 실제 미배선" 3건 실배선 + 권장 2건)**: ①심볼퍽
+  skullPenaltyMul(sa_expand_build/sr_big_bag)이 계산만 되고 mods에 실제로 곱해지지 않던 것을
+  `DeepRunHooks.ApplyDeepMods`에서 실배선. ②`RepairShop.Execute`에 `RunPhase.EventShop` 페이즈
+  게이트 추가(Shop.Buy와 동일 관례 — 이전엔 아무 phase에서나 정비 구매가 통과됐음). ③신규
+  `Mods.deepTagMul` 필드 + `SpinResolver.Evaluate` 소비 지점 배선으로 sv_tagbuff(22코인)를
+  실효화(정비소 '태그 강화' + 심볼퍽 tagBuff류 병합, ±50% 클램프). ④[권장] sv_add_high/
+  sv_add_rare 실행 테스트 추가. ⑤[권장] `Mods.DeepModsApplied` 가드로 ApplyDeepMods 이중호출
+  안전화 + `CheckArchetypeChange`의 빈 주머니 조기반환 제거(스테일 전공 상태 리셋 실버그 수정).
+  재검증: 23858 → **23881**(+23, 누적 +1123), 0 실패. 스모크 컴파일 재확인 0에러·0경고. LOW
+  잔여 4건(dev_pin RNG 소비 위상·EffWithLevel 화이트리스트·legendStable 미이식·rarity 게이팅
+  UI 몫)은 §2-(BB)에 후속 항목으로만 기재.
+- **범위 밖(P7-3/4로 이월, 계획대로)**: symPerkMods 잔여 필드(emptyScore/Exp·quotaMul·rewardBonus
+  등 — skullPenaltyMul/deepTagMul은 Opus 반영으로 배선 완료, repairMul류는 정비소가 이미 소비)·
+  잭팟태그 실제발동·피버·POUCH 오퍼 2-step·심볼해금13종·심화 업적13/장치9·UI 보드(심볼퍽/정비소/
+  전공 표시)·랭킹 3노드 분리·hex_allornothing dEff 재설계·Sp 신규51종 실제 특수효과(P7-1부터
+  이어지는 이월)·위 LOW 잔여 4건.
+
 ## 2026-08-09 - 웹 파리티 P7-1(심화모드 1/4) — 주머니 코어 + 심볼 카탈로그
 
 상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(AA) 참조. 요약:

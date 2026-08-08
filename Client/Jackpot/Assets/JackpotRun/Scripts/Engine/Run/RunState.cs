@@ -334,6 +334,25 @@ namespace JackpotRun.Engine
         // 아직 이 필드를 읽지 않는다. DeepMode=false면 항상 null.
         public DeepStats DeepStats = null;
 
+        // ── 웹 파리티 P7-2(WEB_PARITY_DESIGN.md §1-A #19 2/4 슬라이스 — 심볼퍽·전공·정비소) ──────
+        // 웹 game.js:308-310 `deepTotalMaxDelta: 0`/`deepTotalMinDelta: 0`/`deepTagBuff: {}` — 정비소
+        // '덱 확장'/'덱 압축'/'태그 강화' 서비스가 누적하는 상태(Run/RepairShop.cs Execute가 갱신).
+        // DeepRunHooks.DeepPenalty·RepairShop.Bounds가 소비한다. 일반 런은 항상 0/0/빈 dict(무영향).
+        public int DeepTotalMaxDelta = 0;
+        public int DeepTotalMinDelta = 0;
+        public readonly Dictionary<string, double> DeepTagBuff = new Dictionary<string, double>();
+
+        // 웹 game.js:317-318 `deepArchFamily`/`deepArchTier`(undefined 초기값 → "없음"과 동치) — 계열
+        // 아키타입(전공) 발동/승급 감지용 직전 상태 스냅샷. DeepRunHooks.CheckArchetypeChange가 매 정비
+        // 구매 후 갱신하고, 변화가 있으면 RunEvent("ARCHETYPE_CHANGED")를 반환한다(UI 토스트는 P7-4).
+        public string DeepArchFamily = null;
+        public int DeepArchTier = 0;
+
+        // 웹 game.js `symPerkMods`가 읽는 "보유 심볼퍽" 저장소는 별도 필드가 아니라 **위 Perks/PerkLevels
+        // 그대로다**(웹 `E.symPerkMods(r.perks, r.pouch, r.perkLevels)` — sa_/sp_/sr_ 접두 id가 일반
+        // 증강·유물·저주 id와 전역 겹치지 않아 안전하게 같은 배열/딕셔너리를 공유한다). Content/SymPerks.cs
+        // 헤더 주석에 근거 상세.
+
         public RunState(long seed)
         {
             Rng = new Rng(seed);

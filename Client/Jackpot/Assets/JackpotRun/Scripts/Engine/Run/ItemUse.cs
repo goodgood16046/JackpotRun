@@ -156,11 +156,16 @@ namespace JackpotRun.Engine
             // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — 재시험도 웹 `_mods()`를 거치는 실제 롤이라
             // A2/A8 규칙이 적용된다(AscRunHooks.cs 참조).
             AscRunHooks.ApplyRunAscMods(pmods, run);
+            // 웹 파리티 P7-2(§1-A #19 B) — 재시험도 실제 롤(mods 소비)이라 아키타입 주입 대상.
+            DeepRunHooks.ApplyDeepMods(pmods, run);
             int spins = SpinResolver.EffSpins(run, pmods);
 
+            // 웹 파리티 P7-2 blocker(§0) — RollCellOne(주머니 추출)로 전환. 웹 `_freeReroll()`도
+            // `this._roll(mods,false)`을 타 심화 런이면 주머니에서만 뽑는다(DeviceActions.HandleManip
+            // §신규 발견 주석과 동일 근거 — 이전에는 RollOne 고정이라 심화 런에서도 72종 전체였다).
             int n = run.LastCells.Count;
             var newRaw = new List<Cell>(n);
-            for (int i = 0; i < n; i++) newRaw.Add(SpinResolver.RollOne(run.Rng, pmods));
+            for (int i = 0; i < n; i++) newRaw.Add(SpinResolver.RollCellOne(run, pmods));
             // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): Evaluate capMul 인자 제거(총배율 캡 폐지).
             var res2 = SpinResolver.Evaluate(run.Rng, newRaw, pmods, run.LastSpinNo, spins, run.FlameNext);
 
@@ -296,10 +301,16 @@ namespace JackpotRun.Engine
                     var devEq = Devices.ById(run.Device);
                     var pmods = (devEq != null && devEq.kind == "PASSIVE") ? ModsBuilder.ApplyPassiveDevice(pmods1, devEq.id) : pmods1;
                     AscRunHooks.ApplyRunAscMods(pmods, run);
+                    // 웹 파리티 P7-2(§1-A #19 B) — 실제 롤(mods 소비)이라 아키타입 주입 대상.
+                    DeepRunHooks.ApplyDeepMods(pmods, run);
                     int reel = (devEq != null && devEq.id == "dev_subreel") ? Formulas.REEL + 1 : Formulas.REEL;
                     int spins = SpinResolver.EffSpins(run, pmods);
-                    var a = SpinResolver.RollRaw(run.Rng, pmods, reel, run.SeedNext);
-                    var b = SpinResolver.RollRaw(run.Rng, pmods, reel, run.SeedNext);
+                    // 웹 파리티 P7-2 blocker(§0) — RollCells(주머니 추출)로 전환. 웹은 timeline_ticket을
+                    // 애초에 심화 아이템 풀에서 제외해(engine.js `pickItems(...,deepMode)`) 이 경로가
+                    // 실전에서 deepMode=true로 호출될 일이 없지만, Unity는 아직 그 풀 필터링이 없어
+                    // 방어적으로 굴림 진입점만 통합해 둔다(§0 blocker 작업 지시 "가능하면 단일 헬퍼로 통합").
+                    var a = SpinResolver.RollCells(run, pmods, reel, run.SeedNext);
+                    var b = SpinResolver.RollCells(run, pmods, reel, run.SeedNext);
                     // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): Evaluate capMul 인자 제거(총배율 캡 폐지).
                     var ea = SpinResolver.Evaluate(run.Rng, a, pmods, run.SpinIndex, spins, false).exp;
                     var eb = SpinResolver.Evaluate(run.Rng, b, pmods, run.SpinIndex, spins, false).exp;

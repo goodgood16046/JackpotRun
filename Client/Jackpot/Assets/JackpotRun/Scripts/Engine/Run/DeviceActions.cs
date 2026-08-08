@@ -145,7 +145,18 @@ namespace JackpotRun.Engine
             // (dev_subreel의 6칸 확장을 무시) — SlotV2Service.kt L1709-1711 그대로.
             var mods = ModsBuilder.ApplyItemMods(ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", levels: run.PerkLevels), run.PhaseItems);
             AscRunHooks.ApplyRunAscMods(mods, run);
-            var raw = SpinResolver.RollRaw(run.Rng, mods, Formulas.REEL, run.SeedNext);
+            // 웹 파리티 P7-2(§1-A #19 B) — DeepRunHooks.ApplyDeepMods(아키타입 주입)는 여기서 호출하지
+            // 않는다. HandlePeek는 Evaluate()를 부르지 않아(웹 oracle()의 미리보기 EXP 표시용 evaluate
+            // 호출도 Unity는 이식하지 않음, 아래 raw는 LockedNext에만 쓰임) deepFamilyExpMul/ScoreMul/
+            // CoinMul을 아무도 안 읽는다 — 넣어봐야 죽은 계산이라 5곳(ResolveSpin/HandleManip/
+            // GamblerReroll/UseRetakeForm/timeline_ticket) 중 Evaluate를 실제로 호출하는 곳에만 둔다.
+            // 웹 파리티 P7-2 blocker(§0, WEB_PARITY_DESIGN.md §2-(AA)) — 웹 oracle()(game.js:1320)은
+            // `this._roll(...)`(심화면 주머니 추출)을 타고 `this._pityRoll(...)`로 그 굴림에서 직접
+            // deepPity를 소진한다(MANIP/도박꾼재굴림/재시험과 달리 PEEK만 예외적으로 pity 대상 — §0
+            // blocker 설명 그대로). 이전에는 항상 RollRaw(일반 가중추첨)라 심화 런에서도 주머니 밖
+            // 72종 전체에서 예언 결과가 나올 수 있었다.
+            var raw = SpinResolver.RollCells(run, mods, Formulas.REEL, run.SeedNext);
+            if (run.DeepMode) raw = DeepRunHooks.ApplyDeepPity(run, raw);
             run.LockedNext.Clear();
             run.LockedNext.AddRange(raw.Select(c => c.sym.id));
             run.UsedCmds.Add(dev.id);
@@ -190,6 +201,7 @@ namespace JackpotRun.Engine
             var mods0 = ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", mCtx, run.PerkLevels);
             var mods = ModsBuilder.ApplyItemMods(mods0, run.PhaseItems);
             AscRunHooks.ApplyRunAscMods(mods, run);
+            DeepRunHooks.ApplyDeepMods(mods, run);
             int spins = SpinResolver.EffSpins(run, mods);
             long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
 
@@ -200,13 +212,16 @@ namespace JackpotRun.Engine
             int n = raw.Count;
             switch (dev.id)
             {
+                // 웹 파리티 P7-2 blocker(§0) — 심화 런에서 재굴림/고정도 RollCellOne(주머니 추출)을 탄다
+                // (pity/growNext는 웹 manip()도 태우지 않는다 — §0 blocker 설명 그대로, RollOne 그대로면
+                // 심화 런에서도 72종 전체에서 다시 뽑히는 회귀가 있었다).
                 case "dev_reroll":
-                    for (int i = 0; i < n; i++) raw[i] = SpinResolver.RollOne(run.Rng, mods);
+                    for (int i = 0; i < n; i++) raw[i] = SpinResolver.RollCellOne(run, mods);
                     break;
                 case "dev_pin":
                 {
                     int keep = Clamp(argN.Value - 1, 0, n - 1);
-                    for (int i = 0; i < n; i++) if (i != keep) raw[i] = SpinResolver.RollOne(run.Rng, mods);
+                    for (int i = 0; i < n; i++) if (i != keep) raw[i] = SpinResolver.RollCellOne(run, mods);
                     break;
                 }
                 case "dev_copy":
@@ -309,14 +324,16 @@ namespace JackpotRun.Engine
             var devEq = Devices.ById(run.Device);
             if (devEq != null && devEq.kind == "PASSIVE") mods = ModsBuilder.ApplyPassiveDevice(mods, devEq.id);
             AscRunHooks.ApplyRunAscMods(mods, run);
+            DeepRunHooks.ApplyDeepMods(mods, run);
             int spins = SpinResolver.EffSpins(run, mods);
             long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
 
             // 웹 파리티 P4-3 — 통합 manip()이 gambler "재굴림" 분기도 함께 타므로(game.js:1240-1245)
             // 여기도 HandleManip과 동일하게 LastCellsFinal에서 복원한다(전체 재굴림이라 셀 값 자체는
             // 무관하지만 원본 소스를 일치시켜 둔다 — 위 HandleManip §신규 발견 주석 참조).
+            // 웹 파리티 P7-2 blocker(§0) — RollCellOne(주머니 추출)로 전환(HandleManip과 동일 근거).
             var raw = new List<Cell>(run.LastCellsFinal);
-            for (int i = 0; i < raw.Count; i++) raw[i] = SpinResolver.RollOne(run.Rng, mods);
+            for (int i = 0; i < raw.Count; i++) raw[i] = SpinResolver.RollCellOne(run, mods);
 
             // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): hasPrism/capMul(총배율 캡) 제거 — 웹 engine.js에는
             // 해당 캡이 없다. Evaluate/ApplyBoss 시그니처도 이에 맞춰 축소됨(SpinResolver.cs 주석 참조).

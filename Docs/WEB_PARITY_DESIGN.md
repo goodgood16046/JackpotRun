@@ -1332,6 +1332,185 @@
     최신인데 Editor 스모크만 조용히 스테일 레퍼런스로 "우연히 통과"할 위험이 있음, 이번처럼 매번
     걸리리라는 보장이 없다).
 
+- **(BB) 2026-08-09 완료(P7-2 "심화모드(심볼 덱/주머니) 2/4" — WEB_PARITY_DESIGN.md §1-A #19 2/4
+  슬라이스: 심볼증강21+심볼유물15+레벨·전공 아키타입6·정비소11 + §2-(AA) 선행 blocker 해소. 웹
+  `data.js` SYM_AUGMENTS/SYM_RELICS/SYM_AUG_LEVELS/POUCH_UPGRADE/DEEP.REPAIR_SERVICES·`engine.js`
+  symPerkMods/ARCHETYPES/pouchArchetype/archetypeMods/applyShopService/repairBounds·`game.js` _mods
+  심화블록(457-531)/_deepPenalty/_repairPriceMul·_repairPrice/repairBuy/_purifyEmptyToBasic/
+  _checkArchetype/_roll/manip/oracle/_freeReroll 전수 대조)**:
+  - **§0 선행 blocker 해소**:
+    - **굴림 진입점 통합**: `SpinResolver.RollCells(run,mods,reel,seedActive)`/`RollCellOne(run,mods)`
+      신규 — DeepMode면 mods.symbolWeightMul/weightAdd/rareWeightMul을 `DeepRunHooks.BuildPouchBias`로
+      변환해 `PouchOps.PouchDraw`를, 아니면 기존 RollRaw/RollOne을 그대로 호출한다(웹 `_roll()`의
+      `_reachBias`(리치 태그 bias)·RETRY_REEL 재도전은 잭팟 태그 실제 판정 자체가 P7-3 범위라 제외).
+      `DeviceActions.HandlePeek`(+ApplyDeepPity, 웹 oracle()이 pity를 태우는 유일한 예외 경로)·
+      `HandleManip`(dev_reroll/dev_pin)·`GamblerReroll`·`ItemUse.UseRetakeForm`·
+      `ItemUse.ApplyItemPurchase`(timeline_ticket, 웹은 애초에 deepMode 아이템 풀에서 제외하지만
+      Unity는 아직 그 필터가 없어 방어적으로 통합)까지 전부 이 헬퍼로 수렴 — 이전에는 전부 RollRaw/
+      RollOne(일반 가중추첨, 72종 전체)을 직접 호출해 심화 런에서도 주머니 밖 심볼이 섞여 나올 수
+      있었다.
+    - **LockedNext 센티널 왕복**: `SpinResolver.CellsFromIds(ids, rng=null, pouch=null)`에 트레일링
+      선택 인자 추가 — "empty"는 `EmptySym`으로, "random"은 rng/pouch가 있으면 `PouchOps.DrawOne`로
+      완전히 재해석(생략 시 안전하게 빈칸 대체)하고, **그 외 미지 id도 더 이상 드롭하지 않고
+      EmptySym으로 대체**한다(입력 id 개수 = 출력 칸 개수를 구조적으로 보장). `PouchOps.DrawOne`을
+      `private`→`internal`로 승격해 중복 정의 없이 재사용. `ResolveSpin`의 LockedNext 복원 호출에
+      `run.Rng`/`run.Pouch`를 넘기도록 갱신. 테스트: `BlockerCellsFromIdsRoundTrip`(단위) +
+      `BlockerPeekThenSpinKeeps5Cells`(PEEK로 empty 포함 LockedNext를 만들고 다음 스핀까지 5칸 유지
+      확인, 작업 지시 "심화 런 PEEK→다음 스핀 5칸 유지" 그대로).
+  - **A. 심볼증강21+심볼유물15+레벨 — 신규 `Content/SymPerks.cs`**: `SYM_AUGMENTS`(실버6/골드7/
+    프리즘8)·`SYM_RELICS`(실버7/골드8, 프리즘 없음)·`SYM_AUG_LEVELS`(8종 Lv2/3 델타) 데이터 전사 +
+    `SymPerks.ComputeMods(perkIds,pouch,levels)`가 웹 `symPerkMods` 21개 훅 카테고리(repairMul/
+    repairRefund/swapCoin/tagBuff/penaltyMul/skullPenaltyMul/boundDelta/boundOverride/rewardBonus/
+    addBoost/shopLab/purifyCoin/purifyToBasic/emptyScore/emptyExp/autoShred/bossCopy/compressScore/
+    rareFirstScore/legendSeal/display)를 전부 그대로 집계한다(일반 ModsBuilder.Build와 완전히 분리된
+    순수 함수, 웹 구조 그대로). **결정 — 보유 저장소는 신규 필드가 아니라 기존 RunState.Perks/
+    PerkLevels 재사용**: 작업 지시 문면은 "RunState.SymPerks(보유)·SymAugLevels(레벨8종)" 신규
+    필드를 언급했지만, 웹 정답지를 대조한 결과 웹은 실제로 `E.symPerkMods(r.perks, r.pouch,
+    r.perkLevels)`처럼 일반 증강·유물·저주와 **완전히 같은 배열/딕셔너리**를 공유한다(`_heldSymPerks()`
+    도 `r.perks.filter(id=>SYM_PERK_BY_ID[id])`). id 네임스페이스가 sa_/sp_/sr_ 접두로 전역
+    유일해 안전하게 공유 가능하고, `ModsBuilder.Build`의 퍽 루프도 `Perks.ById(symId)`가 null이라
+    자동으로 건너뛴다(무회귀, `SymPerkModsIgnoresNonSymIds` 테스트로 확인). CLAUDE.md §0 "충돌 시
+    웹 채택이 기본" 원칙에 따라 웹 구조를 그대로 따르기로 결정 — Content/SymPerks.cs·RunState.cs
+    헤더에 근거 명시(이탈 사항, 보고 대상).
+    - **배선(작업 지시 2번째 불릿)**: ①`DeepRunHooks.DeepPenalty`가 이제 심볼퍽 `PenaltyMul`을
+      "초과분에만" 적용(`Max(1, 1+(base-1)×sp.PenaltyMul)`)하고 보스 스테이지에서 `BossQuotaMul`
+      (전설봉인함 `LegendSeal` 보유 시 증가분 25% 감쇄)까지 곱한다 — 웹 `_deepPenalty()` 전체 공식을
+      드디어 완성(P7-1이 남긴 TODO 두 항 모두 해소). ②pouch bias는 위 §0 blocker의 `RollCells`/
+      `BuildPouchBias`가 그 자리(symPerkMods의 `addBoost`가 아니라 **기존 mods.symbolWeightMul/
+      weightAdd/rareWeightMul**임을 웹 `_roll()` 코드 대조로 확인 — `addBoost`(basic/rareChance/
+      legendWeight)는 POUCH 오퍼 카드 생성 전용이라 P7-3 범위, 값은 계산되지만 아직 소비처 없음).
+      ③`skullPenaltyMul`은 `DeepRunHooks.ApplyDeepMods`가 곱한다(아래 B 참조, `Mods.skullPenaltyMul`은
+      기존에 "죽은 필드"였는데 이번에 부활 — Mods.cs 헤더 주석 갱신). ④정비소 소비(`repairMul`/
+      `repairRefund`/`swapCoin`/`purifyCoin`/`purifyToBasic`/`boundMaxDelta`~`tagCap`)는 아래 C.
+      **미배선(계산은 정확하나 소비처 없음, 다음 슬라이스)**: `deepTagMul`(tagBuff)→evaluate 태그곱,
+      `emptyScore`/`emptyExp`→evaluate 빈칸 블록, `scoreMul`(purifyToBasic 부수), `quotaMul`
+      (shopLab, sp_deckslot 전용)→mods.quotaMul, `rewardBonus`/`addBasicDelta`/`legendWeight`/
+      `curseChance`/`shopLabWeight`/`alwaysRepair`/`bossCopyN`/`autoShredN`/`rareFirstScore`/
+      `compressScorePct`/`balanceScore`/`statTable` — 전부 POUCH 오퍼(P7-3)·보스클리어 훅(P7-3)·
+      상점 노드 가중(P7-3)·UI(P7-4) 소비처가 아직 없다. 코드에 TODO 주석으로 소비 지점을 명시.
+  - **B. 전공 아키타입 6계열 — 신규 `Content/Archetypes.cs`**: `ARCHETYPES`(cherry🍒/book📘(tag:학습)/
+    gem💎/skull☠/coin🪙/flame🔥) + 임계(`ArchT1`0.25/`ArchT2`0.40) + `PouchArchetype`(최대 share
+    단일 전공, 동률은 선언순서) + `ArchetypeMods`(exp/score계열 +15/30%·coin계열 +10/20%·강령학파
+    t2 skullPenaltyMul 0.5) 전부 웹 그대로. **평가 반영 지점**(작업 지시 명시)까지 완성 —
+    `Mods.deepFamilyExpMul/ScoreMul/CoinMul`(신규 Dictionary<string,double> 3종) 추가하고
+    `DeepRunHooks.ApplyDeepMods(mods,run)`(신규, AscRunHooks.ApplyRunAscMods 직후 5곳: ResolveSpin·
+    HandleManip·GamblerReroll·UseRetakeForm·timeline_ticket에서 호출)이 활성 아키타입의 곱을 그
+    최종 mods에 주입한다. `SpinResolver.Evaluate`에 `ArchMul(map,sid)`(웹 `famBase`/`archMul` 그대로
+    — 상위계열 id는 `Pouch.UpgradeParent`로 base 환산 후 조회) 헬퍼를 추가해 셀 EXP/점수/코인 3곳 +
+    ☠해골 EXP 가산분(강령학파)에 곱을 반영 — 웹 engine.js:685/690/693/696과 1:1 대응. 부수 변경:
+    `coins` 지역 누산을 `int`→`double`(coinsAcc)로 바꾸고 최종 1회만 `int`로 캐스트(아키타입 코인곱이
+    셀당 소수 배율을 낼 수 있어 웹처럼 절삭을 마지막에 1번만 하도록, 이전엔 매 칸 절삭 오차 누적
+    위험). **범위 밖**: hex_allornothing 저주의 심화 전용 dEff(`archetypeMul:0.5`, 전공 배율 절반
+    재설계)는 "dEff"(deepMode 전용 효과 오버라이드) 메커니즘 자체가 Unity에 없어 미이식 —
+    Archetypes.cs 헤더 각주에 근거·향후 연결 지점 명시.
+  - **C. 정비소 11 서비스 — 신규 `Content/RepairServices.cs` + `Run/RepairShop.cs`**: 서비스 카탈로그
+    11종(addBasic/addHigh/addRare/remove/swap/upgrade/purify/expand/compress/tagbuff/curseCleanse)
+    데이터 그대로. `RepairShop.Execute(run,serviceId,args)`(신규 `RunAction.RepairBuy`로
+    `RunController.Do`에 배선)가 웹 `applyShopService`+`repairBuy` 커밋을 하나로 합쳐 실행: 심볼
+    카운트형은 `Pouch.ApplyReward`(신규, 웹 `applySymbolReward` 그대로 — add/remove/swap/upgrade,
+    `Pouch.Upgrade`/`UpgradeParent`(신규, 웹 POUCH_UPGRADE 6종) 활용) + `Pouch.Validate`(현재 유효
+    상한·하한·태그비중, `RepairShop.Bounds`가 정비소 누적 델타+심볼퍽 boundMaxDelta/MinDelta/
+    boundMax/boundMin/tagCap 합산)로 검증 — **위반/변화없음이면 코인 미차감 거부**. 심볼증강 할인은
+    `RepairShop.PriceMul`(repairMul["*"]×repairMul[kind])이 실가격에 반영. 성공 시 부수효과(교체
+    코인/환급·정화 코인·정화전문가 랜덤기본승격·deepPity 예약)까지 웹 그대로. `RunState`에
+    `DeepTotalMaxDelta`/`DeepTotalMinDelta`/`DeepTagBuff`(신규, expand/compress/tagbuff 누적) +
+    `DeepArchFamily`/`DeepArchTier`(신규, 전공 발동/승급 감지 스냅샷) 추가. `DeepRunHooks.
+    CheckArchetypeChange`(신규)가 매 정비 구매 후 전공 변화를 감지해 `RunEvent{type="ARCHETYPE_
+    CHANGED"}`를 반환(발동/승급만 알림, 소멸은 무음 — 웹과 동일). `RunEvent`에 `repairServiceId`/
+    `repairPrice`/`archFamily`/`archTier`/`archUpgraded` 필드 추가(curseCleanse는 기존
+    `curseRemovedId` 재사용). **RunPhase/상점 탭 통합은 계획대로 P7-4** — 이 슬라이스는 엔진 API와
+    테스트만.
+  - **테스트 — 신규 `Tests_P7_2_SymPerks.cs`**: ①심볼퍽 36종(21+15) 골든(데이터 재전사, 독립 대조축)
+    +레벨 8종 골든 ②symPerkMods 집계 손계산 5개 조합(repairMul 3중첩·tagBuff MOST/MAJOR/SOLO
+    3중첩·penaltyMul 임계 경계(27/28)·addBoost+legendSeal·레벨 적용) + 일반 id 혼입 무시 확인
+    ③아키타입 임계 경계(0.24/0.25/0.40)·동률 tie-break·book(tag:학습) 계열·보너스 수치 6종 +
+    Evaluate 아키타입 곱 반영 6케이스(exp base+상위계열·score·coin·skull분기) + DeepPenalty 전체식
+    (bossQuotaMul+legendSeal) ④정비소 11종 각 실행(성공/거부/코인 — insufficient/invalid-pouch/
+    no-change/missing-arg) + 심볼퍽 부수효과(교체·정화)·가격할인·전공 이벤트 발동 ⑤§0 blocker:
+    CellsFromIds 왕복·PEEK→스핀 5칸 유지·PEEK/MANIP/도박꾼재굴림/재시험 pouch 전용 등장(각 20회
+    반복) ⑥심화 자동플레이 스모크(3시드×20000틱, RepairBuy를 확률적으로 섞어 REPAIR_DONE/
+    ARCHETYPE_CHANGED 이벤트까지 실사) — 총 1100개 어서션 추가.
+  - **재검증(1차 제출 시점)**: `dotnet run --project Client/Jackpot/Tools/EngineTests` 22758 →
+    **23858**(+1100), 0 실패. 오프라인 스모크 컴파일도 재검증(Unity 에디터 미실행 확인 후
+    `dotnet exec csc.dll`, Library/Bee의 직전 성공 rsp에 신규 4파일만 추가) — `Assembly-CSharp`
+    (런타임, 88개 — 신규 `Content/Archetypes.cs`·`Content/RepairServices.cs`·`Content/SymPerks.cs`·
+    `Run/RepairShop.cs` 포함)·`Assembly-CSharp-Editor`(6개, Editor rsp의 `-r:".../Assembly-CSharp.
+    ref.dll"`을 이번에 새로 빌드한 런타임 스크래치 ref dll로 정정, §2-(AA) 후기 절차 그대로 재확인)
+    둘 다 0에러·0경고.
+  - **Opus 2차검수 반영(2026-08-09, "됐다고 문서화됐지만 실제 미배선" 3건 실배선 + 권장 2건)**:
+    ①**[필수] 심볼퍽 skullPenaltyMul 실배선**: 1차 제출은 `SymPerks.ComputeMods(...).SkullPenaltyMul`
+    (sa_expand_build 0.7·sr_big_bag 0.8)을 계산만 하고 `mods.skullPenaltyMul`에 실제로 곱하지
+    않았다(아키타입 쪽 skullPenaltyMul만 배선돼 있었음) — `DeepRunHooks.ApplyDeepMods`가 이제
+    `mods.skullPenaltyMul *= sp.SkullPenaltyMul`을 아키타입 곱보다 먼저 적용(웹 game.js:474
+    `(mods.skullPenaltyMul??1)*(sp.skullPenaltyMul||1)` 그대로). 검증:
+    `SkullPenaltyMulFromSymPerkAppliesInEvaluate`(sa_expand_build 보유 시 해골 페널티가
+    0.7배로 감쇄되는 것을 Evaluate() 실행 결과로 직접 손계산 대조, perk 없는 대조군과 병행).
+    ②**[필수] RepairBuy 페이즈 게이트**: `RepairShop.Execute`에 `run.Phase != RunPhase.EventShop`
+    시 `"PHASE_NOT_SHOP"` 거부를 추가(Shop.Buy/Reroll/Leave 3곳과 동일 관례, Shop.cs 대조 확인) —
+    1차 제출은 이 게이트가 아예 없어 Spin/PostSpin 등 아무 phase에서나 정비 구매가 통과됐다.
+    `RepairPhaseGate` 테스트 신규 + 나머지 성공 케이스 전부 신규 `MakeDeepRunInShop` 헬퍼(Phase.
+    EventShop 세팅)로 전환. 자동플레이 스모크의 RepairBuy 호출 지점도 Spin phase(잘못된 경로)에서
+    EventShop phase 진입 시(BuyOffer 대신 확률적으로 시도)로 이동.
+    ③**[필수] DeepTagBuff 소비처 배선**: 신규 `Mods.deepTagMul` 필드 추가 + `DeepRunHooks.
+    ApplyDeepMods`가 웹 game.js:454(정비소 '태그 강화' `run.DeepTagBuff` 직접 복사, pouch/심볼퍽과
+    무관하게 최우선 적용) → game.js:464-465(심볼퍽 tagBuff류 `sp.DeepTagMul`을 그 위에 태그별 가산
+    병합) 순서 그대로 채운다. 소비 지점은 `SpinResolver.Evaluate`에 신규 삽입(웹 engine.js:679-683
+    그대로 — 셀이 가진 모든 태그의 배수 합을 ±50%로 클램프해 `cellExp`에 곱함, 아키타입 곱보다
+    먼저 적용). 1차 제출은 `run.DeepTagBuff`를 쓰기만 하고 아무도 읽지 않아 sv_tagbuff(22코인)가
+    순수 장식이었다. 검증: `TagbuffPurchaseAffectsEvaluate`(체리 5개 잭팟+세트보너스 조합으로 절삭
+    경계를 넘는 명확한 EXP 델타 손계산, 235→236).
+    ④**[권장] sv_add_high/sv_add_rare 실행 테스트 추가**: `RepairAddHighSuccessAndPity`(cherry_ripe,
+    고급)·`RepairAddRareSuccessAndPity`(wild, 희귀) 신규 — 기존엔 11종 중 addBasic만 직접 실행
+    검증됐고 addHigh/addRare는 골든 데이터로만 존재했다.
+    ⑤**[권장] ApplyDeepMods 가산→대입 전환 + 빈 주머니 조기 반환 정리**: 신규 `Mods.DeepModsApplied`
+    가드로 `ApplyDeepMods`를 이중 호출 안전하게 만들고(Clone()도 이 플래그를 복사), 그 안의
+    `deepFamilyExpMul/ScoreMul/CoinMul` 딕셔너리 채움은 (이제 1회 보장이라) 가산이 아니라 대입으로
+    단순화했다. `ApplyDeepMods`·`CheckArchetypeChange` 둘 다 있던 `run.Pouch.Count==0` 조기 반환도
+    제거 — 웹 `if (r.pouch)`는 빈 객체 `{}`도 truthy라 항상 통과하고, `SymPerks.ComputeMods`/
+    `Archetypes.PouchArchetype` 둘 다 빈/0-총량 pouch를 이미 안전한 중립값(Family=null 등)으로
+    처리하므로 별도 가드가 애초에 불필요했다 — 오히려 `CheckArchetypeChange`의 조기 반환은 주머니가
+    완전히 비워지는 극단 케이스에서 직전 전공 상태가 리셋 안 되고 스테일하게 남는 실버그였다(웹은
+    자연히 `pouchArchetype({})→family=null`로 리셋됨). 검증:
+    `CheckArchetypeChangeResetsOnEmptyPouch`.
+    **LOW 잔여(이번 슬라이스 미착수, 후속 슬라이스 항목으로만 기재)**:
+    - **dev_pin(고정) MANIP의 RNG 소비 위상**: 웹 manip() "고정"은 5칸 전체를 한 번에 새로 굴린 뒤
+      keep 위치만 원래 칸으로 되돌리는 방식(`this._roll(mods,false)` 1회, 5칸 전부 RNG 소비)인데,
+      Unity `HandleManip`은 keep 제외 자리마다 `RollCellOne`을 개별 호출해(4칸만 RNG 소비) 소비
+      횟수·위치 대응이 웹과 다르다. P7-1 이전부터 있던 Kotlin 이식 특성이라(§ENGINE_PORT_DESIGN.md
+      "RNG 소비 순서는 자체 재현성만 보장, 비트스트림 일치 불필요") 이번 슬라이스가 새로 만든 문제는
+      아니지만, RollCellOne으로 전환하며 심화 런에서도 이 패턴이 그대로 노출됐다 — 자체 재현성엔
+      문제없어 방치, 필요 시 후속 슬라이스에서 "웹처럼 5칸 한 번에 굴려 splice" 방식으로 정렬 가능.
+    - **`SymPerks.EffWithLevel`의 화이트리스트 의존**: `IsLevelable(id)`가 `AugLevels` 딕셔너리(8종
+      고정)에 있는 id만 레벨 델타를 적용한다(웹 `isSymAugLevelable`과 1:1 동치 — by-design 제약).
+      향후 9번째 이상 레벨업 가능 심볼퍽이 추가되면 `AugLevels`에 함께 등록해야 자동 반영된다는 점을
+      명시.
+    - **`legendStable` 미이식**: 웹 `mods.legendStable`(sr_legend_seal/dev_legend_seal이 세우는
+      플래그 — 프리즘/럭키7 랜덤효과를 "최선 효과 고정"으로 안정화)은 그 소비처인 Sp.PRISM_SYM/
+      Sp.LUCKY7 특수효과 자체가 Unity에 아직 없어(§Sp 신규 51종 이월 항목) 만들 자리가 없다 —
+      `SymPerkModsResult.LegendSeal`(bool)까지는 정확히 계산되지만 `mods.legendStable` 필드도,
+      그걸 읽는 evaluate 분기도 존재하지 않는다. Sp 신규 51종 실제 효과 이식 슬라이스에서 함께.
+    - **정비소 addBasic/addHigh/addRare의 rarity 게이팅은 UI 몫**: `RepairShop.ServiceToReward`는
+      `args.Id`가 서비스 선언 희귀도(`sv.rarity`)와 실제로 일치하는지 검증하지 않는다 — 웹
+      `applyShopService`도 동일하게 무검증이며, 대상 후보를 희귀도로 좁히는 건 웹 `repairTargets()`
+      (UI 드롭다운)의 몫이다. Unity도 동일 분담을 그대로 따른다(P7-4 UI가 후보 목록을 필터링).
+  - **재검증(Opus 반영 후 최종)**: `dotnet run --project Client/Jackpot/Tools/EngineTests`
+    23858 → **23881**(+23, 누적 22758 대비 +1123), 0 실패. 오프라인 스모크 컴파일 재확인
+    (Mods.cs/DeepRunHooks.cs/SpinResolver.cs/RepairShop.cs 수정분 포함) — 런타임 88개·Editor 6개
+    둘 다 0에러·0경고.
+  - **웹 대비 생략/이월 — 전부 작업 지시 §범위 그대로(보고 대상 아님, 계획된 다음 슬라이스)**: ①
+    symPerkMods 중 evaluate/quota/오퍼에 여전히 안 꽂힌 필드들(skullPenaltyMul·deepTagMul은 Opus
+    반영으로 배선 완료 — repairMul/repairRefund/swapCoin/purifyCoin/purifyToBasic/boundMaxDelta~
+    tagCap은 정비소(C)가 이미 소비. 나머지 — rewardBonus/addBasicDelta/rareChance/legendWeight/
+    curseChance/shopLabWeight/alwaysRepair/bossCopyN/autoShredN/rareFirstScore/compressScorePct/
+    balanceScore/statTable — 는 POUCH 오퍼·보스클리어 훅·상점 노드 가중·UI가 아직 없어 미소비)
+    ②잭팟 태그 6종의 실제 발동(evaluate 판정 — 이번 슬라이스도 덱검증 상한 계산에만 사용) ③피버
+    게이지 ④POUCH 오퍼 2-step(RANDPACK_*/DESIGNATED_UPGRADE_CHANCE/PACKAGE_CHANCE) ⑤심볼 해금
+    13종(profile.symUnlocked) ⑥심화 업적 13종/장치 9종(P7-4) ⑦UI 보드(심볼퍽 표시·정비소 화면·전공
+    HUD·토스트, P7-4) ⑧랭킹 3노드 분리(P7-4) ⑨hex_allornothing dEff(위 B 각주) ⑩Sp 신규 51종의
+    실제 특수효과(CATALYST/MIRROR/TARGET/PUZZLE5/ALARM 등, evaluate에 아직 case 없음 — P7-1부터
+    이어지는 이월 항목, 이번 슬라이스도 미착수) ⑪위 Opus 2차검수 LOW 잔여 4건(dev_pin RNG 위상·
+    EffWithLevel 화이트리스트·legendStable 미이식·rarity 게이팅 UI 몫).
+
 ## 3. 페이즈 로드맵
 
 | 페이즈 | 내용 | 상태 |
@@ -1342,6 +1521,6 @@
 | P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | ✅ 2026-08-09 완료(3/3) |
 | P5 | 사운드(절차 합성 SFX 16종 + BGM 루프) | ✅ 2026-08-09 완료 |
 | P6 | 승천 A1~A10 + 승천 랭킹 분리 | ✅ 2026-08-09 완료(랭킹 분리는 P7-4로 이관, bestAscScore 기록은 완료) |
-| P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버) + 심화 랭킹 | 🔶 진행 중(1/4 — 코어: 주머니+심볼72 완료, §2-(AA)) |
+| P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버) + 심화 랭킹 | 🔶 진행 중(2/4 — 코어+심볼퍽/전공/정비소 완료, §2-(AA)/§2-(BB)) |
 
 각 페이즈는 FABLE_RULES 4단계 파이프라인으로 진행하고, EngineTests 골든망을 웹 수치로 갱신하며 통과를 유지한다.
