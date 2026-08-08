@@ -499,6 +499,93 @@
     vs coins=20 재굴림 — `SpinResult.mul`이 정확히 1.5 vs 0.8로 갈리고 `preMul`은 동일 시드라 완전히
     같음을 확인, ctx 미반영이면 둘 다 0.8로 나와 실패했을 시나리오). `Tests_S4_TierPoolFallback`도
     권장⑥ 반영해 강화(위 항목②-3). 어서션 19244 → 19848(+604), 0 실패.
+- **(V) 2026-08-08 완료(P4 1/3 — 홈 화면 + 레벨 보상 화면 + 런종료 XP 블록, WEB_PARITY_DESIGN.md
+  §1-A #15)**:
+  - **엔진 데이터 노출(최소)**: `Formulas.PlayerLevelProgressFromXp(totalXp)`(신규, 웹 game.js:110-115
+    `levelInfo()` 그대로 — level/inLevel/need/ratio/xp/max) + `PlayerProfile.LevelProgress()`(위임)를
+    추가했다. 기존 `PlayerLevelFromXp`는 새 `PlayerLevelLoop` 사설 헬퍼로 리팩터해 두 함수가 동일한
+    while 루프를 공유한다(행동 변경 없음 — 리팩터 전후 결과 동일성은 `Tests_PlayerLevel_ProgressFromXp`
+    가 `PlayerLevelFromXp`와 교차 대조). `PlayerProfile.LevelUnlocks()`는 P3-4(§2-(N)/(Q))에서 이미
+    엔진에 준비돼 있어 이번 슬라이스에서는 추가하지 않았다(그대로 재사용).
+  - **A. 홈 화면(MenuView)**: 웹 `renderHome`(ui.js:603-631) 순서대로 재구성 — scr-title →
+    **레벨 카드**(신규, 클릭형 — 탭하면 레벨 보상 화면) → **게임 모드 선택기**(신규, 일반/심화 2카드
+    — 심화는 "준비 중" 배지 + 탭 시 토스트, P7 미구현) → (승천 선택기 자리는 주석만 남기고 렌더
+    생략 — 아래 참조) → 기존 hud 카드(칭호+3스탯)+요약줄+게임시작/랭킹/도감 버튼+설명문 유지 →
+    **데이터 초기화**(신규, `ConfirmSheetPopup` 재사용). `MenuView.Refresh()`를 `private`→`public`
+    으로 승격해 `AppRoot.ResetProfile()`이 화면 전환 없이 즉시 재호출할 수 있게 했다.
+  - **승천 선택기 생략 근거**: 웹 `ascSelector()`(ui.js:572-590)는 `g.ascUnlocked()`
+    (`profile.ascMax>=0`, 승천 1회 이상 졸업)가 false면 렌더 자체를 안 한다 — 승천(P6, §1-A #18)이
+    미구현이라 `ascMax` 필드조차 프로필에 없어(§2-(M) MasteryStats.AscMax와는 별개 개념) 이 조건을
+    지금 판정할 수 없다. **주석으로 자리만 예약**(BuildMenuScreen 내부)하고 렌더는 생략 — 웹도
+    동일 조건에서 미노출이므로 파리티 위배 아님.
+  - **B. 레벨 보상 화면(신규, LevelRewardsView.cs + Editor/UiSceneBuilder.cs BuildLevelRewardsScreen)**:
+    웹 `renderLevelRewards`(ui.js:635-646) 이식 — 레벨 카드(비클릭형) + `PlayerProfile.LevelUnlocks()`
+    로드맵을 레벨순 행 목록(`RankView.cs`의 "템플릿 clone" 패턴 그대로 재사용)으로 나열, 각 행
+    "Lv.N — 이름 (종류)" + 해금/잠김 색상·라벨. `ScreenRouter.ScreenId.LevelRewards` 신규 추가 +
+    `IntroSceneRoot.levelRewardsView` 필드 + `AppRoot.ShowLevelRewards()`. 뒤로가기는 기존
+    `NavButton.Target.Menu` 재사용(신규 Target 불필요).
+  - **잠금 표기**: 웹 로드맵 행은 `unlocked`일 때 "✓", 아닐 때 "🔒"(astral)를 쓰는데, 레거시 uGUI
+    Text가 astral을 렌더링하지 못하는 프로젝트 제약(S8 항목⑤)이 있어 "해금"/"잠김" 한글 라벨 +
+    색상(Good/TextSecondary)으로 대체했다(`DexView`의 "[미해금]"·`PickView`의 "잠김" 라벨과 동일
+    기존 관례 재사용 — 이번 슬라이스가 새로 만든 패턴이 아니다). 로드맵 항목의 이모지 접두(🎭🎰🔧📜 등,
+    `PlayerProfile.LevelUnlocks()`가 웹처럼 이름 앞에 직접 박아 만든 문자열)도 대부분 astral이라
+    `TextSanitize.StripAstral`로 표시 직전에만 걸러낸다(GameOverPanel 업적 행과 동일 관례).
+  - **C. 런종료 XP 블록(GameOverPanel)**: 웹 `renderEnd` endxp 블록(ui.js:2117-2124) 이식 — 신규
+    업적 리스트 아래·메뉴 버튼 위(웹 배치 순서 그대로, Unity엔 랭킹 위젯이 없어 그 자리는 비움)에
+    "플레이어 레벨 Lv.N" + "+N XP" + (레벨업 시만) "레벨 업! Lv.A → Lv.B" + XP 진행바 + "다음
+    레벨까지 N XP"/"최고 레벨 달성"을 추가했다. `FailureOutcome.PlayerXpGain`/`PlayerLevelBefore`/
+    `PlayerLevelAfter`는 P3-1(§2-(L) 이전 슬라이스)에서 이미 엔진에 준비돼 있어 소비만 했다. 웹은
+    이 블록을 정적으로 한 번에 그리지만, 기존 Unity 연출 관례(`HudView.AnimateExpRoutine`의
+    "이전값→현재값 트윈", `GainPanel.ShowRoutine`의 대문짝 카운트업/팝인)를 따라 "+N XP" 카운트업
+    (0.4s)과 XP 바 채움(레벨 유지 시 트윈, 레벨업 시 즉시 반영+배너 OutBack 팝인)을 추가했다(작업
+    지시 "카운트업/펄스는 기존 UiTween 관례" 반영 — 웹에 없는 연출이지만 프로젝트 기존 관례의
+    자연스러운 확장이며 로직/수치에는 영향 없음).
+  - **데이터 초기화 배선**: `ProfileStore.Delete()`(신규, 저장 파일 삭제, 예외 비전파) +
+    `AppRoot.ResetProfile()`(신규 — Session 비움 → 파일 삭제 → `ProfileDto.FromDto(new
+    PlayerProfileDto())`로 새 프로필 생성 → 즉시 `ProfileStore.Save`로 재영속화 →
+    `PlayerPrefs.DeleteKey(LoginView.NickPrefKey)`로 닉네임도 제거(웹 `resetData()`가 로컬스토리지
+    "slotweb_nick"까지 지우는 것과 동일 파리티 — 초기화 후 재진입 시 로그인 화면부터 다시 시작, 랭킹
+    관련 PlayerPrefs는 웹처럼 그대로 유지) → `MenuView.Refresh()` → 토스트) 조합으로 웹
+    `resetData()`(game.js:2636, "리셋 즉시 영속화")와 동일하게 동작한다. 웹과 달리 화면 전환은 하지
+    않는다(이미 메뉴 화면에서만 진입 가능하므로 카드만 새로고침) — 이 점만 웹과 다르다(의도적
+    단순화, 결과는 동일).
+  - **소리 토글 생략**: 웹 `.reset-link.sndtog`(소리 켜짐/꺼짐 토글)는 작업 지시대로 버튼 자체를
+    짓지 않고 주석으로만 P5 예약을 남겼다(빈 자리도 만들지 않음).
+  - **2026-08-08 Opus 2차검수 반영(필수2·폴리시4·정리6)**:
+    ① XP 블록 연출 타이밍 — 이전엔 `Show()`가 카드 스케일인(EnterRoutine)과 XP 애니메이션을 동시에
+    시작해, 카드가 아직 scale 0으로 접혀 있는 0.75s(딤 0.4s+스케일인 0.35s) 동안 카운트업/바 채움이
+    끝나버리는 결함이 있었다. `EnterThenXpRoutine`(신규)으로 묶어 EnterRoutine 완료 **후**에만 XP
+    연출이 시작하도록 정정(firstShow 경로만 — 이미 카드가 보이는 재갱신 경로는 그대로 즉시 재생).
+    ② MAX 레벨(`lp.Need==0`)일 때 XP 바가 매번 "0%→100%" 트윈으로 잘못 채워지던 버그 수정 — MAX면
+    `fromPct`를 `targetPct`(1f)로 고정해 트윈을 생략(더 채울 여지가 없으므로).
+    ③ 레벨 카드 badge가 108×108이 아니라 행의 가용 높이(114)까지 늘어나고 body가 위쪽에 붙어 보이던
+    레이아웃 결함 — Unity uGUI `HorizontalLayoutGroup.childForceExpandHeight=true`는 자식의 명시적
+    `flexibleHeight=0`도 내부적으로 `Mathf.Max(flexible,1)`로 강제 승격한다는 사실을 간과한 것이
+    원인이었다. `BuildLevelCard`의 badge/body 행에서 `childControlHeight`는 유지한 채
+    `childForceExpandHeight`만 꺼서 badge는 108 정사각 그대로, body는 `childAlignment=MiddleLeft`로
+    세로 중앙 정렬되게 정정.
+    ④ `GameOverPanel` XpBlock — 고정 높이(164)를 `achContent`와 동일한 자동높이 조합
+    (`VerticalLayoutGroup`+`ContentSizeFitter`, xpBlock 자신에 직접)으로 교체해, 레벨업 미표시(대부분
+    의 런)일 때 하단 44px 공백이 남던 문제 해소.
+    ⑤ 게임 모드 "일반" 카드에도 Button+PressFx 추가(웹은 두 카드 모두 `<button>` — 탭 눌림 피드백
+    파리티. 클릭 리스너는 여전히 "심화" 카드에만).
+    ⑥ 경미 정리 — `LevelCardResult.root`(어디서도 읽지 않는 죽은 필드) 제거·XP 진행바 MAX 색상
+    특수처리(Green) 전부 제거(웹은 무색 — 항상 Accent, MenuView·LevelRewardsView·GameOverPanel 3곳)·
+    `Formulas.PlayerLevelProgress.Xp` 필드 주석 정정(Unity는 항상 0 이상 클램프하는데 웹 `xp` 필드
+    자체는 미클램프라던 원래 주석이 부정확했음 — 실사용상 무해한 차이임을 명시)·`Tests_PlayerLevel.cs`
+    주석 오기("레벨 2 진입 직후" → 실제 계산값 "레벨 3") 정정·`UiSceneBuilder.cs`/`LevelRewardsView.cs`
+    주석에 남아 있던 자물쇠 이모지(🔓/🔒) 리터럴을 텍스트 설명으로 교체·`LevelRewardsView`에 웹
+    `roadHtml || '해금 항목 없음'`(ui.js:640) 폴백 추가(로드맵이 비면 "해금 항목 없음" 표시 —
+    실제로는 `PlayerProfile.LevelUnlocks()`가 항상 항목을 갖고 있어 도달 어려운 방어 경로).
+  - **테스트**: `Tests_PlayerLevel_ProgressFromXp`(신규, `Tests_PlayerLevel.cs`) — xp=0/일반/MAX/
+    음수 4구간 손계산 + `PlayerLevelFromXp`와의 level 일관성 + `PlayerProfile.LevelProgress()` 위임
+    확인. 어서션 19848 → 19867(+19), 0 실패(Opus 반영 재검증 포함 동일). 씬 리빌드가 필요한 UI 회귀
+    (레이아웃 겹침 등)는 Fable이 배치 리빌드 후 육안 검수(설계 지시 "씬 리빌드는 Fable이 배치로
+    실행") — 이 슬라이스는 빌더 코드 + MSBuild 스모크 컴파일(Assembly-CSharp/​Assembly-CSharp-Editor
+    0에러)까지만 확인했다.
+  - **웹 대비 생략/보고 대상**: 승천 선택기(위 근거) · 소리 토글(P5) 외에 이번 슬라이스가 다루지
+    않은 P4 잔여 항목(§1-A #15/#16의 REWARD_DONE 능력치 패널·셀 정보 탭·클리어 등급 6단계 연출·
+    튜토리얼 3단·설정 시트)은 후속 슬라이스(2/3, 3/3) 대상.
 
 ## 3. 페이즈 로드맵
 
@@ -507,7 +594,7 @@
 | **P1** | 룰 파리티 1차: 첫판 즉시시작 · 특수스핀 첫사용무료 · 실패체인 웹 순서 · 노드 보상 수치/DEVICE 노드 · 포기 | ✅ 2026-08-07 완료 |
 | **P2** | 점수·캡 공식 웹화 + 보스 grad/finals 정리 + 골든 테스트 재산출 | ✅ 2026-08-07 완료 |
 | P3 | 메타 웹화: XP/레벨/레벨보상 · 업적 34종 교체 · 숙련도 · 증강 레벨업 · 해금 OR · 콘텐츠 증보(+3캐릭/+3머신/+장치/+증강9/+유물12/+아이템5) | ✅ 2026-08-08 완료 |
-| P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | 대기 |
+| P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | 🔶 진행 중(1/3: 홈·레벨보상·XP블록, 2026-08-08) |
 | P5 | 사운드(절차 합성 SFX 17 + BGM) | 대기 |
 | P6 | 승천 A1~A10 + 승천 랭킹 분리 | 대기 |
 | P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버) + 심화 랭킹 | 대기 |

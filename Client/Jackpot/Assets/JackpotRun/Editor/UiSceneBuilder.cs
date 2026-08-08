@@ -116,6 +116,10 @@ namespace JackpotRun.EditorTools
             var dexDetail = BuildDexDetailPopup(overlay);
             var dex = BuildDexScreen(canvasRoot, dexDetail);
             var rank = BuildRankScreen(canvasRoot); // S15: 글로벌 랭킹
+            var levelRewards = BuildLevelRewardsScreen(canvasRoot); // 웹 파리티 P4(§1-A #15 B)
+            // 웹 파리티 P4(§1-A #15 A.5) — 데이터 초기화 확인 시트. overlay가 확보된 뒤에만 지을 수 있어
+            // BuildMenuScreen 안이 아니라 여기서 채운다(giveUpConfirmPopup과 동일하게 overlay 산하).
+            menu.resetConfirmPopup = BuildConfirmSheetPopup(overlay, "ResetConfirmPopup", dismissOnScrimClick: true);
             ((RectTransform)overlay).SetAsLastSibling();
 
             var toast = BuildToast(canvasRoot);
@@ -131,7 +135,8 @@ namespace JackpotRun.EditorTools
                 (ScreenRouter.ScreenId.Menu, menu.root, menu.group),
                 (ScreenRouter.ScreenId.Pick, pick.root, pick.group),
                 (ScreenRouter.ScreenId.Dex, dex.root, dex.group),
-                (ScreenRouter.ScreenId.Rank, rank.root, rank.group));
+                (ScreenRouter.ScreenId.Rank, rank.root, rank.group),
+                (ScreenRouter.ScreenId.LevelRewards, levelRewards.root, levelRewards.group));
 
             var introSo = new SerializedObject(introRoot);
             introSo.FindProperty("router").objectReferenceValue = router;
@@ -141,6 +146,7 @@ namespace JackpotRun.EditorTools
             introSo.FindProperty("pickView").objectReferenceValue = pick.view;
             introSo.FindProperty("dexView").objectReferenceValue = dex.view;
             introSo.FindProperty("rankView").objectReferenceValue = rank.view;
+            introSo.FindProperty("levelRewardsView").objectReferenceValue = levelRewards.view;
             introSo.FindProperty("auroraRect").objectReferenceValue = auroraRect;
             introSo.ApplyModifiedPropertiesWithoutUndo();
 
@@ -149,6 +155,7 @@ namespace JackpotRun.EditorTools
             WirePickView(pick);
             WireDexView(dex, dexDetail);
             WireRankView(rank);
+            WireLevelRewardsView(levelRewards);
 
             // 순수 내비게이션 버튼(AppRoot는 DontDestroyOnLoad라 에디터 시점엔 존재하지 않으므로
             // UnityEventTools.AddPersistentListener로 직접 가리킬 수 없다 — NavButton.cs 헤더 참조).
@@ -159,6 +166,7 @@ namespace JackpotRun.EditorTools
             AddNavButton(pick.backButton, NavButton.Target.Menu);
             AddNavButton(dex.backButton, NavButton.Target.Menu);
             AddNavButton(rank.backButton, NavButton.Target.Menu);
+            AddNavButton(levelRewards.backButton, NavButton.Target.Menu);
 
             CheckLayoutOverlaps(canvasRoot); // S13 §C 회귀 방지 자가 점검
             SaveScene(scene, IntroScenePath);
@@ -364,6 +372,17 @@ namespace JackpotRun.EditorTools
             public Text statStageValue;
             public Text statPlaysValue;
             public Text summaryText;
+
+            // ── 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15 A) — 레벨 카드/게임 모드 선택기/데이터 초기화 ──
+            public Button levelCardButton;
+            public Text levelBadgeText;
+            public Text levelXpText;
+            public RectTransform levelBarFill;
+            public Image levelBarFillImage;
+            public Button modeDeepButton;
+            public Button resetButton;
+            // BuildIntroScene이 overlay 확보 후 별도로 채운다(BuildMenuScreen 시점엔 overlay가 아직 없음).
+            public UI2.ConfirmSheetPopup resetConfirmPopup;
         }
 
         private sealed class PickBuildResult
@@ -507,6 +526,35 @@ namespace JackpotRun.EditorTools
             public Text statusText;
             public RectTransform listContent;
             public RectTransform rowTemplate;
+        }
+
+        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15 B) — 레벨 보상 화면(LevelRewardsView.cs) 결과 컨테이너.
+        // BuildRankScreen과 동일 골격(헤더 → 레벨 카드 → 로드맵 헤더 → 세로 스크롤 행 목록).
+        private sealed class LevelRewardsBuildResult
+        {
+            public RectTransform root;
+            public CanvasGroup group;
+            public UI2.LevelRewardsView view;
+            public Button backButton;
+            public Text levelBadgeText;
+            public Text levelXpText;
+            public RectTransform levelBarFill;
+            public Image levelBarFillImage;
+            public Text roadCountText;
+            public RectTransform listContent;
+            public RectTransform rowTemplate;
+            public Text emptyText; // 웹 roadHtml || '해금 항목 없음' 폴백(Opus 2차검수 정리)
+        }
+
+        // BuildLevelCard(...)가 돌려주는 공용 결과 — MenuScreen(클릭형)·LevelRewardsScreen(비클릭형)이
+        // 같은 레벨 카드 골격을 공유한다(웹 lvlCard(lp, clickable), ui.js:591-602 그대로 한 헬퍼로 통합).
+        private struct LevelCardResult
+        {
+            public Button button; // clickable=false면 null
+            public Text badgeText;
+            public Text xpText;
+            public RectTransform barFill;
+            public Image barFillImage;
         }
 
         // ── 씬 공통 골격 ─────────────────────────────────────────────────────────────
@@ -877,6 +925,21 @@ namespace JackpotRun.EditorTools
             var sub = UiKit.Text(col, "텍스트 로그라이크 슬롯머신 · 웹 단독판", 25, UiKit.TextSecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(sub, preferredHeight: 34, flexibleHeight: 0);
 
+            // ── P4 A.1: 레벨 카드(클릭형 → 레벨 보상 화면) — 웹 lvlCard(lp,true) 순서 그대로 title 다음 ──
+            var levelCard = BuildLevelCard(col, clickable: true);
+            result.levelCardButton = levelCard.button;
+            result.levelBadgeText = levelCard.badgeText;
+            result.levelXpText = levelCard.xpText;
+            result.levelBarFill = levelCard.barFill;
+            result.levelBarFillImage = levelCard.barFillImage;
+
+            // ── P4 A.2: 게임 모드 선택기(일반/심화) — 웹 deepSelector() ─────────────────────
+            BuildGameModeSelector(col, result);
+
+            // P4 A.3: 승천(심화 학기) 선택기 자리 — 웹 ascSelector()는 profile.ascMax>=0(승천 1회 이상
+            // 졸업)일 때만 렌더된다. 승천 자체가 P6(WEB_PARITY_DESIGN.md §1-A #18) 미구현이라 이 조건을
+            // 판정할 프로필 필드조차 아직 없다 — 지금은 렌더를 통째로 생략한다(P6에서 이 자리에 추가).
+
             // ── hud 카드: w_panel_grad + bd 테두리 + r-xl ───────────────────────────────
             var panelGradSprite = UiSpriteGen.Load("w_panel_grad");
             var hud = UiKit.Panel(col, "Hud", Color.white, panelGradSprite);
@@ -923,6 +986,13 @@ namespace JackpotRun.EditorTools
                 21, UiKit.TextSecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(desc, preferredHeight: 66, flexibleHeight: 0);
 
+            // ── P4 A.5: 데이터 초기화(웹 .reset-link, ui.js:630) — 소리 토글(sndtog)은 P5 예약이라
+            // 여기 짓지 않는다(작업 지시 "주석으로 예약" 그대로, 빈 자리도 만들지 않음).
+            // ⚠(U+26A0)는 BMP 문자라 레거시 Text에서 정상 렌더링된다(S8 항목⑤ 기준 안전).
+            result.resetButton = UiKit.Button(col, "⚠ 데이터 초기화", new Vector2(0f, 60f),
+                new Color(0f, 0f, 0f, 0f), UiKit.Bad, null);
+            UiKit.SizeHint(result.resetButton, preferredHeight: 60, flexibleHeight: 0);
+
             var footerSpacer = UiKit.Panel(col, "FooterSpacer", new Color(0f, 0f, 0f, 0f));
             UiKit.SizeHint(footerSpacer, flexibleHeight: 1);
 
@@ -960,7 +1030,114 @@ namespace JackpotRun.EditorTools
             so.FindProperty("rankButton").objectReferenceValue = r.rankButton;
             so.FindProperty("mainButtonRect").objectReferenceValue =
                 r.startButton != null ? r.startButton.GetComponent<RectTransform>() : null;
+            so.FindProperty("levelCardButton").objectReferenceValue = r.levelCardButton;
+            so.FindProperty("levelBadgeText").objectReferenceValue = r.levelBadgeText;
+            so.FindProperty("levelXpText").objectReferenceValue = r.levelXpText;
+            so.FindProperty("levelBarFill").objectReferenceValue = r.levelBarFill;
+            so.FindProperty("levelBarFillImage").objectReferenceValue = r.levelBarFillImage;
+            so.FindProperty("modeDeepButton").objectReferenceValue = r.modeDeepButton;
+            so.FindProperty("resetButton").objectReferenceValue = r.resetButton;
+            so.FindProperty("resetConfirmPopup").objectReferenceValue = r.resetConfirmPopup;
             so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        // ── 웹 파리티 P4(§1-A #15 A.1) — 레벨 카드(웹 lvlCard(lp,clickable), ui.js:591-602) ─────────
+        // MenuScreen(clickable=true, 탭하면 레벨 보상 화면)과 LevelRewardsScreen(clickable=false, 그
+        // 화면 자신의 헤더 카드) 둘 다 이 헬퍼로 짓는다 — 배지("Lv.N") + 상단 라벨/XP 텍스트 + 진행바.
+        private static LevelCardResult BuildLevelCard(Transform parent, bool clickable)
+        {
+            var result = new LevelCardResult();
+            var panelSprite = UiSpriteGen.Load("w_panel_grad");
+            var root = UiKit.Panel(parent, "LevelCard", Color.white, panelSprite);
+            UiKit.SizeHint(root, preferredHeight: 150, flexibleHeight: 0);
+            UiKit.AddGlowOutline(root.gameObject, UiKit.Bd, 2f).enabled = true;
+
+            if (clickable)
+            {
+                var btn = root.gameObject.AddComponent<Button>();
+                btn.targetGraphic = root.GetComponent<Image>();
+                root.gameObject.AddComponent<PressFx>();
+                result.button = btn;
+            }
+
+            // controlChildW=true — badge(preferredWidth 108,flexible 0)/body(flexibleWidth 1)가 실제로
+            // 그 값대로 배정되려면 HorizontalLayoutGroup.childControlWidth가 켜져 있어야 한다(꺼져 있으면
+            // LayoutElement 폭 지정이 무시되고 각 자식의 기존 RectTransform 크기가 그대로 쓰인다).
+            var row = UiKit.HGroup(root, 20, new RectOffset(24, 24, 18, 18), true, true);
+            UiKit.Fill(row);
+            // Opus 2차검수(P4 1/3) 폴리시③ — Unity uGUI HorizontalLayoutGroup은 childForceExpandHeight=true
+            // 이면 명시적 flexibleHeight=0인 자식도 내부적으로 Mathf.Max(flexible,1)로 강제 승격해 버려
+            // (badge 108→행의 가용 높이만큼 늘어남·body가 위쪽에 붙어보임의 실제 원인) — UiKit.HGroup의
+            // childControlHeight(=true, 위 true,true)는 유지한 채 이 필드만 꺼서 badge/body가 자기
+            // preferred/flexible 값 그대로(강제 확장 없이) 배정되게 한다. childAlignment=MiddleLeft
+            // (UiKit.HGroup 고정값)가 세로 중앙 정렬을 담당한다.
+            row.GetComponent<HorizontalLayoutGroup>().childForceExpandHeight = false;
+
+            var badgeBg = UiKit.Panel(row, "Badge", UiKit.Hex("#2A3048"), UiSpriteGen.Load("w_r16"));
+            UiKit.SizeHint(badgeBg, preferredWidth: 108, preferredHeight: 108, flexibleWidth: 0, flexibleHeight: 0);
+            result.badgeText = UiKit.Text(badgeBg, "", 28, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.Fill(result.badgeText.rectTransform);
+
+            var body = UiKit.VGroup(row, 10, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(body, flexibleWidth: 1, flexibleHeight: 0);
+
+            var topRow = UiKit.HGroup(body, 8, new RectOffset(), true, true);
+            UiKit.SizeHint(topRow, preferredHeight: 30, flexibleHeight: 0);
+            var label = UiKit.Text(topRow, clickable ? "플레이어 레벨 · 보상 보기 ›" : "플레이어 레벨",
+                20, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(label, flexibleWidth: 1, flexibleHeight: 0);
+            result.xpText = UiKit.Text(topRow, "", 19, UiKit.TextSecondary, TextAnchor.MiddleRight);
+            UiKit.SizeHint(result.xpText, preferredWidth: 260, flexibleHeight: 0);
+
+            var barBg = UiKit.Panel(body, "Bar", UiKit.Hex("#2A3048"), UiSpriteGen.Load("bar_bg_r12"));
+            UiKit.SizeHint(barBg, preferredHeight: 22, flexibleHeight: 0);
+            result.barFill = UiKit.Panel(barBg, "Fill", UiKit.Accent, UiSpriteGen.Load("bar_fill_r12"));
+            UiKit.SetAnchors(result.barFill, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
+            result.barFillImage = result.barFill.GetComponent<Image>();
+
+            return result;
+        }
+
+        // ── 웹 파리티 P4(§1-A #15 A.2) — 게임 모드 선택기(웹 deepSelector(), ui.js:559-570) ─────────
+        // Opus 2차검수(P4 1/3) 폴리시⑤ — 웹은 두 카드 다 <button>(탭 시 눌림 피드백)이라 "일반" 카드도
+        // Button+PressFx를 붙인다(BuildModeCard가 항상 붙임). "일반"은 P7 이전엔 다른 모드로 전환할
+        // 수단이 없어(항상 선택 상태) 클릭 리스너는 달지 않는다 — 존재 이유는 순수 터치 피드백(눌림
+        // 스케일 애니메이션) 파리티다. "심화 · 심볼 덱"만 실제 리스너(토스트 안내)를 건다.
+        private static void BuildGameModeSelector(RectTransform col, MenuBuildResult result)
+        {
+            var header = UiKit.Text(col, "게임 모드", 22, UiKit.TextSecondary, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(header, preferredHeight: 30, flexibleHeight: 0);
+
+            var row = UiKit.HGroup(col, 14, new RectOffset(), true, true);
+            UiKit.SizeHint(row, preferredHeight: 132, flexibleHeight: 0);
+
+            BuildModeCard(row, "일반", "고정 확률 (기본)", selected: true, locked: false);
+            var deepCard = BuildModeCard(row, "심화 · 심볼 덱", "주머니 확률 · 덱빌딩", selected: false, locked: true);
+            result.modeDeepButton = deepCard.GetComponent<Button>();
+        }
+
+        private static RectTransform BuildModeCard(RectTransform parent, string title, string desc, bool selected, bool locked)
+        {
+            var card = UiKit.Panel(parent, "Mode_" + title, Color.white, UiSpriteGen.Load("w_card_grad"));
+            UiKit.SizeHint(card, flexibleWidth: 1, preferredHeight: 132, flexibleHeight: 0);
+            UiKit.AddGlowOutline(card.gameObject, selected ? UiKit.Accent : UiKit.Bd, 2f).enabled = true;
+            var cardBtn = card.gameObject.AddComponent<Button>();
+            cardBtn.targetGraphic = card.GetComponent<Image>();
+            card.gameObject.AddComponent<PressFx>();
+
+            var inner = UiKit.VGroup(card, 4, new RectOffset(16, 16, 16, 14), true, true);
+            UiKit.Fill(inner);
+            var nameText = UiKit.Text(inner, title, 21, selected ? UiKit.Accent : UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(nameText, preferredHeight: 28, flexibleHeight: 0);
+            var descText = UiKit.Text(inner, desc, 16, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(descText, preferredHeight: 22, flexibleHeight: 0);
+            if (locked)
+            {
+                var badge = UiKit.Text(inner, "준비 중", 15, UiKit.TextSecondary, TextAnchor.MiddleCenter, true);
+                UiKit.SizeHint(badge, preferredHeight: 22, flexibleHeight: 0);
+            }
+
+            return card;
         }
 
         // ── PickView 화면 — S10: public/jackpotpick/index.html DOM 순서 그대로 재구성 ──────
@@ -2595,6 +2772,46 @@ namespace JackpotRun.EditorTools
             var achTotalText = UiKit.Text(content, "", 19, UiKit.TextSecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(achTotalText, preferredHeight: 30, flexibleHeight: 0);
 
+            // ── 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15 C, 웹 renderEnd endxp 블록 ui.js:2119-2124) ──
+            // 신규 업적 리스트 아래 · (Unity엔 없는) 랭킹 위젯이 있었을 자리 위 — 웹 배치 순서 그대로.
+            // Opus 2차검수(P4 1/3) 폴리시④ — 고정 높이 대신 achContent(바로 위)와 동일한 자동높이 조합
+            // (VerticalLayoutGroup+ContentSizeFitter)을 xpBlock 자신(배경 Image가 있는 패널)에 직접
+            // 얹었다 — 레벨업 미표시(levelUp 행 비활성, 대부분의 런)일 때 하단 공백이 생기던 문제 해소.
+            var xpBlock = UiKit.Panel(content, "XpBlock", new Color(0f, 0f, 0f, 0.22f), UiSpriteGen.Load("w_r16"));
+            UiKit.AddGlowOutline(xpBlock.gameObject, UiKit.Bd, 1.5f).enabled = true;
+            var xpVlg = xpBlock.gameObject.AddComponent<VerticalLayoutGroup>();
+            xpVlg.padding = new RectOffset(20, 20, 14, 14);
+            xpVlg.spacing = 8;
+            xpVlg.childControlWidth = true;
+            xpVlg.childControlHeight = true;
+            xpVlg.childForceExpandWidth = true;
+            xpVlg.childForceExpandHeight = false;
+            UiKit.SizeHint(xpBlock, preferredHeight: 0, flexibleHeight: 0, minHeight: 0);
+            var xpBlockCsf = xpBlock.gameObject.AddComponent<ContentSizeFitter>();
+            xpBlockCsf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            var xpTopRow = UiKit.HGroup(xpBlock, 8, new RectOffset(), true, true);
+            UiKit.SizeHint(xpTopRow, preferredHeight: 30, flexibleHeight: 0);
+            var xpTopLevelText = UiKit.Text(xpTopRow, "", 20, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(xpTopLevelText, flexibleWidth: 1, flexibleHeight: 0);
+            var xpGainText = UiKit.Text(xpTopRow, "", 20, UiKit.Accent, TextAnchor.MiddleRight, true);
+            UiKit.SizeHint(xpGainText, preferredWidth: 200, flexibleHeight: 0);
+
+            var xpLevelUpRoot = UiKit.Panel(xpBlock, "LevelUp", new Color(0f, 0f, 0f, 0f));
+            UiKit.SizeHint(xpLevelUpRoot, preferredHeight: 30, flexibleHeight: 0);
+            var xpLevelUpText = UiKit.Text(xpLevelUpRoot, "", 19, UiKit.Good, TextAnchor.MiddleCenter, true);
+            UiKit.Fill(xpLevelUpText.rectTransform);
+            xpLevelUpRoot.gameObject.SetActive(false);
+
+            var xpBarBg = UiKit.Panel(xpBlock, "Bar", UiKit.Hex("#2A3048"), UiSpriteGen.Load("bar_bg_r12"));
+            UiKit.SizeHint(xpBarBg, preferredHeight: 22, flexibleHeight: 0);
+            var xpBarFill = UiKit.Panel(xpBarBg, "Fill", UiKit.Accent, UiSpriteGen.Load("bar_fill_r12"));
+            UiKit.SetAnchors(xpBarFill, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
+            var xpBarFillImage = xpBarFill.GetComponent<Image>();
+
+            var xpNextText = UiKit.Text(xpBlock, "", 17, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(xpNextText, preferredHeight: 24, flexibleHeight: 0);
+
             var menuButton = UiKit.Button(outerCol, "메뉴로", new Vector2(0, 96), UiKit.Accent, UiKit.Ink, null, UiSpriteGen.Load("w_gold_btn"));
             UiKit.SizeHint(menuButton, preferredHeight: 96, flexibleHeight: 0);
 
@@ -2611,6 +2828,13 @@ namespace JackpotRun.EditorTools
             so.FindProperty("achContent").objectReferenceValue = achContent;
             so.FindProperty("achRowTemplate").objectReferenceValue = achRowTemplate;
             so.FindProperty("achTotalText").objectReferenceValue = achTotalText;
+            so.FindProperty("xpTopLevelText").objectReferenceValue = xpTopLevelText;
+            so.FindProperty("xpGainText").objectReferenceValue = xpGainText;
+            so.FindProperty("xpLevelUpRoot").objectReferenceValue = xpLevelUpRoot;
+            so.FindProperty("xpLevelUpText").objectReferenceValue = xpLevelUpText;
+            so.FindProperty("xpBarFill").objectReferenceValue = xpBarFill;
+            so.FindProperty("xpBarFillImage").objectReferenceValue = xpBarFillImage;
+            so.FindProperty("xpNextText").objectReferenceValue = xpNextText;
             so.FindProperty("menuButton").objectReferenceValue = menuButton;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
@@ -3186,6 +3410,127 @@ namespace JackpotRun.EditorTools
             so.FindProperty("statusText").objectReferenceValue = r.statusText;
             so.FindProperty("listContent").objectReferenceValue = r.listContent;
             so.FindProperty("rowTemplate").objectReferenceValue = r.rowTemplate;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════
+        // LevelRewardsScreen — 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15 B, 웹 renderLevelRewards
+        // ui.js:635-646). BuildRankScreen 컨벤션 그대로(헤더 → 레벨 카드 → 로드맵 헤더 → 세로 스크롤
+        // 행 목록). 이관 원본 없음(신규 화면) — 로드맵 데이터는 PlayerProfile.LevelUnlocks()(P3-4에서
+        // 이미 엔진에 준비됨)를 그대로 읽는다.
+        // ══════════════════════════════════════════════════════════════════════════════
+        private static LevelRewardsBuildResult BuildLevelRewardsScreen(Transform canvasRoot)
+        {
+            var result = new LevelRewardsBuildResult();
+            var panelSprite = UiSpriteGen.Load("panel_r24");
+
+            var root = UiKit.Panel(canvasRoot, "LevelRewardsScreen", UiKit.Bg);
+            UiKit.Fill(root);
+            result.root = root;
+            result.group = root.gameObject.AddComponent<CanvasGroup>();
+            result.view = root.gameObject.AddComponent<UI2.LevelRewardsView>();
+
+            // spacing=10 — BuildRankScreen(요소 3개, spacing 0)과 달리 이 화면은 헤더/부제/레벨카드/
+            // 로드맵헤더/목록 5개가 쌓여 0이면 서로 맞붙어 답답해 보인다(각 요소 preferredHeight는
+            // 자기 내부 패딩만 책임지고, 형제 사이 간격은 이 spacing이 담당).
+            var col = UiKit.VGroup(root, 10, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.Fill(col);
+
+            // 헤더 — 90.
+            var header = UiKit.HGroup(col, 16, new RectOffset(24, 24, 16, 8), true, true);
+            UiKit.SizeHint(header, preferredHeight: 90, flexibleHeight: 0);
+            var title = UiKit.Text(header, "레벨 보상", UiKit.TextStyle.H1, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(title, flexibleWidth: 1, flexibleHeight: 0);
+            result.backButton = UiKit.Button(header, "← 메뉴", new Vector2(160, 70), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, panelSprite);
+            UiKit.SizeHint(result.backButton, preferredWidth: 160, preferredHeight: 70, flexibleWidth: 0, flexibleHeight: 0);
+
+            var sub = UiKit.Text(col, "레벨을 올리면 후반 캐릭터·슬롯·장치·증강·유물이 해금돼요",
+                UiKit.TextStyle.BodySecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(sub, preferredHeight: 40, flexibleHeight: 0);
+
+            // 세로 패딩은 주지 않는다(VGroup은 자식을 쌓으므로 세로 패딩을 더하면 이 래퍼의
+            // "선언한" preferredHeight와 "실제로 필요한" 내부 높이(자식 preferred + 패딩)가 어긋나
+            // 카드 하단이 잘리거나 다음 요소와 겹친다 — 세로 여백은 대신 col의 spacing이 담당).
+            var cardMargin = UiKit.VGroup(col, 0, new RectOffset(24, 24, 0, 0), true, true);
+            UiKit.SizeHint(cardMargin, preferredHeight: 150, flexibleHeight: 0);
+            var levelCard = BuildLevelCard(cardMargin, clickable: false);
+            result.levelBadgeText = levelCard.badgeText;
+            result.levelXpText = levelCard.xpText;
+            result.levelBarFill = levelCard.barFill;
+            result.levelBarFillImage = levelCard.barFillImage;
+
+            // 로드맵 헤더 — "레벨 해금 보상 n/m"(웹 원문 앞의 자물쇠 이모지는 astral이라 생략).
+            var roadHeader = UiKit.HGroup(col, 8, new RectOffset(24, 24, 8, 4), true, true);
+            UiKit.SizeHint(roadHeader, preferredHeight: 40, flexibleHeight: 0);
+            var roadTitle = UiKit.Text(roadHeader, "레벨 해금 보상", 22, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(roadTitle, flexibleWidth: 1, flexibleHeight: 0);
+            result.roadCountText = UiKit.Text(roadHeader, "", 19, UiKit.TextSecondary, TextAnchor.MiddleRight);
+            UiKit.SizeHint(result.roadCountText, preferredWidth: 120, flexibleHeight: 0);
+
+            // 세로 스크롤 목록 — LevelRewardsView가 PlayerProfile.LevelUnlocks() 전체를 채운다.
+            var listScroll = UiKit.Scroll(col, out var listContent, vertical: true);
+            UiKit.SizeHint(listScroll, flexibleHeight: 1);
+            var vlg = listContent.gameObject.AddComponent<VerticalLayoutGroup>();
+            vlg.spacing = 8;
+            vlg.padding = new RectOffset(20, 20, 8, 20);
+            vlg.childControlWidth = true;
+            vlg.childControlHeight = true;
+            vlg.childForceExpandWidth = true;
+            vlg.childForceExpandHeight = false;
+            var listCsf = listContent.gameObject.AddComponent<ContentSizeFitter>();
+            listCsf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            result.listContent = listContent;
+            result.rowTemplate = BuildLevelRoadRowTemplate(listContent);
+
+            // 웹 roadHtml || '해금 항목 없음' 폴백(ui.js:640, Opus 2차검수 정리) — rowTemplate과 나란히
+            // listContent의 영구 자식으로 두고, 뷰가 road.Count==0일 때만 활성화한다.
+            result.emptyText = UiKit.Text(listContent, "해금 항목 없음", 18, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(result.emptyText, preferredHeight: 40, flexibleHeight: 0);
+            result.emptyText.gameObject.SetActive(false);
+
+            return result;
+        }
+
+        // 자식 경로 계약(LevelRewardsView.cs): 루트 자신에 행 배경 Image, "Content/Lv"·"Content/Label"·
+        // "Content/Check" 각 Text — BuildRankRowTemplate과 동일 관례(Transform.Find는 직계 자식만 찾으므로
+        // UiKit.HGroup이 만드는 중간 GameObject를 "Content"로 개명한다).
+        private static RectTransform BuildLevelRoadRowTemplate(Transform parent)
+        {
+            var r11 = UiSpriteGen.Load("rrect_r11");
+            var row = UiKit.Panel(parent, "RoadRowTemplate", UiKit.PanelBg, r11);
+            UiKit.SizeHint(row, preferredHeight: 74, flexibleHeight: 0);
+
+            var content = UiKit.HGroup(row, 12, new RectOffset(18, 18, 10, 10), true, true);
+            content.name = "Content";
+            UiKit.Fill(content);
+
+            var lv = UiKit.Text(content, "", 22, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            lv.name = "Lv";
+            UiKit.SizeHint(lv, preferredWidth: 96, flexibleWidth: 0);
+
+            var label = UiKit.Text(content, "", 20, UiKit.TextPrimary, TextAnchor.MiddleLeft);
+            label.name = "Label";
+            UiKit.SizeHint(label, flexibleWidth: 1);
+
+            var check = UiKit.Text(content, "", 18, UiKit.TextSecondary, TextAnchor.MiddleRight, true);
+            check.name = "Check";
+            UiKit.SizeHint(check, preferredWidth: 110, flexibleWidth: 0);
+
+            row.gameObject.SetActive(false);
+            return row;
+        }
+
+        private static void WireLevelRewardsView(LevelRewardsBuildResult r)
+        {
+            var so = new SerializedObject(r.view);
+            so.FindProperty("levelBadgeText").objectReferenceValue = r.levelBadgeText;
+            so.FindProperty("levelXpText").objectReferenceValue = r.levelXpText;
+            so.FindProperty("levelBarFill").objectReferenceValue = r.levelBarFill;
+            so.FindProperty("levelBarFillImage").objectReferenceValue = r.levelBarFillImage;
+            so.FindProperty("roadCountText").objectReferenceValue = r.roadCountText;
+            so.FindProperty("listContent").objectReferenceValue = r.listContent;
+            so.FindProperty("rowTemplate").objectReferenceValue = r.rowTemplate;
+            so.FindProperty("emptyText").objectReferenceValue = r.emptyText;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 

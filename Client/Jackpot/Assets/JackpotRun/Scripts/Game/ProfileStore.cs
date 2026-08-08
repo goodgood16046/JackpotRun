@@ -16,6 +16,26 @@ namespace JackpotRun.Game
 
         private static string FilePath => Path.Combine(Application.persistentDataPath, FileName);
 
+        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15, A.5 "데이터 초기화") — 웹 resetData()(game.js:2636)
+        // 대응. 저장 파일 자체를 지운다(호출측 AppRoot.ResetProfile이 새 PlayerProfile을 만들어 곧바로
+        // Save까지 호출하므로, 여기서 파일이 없어져도 다음 저장 전까지 "최초 실행"과 동일한 상태로만
+        // 잠깐 머문다). 파일이 처음부터 없으면(아직 한 번도 저장 안 함) 그대로 성공 취급 — 예외를
+        // 호출측까지 전파하지 않는 Unity 어댑터 원칙(Load/Save와 동일)을 따른다.
+        public static bool Delete()
+        {
+            try
+            {
+                string path = FilePath;
+                if (File.Exists(path)) File.Delete(path);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[ProfileStore] 프로필 삭제 실패: {ex.Message}");
+                return false;
+            }
+        }
+
         // 저장된 프로필이 없거나(최초 실행) 로드에 실패하면(파일 손상 등) 빈 새 프로필로 안전하게
         // 폴백한다 — 저장 실패와 마찬가지로 예외를 호출측까지 전파하지 않는다(Unity 어댑터 원칙).
         public static PlayerProfile Load()

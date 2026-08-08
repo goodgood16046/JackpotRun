@@ -4,6 +4,43 @@
 
 ---
 
+## 2026-08-08 - 웹 파리티 P4(1/3) — 홈 화면 + 레벨 보상 화면 + 런종료 XP 블록
+
+- **엔진(최소 데이터 노출)**: `Formulas.PlayerLevelProgressFromXp`(신규, 웹 `levelInfo()` 그대로 —
+  level/inLevel/need/ratio/max) + `PlayerProfile.LevelProgress()`(위임). `PlayerLevelFromXp`는 같은
+  루프를 공유하도록 리팩터(행동 동일). `PlayerProfile.LevelUnlocks()`는 P3-4에서 이미 준비돼 있어
+  재사용만 함.
+- **A. 홈 화면(MenuView)**: 웹 `renderHome` 순서로 재구성 — **레벨 카드**(신규, 클릭형 → 레벨 보상
+  화면) → **게임 모드 선택기**(신규, 일반 선택됨 + 심화·심볼덱 "준비 중" 배지, 탭 시 토스트, P7
+  미구현) → (승천 선택기는 P6 미구현이라 렌더 생략, 주석 예약) → 기존 hud/버튼/설명 유지 →
+  **데이터 초기화**(신규, `ConfirmSheetPopup` 재사용 — `ProfileStore.Delete()` + `AppRoot.
+  ResetProfile()`). 소리 토글은 P5 예약(주석만).
+- **B. 레벨 보상 화면(신규)**: `LevelRewardsView.cs` + `UiSceneBuilder.BuildLevelRewardsScreen` —
+  레벨 카드(비클릭형) + `PlayerProfile.LevelUnlocks()` 로드맵을 레벨순 행 목록(`RankView` 템플릿
+  clone 패턴 재사용)으로 표시, 해금/잠김을 "해금"/"잠김" 한글+색상으로 구분(자물쇠 이모지 astral
+  대체 — S8 항목⑤ 기존 관례). `ScreenRouter.ScreenId.LevelRewards` 신규.
+- **C. 런종료 XP 블록(GameOverPanel)**: 웹 `renderEnd` endxp 블록 이식 — "플레이어 레벨 Lv.N" +
+  "+N XP"(카운트업) + 레벨업 시 "Lv.A → Lv.B" 강조(OutBack 팝인) + XP 진행바(레벨 유지 시 트윈) +
+  "다음 레벨까지 N XP"/"최고 레벨 달성". `FailureOutcome.PlayerXpGain`/`PlayerLevelBefore/After`
+  (P3-1에서 이미 준비됨)를 소비만 함.
+- **Opus 2차검수 반영(같은 날)**: ①`ResetProfile()`에 `PlayerPrefs.DeleteKey(LoginView.NickPrefKey)`
+  추가(웹 slotweb_nick 제거 파리티, 랭킹 PlayerPrefs는 유지) ②XP 연출을 `EnterRoutine`(딤+스케일인)
+  완료 **후**에 재생하도록 정정(카드가 접혀 있는 동안 끝나버리던 결함) + MAX 레벨 바 트윈 버그
+  (0→100% 오재생) 수정 ③레벨 카드 badge/body 레이아웃 — `HorizontalLayoutGroup.
+  childForceExpandHeight`가 `flexibleHeight=0`도 강제 승격시키던 결함 수정(badge 정사각 유지·body
+  세로 중앙 정렬) ④GameOverPanel XpBlock 고정 높이(164)→`ContentSizeFitter` 자동높이(achContent와
+  동일 관례)로 교체, 하단 공백 제거 ⑤게임 모드 "일반" 카드에도 Button+PressFx(웹은 양쪽 다 버튼)
+  ⑥경미 정리 6건(죽은 필드 제거·MAX 바 Green 색 제거·주석 오기/정확도 정정·자물쇠 이모지 주석 제거·
+  로드맵 빈 상태 "해금 항목 없음" 폴백). MSBuild 스모크 0에러 + EngineTests 19867 passed 재확인.
+- **검증**: MSBuild 스모크(Assembly-CSharp + Assembly-CSharp-Editor) 0에러, `dotnet run --project
+  Client/Jackpot/Tools/EngineTests` 19867 passed·0 failed(+19 신규 어서션). 씬 리빌드·육안 검수는
+  Fable이 배치로 진행 예정.
+- **생략/후속**: 승천 선택기(§1-A #15 A.3, P6 대기) · 소리 토글(P5) · P4 잔여 항목(REWARD_DONE
+  능력치 패널·셀 정보 탭·클리어 등급 6단계 연출·튜토리얼·설정 시트, §1-A #15/#16)은 다음 슬라이스.
+  자세한 내용은 `Docs/WEB_PARITY_DESIGN.md` §2-(V) 참조.
+
+---
+
 ## 2026-08-08 - 웹 파리티 P3.5 — 퍽 오퍼 알고리즘 웹 완전 동기화 (P3-4 후속 3건)
 
 - **①PERK_FAMILY 랭크 게이팅 이식**: 신규 `Content/PerkFamily.cs` — 웹 `data.js` AUG_FAMILY(51)+

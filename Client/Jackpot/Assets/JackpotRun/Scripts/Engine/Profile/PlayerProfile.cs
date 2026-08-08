@@ -100,6 +100,11 @@ namespace JackpotRun.Engine
         // ProfileDto.FromDto가 로드 시점에 관리한다(직접 조작하지 말 것).
         public bool PlayerXpSeeded;
 
+        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15, 웹 game.js:200 `playerProgress()`) — 홈 화면
+        // 레벨 카드/레벨 보상 화면/런종료 XP 블록이 공통으로 읽는 표시용 진행도. PlayerXp 하나에서
+        // 매번 재계산한다(별도 캐시 없음 — 웹도 호출마다 levelInfo(xp)를 다시 돈다).
+        public Formulas.PlayerLevelProgress LevelProgress() => Formulas.PlayerLevelProgressFromXp(PlayerXp);
+
         // WEB_PARITY_DESIGN.md §2-(L) — 업적 34종 교체(P3-2)로 런XP의 "신규업적×25" 항 인플레이션이
         // 정정되면서, 교체 이전(482종 시절) 세이브의 playerXp가 부풀어 있을 수 있어 1회 재시딩하는
         // Unity 전용 마이그레이션 플래그(웹에는 직접 대응물이 없다 — 웹은 처음부터 34종이라 이 인플레이션

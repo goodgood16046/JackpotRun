@@ -48,6 +48,49 @@ namespace JackpotRun.EngineTests
         }
     }
 
+    // ── ②b PlayerLevelProgressFromXp — 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15, 웹 game.js:110-115
+    //     levelInfo 그대로) — 표시용 진행도(level/inLevel/need/ratio/max)가 위 ②의 level 계산과
+    //     일관되게 나오는지 + 웹 반환 필드를 손계산으로 대조.
+    internal static class Tests_PlayerLevel_ProgressFromXp
+    {
+        public static void Run(TestCtx t)
+        {
+            var p0 = Formulas.PlayerLevelProgressFromXp(0);
+            t.Eq(1, p0.Level, "[progress] xp=0 → level 1");
+            t.Eq(0L, p0.InLevel, "[progress] xp=0 → inLevel 0");
+            t.Eq(120L, p0.Need, "[progress] xp=0 → need = req(1) = 120");
+            t.EqTol(0.0, p0.Ratio, "[progress] xp=0 → ratio 0");
+            t.True(!p0.Max, "[progress] xp=0 → max=false");
+
+            // 레벨 3 진입 직후 일부 — req(1)=120,req(2)=180 소진(300) 후 rem=90 < req(3)=240 → level 3.
+            var p1 = Formulas.PlayerLevelProgressFromXp(390);
+            t.Eq(3, p1.Level, "[progress] xp=390 → level 3(②와 동일 로직 대조)");
+            t.Eq(Formulas.PlayerLevelFromXp(390), p1.Level, "[progress] level == PlayerLevelFromXp(390) 일관성");
+            t.Eq(90L, p1.InLevel, "[progress] xp=390 → inLevel = 390-300 = 90");
+            t.Eq(240L, p1.Need, "[progress] xp=390 → need = req(3) = 240");
+            t.EqTol(90.0 / 240.0, p1.Ratio, "[progress] ratio = 90/240");
+            t.Eq(390L, p1.Xp, "[progress] xp 필드는 입력 그대로(음수 방어 후)");
+
+            // MAX 레벨 — need=0, ratio=1(웹 `need ? rem/need : 1`).
+            var pMax = Formulas.PlayerLevelProgressFromXp(50_000_000L);
+            t.Eq(100, pMax.Level, "[progress] 거대 XP → level 100(MAX)");
+            t.Eq(0L, pMax.Need, "[progress] MAX → need 0");
+            t.EqTol(1.0, pMax.Ratio, "[progress] MAX → ratio 1(need=0 폴백)");
+            t.True(pMax.Max, "[progress] MAX → max=true");
+
+            // 음수 방어 — 웹 Math.max(0,...)과 동일.
+            var pNeg = Formulas.PlayerLevelProgressFromXp(-999);
+            t.Eq(1, pNeg.Level, "[progress] 음수 xp → level 1");
+            t.Eq(0L, pNeg.Xp, "[progress] 음수 xp → Xp 필드도 0으로 클램프");
+
+            // PlayerProfile.LevelProgress() 위임 확인.
+            var profile = new PlayerProfile { PlayerXp = 390 };
+            var viaProfile = profile.LevelProgress();
+            t.Eq(p1.Level, viaProfile.Level, "[progress] PlayerProfile.LevelProgress() level 위임 일치");
+            t.Eq(p1.InLevel, viaProfile.InLevel, "[progress] PlayerProfile.LevelProgress() inLevel 위임 일치");
+        }
+    }
+
     // ── ③ PlayerRunXp — 런 종료 XP 공식 경계값 (웹 game.js:2619) ───────────────────────────────────
     internal static class Tests_PlayerLevel_RunXpFormula
     {

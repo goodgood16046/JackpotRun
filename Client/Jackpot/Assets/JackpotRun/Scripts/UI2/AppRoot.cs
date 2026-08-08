@@ -99,6 +99,26 @@ namespace JackpotRun.UI2
             if (Instance == this) Instance = null;
         }
 
+        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15 A.5, 웹 game.js:2636 resetData()) — 홈 화면
+        // "데이터 초기화" 확인 시트 확정 시 호출된다(MenuView.OnResetConfirmed). Session은 메뉴 화면에서만
+        // 진입 가능해 항상 null이지만(방어적으로 한 번 더 비운다), 저장 파일을 지우고 새 프로필을 즉시
+        // 만들어 그 자리에서 다시 저장한다(웹처럼 "리셋 즉시 영속화" — 다음 강종에도 리셋 상태 유지).
+        // 닉네임(LoginView, PlayerPrefs "jackpotrun_nick")도 함께 지운다 — 웹 resetData()가 로컬스토리지
+        // "slotweb_nick"까지 제거하는 것과 동일 파리티(다음 진입은 다시 로그인 화면부터). 랭킹 관련
+        // PlayerPrefs(RankingService의 게스트 pid 등)는 웹처럼 그대로 둔다(별도 유지 — 리셋 대상 아님).
+        // 웹과 달리 화면 전환은 하지 않는다(이미 메뉴 화면이므로 그대로 머무르고 카드만 새로고침).
+        public void ResetProfile()
+        {
+            Session = null;
+            ProfileStore.Delete();
+            Profile = ProfileDto.FromDto(new PlayerProfileDto());
+            ProfileStore.Save(Profile);
+            PlayerPrefs.DeleteKey(LoginView.NickPrefKey);
+            PlayerPrefs.Save();
+            _introRoot?.Menu?.Refresh();
+            Toast?.Show("데이터를 초기화했어요 — 처음부터 시작!");
+        }
+
         // ── 씬 루트 등록(각 씬의 IntroSceneRoot/PlaySceneRoot.Awake가 호출) ──────────────────
         public void RegisterIntro(IntroSceneRoot root)
         {
@@ -151,6 +171,8 @@ namespace JackpotRun.UI2
         public void ShowDex() => _introRoot?.Router?.Show(ScreenRouter.ScreenId.Dex);
         public void ShowLogin() => _introRoot?.Router?.Show(ScreenRouter.ScreenId.Login);
         public void ShowRank() => _introRoot?.Router?.Show(ScreenRouter.ScreenId.Rank);
+        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15 B) — 홈 레벨 카드 탭 → 레벨 보상 화면.
+        public void ShowLevelRewards() => _introRoot?.Router?.Show(ScreenRouter.ScreenId.LevelRewards);
 
         /// <summary>LoginView "시작하기"/"게스트로 시작" → 메뉴로. 닉네임 저장은 LoginView 자신이
         /// PlayerPrefs에 직접 한다(엔진 PlayerProfile은 건드리지 않는다 — 설계 S8 LoginView 절).

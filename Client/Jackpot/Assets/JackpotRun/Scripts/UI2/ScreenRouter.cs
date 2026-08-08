@@ -27,6 +27,7 @@ namespace JackpotRun.UI2
             Pick,
             Dex,
             Rank, // S15: 글로벌 랭킹(RankView.cs)
+            LevelRewards, // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15 B) — 레벨 보상 화면(LevelRewardsView.cs)
         }
 
         [Serializable]

@@ -160,7 +160,11 @@ namespace JackpotRun.Engine
 
         // 누적 XP → 레벨 (웹 game.js:110-115 levelInfo) — 닫힌 형태 공식이 아니라 "레벨별 요구치를
         // 순차 차감"하는 누적식이다: while(lvl<MAX && rem>=xpReq(lvl)) { rem-=xpReq(lvl); lvl++; } 그대로.
-        public static int PlayerLevelFromXp(long totalXp)
+        public static int PlayerLevelFromXp(long totalXp) => PlayerLevelLoop(totalXp).lvl;
+
+        // 위 while 루프 본체 — PlayerLevelFromXp와 아래 PlayerLevelProgressFromXp가 공유한다(단일 소스,
+        // 웹 levelInfo가 level과 inLevel/need/ratio를 한 함수 안에서 같이 산출하는 것과 동일 계산).
+        private static (int lvl, long rem) PlayerLevelLoop(long totalXp)
         {
             int lvl = 1;
             long rem = Math.Max(0L, totalXp);
@@ -169,7 +173,44 @@ namespace JackpotRun.Engine
                 rem -= PlayerXpReq(lvl);
                 lvl++;
             }
-            return lvl;
+            return (lvl, rem);
+        }
+
+        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15, 웹 game.js:200 `playerProgress()` → levelInfo(xp)
+        // 그대로) — 홈 화면 레벨 카드/레벨 보상 화면/런종료 XP 블록이 공통으로 쓰는 표시용 진행도.
+        // level/inLevel/need/ratio/xp/max 필드는 웹 반환 객체({level,inLevel,need,ratio,xp,max})와 1:1.
+        public readonly struct PlayerLevelProgress
+        {
+            public readonly int Level;
+            public readonly long InLevel; // 현재 레벨 안에서 쌓인 XP(0..Need-1, MAX면 0)
+            public readonly long Need;    // 다음 레벨까지 필요한 총 XP(MAX면 0)
+            public readonly double Ratio; // inLevel/need, need==0(MAX)이면 1.0(웹 `need ? rem/need : 1`)
+            // 원본 누적 XP — 단, 음수는 0으로 클램프한다. 웹 `xp: Math.floor(totalXp||0)` 자체는 이
+            // 필드만 클램프하지 않지만(rem 계산에만 `Math.max(0,...)`을 쓴다, game.js:111/114), 실사용
+            // PlayerXp는 누적만 되는 값이라 음수가 나올 일이 없어(엔진 어디에도 감산 경로 없음) 이
+            // 차이는 무해하다 — 방어적으로 항상 0 이상만 반환하도록 통일했다(호출측이 음수를 걱정할
+            // 필요가 없게).
+            public readonly long Xp;
+            public readonly bool Max;
+
+            public PlayerLevelProgress(int level, long inLevel, long need, double ratio, long xp, bool max)
+            {
+                Level = level;
+                InLevel = inLevel;
+                Need = need;
+                Ratio = ratio;
+                Xp = xp;
+                Max = max;
+            }
+        }
+
+        public static PlayerLevelProgress PlayerLevelProgressFromXp(long totalXp)
+        {
+            var (lvl, rem) = PlayerLevelLoop(totalXp);
+            bool max = lvl >= PLAYER_LEVEL_MAX;
+            long need = max ? 0L : PlayerXpReq(lvl);
+            double ratio = need > 0 ? (double)rem / need : 1.0;
+            return new PlayerLevelProgress(lvl, rem, need, ratio, Math.Max(0L, totalXp), max);
         }
 
         // 런 종료 XP (웹 game.js:2619 `runXp = 40 + Math.min(20, r.stage) * 12 + Math.floor(finalScore

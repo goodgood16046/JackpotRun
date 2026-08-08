@@ -20,6 +20,7 @@ namespace JackpotRun.UI2
         [SerializeField] private PickView pickView;
         [SerializeField] private DexView dexView;
         [SerializeField] private RankView rankView; // S15: 글로벌 랭킹
+        [SerializeField] private LevelRewardsView levelRewardsView; // 웹 파리티 P4(§1-A #15 B): 레벨 보상 화면
 
         // 오로라 배경(S12 §5 "배경") — 캔버스 최하단에 항상 떠 있어 화면 전환과 무관하게 이
         // SceneRoot가 직접 호스트로 돌린다(개별 화면 뷰는 전환마다 SetActive(false)되어 루프가
@@ -33,6 +34,7 @@ namespace JackpotRun.UI2
         public PickView Pick => pickView;
         public DexView Dex => dexView;
         public RankView Rank => rankView;
+        public LevelRewardsView LevelRewards => levelRewardsView;
 
         public ToastManager Toast => router != null ? router.Toast : null;
         public RectTransform OverlayLayer => router != null ? router.OverlayLayer : null;
