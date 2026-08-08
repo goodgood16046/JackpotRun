@@ -166,6 +166,16 @@ namespace JackpotRun.Engine
             run.Coins = Math.Max(run.Coins - run.LastCoinGain + res2.coins, 0);
             run.LastCells.Clear();
             run.LastCells.AddRange(newRaw.Select(c => c.sym.id));
+            // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — LastCellsFinal(웹 `r.lastCells = res.cells`
+            // 대응)은 다른 재굴림 경로와 동일하게 갱신한다. 단 run.LastMods는 **의도적으로 건드리지
+            // 않는다** — 웹 `_freeReroll()`(game.js:1214-1224, retake_form의 실제 구현)을 전수 확인한
+            // 결과 `r.lastMods` 대입이 없다(도박꾼/MANIP 장치가 공유하는 통합 manip() 함수만 game.js:
+            // 1286에서 `r.lastMods = mods`를 한다 — DeviceActions.HandleManip/GamblerReroll 참조).
+            // 즉 웹에서도 retake_form 이후의 cellInfo()는 `r.lastMods || this._mods()` 폴백을 타
+            // "현재" mods를 쓴다 — CellInfoView.Build의 `run.LastMods ?? BuildCurrentMods(run)` 폴백이
+            // 정확히 이 웹 동작을 재현한다(파리티, 버그 아님 — LastMods 미갱신은 이 함수만의 예외가
+            // 아니라 웹 원본의 실제 동작).
+            run.LastCellsFinal.Clear(); run.LastCellsFinal.AddRange(res2.cells);
             run.LastGain = res2.exp;
             run.LastScoreGain = res2.score;
             run.LastCoinGain = res2.coins;

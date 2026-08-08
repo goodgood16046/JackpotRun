@@ -28,7 +28,11 @@ namespace JackpotRun.UI2
         private void Awake()
         {
             if (rowTemplate != null) rowTemplate.gameObject.SetActive(false);
-            gameObject.SetActive(false);
+            // Opus 2차검수 필수⑤(2026-08-09, P4 REWARD_DONE/셀 정보 탭 슬라이스 발견 — 기존 결함,
+            // CellInfoSheet.cs Awake 주석에 전체 메커니즘 설명) — 여기서 gameObject.SetActive(false)를
+            // 부르면 안 된다. 빌더(BuildBagPopup→BuildSheetChrome)가 이미 비활성으로 굽는다 — Show()가
+            // 처음 SetActive(true)를 부르는 그 프레임에 Awake가 지연 실행되며, 이 안의 SetActive(false)가
+            // 그 활성화를 스스로 되돌려 최초 오픈 1회만 EnterRoutine 코루틴이 조용히 실패했다.
             if (dimGroup != null) dimGroup.alpha = 0f;
             if (scrimButton != null) scrimButton.onClick.AddListener(Hide);
             if (closeButton != null) closeButton.onClick.AddListener(Hide);

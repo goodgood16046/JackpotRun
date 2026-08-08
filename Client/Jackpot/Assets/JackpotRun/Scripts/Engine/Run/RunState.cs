@@ -27,6 +27,12 @@ namespace JackpotRun.Engine
         // WEB_PARITY P1 ④: DEVICE 노드 선택 후 [장착하기]/[코인+15] 결정을 기다리는 상태(웹 PHASE.DEVICE_NODE,
         // game.js:1696 `case "DEVICE": r.phase = PHASE.DEVICE_NODE;`) — NodeEvents.TakeDevice가 해소한다.
         DeviceNode,
+        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — 노드/상점 처리가 끝난 뒤 곧장 다음 스테이지
+        // SPIN으로 넘어가지 않고 "보상 획득 → 다음 스테이지 인트로" 화면에서 대기한다(웹 PHASE.
+        // REWARD_DONE, game.js:1573-1585 `_enterRewardDone`). RunController.ProceedToStage("스테이지 N
+        // 시작" 탭)가 해소해 Spin으로 넘어간다. 예외: DEVICE 노드 확정(TakeDevice)은 웹 deviceNodeTake
+        // (game.js:2523-2529)처럼 이 화면을 건너뛰고 곧장 Spin으로 간다(NodeEvents.TakeDevice 주석 참조).
+        RewardDone,
         GameOver,
     }
 
@@ -133,8 +139,19 @@ namespace JackpotRun.Engine
         public bool FlameNext = false; // 다음 스핀 EXP -50%
         public bool SeedNext = false;  // 다음 스핀 🌱 성장 예약
 
-        // 직전 스핀 원시 심볼 id — 재굴림/고정/복사/교체/재시험(S4 MANIP 훅)의 원본.
+        // 직전 스핀 원시 심볼 id — 재굴림/고정/복사/교체/재시험(S4 MANIP 훅)의 원본 입력. 폭탄 제거·
+        // 자석 복사 등 Evaluate 내부 변형 "이전" 스냅샷이라 릴에 실제로 보이는 결과와 다를 수 있다 —
+        // 표시용으로는 아래 LastCellsFinal을 쓸 것(재굴림 입력 용도로는 계속 이 필드가 정답, 원본
+        // Kotlin 계약 그대로 유지).
         public readonly List<string> LastCells = new List<string>();
+
+        // 웹 파리티 P4 Opus 2차검수 필수①(2026-08-09, WEB_PARITY_DESIGN.md §1-A #16) — 직전 스핀의
+        // "최종" 칸(웹 `r.lastCells = res.cells`, Evaluate 이후 — 폭탄 제거/자석 복사/성장/와일드 주입
+        // 전부 반영됨). CellInfoView가 이 필드를 읽어 릴 표시와 정확히 일치하는 셀 정보를 보여준다.
+        // SpinResolver.ResolveSpin(주 경로)·DeviceActions.cs의 MANIP 재계산·도박꾼 무료재굴림·
+        // ItemUse.UseRetakeForm(재시험) 총 4곳에서 Evaluate 직후 갱신한다.
+        public readonly List<Cell> LastCellsFinal = new List<Cell>();
+
         public long LastGain = 0;
         public long LastScoreGain = 0;
         public int LastCoinGain = 0;
@@ -229,6 +246,25 @@ namespace JackpotRun.Engine
         // (game.js:2350/2356 shopBuy 가드). 아이템 자체를 "사용"하는 것(ItemUse.PrismInkActive와 무관한
         // 별개 플래그)과는 무관 — 순수히 "상점 상품칸에서 다시 살 수 있는가"만 제한한다.
         public bool PrismInkBought = false;
+
+        // ── 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15/#16) ────────────────────────────────
+        // 직전 완료 스핀(SpinResolver.ResolveSpin/DeviceActions MANIP 재계산)에 실제로 쓰인 Mods 스냅샷.
+        // 웹 r.lastMods(game.js:355,941,1286) 대응 — 셀 정보 탭(cellInfo)이 "지금 이 순간의 mods"가
+        // 아니라 "그 칸이 실제로 나온 스핀의 mods"로 분해해야 정확하므로 재계산이 아니라 캐시가 필요하다.
+        // 아직 스핀이 없었으면(런 시작 직후) null — CellInfoView가 이 경우 방어적으로 null을 반환한다.
+        public Mods LastMods = null;
+
+        // RewardDone 화면에 뜨는 보상 메시지 — 웹 r.rewardMsg(game.js:1574 `_enterRewardDone(msg)`).
+        // RewardFlow.Enter가 노드/상점 처리 완료 시점에 채운다(§NodeEvents.cs/Shop.cs 각 분기 참조).
+        public string RewardMessage = "";
+
+        // 이번 상점 방문(EVENT_SHOP)에서 구매한 항목의 "emoji+name" 라벨 목록 — 웹 r.shopBought
+        // (game.js:355 초기화, 2305 상점 진입 시 리셋, 2358/2492 구매 시 push, 2515-2518 shopExit 소비)
+        // 그대로. NodeEvents.ChooseNode의 Shop 분기가 상점 진입 시 비우고, Shop.Buy가 구매마다 추가하며,
+        // Shop.Leave가 REWARD_DONE 화면의 "🛒 상점에서 구매: ..." 메시지 조립에 소비한다(소비 후에도
+        // 클리어하지 않음 — 다음 상점 진입 시 ChooseNode가 다시 비우므로 굳이 여기서 지울 필요 없음,
+        // 웹도 shopExit에서 `this.run.shopBought = [];`로 리셋하지만 이미 소비된 뒤라 결과는 동일).
+        public readonly List<string> ShopBoughtLabels = new List<string>();
 
         public RunState(long seed)
         {

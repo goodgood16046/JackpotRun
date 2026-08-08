@@ -84,6 +84,14 @@ namespace JackpotRun.Engine
         public TakeDevice(bool equip) { this.equip = equip; }
     }
 
+    // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — RewardDone 화면의 "스테이지 N 시작" 탭(웹
+    // proceedToStage(), game.js:1586 `if (this.run.phase === PHASE.REWARD_DONE) this._beginStage();`).
+    // RunPhase.RewardDone 전용 — Unity는 spins/quota를 스테이지마다 캐시하지 않고 매번 SpinResolver.
+    // EffSpins/QuotaOf로 즉석 계산하는 구조라(StageFlow.ClearStage 헤더 주석) 웹 `_beginStage()`가 하는
+    // 일(스핀수/요구치 재계산 등) 중 실제로 필요한 상태 변경은 이미 StageFlow.ClearStage 시점에 전부
+    // 끝나 있다 — 이 액션은 순수 phase 게이트일 뿐이다.
+    public sealed class ProceedToStage : RunAction { }
+
     // ══════════════════════════════════════════════════════════════════════
     // RunEvent — UI가 연출로 번역할 구조화 이벤트. 카톡 출력 문자열을 조립하지 않는다(설계 원칙 5) —
     // 기존 S3 산출물(SpinOutcome/ClearOutcome/FailureOutcome)을 그대로 페이로드로 재사용하고, S4가 새로
@@ -95,6 +103,7 @@ namespace JackpotRun.Engine
     //   NODE_RESOLVED · PERK_OFFER · PERK_GRANTED · PERK_HELD · PERK_LEVELED · RETAKE_EMPTY
     //   SHOP_OFFER · SHOP_PURCHASED · SHOP_REROLLED · SHOP_LEFT
     //   ITEM_USED · DEVICE_ARMED · DEVICE_PEEK · RUN_STARTED
+    //   STAGE_STARTED — 웹 파리티 P4(§1-A #15): RewardDone → Spin 전이(ProceedToStage) 완료 신호.
     //
     // ⚠️ UI 계약 주의:
     //   1) STAGE_CLEARED의 spin.result는 즉시클리어 아이템(grad_ring/gold_grad_bell) 경로에선 null이다
@@ -260,8 +269,19 @@ namespace JackpotRun.Engine
                 case GamblerReroll _: return DeviceActions.GamblerReroll(State, fromPost: State.Phase == RunPhase.PostSpin);
                 case Continue _: return HandleContinue();
                 case TakeDevice td: return NodeEvents.TakeDevice(State, td.equip);
+                case ProceedToStage _: return HandleProceedToStage();
                 default: return RunEvents.Rejected("UNKNOWN_ACTION");
             }
+        }
+
+        // 웹 파리티 P4 — RewardDone → Spin. State가 아니라면 거부(웹은 이 가드를 `if` 조건으로 조용히
+        // 무시하지만, Unity는 다른 모든 액션과 동일하게 REJECTED 이벤트로 UI에 알린다 — 기존 관례).
+        private List<RunEvent> HandleProceedToStage()
+        {
+            if (State.Phase != RunPhase.RewardDone) return RunEvents.Rejected("PHASE_NOT_REWARD_DONE");
+            State.Phase = RunPhase.Spin;
+            State.RewardMessage = "";
+            return RunEvents.One(new RunEvent { type = "STAGE_STARTED" });
         }
 
         // POST_SPIN 포기(§3-C step4의 "만회 수단 없음"과 동일한 최종 게임오버, 다만 여기선 플레이어가

@@ -29,7 +29,8 @@ namespace JackpotRun.UI2
         private void Awake()
         {
             if (cellButtonTemplate != null) cellButtonTemplate.gameObject.SetActive(false);
-            gameObject.SetActive(false);
+            // Opus 2차검수 필수⑤(2026-08-09) — 여기서 gameObject.SetActive(false)를 부르면 안 된다
+            // (기존 결함, CellInfoSheet.cs Awake 주석에 전체 메커니즘 설명). 빌더가 이미 비활성으로 굽는다.
             if (dimGroup != null) dimGroup.alpha = 0f;
             if (scrimButton != null) scrimButton.onClick.AddListener(Hide);
             if (cancelButton != null) cancelButton.onClick.AddListener(Hide);

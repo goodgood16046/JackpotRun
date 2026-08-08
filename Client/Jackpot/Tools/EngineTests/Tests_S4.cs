@@ -252,7 +252,8 @@ namespace JackpotRun.EngineTests
             var run = ShopRun(10);
             var ev = Shop.Leave(run);
             t.Eq("SHOP_LEFT", ev[0].type, "[leave] SHOP_LEFT");
-            t.Eq(RunPhase.Spin, run.Phase, "[leave] Phase → Spin");
+            // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — 상점 나가기도 REWARD_DONE을 거친다.
+            t.Eq(RunPhase.RewardDone, run.Phase, "[leave] Phase → RewardDone");
             t.Eq(0, run.ShopOffer.Count, "[leave] 오퍼 정리");
 
             // 상점이 아닌 상태에서 상점 액션 → 전부 거부.
@@ -434,7 +435,9 @@ namespace JackpotRun.EngineTests
             var pick = NodeEvents.PickOffer(run, 0);
             t.Eq("PERK_GRANTED", pick[0].type, $"[node:{kind}] PickOffer 성공");
             t.True(run.Perks.Contains(pick[0].perkId), $"[node:{kind}] 선택한 퍽이 영구 보유로 추가됨");
-            t.Eq(RunPhase.Spin, run.Phase, $"[node:{kind}] 선택 후 Phase → Spin");
+            // 웹 파리티 P4 — 웹 game.js:2185 `_enterRewardDone` 그대로.
+            t.Eq(RunPhase.RewardDone, run.Phase, $"[node:{kind}] 선택 후 Phase → RewardDone");
+            t.True(!string.IsNullOrEmpty(run.RewardMessage), $"[node:{kind}] RewardMessage 채워짐");
         }
 
         private static void ShopNode(TestCtx t, IReadOnlyDictionary<string, long> stat, long seed)
@@ -454,7 +457,7 @@ namespace JackpotRun.EngineTests
             // WEB_PARITY P1 ④: 코인 8 → 12(웹 game.js:1633).
             t.Eq(12, ev[0].coinsDelta, "[node:Rest] 코인 +12");
             t.Eq(12, run.Coins, "[node:Rest] 실제 코인 반영");
-            t.Eq(RunPhase.Spin, run.Phase, "[node:Rest] Phase → Spin");
+            t.Eq(RunPhase.RewardDone, run.Phase, "[node:Rest] Phase → RewardDone");
         }
 
         private static void GambleNode(TestCtx t, IReadOnlyDictionary<string, long> stat, long seed)
@@ -466,7 +469,7 @@ namespace JackpotRun.EngineTests
             bool doubled = run.Coins == 20;
             bool lost = run.Coins == 0;
             t.True(doubled || lost, "[node:Gamble] 결과는 2배 또는 전액소멸 중 하나");
-            t.Eq(RunPhase.Spin, run.Phase, "[node:Gamble] Phase → Spin");
+            t.Eq(RunPhase.RewardDone, run.Phase, "[node:Gamble] Phase → RewardDone");
 
             // 코인 0이면 항상 불발.
             var run2 = NodeRun(seed + 500, NodeKind.Gamble);
@@ -483,7 +486,7 @@ namespace JackpotRun.EngineTests
             t.Eq("NODE_RESOLVED", ev[0].type, "[node:Event] 즉시 해결");
             t.Eq(NodeKind.Event, ev[0].node, "[node:Event] node 필드");
             t.True(ev[0].eventRoll >= 0 && ev[0].eventRoll < 10, "[node:Event] eventRoll 0~9 범위");
-            t.Eq(RunPhase.Spin, run.Phase, "[node:Event] Phase → Spin");
+            t.Eq(RunPhase.RewardDone, run.Phase, "[node:Event] Phase → RewardDone");
         }
 
         private static void CurseNode(TestCtx t, IReadOnlyDictionary<string, long> stat, long seed)
@@ -497,7 +500,7 @@ namespace JackpotRun.EngineTests
             t.Eq(1, run.Curses.Count, "[node:Curse] 저주 보유 목록에 추가");
             // WEB_PARITY P1 ④: 코인 15 → 30(웹 game.js:1673).
             t.Eq(30, run.Coins, "[node:Curse] 코인 +30");
-            t.Eq(RunPhase.Spin, run.Phase, "[node:Curse] Phase → Spin");
+            t.Eq(RunPhase.RewardDone, run.Phase, "[node:Curse] Phase → RewardDone");
         }
 
         private static void RiskNode(TestCtx t, IReadOnlyDictionary<string, long> stat, long seed)
@@ -510,7 +513,7 @@ namespace JackpotRun.EngineTests
             t.True(!string.IsNullOrEmpty(ev[0].curseGrantedId), "[node:Risk] 저주 지급됨");
             t.Eq(1, run.Perks.Count, "[node:Risk] 증강 1개 보유");
             t.Eq(1, run.Curses.Count, "[node:Risk] 저주 1개 보유");
-            t.Eq(RunPhase.Spin, run.Phase, "[node:Risk] Phase → Spin");
+            t.Eq(RunPhase.RewardDone, run.Phase, "[node:Risk] Phase → RewardDone");
         }
 
         // WEB_PARITY P1 ④: DEVICE 노드 신설(웹 game.js:1696 case "DEVICE" + 2523-2529 deviceNodeTake).
@@ -554,7 +557,8 @@ namespace JackpotRun.EngineTests
             var evNoDrop = NodeEvents.ChooseNode(runNoDrop, 0, stat);
             t.Eq("NODE_RESOLVED", evNoDrop[0].type, "[node:Device] 드랍 없음 → EVENT 폴백(방어)");
             t.Eq(NodeKind.Event, evNoDrop[0].node, "[node:Device] 폴백 이벤트는 node=Event");
-            t.Eq(RunPhase.Spin, runNoDrop.Phase, "[node:Device] 폴백도 Phase → Spin");
+            // 이 폴백은 EVENT 테이블 경유(RewardFlow.Enter) — TakeDevice 직행 경로와 달리 RewardDone을 거친다.
+            t.Eq(RunPhase.RewardDone, runNoDrop.Phase, "[node:Device] 폴백은 EVENT 경유라 Phase → RewardDone");
         }
 
         // WEB_PARITY P1 ④: EVENT 10분기표 6번 — 미보유 장치 무작위 1개 지급(장착 중이 없으면 자동
@@ -975,7 +979,8 @@ namespace JackpotRun.EngineTests
             t.Eq(holdId, ev2[0].perkId, "[hold] 보류 이벤트 perkId=0번 칸 id");
             t.Eq(holdId, run.HeldAug, "[hold] run.HeldAug에 저장됨");
             t.Eq(0, run.PerkOfferIds.Count, "[hold] 보류 후 PerkOfferIds 소거");
-            t.Eq(RunPhase.Spin, run.Phase, "[hold] Phase → Spin");
+            // 웹 파리티 P4 — HoldAugment도 다른 노드 해소 분기와 동일하게 RewardDone을 거치도록 확장.
+            t.Eq(RunPhase.RewardDone, run.Phase, "[hold] Phase → RewardDone");
 
             // 다음 증강 노드 재진입.
             run.Phase = RunPhase.NodeSelect;
@@ -1236,6 +1241,7 @@ namespace JackpotRun.EngineTests
             "ITEM_USED", "DEVICE_ARMED", "DEVICE_PEEK", "RUN_STARTED",
             "DEVICE_OFFER", // WEB_PARITY P1 ④: DEVICE 노드 오퍼(RunPhase.DeviceNode 진입 이벤트)
             "PERK_LEVELED", // 웹 파리티 P3-3: AUGLEVEL 노드 선택(PickOffer) 결과
+            "STAGE_STARTED", // 웹 파리티 P4: RewardDone → Spin(ProceedToStage) 결과
         };
 
         // 결정론적 자동 플레이 정책: Spin(N) 반복 → NodeSelect는 항상 0번 선택 → 증강/유물 오퍼도 항상
@@ -1279,6 +1285,10 @@ namespace JackpotRun.EngineTests
                     // (default 분기가 예외를 던지므로 미처리 상태로 남기지 않는다).
                     case RunPhase.DeviceNode:
                         events = rc.Do(new TakeDevice(true));
+                        break;
+                    // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — "스테이지 N 시작" 탭 즉시 진행.
+                    case RunPhase.RewardDone:
+                        events = rc.Do(new ProceedToStage());
                         break;
                     default:
                         throw new InvalidOperationException("AutoPlay: 처리 불가 Phase=" + phase);
@@ -1362,6 +1372,11 @@ namespace JackpotRun.EngineTests
                     case RunPhase.DeviceNode:
                         actionName = "TakeDevice";
                         events = rc.Do(new TakeDevice(policyRng.Next(2) == 0));
+                        break;
+                    // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — "스테이지 N 시작" 탭 즉시 진행.
+                    case RunPhase.RewardDone:
+                        actionName = "ProceedToStage";
+                        events = rc.Do(new ProceedToStage());
                         break;
                     default:
                         throw new InvalidOperationException("AutoPlayRich: 처리 불가 Phase=" + phase);
@@ -1609,7 +1624,7 @@ namespace JackpotRun.EngineTests
             var ev = NodeEvents.ChooseNode(run, 0, stat);
             t.Eq("NODE_RESOLVED", ev[0].type, "[tier-fallback:exhausted] 전 풀 소진 → 기존대로 EVENT 테이블 폴백");
             t.Eq(NodeKind.Event, ev[0].node, "[tier-fallback:exhausted] node 필드 = Event(공용 EVENT 테이블 경유)");
-            t.Eq(RunPhase.Spin, run.Phase, "[tier-fallback:exhausted] Phase → Spin");
+            t.Eq(RunPhase.RewardDone, run.Phase, "[tier-fallback:exhausted] Phase → RewardDone");
         }
     }
 }

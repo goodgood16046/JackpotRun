@@ -82,6 +82,10 @@ namespace JackpotRun.EngineTests
                             if (shopStep == 0) { events = rc.Do(new BuyOffer(0)); shopStep = 1; }
                             else { events = rc.Do(new LeaveShop()); shopStep = 0; }
                             break;
+                        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — "스테이지 N 시작" 탭 즉시 진행.
+                        case RunPhase.RewardDone:
+                            events = rc.Do(new ProceedToStage());
+                            break;
                         default:
                             throw new InvalidOperationException("AutoPlay: 처리 불가 Phase=" + phase);
                     }
@@ -675,6 +679,10 @@ namespace JackpotRun.EngineTests
                         case RunPhase.EventShop:
                             if (shopStep == 0) { events = rc.Do(new BuyOffer(0)); shopStep = 1; }
                             else { events = rc.Do(new LeaveShop()); shopStep = 0; }
+                            break;
+                        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — "스테이지 N 시작" 탭 즉시 진행.
+                        case RunPhase.RewardDone:
+                            events = rc.Do(new ProceedToStage());
                             break;
                         default:
                             throw new InvalidOperationException("device-autoplay: 처리 불가 Phase=" + phase);

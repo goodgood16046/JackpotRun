@@ -51,8 +51,12 @@ namespace JackpotRun.UI2
         [SerializeField] private ShopPanel shopPanel;
         [SerializeField] private PostSpinPanel postSpinPanel;
         [SerializeField] private GameOverPanel gameOverPanel;
+        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — RewardDone(보상 획득 → 다음 스테이지 인트로).
+        [SerializeField] private RewardDonePanel rewardDonePanel;
         [SerializeField] private BagPopup bagPopup;
         [SerializeField] private ManipPickPopup manipPickPopup;
+        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 셀 정보 탭(openCellSheet 대응).
+        [SerializeField] private CellInfoSheet cellInfoSheet;
         // WEB_PARITY P1 ⑤/④: 범용 확인 시트(ConfirmSheetPopup) 인스턴스 2개 — 포기 확인 / DEVICE 노드
         // 오퍼(장착·코인) 선택. 동시에 뜰 일이 없는 별개 상황이라 각자 전용 인스턴스를 쓴다.
         [SerializeField] private ConfirmSheetPopup giveUpConfirmPopup;
@@ -96,6 +100,17 @@ namespace JackpotRun.UI2
                 bagButton.onClick.AddListener(() => bagPopup?.Show(_session.State, itemId => Send(new UseItem(itemId))));
             if (giveUpButton != null)
                 giveUpButton.onClick.AddListener(OnGiveUpClicked);
+            // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 셀 탭 → CellInfoSheet.
+            reelView?.SetCellTapHandler(OnCellTapped);
+        }
+
+        // Opus 2차검수 LOW⑤(2026-08-09) — _session은 Bind() 이전(씬 로드 직후 등)엔 null일 수 있고,
+        // _busy(스핀/연출 처리 중)일 때 탭하면 애니메이션 도중 상태를 읽어 화면과 안 맞는 셀 정보가 뜰
+        // 수 있다 — 다른 액션 핸들러(OnGiveUpClicked 등)와 동일한 가드를 그대로 적용.
+        private void OnCellTapped(int idx)
+        {
+            if (_busy || _session == null) return;
+            cellInfoSheet?.Show(_session.State, idx);
         }
 
         // WEB_PARITY P1 ⑤: "게임 포기" 클릭 → 확인 시트(웹 ui.js:863-871 giveUpAsk) → 확정 시 즉시 결산.
@@ -196,8 +211,10 @@ namespace JackpotRun.UI2
             shopPanel?.Hide();
             postSpinPanel?.Hide();
             gameOverPanel?.Hide();
+            rewardDonePanel?.Hide();
             bagPopup?.Hide();
             manipPickPopup?.Hide();
+            cellInfoSheet?.Hide();
             giveUpConfirmPopup?.Hide();
             deviceOfferPopup?.Hide();
         }
@@ -326,11 +343,14 @@ namespace JackpotRun.UI2
             if (phase != RunPhase.PostSpin) postSpinPanel?.Hide();
             if (phase != RunPhase.GameOver) gameOverPanel?.Hide();
             if (phase != RunPhase.DeviceNode) deviceOfferPopup?.Hide();
+            if (phase != RunPhase.RewardDone) rewardDonePanel?.Hide();
 
             switch (phase)
             {
                 case RunPhase.NodeSelect:
-                    nodePanel?.Show(_lastClear, run, idx => Send(new ChooseNode(idx)));
+                    // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 클리어 등급 화면 흔들림 escalation.
+                    // NodePanel은 ReelView를 모르므로 RunView가 콜백으로 연결한다(배너 등장과 같은 타이밍).
+                    nodePanel?.Show(_lastClear, run, idx => Send(new ChooseNode(idx)), tier => reelView?.PlayClearShake(tier));
                     break;
                 case RunPhase.EventAugment:
                 case RunPhase.EventRelic:
@@ -351,6 +371,10 @@ namespace JackpotRun.UI2
                 // [코인+15] 중 택1, 어느 쪽이든 장치는 영구 보유로 지급된다(TakeDevice).
                 case RunPhase.DeviceNode:
                     ShowDeviceOffer(run);
+                    break;
+                // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — 노드/상점 처리 완료 → RewardDone 화면.
+                case RunPhase.RewardDone:
+                    rewardDonePanel?.Show(run, () => Send(new ProceedToStage()));
                     break;
                 default:
                     break; // Spin: 오버레이 없음 — 하단 조작부 그대로 노출.
@@ -561,6 +585,11 @@ namespace JackpotRun.UI2
                         notesFeed?.Append($"런 시작 · 코인 {NumberFormat.Comma(e.coinsDelta)}");
                         break;
 
+                    // 웹 파리티 P4 — RewardDone → Spin(ProceedToStage) 완료. 별도 로그 불필요(다음
+                    // 스핀 UI가 곧바로 새 스테이지 정보를 보여준다).
+                    case "STAGE_STARTED":
+                        break;
+
                     default:
                         break;
                 }
@@ -699,6 +728,7 @@ namespace JackpotRun.UI2
             { "PHASE_NOT_SPIN_OR_POST_SPIN", "지금은 포기할 수 없습니다" },
             { "PHASE_NOT_DEVICE_NODE", "지금은 장치를 선택할 수 없습니다" },
             { "NO_PENDING_DEVICE_DROP", "받을 장치가 없습니다" },
+            { "PHASE_NOT_REWARD_DONE", "지금은 다음 스테이지를 시작할 수 없습니다" },
         };
 
         private static string RejectReasonText(string reason)

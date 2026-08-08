@@ -40,14 +40,17 @@ namespace JackpotRun.UI2
             if (dimGroup != null) dimGroup.alpha = 0f;
         }
 
-        public void Show(ClearOutcome clear, RunState run, Action<int> onChoose)
+        // onShake — 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) stageClearFx의 화면 흔들림 escalation.
+        // NodePanel은 ReelView를 직접 참조하지 않으므로(컴포넌트 분리 유지) RunView가 배너 연출과 같은
+        // 타이밍에 재생되도록 콜백으로 넘긴다(clear.gradeTier 인자로 즉시 호출).
+        public void Show(ClearOutcome clear, RunState run, Action<int> onChoose, Action<int> onShake = null)
         {
             bool firstShow = !gameObject.activeSelf;
             gameObject.SetActive(true);
             BuildCards(run, onChoose);
 
             if (_routine != null) StopCoroutine(_routine);
-            if (firstShow) _routine = StartCoroutine(EnterRoutine(clear));
+            if (firstShow) _routine = StartCoroutine(EnterRoutine(clear, onShake));
             else SnapToRest();
         }
 
@@ -64,7 +67,7 @@ namespace JackpotRun.UI2
             if (dimGroup != null) dimGroup.alpha = 1f;
         }
 
-        private IEnumerator EnterRoutine(ClearOutcome clear)
+        private IEnumerator EnterRoutine(ClearOutcome clear, Action<int> onShake)
         {
             // S12c §6 — 하단 고정 앵커(BuildSheetChrome) 시트라 오프스크린 시작 위치는 카드 자신의
             // 높이(rect.height)만큼 아래(translateY(100%) 재해석) — 고정 매직넘버 대신 실측값 사용.
@@ -75,12 +78,18 @@ namespace JackpotRun.UI2
             {
                 PopulateBanner(clear);
                 if (bannerRect != null) bannerRect.anchoredPosition = new Vector2(0f, BannerStartY);
-                // S7c 연출 훅: "NodePanel(클리어 배너): Clear."
-                FxKit.I?.Play(FxId.Clear, bannerRect);
+                // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16, 웹 stageClearFx ui.js:1700-1731) — 등급
+                // escalation: 화면 흔들림(콜백, RunView가 ReelView.PlayClearShake로 연결) + 색종이 개수를
+                // 등급 tier에 비례해 늘린다(fx_clear 프리팹 반복 재생으로 근사 — 정확한 24/40/58/78/104
+                // 카운트는 웹 전용 CSS 파티클 수라 1:1 이식 대상 아님, §작업 지시 "근사").
+                onShake?.Invoke(clear.gradeTier);
+                StartCoroutine(PlayConfettiEscalation(clear.gradeTier));
                 yield return UiTween.FadeRoutine(bannerGroup, 0f, 1f, BannerFadeDuration);
                 if (bannerRect != null)
                     yield return UiTween.MoveRoutine(bannerRect, bannerRect.anchoredPosition,
                         new Vector2(0f, BannerRestY), BannerDropDuration, UiTween.Ease.OutBack);
+                // 등급 배지 펄스 — 배너가 안착하는 순간 한 번 팝(고티어일수록 크게).
+                if (bannerGradeText != null) StartCoroutine(PulseGradeText(clear.gradeTier));
                 if (bannerScoreText != null)
                     yield return UiTween.CountUpRoutine(0, clear.gainedScore, ScoreCountUpDuration,
                         v => bannerScoreText.text = $"+{NumberFormat.Comma(v)}점", UiTween.Ease.OutCubic);
@@ -95,9 +104,65 @@ namespace JackpotRun.UI2
             _routine = null;
         }
 
+        // 웹 24/40/58/78/104(1~5단계)·perfect=30 색종이 개수를 "fx_clear 반복 재생 횟수"로 근사(0.08s
+        // 스태거) — 정확한 파티클 총량 이식이 아니라 "고티어일수록 더 화려하다"는 체감만 재현한다.
+        // Opus 2차검수 LOW④(2026-08-09) — 배열은 tier 1~5(index 0~4) 5개만 쓴다(gradeTier가 6이면
+        // perfect 분기로 빠져 이 배열을 아예 읽지 않음 — 예전엔 index5(값5)가 죽은 원소였다).
+        // perfect(웹 raw 개수 30)는 tier1(24)보다 살짝 많고 tier2(40)보다 훨씬 적다 — 5단계 중 가장
+        // 화려한 연출이 아니라 tier1~2 사이 강도다(웹 clear-fx.perfect가 색종이 대신 cf-ring/cf-burst
+        // 전용 연출로 화려함을 대신 낸다, ui.js:1728). 그래서 예전 값 3(tier3과 동급)은 과했다 — tier1
+        // 다음으로 낮춰 웹 원본 비율에 맞춘다.
+        private static readonly int[] ConfettiBurstsByTier = { 1, 2, 3, 4, 5 }; // index=tier-1(1~5)
+        private const int ConfettiBurstsPerfect = 1;
+        private const float ConfettiBurstStagger = 0.08f;
+
+        private IEnumerator PlayConfettiEscalation(int gradeTier)
+        {
+            int bursts = gradeTier == 6 ? ConfettiBurstsPerfect
+                : ConfettiBurstsByTier[Mathf.Clamp(gradeTier, 1, 5) - 1];
+            for (int i = 0; i < bursts; i++)
+            {
+                FxKit.I?.Play(FxId.Clear, bannerRect);
+                if (i < bursts - 1) yield return new WaitForSeconds(ConfettiBurstStagger);
+            }
+        }
+
+        private const float GradePulsePeakScale = 1.28f; // 설계 미명시 — "펄스" 지시의 팝 강도 기본값
+        private const float GradePulseUpDuration = 0.12f;
+        private const float GradePulseDownDuration = 0.18f;
+
+        private IEnumerator PulseGradeText(int gradeTier)
+        {
+            var rt = bannerGradeText.rectTransform;
+            // 고티어일수록 살짝 더 크게(perfect/tier5 최대) — 웹 .cfr-big 그라디언트 강조와 같은 취지.
+            float peak = gradeTier >= 5 ? GradePulsePeakScale : 1f + (GradePulsePeakScale - 1f) * (gradeTier / 5f);
+            rt.localScale = Vector3.one;
+            yield return UiTween.ScaleRoutine(rt, Vector3.one, Vector3.one * peak, GradePulseUpDuration, UiTween.Ease.OutQuad);
+            if (rt == null) yield break;
+            yield return UiTween.ScaleRoutine(rt, rt.localScale, Vector3.one, GradePulseDownDuration, UiTween.Ease.OutBack);
+        }
+
+        // 웹 파리티 P4 — 등급 tier별 배지 색(ui.js CSS .cchip.grade.g1~g5/perfect 그라디언트를 단색으로
+        // 근사, WEB_PARITY_DESIGN.md §1-A #16). g1/g2=초록, g3=파랑, g4=보라, g5/perfect=골드로 escalate.
+        private static Color GradeTierColor(int tier)
+        {
+            switch (tier)
+            {
+                case 1:
+                case 2: return UiKit.Green;
+                case 3: return UiKit.Blue;
+                case 4: return UiKit.Purple;
+                default: return UiKit.Accent; // 5, 6(perfect)
+            }
+        }
+
         private void PopulateBanner(ClearOutcome clear)
         {
-            if (bannerGradeText != null) bannerGradeText.text = clear.grade;
+            if (bannerGradeText != null)
+            {
+                bannerGradeText.text = clear.grade;
+                bannerGradeText.color = GradeTierColor(clear.gradeTier);
+            }
             if (bannerScoreText != null) bannerScoreText.text = "+0점";
             if (bannerSubText != null)
             {

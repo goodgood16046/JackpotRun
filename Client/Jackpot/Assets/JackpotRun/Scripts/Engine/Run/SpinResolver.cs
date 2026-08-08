@@ -782,6 +782,13 @@ namespace JackpotRun.Engine
             }
             if (destroyDevice) run.Device = "";
             run.LastCells.Clear(); run.LastCells.AddRange(rawIds);
+            // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16, 웹 game.js:1286 `r.lastMods = mods`) — 셀 정보
+            // 탭(CellInfoView)이 "지금"이 아니라 "그 칸이 실제로 나온 스핀"의 mods로 분해하도록 캐시.
+            run.LastMods = mods;
+            // Opus 2차검수 필수①(2026-08-09) — 웹 game.js:1286 `r.lastCells = res.cells.map(...)` 그대로.
+            // res(=SpinResult).cells는 폭탄 제거/자석 복사/성장/와일드 주입이 전부 반영된 "최종" 칸이라
+            // 위 run.LastCells(rawIds, Evaluate 이전 원시 입력)와 값이 다를 수 있다.
+            run.LastCellsFinal.Clear(); run.LastCellsFinal.AddRange(res.cells);
             run.LastGain = gained;
             run.LastScoreGain = res.score;
             run.LastCoinGain = res.coins;

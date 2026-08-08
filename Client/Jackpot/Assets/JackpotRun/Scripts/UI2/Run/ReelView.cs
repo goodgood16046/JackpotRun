@@ -189,6 +189,13 @@ namespace JackpotRun.UI2
         private Dictionary<string, Sprite> _spriteById;
         private Coroutine _screenShakeRoutine;
 
+        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 셀 탭(openCellSheet 대응). RunView가 1회만
+        // 등록한다(WireOnce 관례) — EnsureCellCount가 매 스핀 셀을 새로 만들 때마다 이 핸들러를
+        // 인덱스별로 다시 건다.
+        private Action<int> _cellTapHandler;
+
+        public void SetCellTapHandler(Action<int> handler) => _cellTapHandler = handler;
+
         private sealed class SlotView
         {
             public RectTransform rt;
@@ -615,6 +622,33 @@ namespace JackpotRun.UI2
             _screenShakeRoutine = StartCoroutine(ScreenShakeRoutine(amplitude, duration));
         }
 
+        // ── S16 §C 클리어 등급 연출(웹 파리티 P4, WEB_PARITY_DESIGN.md §1-A #16) ────────────────
+        // 웹 stageClearFx(ui.js:1700-1709) shake(tier>=5?"xl":tier>=3?"bg":"sm") + "tier>=4면 230ms 후
+        // 2차 흔들림" 그대로. gradeTier는 1~5, PERFECT=6(웹과 동일 — StageFlow.ClearStage 주석 참조)이라
+        // tier>=5가 6(perfect)도 자연히 xl로 포함한다. amplitude/duration은 이 파일 기존 셰이크 상수
+        // (Set3/Set4/Jackpot 3px~6px 대역)와 같은 눈금으로 맞췄다 — 웹 CSS 진폭 자체는 이식 대상이 아님.
+        private const float ClearShakeAmpSm = 3f;
+        private const float ClearShakeAmpBg = 6f;
+        private const float ClearShakeAmpXl = 9f;
+        private const float ClearShakeDurSm = 0.2f;
+        private const float ClearShakeDurBg = 0.3f;
+        private const float ClearShakeDurXl = 0.4f;
+        private const float ClearShakeSecondDelay = 0.23f; // 웹 "230ms 후" 그대로
+
+        public void PlayClearShake(int gradeTier)
+        {
+            float amp = gradeTier >= 5 ? ClearShakeAmpXl : gradeTier >= 3 ? ClearShakeAmpBg : ClearShakeAmpSm;
+            float dur = gradeTier >= 5 ? ClearShakeDurXl : gradeTier >= 3 ? ClearShakeDurBg : ClearShakeDurSm;
+            PlayScreenShake(amp, dur);
+            if (gradeTier >= 4) StartCoroutine(DelayedSecondShake());
+        }
+
+        private IEnumerator DelayedSecondShake()
+        {
+            yield return new WaitForSeconds(ClearShakeSecondDelay);
+            PlayScreenShake(ClearShakeAmpBg, ClearShakeDurBg);
+        }
+
         private IEnumerator ScreenShakeRoutine(float amplitude, float duration)
         {
             yield return UiTween.ShakeRoutine(runScreenRoot, amplitude, duration);
@@ -977,6 +1011,16 @@ namespace JackpotRun.UI2
                     var c = cv.streak.color;
                     c.a = 0f;
                     cv.streak.color = c;
+                }
+                // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 셀 탭. 인덱스는 클로저로 고정(i는 루프
+                // 변수라 캡처 전 로컬 복사 필요). 결과가 없는 칸(대기 상태/직전 스핀 정보 없음)은
+                // CellInfoView.Build가 null을 반환하므로 핸들러 쪽에서 조용히 무시된다.
+                int cellIdx = i;
+                var button = inst.GetComponent<Button>();
+                if (button != null)
+                {
+                    button.onClick.RemoveAllListeners();
+                    button.onClick.AddListener(() => _cellTapHandler?.Invoke(cellIdx));
                 }
                 _cells.Add(cv);
             }

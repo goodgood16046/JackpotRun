@@ -502,6 +502,10 @@ namespace JackpotRun.EditorTools
             // WEB_PARITY P1 ⑤/④: 범용 확인 시트 2개 — 포기 확인 / DEVICE 노드 오퍼(장착·코인).
             public UI2.ConfirmSheetPopup giveUpConfirmPopup;
             public UI2.ConfirmSheetPopup deviceOfferPopup;
+            // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — RewardDone(보상 획득 → 다음 스테이지 인트로).
+            public UI2.RewardDonePanel rewardDonePanel;
+            // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 셀 정보 탭(openCellSheet 대응).
+            public UI2.CellInfoSheet cellInfoSheet;
         }
 
         private sealed class DexBuildResult
@@ -1862,6 +1866,12 @@ namespace JackpotRun.EditorTools
             UiKit.SizeHint(cell, flexibleWidth: 1, preferredHeight: cellSize, flexibleHeight: 0);
             cell.gameObject.AddComponent<RectMask2D>(); // Strip 무한 스크롤 클리핑(설계 구조 필수 요소)
 
+            // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 셀 정보 탭(openCellSheet 대응). 기존 Image
+            // (배경)를 targetGraphic으로 삼는 Button만 추가한다 — 색 트랜지션은 릴 연출과 충돌하므로 끈다
+            // (ReelView.EnsureCellCount가 인덱스별로 onClick을 다시 건다).
+            var cellButton = cell.gameObject.AddComponent<Button>();
+            cellButton.transition = Selectable.Transition.None;
+
             var border = cell.gameObject.AddComponent<Outline>(); // 상시 2px 테두리(설계 "테두리")
             border.effectColor = UiKit.Bd2;
             border.effectDistance = new Vector2(2f, -2f);
@@ -2166,6 +2176,8 @@ namespace JackpotRun.EditorTools
             so.FindProperty("manipPickPopup").objectReferenceValue = overlay.manipPickPopup;
             so.FindProperty("giveUpConfirmPopup").objectReferenceValue = overlay.giveUpConfirmPopup;
             so.FindProperty("deviceOfferPopup").objectReferenceValue = overlay.deviceOfferPopup;
+            so.FindProperty("rewardDonePanel").objectReferenceValue = overlay.rewardDonePanel;
+            so.FindProperty("cellInfoSheet").objectReferenceValue = overlay.cellInfoSheet;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
@@ -2287,6 +2299,8 @@ namespace JackpotRun.EditorTools
                 // 않는 편이 UX상 명확하다.
                 giveUpConfirmPopup = BuildConfirmSheetPopup(overlay, "GiveUpConfirmPopup", dismissOnScrimClick: true),
                 deviceOfferPopup = BuildConfirmSheetPopup(overlay, "DeviceOfferPopup", dismissOnScrimClick: false),
+                rewardDonePanel = BuildRewardDonePanel(overlay),
+                cellInfoSheet = BuildCellInfoSheet(overlay),
             };
         }
 
@@ -2723,6 +2737,209 @@ namespace JackpotRun.EditorTools
             so.FindProperty("manipButtonsContent").objectReferenceValue = manipButtonsContent;
             so.FindProperty("manipButtonTemplate").objectReferenceValue = manipTemplate;
             so.FindProperty("giveUpButton").objectReferenceValue = giveUpButton;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // ── RewardDonePanel ─────────────────────────────────────────────────────────
+        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — 웹 renderRewardDone(ui.js:1897-1936) 구성 순서
+        // 그대로: 보상 메시지 → 보유 효과 목록(BagPopup 행 템플릿 관례 재사용) → 현재 능력치(GainPanel
+        // Inner/Label·Value 행 관례 재사용) → 다음 스테이지 프리뷰 → [스테이지 N 시작](주 액션 .bigbtn 골드).
+        // dismissOnScrimClick:false — NodePanel/PerkOfferPanel과 동일하게 "필수 결정" 화면(스크림 탭으로
+        // 못 빠져나감, 다음 스테이지는 버튼으로만 진행).
+        private static UI2.RewardDonePanel BuildRewardDonePanel(Transform overlay)
+        {
+            var chrome = BuildSheetChrome(overlay, "RewardDonePanel", 1400f, dismissOnScrimClick: false);
+            var scrim = chrome.scrim;
+            var col = chrome.cardCol;
+
+            var messageText = UiKit.Text(col, "", 24, UiKit.Accent, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(messageText, preferredHeight: 60, flexibleHeight: 0);
+
+            var scroll = UiKit.Scroll(col, out var scrollContent, vertical: true);
+            UiKit.SizeHint(scroll, flexibleHeight: 1);
+            SetupStackContent(scrollContent, 0, 14, 16);
+
+            // ── 보유 효과 ──
+            var buildTitle = UiKit.Text(scrollContent, "보유 효과", 20, UiKit.TextSecondary, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(buildTitle, preferredHeight: 28, flexibleHeight: 0);
+            // rowsContent 자신도 VerticalLayoutGroup이라 ILayoutElement로서 실제 활성 자식(행) 기준
+            // preferredHeight를 scrollContent에 그대로 보고한다(GainPanel.BuildRunGainPanel의 동일 관례 —
+            // SizeHint를 걸면 LayoutElement가 이 자연 보고를 덮어써 항상 0으로 접혀버린다).
+            var buildRowsContent = UiKit.VGroup(scrollContent, 8, new RectOffset(0, 0, 0, 0), true, true);
+            var buildEmptyText = UiKit.Text(scrollContent, "아직 획득한 증강·유물이 없어요.", 16, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(buildEmptyText, preferredHeight: 40, flexibleHeight: 0);
+            var buildRowTemplate = BuildRewardBuildRowTemplate(buildRowsContent);
+
+            // ── 현재 능력치 ──
+            var statTitle = UiKit.Text(scrollContent, "현재 능력치", 20, UiKit.TextSecondary, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(statTitle, preferredHeight: 28, flexibleHeight: 0);
+            var statRowsContent = UiKit.VGroup(scrollContent, 2, new RectOffset(0, 0, 0, 0), true, true);
+            var statEmptyText = UiKit.Text(scrollContent, "보정 없음 — 기본 능력치", 16, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(statEmptyText, preferredHeight: 32, flexibleHeight: 0);
+            var statRowTemplate = BuildRewardStatRowTemplate(statRowsContent);
+            var symLineText = UiKit.Text(scrollContent, "", 15, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(symLineText, preferredHeight: 60, flexibleHeight: 0);
+
+            // ── 다음 스테이지 프리뷰 ──
+            var nextBoxColor = UiKit.Purple; nextBoxColor.a = 0.14f;
+            var nextBox = UiKit.Panel(scrollContent, "NextPreview", nextBoxColor, UiSpriteGen.Load("panel_r24"));
+            UiKit.SizeHint(nextBox, preferredHeight: 120, flexibleHeight: 0);
+            UiKit.AddGlowOutline(nextBox.gameObject, UiKit.Purple, 2f).enabled = true;
+            var nextCol = UiKit.VGroup(nextBox, 4, new RectOffset(16, 16, 12, 12), true, true);
+            UiKit.Fill(nextCol);
+            var nextTitleText = UiKit.Text(nextCol, "", 22, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(nextTitleText, preferredHeight: 30, flexibleHeight: 0);
+            var nextBossDescText = UiKit.Text(nextCol, "", 16, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(nextBossDescText, preferredHeight: 40, flexibleHeight: 0);
+            var nextSubText = UiKit.Text(nextCol, "", 18, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(nextSubText, preferredHeight: 28, flexibleHeight: 0);
+
+            var startButton = UiKit.Button(col, "", new Vector2(0, 92), UiKit.Accent, UiKit.Ink, null, UiSpriteGen.Load("w_gold_btn"));
+            UiKit.SizeHint(startButton, preferredHeight: 92, flexibleHeight: 0);
+            UiKit.AddGlowOutline(startButton.gameObject, UiKit.Bd2, 2f).enabled = true;
+            var startButtonLabel = startButton.GetComponentInChildren<Text>();
+
+            var view = scrim.gameObject.AddComponent<UI2.RewardDonePanel>();
+            var so = new SerializedObject(view);
+            so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
+            so.FindProperty("cardRect").objectReferenceValue = chrome.card;
+            so.FindProperty("messageText").objectReferenceValue = messageText;
+            so.FindProperty("buildRowsContent").objectReferenceValue = buildRowsContent;
+            so.FindProperty("buildRowTemplate").objectReferenceValue = buildRowTemplate;
+            so.FindProperty("buildEmptyText").objectReferenceValue = buildEmptyText;
+            so.FindProperty("statRowsContent").objectReferenceValue = statRowsContent;
+            so.FindProperty("statRowTemplate").objectReferenceValue = statRowTemplate;
+            so.FindProperty("statEmptyText").objectReferenceValue = statEmptyText;
+            so.FindProperty("symLineText").objectReferenceValue = symLineText;
+            so.FindProperty("nextTitleText").objectReferenceValue = nextTitleText;
+            so.FindProperty("nextSubText").objectReferenceValue = nextSubText;
+            so.FindProperty("nextBossDescText").objectReferenceValue = nextBossDescText;
+            so.FindProperty("startButton").objectReferenceValue = startButton;
+            so.FindProperty("startButtonLabel").objectReferenceValue = startButtonLabel;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // 자식 경로 계약(RewardDonePanel.cs BuildBuildRows): Content/IconSlot/Icon·IconSlot/IconEmoji,
+        // Content/InfoCol/Name·Desc·Kind. BagPopup의 BuildBagRowTemplate과 동일 톤(.pcard)이되 UseButton
+        // 없이 Kind(작은 보조 라벨, 티어/분류)만 추가한다 — 이 시트는 조회 전용이라 행동 버튼이 없다.
+        private static RectTransform BuildRewardBuildRowTemplate(Transform parent)
+        {
+            var row = UiKit.Panel(parent, "RewardBuildRowTemplate", Color.white, UiSpriteGen.Load("w_card_grad"));
+            UiKit.AddGlowOutline(row.gameObject, UiKit.Bd, 1.5f).enabled = true;
+            UiKit.SizeHint(row, preferredHeight: 110, flexibleHeight: 0);
+            var inner = UiKit.HGroup(row, 12, new RectOffset(14, 14, 8, 8), true, true);
+            inner.name = "Content";
+            UiKit.Fill(inner);
+
+            BuildIconSlot(inner, 64, 38);
+
+            var infoCol = UiKit.VGroup(inner, 2, new RectOffset(0, 0, 0, 0), true, true);
+            infoCol.name = "InfoCol";
+            UiKit.SizeHint(infoCol, flexibleWidth: 1, flexibleHeight: 0);
+            var name = UiKit.Text(infoCol, "", 20, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            name.name = "Name";
+            UiKit.SizeHint(name, preferredHeight: 26, flexibleHeight: 0);
+            var kind = UiKit.Text(infoCol, "", 14, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            kind.name = "Kind";
+            UiKit.SizeHint(kind, preferredHeight: 18, flexibleHeight: 0);
+            var desc = UiKit.Text(infoCol, "", 15, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            desc.name = "Desc";
+            UiKit.SizeHint(desc, flexibleHeight: 1);
+
+            row.gameObject.SetActive(false);
+            return row;
+        }
+
+        // 자식 경로 계약(RewardDonePanel.cs BuildStatRows): "Inner/Label"·"Inner/Value" — GainPanel의
+        // BuildGainRowTemplate과 동일 골격(스태거 애니메이션은 쓰지 않지만 Inner 한 겹 구조는 그대로
+        // 재사용해 두 패널이 같은 관례를 공유하게 했다).
+        private static RectTransform BuildRewardStatRowTemplate(Transform parent)
+        {
+            var row = UiKit.Panel(parent, "RewardStatRowTemplate", new Color(0f, 0f, 0f, 0f));
+            UiKit.SizeHint(row, preferredHeight: 30, flexibleHeight: 0);
+
+            var innerGo = new GameObject("Inner", typeof(RectTransform));
+            var inner = (RectTransform)innerGo.transform;
+            inner.SetParent(row, false);
+            UiKit.Fill(inner);
+
+            var label = UiKit.Text(inner, "", 18, UiKit.TextSecondary, TextAnchor.MiddleLeft);
+            label.name = "Label";
+            UiKit.SetAnchors(label.rectTransform, new Vector2(0f, 0f), new Vector2(0.62f, 1f), new Vector2(4f, 0f), new Vector2(-6f, 0f));
+
+            var value = UiKit.Text(inner, "", 18, UiKit.TextSecondary, TextAnchor.MiddleRight, true);
+            value.name = "Value";
+            UiKit.SetAnchors(value.rectTransform, new Vector2(0.62f, 0f), new Vector2(1f, 1f), new Vector2(6f, 0f), new Vector2(-4f, 0f));
+
+            row.gameObject.SetActive(false);
+            return row;
+        }
+
+        // ── CellInfoSheet ───────────────────────────────────────────────────────────
+        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 웹 openCellSheet(ui.js:959-1010) 구성 순서:
+        // 헤더(심볼+칸 위치) → 태그 → 특수효과 → EXP/점수 분해(계산줄) → 전체배수/세트보너스 안내 →
+        // 영향 항목 목록 → 활성 세트. 행 템플릿은 RewardDonePanel과 동일한 두 관례(Inner/Label·Value,
+        // Content/IconSlot+InfoCol)를 재사용한다(BuildRewardStatRowTemplate/BuildRewardBuildRowTemplate).
+        // dismissOnScrimClick:true — BagPopup/ManipPickPopup과 동일하게 언제든 스크림 탭으로 닫힌다.
+        private static UI2.CellInfoSheet BuildCellInfoSheet(Transform overlay)
+        {
+            var chrome = BuildSheetChrome(overlay, "CellInfoSheet", 1300f, dismissOnScrimClick: true);
+            var scrim = chrome.scrim;
+            var scrimButton = scrim.GetComponent<Button>();
+            var col = chrome.cardCol;
+
+            var titleText = UiKit.Text(col, "", 24, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(titleText, preferredHeight: 36, flexibleHeight: 0);
+            var tagsText = UiKit.Text(col, "", 16, UiKit.Purple, TextAnchor.MiddleLeft);
+            UiKit.SizeHint(tagsText, preferredHeight: 26, flexibleHeight: 0);
+            var specialsText = UiKit.Text(col, "", 16, UiKit.Accent, TextAnchor.UpperLeft);
+            UiKit.SizeHint(specialsText, preferredHeight: 50, flexibleHeight: 0);
+
+            var scroll = UiKit.Scroll(col, out var scrollContent, vertical: true);
+            UiKit.SizeHint(scroll, flexibleHeight: 1);
+            SetupStackContent(scrollContent, 0, 12, 14);
+
+            var calcRowsContent = UiKit.VGroup(scrollContent, 2, new RectOffset(0, 0, 0, 0), true, true);
+            var calcRowTemplate = BuildRewardStatRowTemplate(calcRowsContent);
+
+            var muNoteText = UiKit.Text(scrollContent, "", 15, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(muNoteText, preferredHeight: 50, flexibleHeight: 0);
+            var setNoteText = UiKit.Text(scrollContent, "", 15, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(setNoteText, preferredHeight: 70, flexibleHeight: 0);
+
+            var affectingTitle = UiKit.Text(scrollContent, "이 칸에 영향 주는 증강·유물·캐릭터", 18, UiKit.TextSecondary, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(affectingTitle, preferredHeight: 26, flexibleHeight: 0);
+            var affectingRowsContent = UiKit.VGroup(scrollContent, 8, new RectOffset(0, 0, 0, 0), true, true);
+            var affectingRowTemplate = BuildRewardBuildRowTemplate(affectingRowsContent);
+            var affectingEmptyText = UiKit.Text(scrollContent, "이 칸에 직접 영향 주는 항목이 아직 없어요.", 15, UiKit.TextSecondary, TextAnchor.MiddleCenter);
+            UiKit.SizeHint(affectingEmptyText, preferredHeight: 40, flexibleHeight: 0);
+
+            var setsText = UiKit.Text(scrollContent, "", 15, UiKit.Purple, TextAnchor.UpperLeft);
+            UiKit.SizeHint(setsText, preferredHeight: 60, flexibleHeight: 0);
+
+            var closeButton = UiKit.Button(col, "닫기", new Vector2(0, 80), UiKit.Panel2, UiKit.TextPrimary, null, UiSpriteGen.Load("w_ghost_btn"));
+            UiKit.SizeHint(closeButton, preferredHeight: 80, flexibleHeight: 0);
+            UiKit.AddGlowOutline(closeButton.gameObject, UiKit.Bd2, 2f).enabled = true;
+
+            var view = scrim.gameObject.AddComponent<UI2.CellInfoSheet>();
+            var so = new SerializedObject(view);
+            so.FindProperty("scrimButton").objectReferenceValue = scrimButton;
+            so.FindProperty("cardRect").objectReferenceValue = chrome.card;
+            so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
+            so.FindProperty("titleText").objectReferenceValue = titleText;
+            so.FindProperty("tagsText").objectReferenceValue = tagsText;
+            so.FindProperty("specialsText").objectReferenceValue = specialsText;
+            so.FindProperty("calcRowsContent").objectReferenceValue = calcRowsContent;
+            so.FindProperty("calcRowTemplate").objectReferenceValue = calcRowTemplate;
+            so.FindProperty("muNoteText").objectReferenceValue = muNoteText;
+            so.FindProperty("setNoteText").objectReferenceValue = setNoteText;
+            so.FindProperty("affectingRowsContent").objectReferenceValue = affectingRowsContent;
+            so.FindProperty("affectingRowTemplate").objectReferenceValue = affectingRowTemplate;
+            so.FindProperty("affectingEmptyText").objectReferenceValue = affectingEmptyText;
+            so.FindProperty("setsText").objectReferenceValue = setsText;
+            so.FindProperty("closeButton").objectReferenceValue = closeButton;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
         }

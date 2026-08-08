@@ -221,6 +221,11 @@ namespace JackpotRun.Engine
             run.Coins = newCoins;
             run.LastCells.Clear();
             run.LastCells.AddRange(raw.Select(c => c.sym.id));
+            // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16, 웹 game.js:1286 통합 manip() `r.lastMods =
+            // mods`/`r.lastCells = res.cells`) — MANIP 재계산도 셀 정보 탭 캐시를 갱신한다. LastCells는
+            // raw(재굴림 입력) 그대로 두고, LastCellsFinal만 res.cells(Evaluate 이후 최종 칸)로 채운다.
+            run.LastMods = mods;
+            run.LastCellsFinal.Clear(); run.LastCellsFinal.AddRange(res.cells);
             run.LastGain = gained;
             run.LastScoreGain = res.score;
             run.LastCoinGain = res.coins;
@@ -300,6 +305,14 @@ namespace JackpotRun.Engine
             run.Coins = newCoins;
             run.LastCells.Clear();
             run.LastCells.AddRange(raw.Select(c => c.sym.id));
+            // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 도박꾼 무료 재굴림도 셀 정보 탭 캐시를 갱신
+            // (웹 game.js:1240-1242,1286 — "재굴림" cmd는 MANIP 장치와 같은 통합 manip() 함수를 타므로
+            // 도박꾼/장치 구분 없이 동일하게 r.lastMods를 갱신한다 — Unity가 두 함수로 나눈 구조라도
+            // 파리티는 "둘 다 갱신"이 맞다. 대조적으로 재시험(ItemUse.UseRetakeForm)은 웹 `_freeReroll()`
+            // (game.js:1214-1224)이 별도 함수라 r.lastMods를 전혀 건드리지 않는다 — 그쪽은 의도적으로
+            // LastMods를 갱신하지 않는다, ItemUse.cs 주석 참조).
+            run.LastMods = mods;
+            run.LastCellsFinal.Clear(); run.LastCellsFinal.AddRange(res.cells);
             run.LastGain = gained;
             run.LastScoreGain = res.score;
             run.LastCoinGain = res.coins;

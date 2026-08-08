@@ -250,7 +250,8 @@ namespace JackpotRun.EngineTests
             t.Eq(2, run.PerkLevels["study"], "[auglv-flow] RunState.PerkLevels 반영");
             t.Eq(1, run.Perks.Count(id => id == "study"), "[auglv-flow] 레벨업은 perks에 새 항목을 추가하지 않음(중복 없음)");
             t.Eq(1, run.PerkLevels.TryGetValue("greed", out var glv) ? glv : 1, "[auglv-flow] greed는 그대로 Lv1(영향 없음)");
-            t.Eq(RunPhase.Spin, run.Phase, "[auglv-flow] 픽 후 Phase → Spin");
+            // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — PickOffer(PERK_LEVELED)도 RewardDone을 거친다.
+            t.Eq(RunPhase.RewardDone, run.Phase, "[auglv-flow] 픽 후 Phase → RewardDone");
             t.Eq(0, run.PerkOfferIds.Count, "[auglv-flow] PerkOfferIds 소진");
         }
     }
@@ -348,7 +349,10 @@ namespace JackpotRun.EngineTests
             t.Eq(1, events.Count, "[auglv-nocand] 단일 이벤트");
             t.Eq("NODE_RESOLVED", events[0].type, "[auglv-nocand] EVENT 테이블 폴백이 아니라 무보상 NODE_RESOLVED");
             t.True(events[0].node == NodeKind.AugLevel, "[auglv-nocand] node 필드는 AugLevel 유지");
-            t.Eq(RunPhase.Spin, run.Phase, "[auglv-nocand] Phase → Spin으로 즉시 복귀");
+            // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — 웹 game.js:1622 `_enterRewardDone("강화할
+            // 증강이 없어요")` 그대로, 곧장 Spin이 아니라 RewardDone을 거친다.
+            t.Eq(RunPhase.RewardDone, run.Phase, "[auglv-nocand] Phase → RewardDone(무보상 메시지와 함께)");
+            t.Eq("강화할 증강이 없어요", run.RewardMessage, "[auglv-nocand] RewardMessage 문구");
             t.Eq(0, run.PerkOfferIds.Count, "[auglv-nocand] PerkOfferIds 미생성");
         }
     }

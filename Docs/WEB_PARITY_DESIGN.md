@@ -586,6 +586,135 @@
   - **웹 대비 생략/보고 대상**: 승천 선택기(위 근거) · 소리 토글(P5) 외에 이번 슬라이스가 다루지
     않은 P4 잔여 항목(§1-A #15/#16의 REWARD_DONE 능력치 패널·셀 정보 탭·클리어 등급 6단계 연출·
     튜토리얼 3단·설정 시트)은 후속 슬라이스(2/3, 3/3) 대상.
+- **(W) 2026-08-09 완료(P4 2/3 — REWARD_DONE 화면 + 셀 정보 탭 + 클리어 등급 연출, WEB_PARITY_DESIGN.md
+  §1-A #15/#16)**:
+  - **A. REWARD_DONE**: `RunPhase.RewardDone` 신설 — 웹 `_enterRewardDone`(game.js:1573-1585)처럼
+    노드/상점 처리 직후 곧장 `Spin`으로 안 가고 이 화면에서 "스테이지 N 시작" 탭을 기다린다.
+    `RewardFlow.Enter`(신규 헬퍼)가 `NodeEvents.cs`(Rest/Gamble/Curse/Risk/EVENT테이블 및 AUGMENT/
+    RELIC/CURSE/RISK 풀소진 공유폴백/AugLevel무보상/PickOffer의 PERK_GRANTED·PERK_LEVELED 두 분기/
+    HoldAugment)와 `Shop.cs`(Leave)의 옛 `run.Phase=RunPhase.Spin` 대입을 전부 대체한다. 유일한 예외
+    `NodeEvents.TakeDevice`(DEVICE 노드 확정)는 웹 `deviceNodeTake`(game.js:2523-2529)가
+    `_enterRewardDone`을 거치지 않고 곧장 `_beginStage()`로 가는 것과 동일 파리티로 그대로 Spin
+    직행 유지(확인 완료 — 웹 소스 전수 grep 결과 `PHASE.SPIN` 직접 대입은 런 시작 1곳과
+    `_beginStage()` 내부뿐, deviceNodeTake만 REWARD_DONE 미경유). `HoldAugment`(dev_holdfile,
+    Unity 전용 — 웹에 대응 개념 없음)도 다른 노드 해소 분기와의 일관성을 위해 REWARD_DONE을
+    거치도록 확장했다(웹 이탈 아님 — Fable 최종검수 대상으로 표기).
+    - `RunController.ProceedToStage`(신규 액션, 웹 `proceedToStage()`) — `RewardDone→Spin` 게이트.
+      Unity는 스핀수/요구치를 스테이지마다 캐시하지 않고 매번 `SpinResolver.EffSpins/QuotaOf`로
+      즉석 계산하는 구조라(`StageFlow.ClearStage` 헤더 주석) 웹 `_beginStage()`가 하던 재계산은
+      이미 `ClearStage` 시점에 끝나 있다 — 이 액션은 순수 phase 게이트이고 추가 상태 리셋이 없다.
+    - `RunState.RewardMessage`(웹 `r.rewardMsg`) + `RunState.ShopBoughtLabels`(웹 `r.shopBought`
+      — 상점 진입 시 `ChooseNode`가 리셋, `Shop.Buy`가 구매마다 이름 누적, `Shop.Leave`가 조합해
+      메시지 완성) 신규 필드. 메시지는 엔진에서 직접 조립하되 웹 리터럴을 맹목적으로 베끼지 않았다
+      — EVENT 테이블 case4(웹: 코인+20 / Unity: 스테이지 스핀+1)·case6(웹: 미장착 시 자동장착 /
+      Unity: rare가중 추첨+미보유필터, §1-A #4·§2-(F) 결정으로 이미 갈라진 수치)는
+      `EventRewardMessage`가 `RunEvent` 필드(coinsDelta/scoreDelta/bonusSpinsDelta/
+      itemGrantedId/...)에서 재구성해 실제 지급과 항상 일치시킨다. 이모지 없이 한글+숫자만 사용
+      (엔진 산출 문자열 규약 — 표시 레이어가 안전하게 그대로 쓸 수 있게).
+    - `RewardDoneInfo.cs`(신규, 표시 전용) — `RewardDoneView.NextPreview(run)`(웹 `nextPreview`,
+      quota/spins/bossId — run.Stage가 이미 ClearStage에서 다음 스테이지로 갱신돼 있어 정확),
+      `CurrentStats(run)`(웹 `currentStats()` — mods 15행 + 심볼별 EXP/점수/태그 델타. ctx는
+      "다음 스테이지 시작 직전" 의미로 stage=run.Stage·spinIndex=0·growthStack/snowStack/
+      curseCount/boss/coins=현재 run 값으로 채워 daredevil/cliff_focus류 ctx-조건부 퍽까지
+      정확히 반영 — 웹 `_ctx()`가 실제로는 갱신 전 이전 스테이지의 stale `r.spins/r.quota`를
+      참조하는 사소한 차이는 재현하지 않음). 심볼 라벨은 emoji 대신 한글 이름 사용(astral 렌더
+      제약 회피, GainPanel 선례).
+    - UI: `RewardDonePanel.cs`(신규, `UI2/Run/Panels/`) — 보상 메시지 → 보유 효과(증강/유물/저주/
+      장치, BagPopup 행 관례 재사용 — 웹의 "칩 탭→상세 토글" 2단 인터랙션 대신 처음부터 전부 펼쳐
+      보임, 정보량 동일·탭수만 감소로 단순화) → 현재 능력치(GainPanel의 Inner/Label·Value 행 관례
+      재사용) → 다음 스테이지 프리뷰(보스면 보스 emoji/이름/설명, 아니면 "다음 STAGE N") →
+      [스테이지 N 시작]. `RunView`(`rewardDonePanel` 필드 + `RefreshPhasePanel` 분기) /
+      `Editor/UiSceneBuilder.cs`(`BuildRewardDonePanel` + 두 행 템플릿 `BuildRewardBuildRowTemplate`
+      /`BuildRewardStatRowTemplate`, `RunOverlayResult`/`WireRunView` 배선) 신규.
+  - **B. 셀 정보 탭**: `CellInfoView.cs`(신규, 표시 전용) — 웹 `cellInfo`(game.js:2706-2787) 그대로
+    칸 EXP/점수 분해(기본→심볼 보너스→태그 보너스→해골→가운데 배수) + 전체배수 안내 + "이 칸에
+    영향 주는 증강/유물/캐릭터/저주" 델타 라벨(baseline `ModsBuilder.Build("basic","gambler",[])`
+    대비 diff — 웹 `label()` 클로저와 동일 로직, 심볼 표기만 emoji→한글 이름). 정확도를 위해
+    `RunState.LastMods`(신규, 웹 `r.lastMods`) 캐시가 필요했다 — "지금 이 순간"이 아니라 "그 칸이
+    실제로 나온 스핀"의 mods로 분해해야 하므로 `SpinResolver.ResolveSpin`(주 경로) +
+    `DeviceActions.cs`의 MANIP 재계산·도박꾼 무료재굴림 + `ItemUse.UseRetakeForm`(단, LastMods는
+    의도적으로 미갱신 — 아래 §2-(W) 참조) 총 4곳에서 캐시한다. 심화모드 `pouchInfo`(주머니
+    보유율)는 Unity에 심화모드 자체가 없어 미이식. `RunState.LastCellsFinal`(신규, `List<Cell>`,
+    웹 `r.lastCells = res.cells` 대응 — Evaluate 이후 최종 칸, 폭탄 제거·자석 복사·성장 전부 반영)
+    을 읽어 "자석으로 복사된 칸"/"씨앗이 성장한 칸"/"폭탄으로 제거된 빈 칸" 특수 안내 3줄 모두
+    재현한다(아래 §2-(W) Opus 2차검수 — 예전 슬라이스에서 `RunState.LastCells`(raw)만 있어
+    2줄을 재현 못 하던 범위축소가 해소됨).
+    - UI: `ReelView`에 셀 탭 추가 — `Editor/UiSceneBuilder.cs BuildReelCellTemplate`가 셀 루트에
+      `Button`(transition=None, 기존 배경 Image를 targetGraphic으로 재사용) 부착, `ReelView.
+      EnsureCellCount`가 매 스핀 셀 재생성 시 인덱스별 `onClick`을 다시 걸고
+      `SetCellTapHandler(Action<int>)`(신규, `RunView.WireOnce`가 1회 등록)로 콜백을 받는다.
+      결과 없는 칸(대기 상태 등)은 `CellInfoView.Build`가 null을 반환해 조용히 무시(웹
+      `openCellSheet`의 `if (!info) return;`과 동일). `CellInfoSheet.cs`(신규, `UI2/Run/Panels/`) —
+      BagPopup류 스크림 클릭 닫힘 바텀시트. RewardDonePanel과 같은 두 행 템플릿을 재사용(EXP/점수
+      분해=Inner/Label·Value, 영향 항목 목록=IconSlot+InfoCol). `RunView`(`cellInfoSheet` 필드) /
+      `Editor/UiSceneBuilder.cs`(`BuildCellInfoSheet`) 배선.
+  - **C. 클리어 등급 연출**: `ClearOutcome.grade`/`gradeTier`는 P2에서 이미 산출돼 있어(§2-(J))
+    이번 슬라이스는 연출만 추가했다. 웹 `stageClearFx`(ui.js:1700-1739) 대응 — `NodePanel`의 클리어
+    배너 등급 텍스트에 tier별 색(1~2=초록·3=파랑·4=보라·5+PERFECT=골드, 웹 `.cchip.grade.g1~g5/
+    perfect` CSS 그라디언트를 단색으로 근사) + 등장 펄스(배너 안착 시 OutQuad→OutBack 스케일 팝,
+    고티어일수록 큰 폭) + 색종이 escalation(`FxId.Clear` 프리팹을 tier에 비례해 1~5회 스태거
+    반복재생 — 웹 24/40/58/78/104개 파티클 카운트는 CSS 전용이라 1:1 이식 대상이 아니라고 판단해
+    "재생 횟수"로 근사, 작업 지시 "근사" 명시 범위 그대로). `ReelView.PlayClearShake(int gradeTier)`
+    (신규) — 웹 `shake(tier>=5?"xl":tier>=3?"bg":"sm")` + "tier≥4면 230ms 후 2차 흔들림" 그대로
+    이식(진폭/지속시간 자체는 웹 CSS 수치가 아니라 ReelView 기존 셰이크 상수 눈금 3~9px에 맞춤).
+    `NodePanel.Show`에 `Action<int> onShake` 콜백 매개변수 추가(NodePanel은 ReelView를 직접 참조하지
+    않는 기존 컴포넌트 분리를 유지 — `RunView`가 `tier => reelView?.PlayClearShake(tier)`로 연결,
+    배너 등장과 같은 타이밍에 트리거).
+  - **테스트**: `Tests_P4_RewardDoneCellInfo.cs`(신규) — `ProceedToStage` phase 게이트(정상+
+    잘못된phase 거부) · 노드별 RewardMessage 정확한 문구(Rest/Shop 구매유무 2케이스/Gamble 승패
+    양쪽/AugLevel무보상/Device 예외 확인) · `NextPreview` 손계산 2케이스(비보스 stage1: 110×0.92=
+    101, 보스 stage5 "finals": 150×0.92×1.2=165·스핀6) · `CurrentStats` 손계산(퍽 없음=novice
+    quotaMul 행 1개만 / study+cherry_up 조합=expMul×1.1 행 + symExp "체리+2") ·
+    `CellInfoView` 손계산(퍽 없음 3칸 기본 분해 + cherry_up 보유 시 해당 칸 델타와 무관 칸 제외
+    확인). 기존 `Tests_S4.cs`(노드 8종·상점 나가기·보류·티어폴백 전수)·`Tests_P3_AugLevel.cs`
+    (AUGLEVEL 흐름·무후보 폴백)의 `RunPhase.Spin` 기대값을 `RunPhase.RewardDone`으로 갱신(TakeDevice
+    확정 분기는 Spin 유지 — 예외 그대로 반영)했고, 자동플레이 하네스 4곳(`Tests_S4.cs` AutoPlay/
+    AutoPlayRich·`Tests_S5.cs` 2곳·`Tests_P3_Mastery.cs`·`Tests_PlayerLevel.cs`)에
+    `case RunPhase.RewardDone: rc.Do(new ProceedToStage())` 분기를 추가했다(P3-3 EventAugLevel
+    선례 그대로 "전수 대응"). 어서션 19867 → 19937(1차) → 20004(Opus 2차검수 반영 후), 0 실패.
+    - **스모크 컴파일**: Unity 에디터가 이 슬라이스 작업 중 미실행 상태라(MCP 브리지 미연결)
+      `dotnet exec csc.dll`로 Unity 2022.3.39f1 Managed DLL(UnityEngine/UnityEditor 전체 모듈 +
+      Library/ScriptAssemblies 기존 패키지 DLL + NetStandard 2.1 레퍼런스 파사드)을 직접 참조해
+      오프라인 검증했다(`/define:UNITY_EDITOR` 포함) — `Assembly-CSharp`(런타임 76개 스크립트) ·
+      `Assembly-CSharp-Editor`(6개 스크립트) 둘 다 0에러(경고는 전부 기존에도 있던 미할당
+      SerializeField CS0649뿐, 내 신규 필드들도 같은 패턴). 2차검수 반영 후 재확인도 동일하게
+      0에러. 씬 리빌드·프리팹·.meta 파일 생성은 다루지 않았다 — Fable이 에디터에서 배치 실행 예정
+      (`UiSceneBuilder` 빌더 코드만 이 슬라이스 범위, 기존 슬라이스들과 동일 분업).
+  - **§2-(W) 2026-08-09 Opus 2차검수 반영(필수6·LOW일괄)**: ①`RunState.LastCellsFinal`(신규)
+    도입 — `LastCells`(재굴림 입력용 원시 스냅샷, Evaluate 이전)만 읽던 `CellInfoView`가 폭탄
+    제거·자석 복사 후 릴에 실제로 보이는 결과와 어긋날 수 있던 결함 수정(웹 `r.lastCells =
+    res.cells` 파리티). `SpinResolver.ResolveSpin`·`DeviceActions`(MANIP·도박꾼재굴림)·
+    `ItemUse.UseRetakeForm` 4곳에서 갱신(`ItemUse`쪽은 LastMods는 의도적으로 미갱신 — 웹
+    `_freeReroll()`도 `r.lastMods`를 안 건드림, game.js:1214-1224 확인). ②빈칸(EmptySym)의
+    `Sym` enum 자리표시값(Sym.Cherry, 실사용 안 함 전제)으로 `perSymbolExp`/`perSymbolScore`를
+    가드 없이 조회하면 새어 들어오는 오판정 수정 + 이제 `Cell.tag` 보존으로 자석/성장 특수 안내도
+    복원. ③CellInfoSheet.cs 방어적 StripAstral 2곳 + "🪙" 리터럴 제거(엔진 문자열 규약 자기위반
+    해소). ④`RewardDoneView.NextPreview`/`GameSession.PreviewQuotaSpins`에 `ApplyPassiveDevice`
+    누락 수정(dev_reactor 프리뷰 15% 어긋남 해소, `CurrentStats`까지 3곳 정책 통일). ⑤
+    `CellInfoSheet`/`BagPopup`/`ManipPickPopup`/`ConfirmSheetPopup`/`DexView.DexDetailPopup`
+    Awake()의 `gameObject.SetActive(false)` 자기호출 결함(최초 오픈 1회만 코루틴 실패, 빌더가
+    이미 비활성으로 굽는 것과 충돌) 발견·제거 — 뒤 4개는 이번 P4 슬라이스 이전부터 있던 결함.
+    ⑥LOW 일괄: retake_form의 LastMods 미갱신 근거 주석(위 참조) · CellInfoView skullExp가
+    `perSkullExp` 미반영 근사임을 주석 명시(웹 cellInfo 자체의 quirk) · 태그 델타 표기
+    "#{t}태그"→"{t}태그" 정정(웹 label()과 openCellSheet 행 라벨의 "#" 유무 혼용 수정) ·
+    `NodePanel.ConfettiBurstsByTier` 죽은 배열 원소 제거 + perfect 강도를 웹 raw 개수 비율(30이
+    tier1=24 근처)에 맞게 하향 · `RunView` 셀 탭에 `_busy`/`_session` null 가드 · `RewardDoneInfo.cs`
+    파일명-타입명 불일치는 리네임 대신 주석으로 명시.
+    - **신규 발견(2차검수 범위 밖, 다음 슬라이스 보고 대상)**: `DeviceActions.HandleManip`이
+      조작 대상 칸을 `run.LastCells`(raw)에서 복원하는데, 웹 통합 `manip()`은 `r.lastCells`(이미
+      최종본)에서 복원한다(game.js:1238) — 폭탄/자석으로 원본·최종이 갈리는 스핀 직후 MANIP을
+      쓰면 "화면에 보이는 빈칸"이 아니라 "그 뒤 원본 심볼"을 조작하는 파리티 차이가 있다. 이번
+      슬라이스는 표시 전용(CellInfoView) 범위만 다뤄 게임플레이 로직은 손대지 않았다.
+    - **테스트 보강(필수⑥) 4건**: 실제 `Do(new Spin(...))` 결과에서 클린 스핀(세트·잭팟·해골·
+      특수효과 없음)의 칸별 cellExp 합이 `result.exp`/`gained`와 정확히 일치(4000시드 중 최소
+      3건) · 폭탄/자석 포함 스핀 탐색 후 `LastCellsFinal`이 릴 표시를 정확히 반영(6000시드) ·
+      MANIP 전후 사이 퍽 추가로 `LastMods`(1.0→1.10)·`LastCellsFinal`이 그 순간 값으로 재계산됨
+      확인 · EVENT 10종 표 `RewardMessage` 정확한 문구(coinsDelta가 scoreDelta보다 먼저 조립되는
+      실제 필드 순서까지 검증). 어서션 19937→20004(+67).
+  - **웹 대비 생략/보고 대상**: ① RewardDonePanel의 "칩 탭→상세" 2단 인터랙션을 상시 펼침으로
+    단순화. ② 색종이 개수의 "재생 횟수" 근사(작업 지시 허용 범위). ③ 튜토리얼 3단·설정 시트
+    (§1-A #16 나머지)는 P4 3/3 대상, 이번 슬라이스에서 다루지 않음. ④ 위 "신규 발견" 항목
+    (HandleManip의 LastCells 기준 복원, 다음 슬라이스 판단 필요).
 
 ## 3. 페이즈 로드맵
 
@@ -594,7 +723,7 @@
 | **P1** | 룰 파리티 1차: 첫판 즉시시작 · 특수스핀 첫사용무료 · 실패체인 웹 순서 · 노드 보상 수치/DEVICE 노드 · 포기 | ✅ 2026-08-07 완료 |
 | **P2** | 점수·캡 공식 웹화 + 보스 grad/finals 정리 + 골든 테스트 재산출 | ✅ 2026-08-07 완료 |
 | P3 | 메타 웹화: XP/레벨/레벨보상 · 업적 34종 교체 · 숙련도 · 증강 레벨업 · 해금 OR · 콘텐츠 증보(+3캐릭/+3머신/+장치/+증강9/+유물12/+아이템5) | ✅ 2026-08-08 완료 |
-| P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | 🔶 진행 중(1/3: 홈·레벨보상·XP블록, 2026-08-08) |
+| P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | 🔶 진행 중(2/3: REWARD_DONE·셀 정보 탭·클리어 등급 연출, 2026-08-09) |
 | P5 | 사운드(절차 합성 SFX 17 + BGM) | 대기 |
 | P6 | 승천 A1~A10 + 승천 랭킹 분리 | 대기 |
 | P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버) + 심화 랭킹 | 대기 |

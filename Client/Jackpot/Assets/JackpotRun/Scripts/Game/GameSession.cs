@@ -102,13 +102,19 @@ namespace JackpotRun.Game
         // ItemUse.InstantQuota/StageFlow.ClearStage의 clearCoinBonus 계산과 동일한 근사 패턴(device+
         // phasePerks는 반영하되 RunCtx 조건부 신규 증강 8종은 미반영) — 정확한 값은 SpinResolver.
         // ResolveSpin 내부(3단계 mods 재계산)에서만 산출되고 여기서는 재현하지 않는다.
+        // Opus 2차검수 필수④(2026-08-09, WEB_PARITY_DESIGN.md §1-A #15/#16) — ApplyPassiveDevice
+        // 누락으로 dev_reactor(quotaMul×1.15) 장착 런에서 HUD 진행바가 요구 EXP를 15% 낮게 보여주고
+        // 있었다. RewardDoneView.NextPreview/CurrentStats(Engine/Run/RewardDoneInfo.cs)와 3곳 모두
+        // 동일한 mods 조성(Build→ApplyPassiveDevice→ApplyItemMods)으로 통일한다.
         public (long quota, int spins) PreviewQuotaSpins()
         {
             var run = State;
             var combinedPerks = new List<string>(run.Perks);
             combinedPerks.AddRange(run.PhasePerks);
             var mods = ModsBuilder.ApplyItemMods(
-                ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
+                ModsBuilder.ApplyPassiveDevice(
+                    ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
+                    run.Device),
                 run.PhaseItems);
             long quota = SpinResolver.QuotaOf(run.Stage, mods);
             int spins = SpinResolver.EffSpins(run, mods);

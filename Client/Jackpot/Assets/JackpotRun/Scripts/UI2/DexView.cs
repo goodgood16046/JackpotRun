@@ -242,7 +242,11 @@ namespace JackpotRun.UI2
 
         private void Awake()
         {
-            gameObject.SetActive(false);
+            // Opus 2차검수 필수⑤(2026-08-09, P4 REWARD_DONE/셀 정보 탭 슬라이스 검수 중 동일 패턴
+            // 발견 — 이 슬라이스 범위 밖이지만 같은 결함이라 함께 수정) — 여기서
+            // gameObject.SetActive(false)를 부르면 안 된다(전체 메커니즘 설명은
+            // UI2/Run/Panels/CellInfoSheet.cs Awake 주석 참조). 빌더(BuildDexDetailPopup)가 이미
+            // 비활성으로 굽는다.
             if (scrimButton != null) scrimButton.onClick.AddListener(Hide);
             if (closeButton != null) closeButton.onClick.AddListener(Hide);
         }

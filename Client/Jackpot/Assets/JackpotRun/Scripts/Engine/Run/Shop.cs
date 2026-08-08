@@ -401,6 +401,9 @@ namespace JackpotRun.Engine
             if (isItem) run.Items.Add(entry.id);
             else run.Perks.Add(entry.id); // 증강/유물 구매는 즉시 영구 추가(대기 없음, §4-D)
             run.ShopOffer.RemoveAt(index); // 구매 후에도 상점 유지, 산 것만 제거(§4-D)
+            // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — 웹 game.js:2358/2492 `r.shopBought.push(...)`.
+            // Shop.Leave가 REWARD_DONE 메시지("🛒 상점에서 구매: ...") 조립에 소비한다.
+            run.ShopBoughtLabels.Add(EntryName(entry));
 
             return RunEvents.One(new RunEvent
             {
@@ -424,8 +427,22 @@ namespace JackpotRun.Engine
         {
             if (run.Phase != RunPhase.EventShop) return RunEvents.Rejected("PHASE_NOT_SHOP");
             run.ShopOffer.Clear();
-            run.Phase = RunPhase.Spin;
+            // 웹 파리티 P4 — 웹 game.js:2514-2518 shopExit(): 구매 이력이 있으면 "🛒 상점에서 구매: ..."
+            // 없으면 "🛒 상점을 둘러봤어요 (구매 없음)".
+            string msg = run.ShopBoughtLabels.Count > 0
+                ? "상점에서 구매: " + string.Join(" · ", run.ShopBoughtLabels)
+                : "상점을 둘러봤어요 (구매 없음)";
+            RewardFlow.Enter(run, msg);
             return RunEvents.One(new RunEvent { type = "SHOP_LEFT" });
+        }
+
+        // ShopBoughtLabels/REWARD_DONE 메시지 조립용 이름 조회 — RunView.ShopEntryLabel(UI 로그, emoji
+        // 포함)과 같은 데이터 소스지만 엔진 산출 문자열 규약대로 이모지를 쓰지 않는다.
+        private static string EntryName(ShopEntry entry)
+        {
+            if (entry.kind == 'A' || entry.kind == 'R')
+                return Perks.ById(entry.id)?.name ?? entry.id;
+            return Items.ById(entry.id)?.name ?? entry.id;
         }
     }
 }

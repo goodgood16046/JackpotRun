@@ -92,7 +92,9 @@ namespace JackpotRun.Engine
                     // 롤과 선택 사이에 후보를 바꿀 수단이 없다(웹도 동일 전제, game.js:1622 else 분기가
                     // EVENT 테이블이 아니라 "강화할 증강이 없어요" 무보상 종료다 — AUGMENT/RELIC 풀
                     // 소진 폴백과는 다른 케이스라 아래 공용 EVENT 테이블로 떨어뜨리지 않는다).
-                    run.Phase = RunPhase.Spin;
+                    // 웹 파리티 P4 — 이 무보상 종료도 웹처럼 REWARD_DONE을 거친다(웹 game.js:1622
+                    // `this._enterRewardDone("강화할 증강이 없어요")` 그대로).
+                    RewardFlow.Enter(run, "강화할 증강이 없어요");
                     return RunEvents.One(new RunEvent { type = "NODE_RESOLVED", node = node });
                 }
                 case NodeKind.Curse:
@@ -112,6 +114,9 @@ namespace JackpotRun.Engine
                     var offer = Shop.FreshOffer(run, stat);
                     run.ShopOffer.Clear();
                     run.ShopOffer.AddRange(offer);
+                    // 웹 파리티 P4 — 웹 game.js:2305 `r.shopBought = []`(상점 진입 시 구매 이력 리셋).
+                    // Shop.Leave가 REWARD_DONE 메시지 조립에 쓴다.
+                    run.ShopBoughtLabels.Clear();
                     run.Phase = RunPhase.EventShop;
                     return RunEvents.One(new RunEvent { type = "SHOP_OFFER", node = node, shopOffer = run.ShopOffer });
                 }
@@ -119,13 +124,15 @@ namespace JackpotRun.Engine
                 {
                     // WEB_PARITY P1 ④: 코인 8 → 12(웹 game.js:1633 "코인 +12").
                     run.Coins += 12;
-                    run.Phase = RunPhase.Spin;
+                    // 웹 파리티 P4 — 웹 game.js:1633 `this._enterRewardDone("🛌 휴식 — 코인 +12 획득")`.
+                    RewardFlow.Enter(run, "휴식 — 코인 +12 획득");
                     return RunEvents.One(new RunEvent { type = "NODE_RESOLVED", node = node, coinsDelta = 12 });
                 }
                 case NodeKind.Gamble:
                 {
                     var ev = ResolveGamble(run);
-                    run.Phase = RunPhase.Spin;
+                    // 웹 파리티 P4 — 웹 game.js:1849-1850 "도박 성공 — 코인 2배!" / "도박 실패 — 코인 유지".
+                    RewardFlow.Enter(run, ev.gambleWon ? "도박 성공 — 코인 2배!" : "도박 실패 — 코인 유지");
                     return RunEvents.One(ev);
                 }
                 case NodeKind.Event:
@@ -145,9 +152,34 @@ namespace JackpotRun.Engine
             }
 
             var evEvent = ResolveEventTable(run, stat);
-            run.Phase = RunPhase.Spin;
+            // 웹 파리티 P4 — EVENT 10종 표(및 AUGMENT/RELIC/CURSE/RISK 풀 소진 폴백 공유 경로) 결과도
+            // REWARD_DONE을 거친다(웹 game.js:2299 `this._enterRewardDone(msg)`). Unity의 실제 지급
+            // 내역(case4=스테이지 스핀+1, case6=장치 획득 등, §1-A #4/(F) 결정으로 웹과 이미 갈라진 값)을
+            // 그대로 문구화한다 — 웹 리터럴 문자열을 그대로 베끼면 실제 지급과 어긋나므로 RunEvent
+            // 필드에서 재구성한다(EventRewardMessage).
+            RewardFlow.Enter(run, EventRewardMessage(evEvent));
             return RunEvents.One(evEvent);
         }
+
+        // ResolveEventTable이 채운 RunEvent 필드로부터 REWARD_DONE 메시지를 조립한다 — RunView.
+        // EventTableText(UI 로그용, astral 이모지 포함)와 같은 데이터 소스를 쓰지만 이쪽은 표시 계층
+        // TextSanitize 없이도 안전하도록 이모지를 쓰지 않는다(엔진 산출 문자열 규약).
+        private static string EventRewardMessage(RunEvent ev)
+        {
+            var parts = new List<string>();
+            if (ev.coinsDelta != 0) parts.Add($"코인{(ev.coinsDelta > 0 ? "+" : "")}{ev.coinsDelta}");
+            if (ev.scoreDelta != 0) parts.Add($"점수{(ev.scoreDelta > 0 ? "+" : "")}{ev.scoreDelta}");
+            if (ev.bonusSpinsDelta != 0) parts.Add($"스테이지 스핀+{ev.bonusSpinsDelta}");
+            if (!string.IsNullOrEmpty(ev.itemGrantedId)) parts.Add($"아이템 {NameOf(Items.ById(ev.itemGrantedId)?.name, ev.itemGrantedId)}");
+            if (!string.IsNullOrEmpty(ev.relicGrantedId)) parts.Add($"유물 {NameOf(Perks.ById(ev.relicGrantedId)?.name, ev.relicGrantedId)}");
+            if (!string.IsNullOrEmpty(ev.augmentGrantedId)) parts.Add($"증강 {NameOf(Perks.ById(ev.augmentGrantedId)?.name, ev.augmentGrantedId)}");
+            if (!string.IsNullOrEmpty(ev.curseRemovedId)) parts.Add($"정화: {NameOf(Perks.ById(ev.curseRemovedId)?.name, ev.curseRemovedId)} 제거");
+            if (!string.IsNullOrEmpty(ev.deviceGrantedId)) parts.Add($"장치 {NameOf(Devices.ById(ev.deviceGrantedId)?.name, ev.deviceGrantedId)}");
+            string body = parts.Count > 0 ? string.Join(" · ", parts) : "보상 없음";
+            return "이벤트 — " + body;
+        }
+
+        private static string NameOf(string name, string fallbackId) => !string.IsNullOrEmpty(name) ? name : fallbackId;
 
         // ── 증강/유물 오퍼 생성 (offerPerks, 웹 engine.js:1248-1284 offerPerks 리터럴 포팅 — 웹 파리티
         // P3.5, WEB_PARITY_DESIGN.md §2-(T) 후속①②) ──
@@ -281,7 +313,8 @@ namespace JackpotRun.Engine
             run.Curses.Add(curse.id);
             // WEB_PARITY P1 ④: 코인 15 → 30(웹 game.js:1673 "코인 +30").
             run.Coins += 30;
-            run.Phase = RunPhase.Spin;
+            // 웹 파리티 P4 — 웹 game.js:1674 "🌑 저주 ${e}${n} 획득 — ${d} · 코인 +30".
+            RewardFlow.Enter(run, $"저주 {curse.name} 획득 — {curse.desc} · 코인 +30");
             return new RunEvent { type = "NODE_RESOLVED", node = NodeKind.Curse, curseGrantedId = curse.id, coinsDelta = 30 };
         }
 
@@ -297,7 +330,8 @@ namespace JackpotRun.Engine
             if (aug == null || curse == null) return null;
             run.Perks.Add(aug.id);
             run.Curses.Add(curse.id);
-            run.Phase = RunPhase.Spin;
+            // 웹 파리티 P4 — 웹 game.js:1693 "🎲 위험거래 — ${e}${n}(${d}) + 저주 ${ce}${cn}(${cd})".
+            RewardFlow.Enter(run, $"위험거래 — {aug.name}({aug.desc}) + 저주 {curse.name}({curse.desc})");
             return new RunEvent { type = "NODE_RESOLVED", node = NodeKind.Risk, augmentGrantedId = aug.id, curseGrantedId = curse.id };
         }
 
@@ -435,13 +469,17 @@ namespace JackpotRun.Engine
                 int after = Math.Min(3, before + 1);
                 run.PerkLevels[perkId] = after;
                 run.PerkOfferIds.Clear();
-                run.Phase = RunPhase.Spin;
+                // 웹 파리티 P4 — 웹 game.js:2144 "⬆️ ${e} ${n} Lv.${lvl} 강화 완료!".
+                var leveledPerk = Perks.ById(perkId);
+                RewardFlow.Enter(run, $"{(leveledPerk != null ? leveledPerk.name : perkId)} Lv.{after} 강화 완료!");
                 return RunEvents.One(new RunEvent { type = "PERK_LEVELED", perkId = perkId, perkLevelBefore = before, perkLevelAfter = after });
             }
 
             run.Perks.Add(perkId);
             run.PerkOfferIds.Clear();
-            run.Phase = RunPhase.Spin;
+            // 웹 파리티 P4 — 웹 game.js:2185 "${e} ${n} 획득!".
+            var grantedPerk = Perks.ById(perkId);
+            RewardFlow.Enter(run, $"{(grantedPerk != null ? grantedPerk.name : perkId)} 획득!");
             return RunEvents.One(new RunEvent { type = "PERK_GRANTED", perkId = perkId });
         }
 
@@ -455,7 +493,11 @@ namespace JackpotRun.Engine
             var perkId = run.PerkOfferIds[index];
             run.HeldAug = perkId;
             run.PerkOfferIds.Clear();
-            run.Phase = RunPhase.Spin;
+            // 웹 파리티 P4 — 웹에 없는 Unity 전용 기능(dev_holdfile)이라 대응 리터럴이 없다. 다른 노드
+            // 해소 분기와 동일하게 REWARD_DONE을 거치는 편이 일관적이라(§작업 지시 "노드 처리 완료 →
+            // REWARD_DONE" 원칙) 이 분기도 포함시켰다(Fable 최종검수 대상 — 이탈 아님, 확장 판단).
+            var heldPerk = Perks.ById(perkId);
+            RewardFlow.Enter(run, $"{(heldPerk != null ? heldPerk.name : perkId)} 보류 — 다음 증강 오퍼에 포함됩니다");
             return RunEvents.One(new RunEvent { type = "PERK_HELD", perkId = perkId });
         }
 
@@ -494,6 +536,12 @@ namespace JackpotRun.Engine
         // ── WEB_PARITY P1 ④: DEVICE 노드 오퍼 확정(deviceNodeTake, 웹 game.js:2523-2529) ──────────
         // equip=true → 현재 런의 Device 슬롯을 교체(장착). equip=false → 코인+15만. 어느 쪽이든 장치는
         // 영구 보유로 지급(deviceGrantedId — StatTracker가 PlayerProfile.OwnedDevices에 반영).
+        //
+        // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15) — 이 분기만 RewardFlow.Enter를 거치지 않고 곧장
+        // RunPhase.Spin으로 간다. 웹 deviceNodeTake(game.js:2523-2529)가 `_enterRewardDone`이 아니라
+        // `_beginStage()`를 직접 호출하는 것과 동일 파리티(§WEB_PARITY_DESIGN.md 대조 확인 — 유일한
+        // 예외). 다른 모든 노드 해소 분기가 RewardFlow.Enter로 바뀐 뒤에도 이 함수만 원래 동작 그대로
+        // 유지한다.
         public static List<RunEvent> TakeDevice(RunState run, bool equip)
         {
             if (run.Phase != RunPhase.DeviceNode) return RunEvents.Rejected("PHASE_NOT_DEVICE_NODE");
