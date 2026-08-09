@@ -56,6 +56,21 @@ namespace JackpotRun.Engine
         public long preMul;  // 전역배수 적용 전 EXP(계산모드 표시용)
         public double mul;   // 적용된 전역 expMul
         public int flat;     // 가산 flatExp
+
+        // ── 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스 — 잭팟 태그) — 웹
+        // engine.js:774-865 §9.0 V3 J1/§9.2 J3 반환 신호(res.jackpotTagHit/jackpotStage/feverDelta/
+        // bellCount/echoTriggered/jackpotCrownSignal/hasBellFest/hasReachMark/hasRetryReel/hasJpTicket).
+        // 전부 mods.deepMode(=일반모드는 항상 이 블록 미진입)가 아니면 기본값(null/0/false) 그대로다.
+        public string jackpotTagHit;   // "crown"|"seven"|"coin"|"prism"|"curse"|"bell"|null
+        public string jackpotStage;    // "combo"|"reach"|"jackpot"|null
+        public int feverDelta;         // §9.1 J2 피버 게이지 충전 신호(콤보+15/리치+25/잭팟+50, 종세트 추가분 포함)
+        public int bellCount;          // 이번 스핀 bell 태그 심볼 수(종소리티켓 승격 판정용)
+        public bool echoTriggered;     // 울림종 — 종 리치 시 발동(점수+200 이미 반영됨)
+        public bool jackpotCrownSignal; // 잭팟왕관 — 잭팟 시 발동 신호(보상등급+1, 소비는 game 계층)
+        public bool hasBellFest;       // 🎊축제종 보유(이번 스핀 셀)
+        public bool hasReachMark;      // 🎯리치표식 보유
+        public bool hasRetryReel;      // 🔁재도전릴 보유
+        public bool hasJpTicket;       // 🎟잭팟티켓 보유
     }
 
     // ResolveSpin() 한 번 호출(스핀 1회 전체 파이프라인) 결과. StageFlow가 이 값을 보고 클리어/실패를
@@ -168,10 +183,28 @@ namespace JackpotRun.Engine
         // (ItemUse.UseRetakeForm)·timeline_ticket(ItemUse.ApplyItemPurchase)이 전부 이 헬퍼(와 아래
         // RollCellOne)로 수렴해, 심화 런에서 이 경로들이 주머니 밖 심볼을 섞어 내지 않게 한다 — 이전에는
         // 전부 RollRaw/RollOne(일반 가중추첨)을 직접 호출해 심화 런에서도 72종 전체에서 뽑고 있었다.
-        public static List<Cell> RollCells(RunState run, Mods mods, int reel, bool seedActive) =>
-            run.DeepMode
-                ? PouchOps.PouchDraw(run.Rng, run.Pouch, reel, DeepRunHooks.BuildPouchBias(mods))
-                : RollRaw(run.Rng, mods, reel, seedActive);
+        // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스, 웹 game.js:657-691 `_roll`) —
+        // §9.0 J1 리치 태그 bias(×1.5, 1스핀)와 §9.2 J3 재도전릴(리치 다음 스핀 1칸 재굴림)을 여기서
+        // 소비한다. 웹은 이 둘을 `_roll()` 단일 함수 안에서 처리하므로(bias 조립 직후 리치bias 병합 →
+        // PouchDraw → 재도전릴 후처리) 그 구조 그대로 옮긴다. RollCellOne(MANIP 등 1칸씩 굴리는
+        // 호출부)에는 의도적으로 확장하지 않는다 — 그쪽은 이미 웹과 RNG 소비 위상이 다르다는 선례가
+        // 있고(§2-(BB) LOW 잔여 "dev_pin RNG 소비 위상"), 리치bias/재도전릴은 "메인 스핀 1회"의 부가
+        // 효과라 MANIP의 부분 재굴림까지 확장하면 스핀당 다중 소진 위험만 커진다(범위 제한, 보고 대상).
+        public static List<Cell> RollCells(RunState run, Mods mods, int reel, bool seedActive)
+        {
+            if (!run.DeepMode) return RollRaw(run.Rng, mods, reel, seedActive);
+            var bias = DeepRunHooks.BuildPouchBias(mods) ?? new PouchBias();
+            DeepRunHooks.ApplyReachBias(bias, run);
+            var cells = PouchOps.PouchDraw(run.Rng, run.Pouch, reel, bias);
+            if (run.RetryReelPending)
+            {
+                run.RetryReelPending = false;
+                int idx = run.Rng.Next(cells.Count);
+                var replacement = PouchOps.PouchDraw(run.Rng, run.Pouch, reel, bias);
+                cells[idx] = replacement[idx];
+            }
+            return cells;
+        }
 
         // RollCells의 1칸 버전 — MANIP(부분/전체 재굴림)·재시험처럼 칸을 하나씩 굴리는 호출부용.
         public static Cell RollCellOne(RunState run, Mods mods) =>
@@ -491,6 +524,134 @@ namespace JackpotRun.Engine
                 notes.Add($"🎰{Symbols.ById(bestId).emoji}×{bestCount} 잭팟! +{jb}EXP·+{jb * 5}점");
             }
 
+            // ── §9.0 V3 J1: 잭팟 태그 판정(심화모드 게이팅) — 웹 engine.js:768-865 그대로 ──────────
+            // ★일반모드 완전격리: mods.deepMode는 DeepRunHooks.ApplyDeepMods가 심화 런에서만 세운다.
+            // 5칸의 jackpotTag 카운트(와일드·빈칸 미기여) → 최다 태그 3단계(콤보/리치/태그잭팟) 판정.
+            // 동일 심볼 잭팟(jackpotSym)과 공존 가능하나 중복 지급 금지(EXP/점수는 jackpotSym이 이미
+            // 지급했으면 태그잭팟 쪽 스킵, 배너 신호만 반환).
+            string jackpotTagHit = null;
+            string jackpotStage = null;
+            int feverDelta = 0;
+            int bellCount = 0;
+            bool echoTriggered = false;
+            bool jackpotCrownSignal = false;
+            bool hasBellFest = false, hasReachMark = false, hasRetryReel = false, hasJpTicket = false;
+            if (mods.deepMode)
+            {
+                var jtagCount = new Dictionary<string, int>();
+                for (int i = 0; i < cells.Count; i++)
+                {
+                    var s = cells[i].sym;
+                    if (s.special == Sp.WILD || s.id == "empty") continue;
+                    var jt = Pouch.JackpotTagOf(s.id);
+                    if (jt != null) jtagCount[jt] = jtagCount.TryGetValue(jt, out var jc) ? jc + 1 : 1;
+                }
+                // § 9.2 J3: 슬롯조각(최다 태그 +1, 프리즘 포함)·잭팟마법봉(최다 태그 +1, prism 제외)
+                bool hasSlotShard = false, hasJpWand = false;
+                for (int i = 0; i < cells.Count; i++)
+                {
+                    if (cells[i].sym.special == Sp.SLOT_SHARD) hasSlotShard = true;
+                    else if (cells[i].sym.special == Sp.JACKPOT_WAND) hasJpWand = true;
+                }
+                if (hasSlotShard || hasJpWand)
+                {
+                    string curBest = null; int curBestN = 0;
+                    foreach (var kv in jtagCount) if (kv.Value > curBestN) { curBestN = kv.Value; curBest = kv.Key; }
+                    if (hasSlotShard && curBest != null)
+                    {
+                        jtagCount[curBest] = (jtagCount.TryGetValue(curBest, out var c1) ? c1 : 0) + 1;
+                        notes.Add($"🎰 슬롯조각 — {curBest} 태그 +1");
+                    }
+                    if (hasJpWand)
+                    {
+                        string wpBest = null; int wpBestN = 0;
+                        foreach (var kv in jtagCount)
+                        {
+                            if (kv.Key == "prism") continue;
+                            if (kv.Value > wpBestN) { wpBestN = kv.Value; wpBest = kv.Key; }
+                        }
+                        if (wpBest != null)
+                        {
+                            jtagCount[wpBest] = (jtagCount.TryGetValue(wpBest, out var c2) ? c2 : 0) + 1;
+                            notes.Add($"🪄 잭팟마법봉 — {wpBest} 태그 +1 (prism 제외)");
+                        }
+                    }
+                }
+                // 최다 태그 선택(3개 미만이면 미발동)
+                string bestJtag = null; int bestJcount = 0;
+                foreach (var kv in jtagCount) if (kv.Value > bestJcount) { bestJcount = kv.Value; bestJtag = kv.Key; }
+                if (bestJtag != null && bestJcount >= 3)
+                {
+                    jackpotTagHit = bestJtag;
+                    jackpotStage = bestJcount >= 5 ? "jackpot" : bestJcount >= 4 ? "reach" : "combo";
+                }
+                bellCount = jtagCount.TryGetValue("bell", out var bc2) ? bc2 : 0;
+
+                // § 9.2 J3: 환호(콤보/리치/잭팟 보너스 +25%)·대폭죽(콤보+500/잭팟+2000)·잭팟왕관(등급+1 신호)
+                bool hasCheer = false, hasBigBoom = false, hasJpCrown = false;
+                for (int i = 0; i < cells.Count; i++)
+                {
+                    var sp = cells[i].sym.special;
+                    if (sp == Sp.CHEER) hasCheer = true;
+                    else if (sp == Sp.BIG_BOOM) hasBigBoom = true;
+                    else if (sp == Sp.JACKPOT_CROWN) hasJpCrown = true;
+                    else if (sp == Sp.BELL_FEST) hasBellFest = true;
+                    else if (sp == Sp.REACH_MARK) hasReachMark = true;
+                    else if (sp == Sp.RETRY_REEL) hasRetryReel = true;
+                    else if (sp == Sp.JACKPOT_TICKET) hasJpTicket = true;
+                }
+                double cheerMul = (hasCheer && jackpotStage != null) ? 1.25 : 1.0;
+
+                string tLabel = jackpotTagHit != null ? JackpotTagLabel(jackpotTagHit) : "";
+                if (jackpotStage == "combo")
+                {
+                    const int baseExpBonus = 8;
+                    long expBonus = (long)Math.Floor(baseExpBonus * cheerMul);
+                    exp += expBonus;
+                    feverDelta = 15;
+                    long boomBonus = hasBigBoom ? (long)Math.Floor(500 * cheerMul) : 0;
+                    if (boomBonus > 0) { score += boomBonus; notes.Add($"💥 대폭죽 콤보 점수+{boomBonus}"); }
+                    notes.Add($"🎯 {tLabel} 콤보! (태그 {bestJcount}개) EXP+{expBonus}{(hasCheer ? " 🎉환호×1.25" : "")}");
+                }
+                else if (jackpotStage == "reach")
+                {
+                    long reachScore = (long)Math.Floor(300 * cheerMul);
+                    if (jackpotSym == null) score += reachScore; // 동일심볼잭팟 공존 시 점수 중복 지급 금지
+                    feverDelta = 25;
+                    if (jackpotTagHit == "bell")
+                    {
+                        for (int i = 0; i < cells.Count; i++) if (cells[i].sym.special == Sp.BELL_ECHO) { echoTriggered = true; break; }
+                        if (echoTriggered) { score += 200; notes.Add("🔔 울림종 — 종 리치! 점수+200"); }
+                    }
+                    notes.Add($"🎯 {tLabel} 리치! (태그 {bestJcount}개){(jackpotSym == null ? $" 점수+{reachScore}" : "")}{(hasCheer ? " 🎉×1.25" : "")} — 1개만 더!");
+                }
+                else if (jackpotStage == "jackpot")
+                {
+                    long jExp = (long)Math.Floor(30 * cheerMul);
+                    long jScore = (long)Math.Floor(1500 * cheerMul);
+                    if (jackpotSym == null) { exp += jExp; score += jScore; } // 동일심볼잭팟 공존 시 중복 지급 금지
+                    feverDelta = 50;
+                    long boomBonus2 = hasBigBoom ? (long)Math.Floor(2000 * cheerMul) : 0;
+                    if (boomBonus2 > 0) { score += boomBonus2; notes.Add($"💥 대폭죽 잭팟 점수+{boomBonus2}"); }
+                    if (hasJpCrown) { jackpotCrownSignal = true; notes.Add("👑 잭팟왕관 — 보상등급+1 (스테이지 1회)"); }
+                    notes.Add($"🎰 {tLabel} 잭팟!! (태그 {bestJcount}개){(jackpotSym == null ? $" EXP+{jExp}·점수+{jScore}" : "")}{(hasCheer ? " 🎉×1.25" : "")}");
+                }
+
+                // § 9.2 J3: 종 세트 피버 추가 충전(작은종/황금종, 태그 3개+)
+                if (bellCount >= 3)
+                {
+                    bool hasSmallBell = false, hasGoldenBell = false;
+                    for (int i = 0; i < cells.Count; i++)
+                    {
+                        var sp = cells[i].sym.special;
+                        if (sp == Sp.BELL_SMALL) hasSmallBell = true;
+                        else if (sp == Sp.BELL_GOLD) hasGoldenBell = true;
+                    }
+                    if (hasSmallBell) { feverDelta += 15; notes.Add($"🔔 작은종 — 종 {bellCount}개 피버+15"); }
+                    if (hasGoldenBell) { feverDelta += 30; notes.Add($"🔔 황금종 — 종 {bellCount}개 피버+30"); }
+                }
+            }
+
             // 인접 판정
             if (mods.adjacentSameExp != 0)
             {
@@ -622,8 +783,27 @@ namespace JackpotRun.Engine
                 preMul = preMulExp,
                 mul = mods.expMul,
                 flat = mods.flatExp,
+                jackpotTagHit = jackpotTagHit,
+                jackpotStage = jackpotStage,
+                feverDelta = feverDelta,
+                bellCount = bellCount,
+                echoTriggered = echoTriggered,
+                jackpotCrownSignal = jackpotCrownSignal,
+                hasBellFest = hasBellFest,
+                hasReachMark = hasReachMark,
+                hasRetryReel = hasRetryReel,
+                hasJpTicket = hasJpTicket,
             };
         }
+
+        // 잭팟 태그 → 표시 라벨 — 웹 engine.js:830 TAG_EMOJI 그대로. internal — DeepRunHooks의 스핀
+        // 후속처리(ProcessDeepSpinFollowups)가 배너 조립에 재사용한다(중복 정의 방지).
+        internal static string JackpotTagLabel(string tag) => tag switch
+        {
+            "crown" => "👑 왕관", "seven" => "7️⃣ 럭키7", "coin" => "🪙 코인",
+            "prism" => "🌈 프리즘", "curse" => "💀 저주", "bell" => "🔔 종",
+            _ => tag,
+        };
 
         // 배율 표기 — 소수 2자리·끝0제거(Kotlin fmtMul, L2077).
         private static string FmtMul(double v)
@@ -871,6 +1051,12 @@ namespace JackpotRun.Engine
                 destroyDevice = true;
                 outcomeNotes.Add("🔔비상졸업벨 발동! 즉시 클리어");
             }
+
+            // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스, 웹 game.js:960-1138) — 희귀표본
+            // 상자/퍼펙트 드로우/잭팟 태그 후속(bias 예약·승격 심볼 소모)/피버 게이지. 이미 mode/보스/
+            // dev_safe/dev_bell 보정까지 끝난 gained를 더 조정하고(res.score/res.coins도 직접 가산),
+            // 배너 문자열은 outcomeNotes에 합류한다. 일반모드는 즉시 반환(무회귀).
+            DeepRunHooks.ProcessDeepSpinFollowups(run, mods, res, ref gained, outcomeNotes);
 
             double expected = spins > 0 ? quota / (double)spins : 0.0;
             bool badSpin = !destroyDevice && (gained <= expected * 0.4 || res.skulls >= 3);

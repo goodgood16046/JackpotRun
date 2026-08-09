@@ -4,6 +4,67 @@
 
 ---
 
+## 2026-08-09 - 웹 파리티 P7-3(심화모드 3/4) — 잭팟태그6종·피버게이지·자동소멸·POUCH오퍼v3(2-step)·심화노드풀·퍼펙트드로우·3스테이지연계보너스
+
+상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(CC) 참조. 요약:
+
+- **잭팟 태그 시스템**: `SpinResolver.Evaluate`에 §9.0 J1 블록 신설(`Mods.deepMode`로 게이팅) —
+  최다 잭팟태그(crown/seven/coin/prism/curse/bell) 3단계(콤보3=EXP+8/리치4=점수+300/태그잭팟5=
+  EXP+30·점수+1500), 동일심볼 잭팟 공존 시 중복 지급 금지. 증폭 심볼 4종(환호×1.25·대폭죽+500/+2000·
+  슬롯조각/잭팟마법봉 최다태그+1·잭팟왕관 신호)·종세트 추가충전(작은종+15·황금종+30·울림종+200점수)
+  전부 이식. `SpinResult`에 신규 필드 10개.
+- **리치 bias + 재도전릴**: `SpinResolver.RollCells`가 `DeepRunHooks.ApplyReachBias`(리치 태그
+  ×1.5, 1스핀)·재도전릴(리치 다음 스핀 1칸 재굴림)까지 처리 — P7-1/P7-2가 명시적으로 미뤄둔 항목
+  해소(MANIP 등 1칸 굴림 호출부는 범위 제외, 기존 RNG 위상 divergence 선례와 일관).
+- **피버 게이지**: 신규 `DeepRunHooks.ProcessDeepSpinFollowups`(웹 game.js:960-1138 스핀 후속 처리
+  전체 통합 — 희귀표본상자·퍼펙트드로우·잭팟태그 배너/bias예약·승격심볼 소모·피버 충전/발동/효과/종료).
+  **자체 검수로 발견·정정**: 피버 배율 계산(feverExpExtra/feverScoreExtra/fjScoreBonus)이 "스핀
+  결산 시점 고정 원본값"이 아니라 앞선 보너스로 이미 불어난 라이브 값을 읽어 복리 과다지급되는 버그를
+  직접 작성한 단위테스트로 스스로 잡아 함수 진입 시점 스냅숏 방식으로 정정(1000점 시나리오
+  기대 2250→오류 실측 3000→정정 2500).
+- **자동 소멸**: `StageFlow.ClearStage`에 §3 V3P3 블록 추가 — stage14 클리어 예고 1회, stage15+
+  클리어마다 기본 이득 심볼(cat=base && !harmful) 1개 무작위 제거. `ClearOutcome.decayBanner`/
+  `DeepStats.AutoDecays` 신규.
+- **POUCH 오퍼 v3 + 2-step 커밋**: 신규 `Run/PouchOffer.cs`(`OfferSymbolRewards` — 보스5배수=
+  PRISM보장·3배수=GOLD보장·태그잭팟/피버잭팟/잭팟왕관=forcePrismFirst, 저주혼입5%·전설가중·초반
+  가중). `RunPhase` 6종 신설(EventPouch/Cost/Remove/EventRestDeep/EventGambleDeep/EventSynAugBonus
+  — 작업 지시는 POUCH 3종만 명시했으나 REST/GAMBLE 심화 2택·3스테이지 연계 보너스도 동일 패턴이라
+  확장, 이탈 사항). `RunController.DispatchPickOffer`가 `PickOffer(index)` 하나를 이 6개+기존 3개
+  phase로 라우팅(웹 `pickPerk`의 `_pickKind` 분기와 동일 설계). 실버1개·골드2개(완화1개)·프리즘
+  2개(또는 저주+1 택1)·저주 무료 비용 규칙 + `Pouch.Validate` 원자적 검증/롤백.
+- **JACKPOT/SYMAUG/SYMREL 노드**: `PouchOffer.EnterJackpotNode`(최다 태그 특수심볼 3택+스킵,
+  `sym.special != NONE` 기준이라 coin은 포함·crown은 제외되는 정확도 함정 확인 후 웹 그대로 이식).
+  `PouchOffer.EnterSymAugOrRel`(심볼퍽+deepCompatPool 혼합 오퍼 — 신규 `Content/DeepPerkMeta.cs`,
+  AUGMENTS 89·RELICS 73의 deep/dSym/dDesc 메타를 별도 테이블로 전사) — 실제 그랜트는 기존
+  `NodeEvents.PickOffer` 재사용(Phase 공유).
+- **심화 노드 풀**: `StageFlow.RollDeepNodes` 신규 — POUCH 고정+second(SYMAUG40%/SYMREL20~35%/
+  dpool)+third(dpool). dpool=SHOP/REST/GAMBLE/EVENT 상시+stage≥6 CURSE/RISK+stage≥3 JACKPOT.
+  `NodeKind` 4종(Pouch/Jackpot/SymAug/SymRel) 신규.
+- **REST/GAMBLE 심화 2택**: `PouchOffer.EnterRest`/`EnterGamble` — 심화 gamble_coin은 실패해도
+  코인을 잃지 않는다는 웹의 정확도 함정 확인 후 그대로 이식(일반 GAMBLE과 실패 처리가 다름).
+- **퍼펙트 드로우**: 5칸 전부 동일 계열+전실심볼이면 스테이지 1회 코인+1.
+- **3스테이지 연계 보너스**: `NodeEvents.PickOffer`에 추가 — (stage-1)%3==0 AUG 픽 직후 태그 일치
+  특수심볼 무료 2택 오퍼.
+- **이탈/생략**: profile.symUnlocked(P7-4) 대신 `Pouch.DefaultUnlocked`로 근사·compressScorePct/
+  balanceScore 미소비(P7-2 이월분, 이번 슬라이스 범위 밖)·RANDPACK 계열(웹 자체 dormant)·
+  hex_allornothing dEff·Sp 신규 51종 중 잭팟태그 외 나머지 실제효과(safepin 포함)·WANDWILD·심화
+  업적/랭킹/UI(P7-4) — 상세 근거는 §2-(CC) 참조.
+- **검증(1차)**: 신규 `Tests_P7_3_JackpotFeverOffer.cs`(잭팟태그/증폭심볼/리치bias/피버5종/승격심볼5종/
+  퍼펙트드로우/희귀표본/자동소멸3종/오퍼티어시퀀스4종/2-step커밋6종/노드풀4종/3스테이지연계/자동플레이
+  스모크) + 기존 P7-1/P7-2 자동플레이 스모크 2건 확장(신규 이벤트·phase 인식). EngineTests
+  23874 → **27770**(+3896), 0 실패. 오프라인 스모크 컴파일(Unity 미실행 확인, `dotnet exec
+  csc.dll -noconfig`) — Assembly-CSharp(런타임 90개)·Assembly-CSharp-Editor(6개) 둘 다 0에러·0경고.
+- **Opus 2차검수 반영**(상세는 §2-(CC) 참조): ①`EnterSymAugOrRel` 세트시너지 5% 주입에 compatFilter
+  (심볼퍽 or deepCompatPool 통과) 누락 정정 ②REST 노드 `node` 필드 회귀 복구 + POUCH/JACKPOT/SYMAUG/
+  SYMREL/GAMBLE심화 전체에 `node` 배선(UI2 RunView 완료화면 문구·StatTracker "gambles" 카운터가 이
+  필드에 의존) ③노드 진입 4종(EnterSymAugOrRel·EnterJackpotNode·PickRestDeep·PickGambleDeep) 전용
+  테스트 신설 + 스모크 ChooseNode를 시드기반 랜덤 인덱스로 전환 ④`RollDeepNodes`의 stage 게이트를
+  nextStage→clearedStage로 정정(웹 `_clearStage()`의 `stage`와 정합, JACKPOT/CURSE/RISK 등장이
+  1스테이지 앞당겨져 있던 버그) — 일반 런 `RollNextNodes`의 기존 nextStage 관례는 별개 이탈로 남겨둠
+  ⑤EnterSymAugOrRel 빈오퍼 조기반환 위치 정정(RNG 소비 순서)·Mods.cs 주석 오기 함수명 정정·
+  EarlyExpBoostIds에 P7-3b 연동 주석 추가. **재검증**: EngineTests 27770 → **29422**(+1652),
+  0 실패. 오프라인 스모크 컴파일 재확인 둘 다 0에러·0경고.
+
 ## 2026-08-09 - 웹 파리티 P7-2(심화모드 2/4) — 심볼퍽21+15·전공 아키타입·정비소11 + 선행 blocker 해소
 
 상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(BB) 참조. 요약:

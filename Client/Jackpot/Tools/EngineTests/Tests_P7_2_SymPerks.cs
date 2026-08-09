@@ -870,6 +870,9 @@ namespace JackpotRun.EngineTests
             "ITEM_USED", "DEVICE_ARMED", "DEVICE_PEEK", "RUN_STARTED",
             "DEVICE_OFFER", "PERK_LEVELED", "STAGE_STARTED", "BOSS_PHASE2",
             "REPAIR_DONE", "ARCHETYPE_CHANGED",
+            // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스) — POUCH 오퍼 v3/2-step 커밋/
+            // REST·GAMBLE 심화 2택/3스테이지 연계 보너스 신규 이벤트.
+            "POUCH_OFFER", "POUCH_COST_OFFER", "POUCH_REMOVE_OFFER", "DEEP_CHOICE_OFFER",
         };
 
         private static void DeepAutoplaySmokeWithRepairs(TestCtx t)
@@ -898,6 +901,14 @@ namespace JackpotRun.EngineTests
                         case RunPhase.EventAugment:
                         case RunPhase.EventRelic:
                         case RunPhase.EventAugLevel:
+                        // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스) — POUCH 2-step/
+                        // REST·GAMBLE 심화 2택/3스테이지 연계 보너스도 PickOffer(index) 단일 액션.
+                        case RunPhase.EventPouch:
+                        case RunPhase.EventPouchCost:
+                        case RunPhase.EventPouchRemove:
+                        case RunPhase.EventRestDeep:
+                        case RunPhase.EventGambleDeep:
+                        case RunPhase.EventSynAugBonus:
                             events = rc.Do(new PickOffer(0));
                             break;
                         case RunPhase.EventShop:

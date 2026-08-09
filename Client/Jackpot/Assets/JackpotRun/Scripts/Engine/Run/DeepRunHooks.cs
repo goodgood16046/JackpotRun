@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace JackpotRun.Engine
@@ -105,6 +106,10 @@ namespace JackpotRun.Engine
         {
             if (mods == null || run == null || !run.DeepMode || mods.DeepModsApplied) return;
             mods.DeepModsApplied = true;
+            // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스) — 웹 `_mods()` 심화블록이
+            // 세우는 `mods.deepMode = true`. SpinResolver.Evaluate의 잭팟 태그 블록이 이 플래그로
+            // 게이팅한다(일반모드는 이 함수 자체가 조기 반환해 항상 false).
+            mods.deepMode = true;
 
             // 웹 game.js:454 — 정비소 '태그 강화'(run.DeepTagBuff) 직접 반영. pouch 상태와 무관하게 항상
             // 가장 먼저 적용(웹은 이 줄이 아래 심볼퍽 병합보다 앞선 별도 `if` 문).
@@ -180,6 +185,239 @@ namespace JackpotRun.Engine
                 }
             }
         }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스) — §9.0 J1 잭팟태그 리치 bias.
+        // ══════════════════════════════════════════════════════════════════════
+
+        // 웹 game.js:663-672 `_roll()`의 리치 bias 병합부 — run.ReachBiasTag가 세팅돼 있으면(잭팟태그
+        // 리치 발동, 1스핀) 그 태그를 가진 심볼 전부에 ×1.5를 곱하고 소진한다. bias는 non-null 보장
+        // (RollCells가 항상 새 PouchBias를 넘김 — BuildPouchBias가 null이어도 `?? new PouchBias()`).
+        public static void ApplyReachBias(PouchBias bias, RunState run)
+        {
+            if (bias == null || run == null || string.IsNullOrEmpty(run.ReachBiasTag) || run.ReachBiasSpinsLeft <= 0) return;
+            string tag = run.ReachBiasTag;
+            foreach (var kv in Pouch.JackpotTag)
+            {
+                if (kv.Value != tag) continue;
+                bias.Mul[kv.Key] = (bias.Mul.TryGetValue(kv.Key, out var m) ? m : 1.0) * 1.5;
+            }
+            run.ReachBiasSpinsLeft -= 1;
+            if (run.ReachBiasSpinsLeft <= 0) { run.ReachBiasTag = null; run.ReachBiasSpinsLeft = 0; }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 웹 파리티 P7-3 — 스핀 결산 후속 처리(웹 game.js:960-1138 §9.0 J1/§9.1 J2/§9.2 J3 + 배치F P6
+        // 퍼펙트 드로우). SpinResolver.ResolveSpin이 mode/보스/dev_safe/dev_bell 보정까지 끝난 "최종"
+        // gained(웹 지역변수 exp — r.stageExp에 아직 안 더해진 값)를 ref로 넘긴다. res.score/res.coins도
+        // 직접 가산(res는 참조형이라 호출측이 이후 newScore 계산 시 자동 반영). notes는 SpinOutcome에
+        // 합류할 배너 문자열. mods는 "이번 스핀에 실제로 쓰인" 인스턴스(호출측 지역변수, run.LastMods로
+        // 아직 대입되기 전) — feverReachFix 읽기/쓰기가 정확히 웹 `r.lastMods`(스핀 시작 시 이미 이번
+        // mods로 갱신됨, WEB_PARITY_DESIGN.md 이 슬라이스 주석 "매 스핀 새 mods라 사실상 항상 0으로
+        // 리셋" 참고 — feverReachFix는 웹 원본부터 사실상 매 스핀 신선한 기본값만 관측되는 필드다. 그대로 전사)와
+        // 동일 타이밍이 되도록 run.LastMods가 아니라 이 로컬 mods를 직접 읽고 쓴다. run.DeepMode가
+        // 아니면 즉시 반환(무회귀).
+        public static void ProcessDeepSpinFollowups(RunState run, Mods mods, SpinResult res, ref long gained, List<string> notes)
+        {
+            if (run == null || res == null || !run.DeepMode) return;
+
+            // Opus급 자체검수 정정 — 웹 game.js:943 `r.stageExp += exp; r.score += res.score;`가 이미
+            // 커밋된 "뒤"에 이 블록 전체(960-1138)가 실행된다. 이후 rareFirstScore/퍼펙트드로우/승격
+            // 심볼(bell_ticket 등)은 전부 `r.stageExp +=`/`r.score +=`(런 누적치)만 건드리고, 웹 지역변수
+            // `exp`/`res.score` 자체는 그 시점 이후 단 한 번도 재대입되지 않는다(고정값) — feverExpExtra/
+            // feverScoreExtra/fjScoreBonus(피버 배율 계산 3곳)는 전부 이 "고정된 원본"을 기준으로 삼는다.
+            // 이 C# 포트는 `gained`/`res.score`를 그 자체가 누적 델타 역할을 하도록 설계했으므로(호출측
+            // ResolveSpin이 함수 종료 후 한 번에 run.StageExp/run.Score에 더함), 뒤이은 블록들이 이미
+            // `gained`/`res.score`를 웹의 "고정 원본" 지분만큼 불려 놓은 상태라 — 피버 배율 3곳만큼은
+            // 반드시 "함수 진입 시점 스냅숏"을 따로 떠서 읽어야 웹과 동일한 수치가 나온다(스냅숏 없이
+            // 라이브 값을 읽으면 피버잭팟 등이 앞선 보너스 위에 중복 복리로 얹혀 웹보다 과다 지급된다).
+            long expSnapshot = gained;
+            long scoreSnapshot = res.score;
+
+            // ── 희귀표본상자(sr_rare_case, rewardBonus 아님 — rareFirstScore) — 웹 game.js:960-968.
+            // RunSymCounts는 이 시점까지 "이번 스핀 반영 전"(BumpSymCounts는 ResolveSpin의 상태 반영
+            // 블록에서 이 함수 뒤에 실행) — "이번 런 처음 발견"과 동치 판정 가능.
+            var sp = SymPerks.ComputeMods(run.Perks, run.Pouch, run.PerkLevels);
+            if (sp.RareFirstScore > 0)
+            {
+                bool newRare = false;
+                for (int i = 0; i < res.cells.Count; i++)
+                {
+                    var id = res.cells[i].sym.id;
+                    if (id == "empty" || Pouch.RarityOf(id) != "희귀") continue;
+                    if (!run.RunSymCounts.ContainsKey(id)) { newRare = true; break; }
+                }
+                if (newRare)
+                {
+                    long bonus = (long)sp.RareFirstScore;
+                    res.score += bonus;
+                    notes.Add($"🧰 희귀표본 첫 발견 점수 +{bonus}");
+                }
+            }
+
+            // ── 배치F P6 퍼펙트 드로우 — 5칸 전부 동일 계열(base 환산), 빈칸 불성립, 스테이지 1회 —
+            // 웹 game.js:985-998. ★클리어 판정 전이므로 run.Stage는 여전히 "이번" 스테이지.
+            if (run.PerfectDrawStage != run.Stage && res.cells.Count > 0)
+            {
+                bool allReal = true;
+                for (int i = 0; i < res.cells.Count; i++)
+                    if (res.cells[i].sym == null || res.cells[i].sym.id == "empty") { allReal = false; break; }
+                if (allReal)
+                {
+                    string f0 = Pouch.UpgradeParent.TryGetValue(res.cells[0].sym.id, out var p0) ? p0 : res.cells[0].sym.id;
+                    bool allSame = true;
+                    for (int i = 1; i < res.cells.Count; i++)
+                    {
+                        string fi = Pouch.UpgradeParent.TryGetValue(res.cells[i].sym.id, out var pi) ? pi : res.cells[i].sym.id;
+                        if (fi != f0) { allSame = false; break; }
+                    }
+                    if (allSame)
+                    {
+                        run.Coins += 1;
+                        run.PerfectDrawStage = run.Stage;
+                        var fs = Symbols.ById(f0);
+                        notes.Add($"🎯 퍼펙트 드로우! 5칸 모두 {(fs != null ? fs.emoji + fs.name : f0)} 계열 — 코인 +1");
+                    }
+                }
+            }
+
+            // ── §9.0 J1 잭팟 태그 단계 보상 신호 소비 — EXP/점수는 Evaluate()가 이미 res.exp/res.score에
+            // 반영(=gained/res.score에 이미 녹아 있음) — 여기선 런 플래그·bias 예약 + 배너만. 웹 game.js:1000-1067.
+            string jtBanner = "";
+            if (res.jackpotStage != null)
+            {
+                string tLabel = SpinResolver.JackpotTagLabel(res.jackpotTagHit);
+                if (res.jackpotStage == "combo")
+                {
+                    jtBanner = $"🎯 {tLabel} 콤보! — EXP+8";
+                }
+                else if (res.jackpotStage == "reach")
+                {
+                    run.ReachBiasTag = res.jackpotTagHit;
+                    run.ReachBiasSpinsLeft = 1;
+                    jtBanner = $"🎯 {tLabel} 리치! — 다음 스핀 해당 태그 ×1.5";
+                }
+                else if (res.jackpotStage == "jackpot")
+                {
+                    run.JackpotPrismPending = true;
+                    jtBanner = $"🎰 {tLabel} 잭팟!! — 다음 주머니 오퍼 프리즘 보장";
+                }
+            }
+
+            // ── §9.2 J3 승격/보정 심볼 소모 — 웹 game.js:1019-1067 ──
+            if (res.jackpotStage == "reach" && res.jackpotTagHit == "bell" && res.bellCount >= 4)
+            {
+                int bellTicketN = run.Pouch.TryGetValue("bell_ticket", out var bn) ? bn : 0;
+                if (bellTicketN > 0 && run.BellTicketUses < 2)
+                {
+                    gained += 30; res.score += 1500; run.BellTicketUses += 1;
+                    run.Pouch["bell_ticket"] = bellTicketN - 1;
+                    if (run.Pouch["bell_ticket"] <= 0) run.Pouch.Remove("bell_ticket");
+                    run.JackpotPrismPending = true;
+                    jtBanner = (jtBanner.Length > 0 ? jtBanner + " · " : "") + $"🎟 종소리티켓 — 종 4개 잭팟 승격! (런 {run.BellTicketUses}/2)";
+                }
+            }
+            if (res.jackpotStage == "reach" && res.hasJpTicket)
+            {
+                int jpTicketN = run.Pouch.TryGetValue("jackpot_ticket", out var jn) ? jn : 0;
+                if (jpTicketN > 0 && run.JpTicketUses < 2)
+                {
+                    gained += 30; res.score += 1500; run.JpTicketUses += 1;
+                    run.Pouch["jackpot_ticket"] = jpTicketN - 1;
+                    if (run.Pouch["jackpot_ticket"] <= 0) run.Pouch.Remove("jackpot_ticket");
+                    run.JackpotPrismPending = true;
+                    jtBanner = (jtBanner.Length > 0 ? jtBanner + " · " : "") + $"🎟 잭팟티켓 — 리치 → 잭팟 승격! (런 {run.JpTicketUses}/2)";
+                }
+            }
+            if (res.jackpotStage == "reach" && res.hasReachMark && !run.ReachMarkUsed)
+            {
+                double baseProb = 0.30 + (mods != null ? mods.feverReachFix : 0.0);
+                if (run.Rng.NextDouble() < baseProb)
+                {
+                    gained += 30; res.score += 1500; run.ReachMarkUsed = true;
+                    run.JackpotPrismPending = true;
+                    jtBanner = (jtBanner.Length > 0 ? jtBanner + " · " : "") + $"🎯 리치표식 — 부족 1칸 보정 잭팟 승격! (확률 {Math.Round(baseProb * 100)}%)";
+                }
+            }
+            if (res.jackpotStage == "reach" && res.hasRetryReel && !run.RetryReelUsed)
+            {
+                run.RetryReelPending = true; run.RetryReelUsed = true;
+                jtBanner = (jtBanner.Length > 0 ? jtBanner + " · " : "") + "🔁 재도전릴 — 다음 스핀 1칸 재굴림 예약";
+            }
+            if (res.jackpotCrownSignal && !run.JackpotCrownUsed)
+            {
+                run.JackpotCrownUsed = true;
+                run.JackpotCrownPending = true;
+            }
+
+            // ── §9.1 J2 피버 게이지 충전 + 진입/효과/종료 — 웹 game.js:1069-1138 ──
+            string feverBanner = "";
+            int feverDeltaEff = res.feverDelta;
+            if (run.FeverSpins > 0)
+            {
+                if (res.hasBellFest && res.jackpotTagHit == "bell" && res.jackpotStage != null)
+                {
+                    long bellExpBonus = 0, bellScoreBonus = 0;
+                    if (res.jackpotStage == "combo") bellExpBonus = 8;
+                    else if (res.jackpotStage == "reach") bellScoreBonus = (res.jackpotSym != null ? 0 : 300) + (res.echoTriggered ? 200 : 0);
+                    else if (res.jackpotStage == "jackpot") { bellExpBonus = 30; bellScoreBonus = res.jackpotSym != null ? 0 : 1500; }
+                    double festMulExtra = Pouch.BellFestMul - 1.0; // 0.5
+                    long festExpExtra = (long)Math.Floor(bellExpBonus * festMulExtra);
+                    long festScoreExtra = (long)Math.Floor(bellScoreBonus * festMulExtra);
+                    int festFeverExtra = (int)Math.Floor(feverDeltaEff * festMulExtra);
+                    if (festExpExtra > 0) gained += festExpExtra;
+                    if (festScoreExtra > 0) res.score += festScoreExtra;
+                    if (festFeverExtra > 0) feverDeltaEff += festFeverExtra;
+                    if (festExpExtra > 0 || festScoreExtra > 0 || festFeverExtra > 0)
+                        jtBanner = (jtBanner.Length > 0 ? jtBanner + " · " : "") + $"🎊 축제종 ×{FmtMul2(Pouch.BellFestMul)}";
+                }
+                long feverExpExtra = (long)Math.Floor(expSnapshot * (Pouch.FeverExpMul - 1.0));
+                if (feverExpExtra > 0) gained += feverExpExtra;
+                long feverScoreExtra = (long)Math.Floor(scoreSnapshot * (Pouch.FeverScoreMul - 1.0));
+                if (feverScoreExtra > 0) res.score += feverScoreExtra;
+                if (res.jackpotStage == "jackpot" && res.jackpotTagHit != null)
+                {
+                    long fjScoreBonus = (long)Math.Floor(scoreSnapshot * (Pouch.FeverJackpotScoreMul - 1.0));
+                    if (fjScoreBonus > 0) res.score += fjScoreBonus;
+                    run.FeverJackpotPrism = true;
+                    jtBanner = (jtBanner.Length > 0 ? jtBanner + " · " : "") + "🔥 피버잭팟!! — 점수×2 추가 · 오퍼 프리즘+1";
+                }
+                if (mods != null) mods.feverReachFix = Pouch.FeverReachFixAmount;
+                run.FeverSpins -= 1;
+                if (run.FeverSpins <= 0)
+                {
+                    run.FeverSpins = 0;
+                    feverBanner = "🔥 피버 종료!";
+                    if (mods != null) mods.feverReachFix = 0;
+                }
+                else
+                {
+                    feverBanner = $"🔥 피버 {run.FeverSpins}스핀 남음";
+                }
+            }
+            if (feverDeltaEff > 0)
+            {
+                run.FeverGauge += feverDeltaEff;
+                if (run.FeverGauge >= Pouch.FeverMax)
+                {
+                    run.FeverGauge = 0;
+                    run.FeverSpins = Pouch.FeverSpins;
+                    feverBanner = $"🔥 피버 타임! {Pouch.FeverSpins}스핀";
+                    if (mods != null) mods.feverReachFix = Pouch.FeverReachFixAmount;
+                }
+            }
+
+            if (jtBanner.Length > 0) notes.Add(jtBanner);
+            if (feverBanner.Length > 0) notes.Add(feverBanner);
+        }
+
+        // 배율 표기 — 소수 2자리·끝0제거(SpinResolver.FmtMul과 동일 규칙, private이라 재사용 대신 축소
+        // 복제 — 이 파일은 축제종 배율(1.5) 표기 1곳에서만 쓴다).
+        private static string FmtMul2(double v)
+        {
+            string s = v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            return s.TrimEnd('0').TrimEnd('.');
+        }
     }
 
     // 배치F P2(웹 `r.deepPity = {id, spinsLeft}`) — 신규 심볼 등장 보장 상태. 참조형(클래스)이라
@@ -216,6 +454,9 @@ namespace JackpotRun.Engine
         public bool Crown2BossClear;
         public bool BalanceBossClear;
         public bool Skull0BossClear;
+        // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스, 웹 game.js:1538 `r.deepStats.autoDecays`)
+        // — §3 V3P3 자동 소멸 발동 횟수(예고 제외, 실제 심볼 제거만 카운트).
+        public int AutoDecays;
         public readonly HashSet<string> RaresSeen = new HashSet<string>();
         public readonly HashSet<string> LegendsSeen = new HashSet<string>();
     }

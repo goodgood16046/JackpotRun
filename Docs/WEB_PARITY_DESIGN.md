@@ -1511,6 +1511,187 @@
     이어지는 이월 항목, 이번 슬라이스도 미착수) ⑪위 Opus 2차검수 LOW 잔여 4건(dev_pin RNG 위상·
     EffWithLevel 화이트리스트·legendStable 미이식·rarity 게이팅 UI 몫).
 
+- **(CC) 2026-08-09 완료(P7-3 "심화모드(심볼 덱/주머니) 3/4" — WEB_PARITY_DESIGN.md §1-A #19 3/4
+  슬라이스: 잭팟태그6종+피버게이지+자동소멸+POUCH오퍼v3(2-step)+심화노드풀+퍼펙트드로우+3스테이지연계
+  보너스. 웹 `engine.js` 잭팟태그(§768-870)·offerSymbolRewards(§1725-1863)·isDeepCompat/deepCompatPool
+  (§1993-2002)·symAugPool/symRelPool(§2189-2198)·`data.js` FEVER_*/BELL_FEST_MUL(§1136-1155)·
+  REL_MIN/REL_MIN_BY_SYM(§1071-1077)·AUGMENTS/RELICS의 deep/dSym/dDesc(§229-494)·`game.js` 스핀 후속
+  처리(§960-1138)·심화 노드 풀(§1439-1494)·자동소멸(§1516-1542)·POUCH 2-step 커밋(§1890-2037)·
+  3스테이지 연계(§2152-2184) 전수 대조)**:
+  - **① 잭팟 태그 시스템 — `SpinResolver.Evaluate`에 신규 블록**: 5칸의 `Pouch.JackpotTagOf` 카운트
+    (와일드·빈칸 미기여) → 최다 태그 3단계(콤보3=EXP+8·리치4=점수+300·태그잭팟5=EXP+30·점수+1500)
+    판정 그대로. 동일심볼 잭팟(`jackpotSym`)과 공존 시 태그잭팟 EXP/점수는 스킵(신호만 반환) — 웹
+    `if (!jackpotSym) {...}` 그대로. 증폭 심볼 4종(환호 CHEER ×1.25·대폭죽 BIG_BOOM 콤보+500/잭팟+2000·
+    슬롯조각 SLOT_SHARD/잭팟마법봉 JACKPOT_WAND 최다태그+1(마법봉은 prism 제외)·잭팟왕관 JACKPOT_CROWN
+    신호)·종세트 추가 충전(작은종+15·황금종+30·울림종 리치 시 점수+200) 전부 이식. `Mods.deepMode`
+    신규 필드(웹 `mods.deepMode`) — `DeepRunHooks.ApplyDeepMods`가 심화 런에서만 true로 세워 이 블록을
+    게이팅(일반 런 완전 격리, `SpinResult`에 jackpotTagHit/jackpotStage/feverDelta/bellCount/
+    echoTriggered/jackpotCrownSignal/hasBellFest/hasReachMark/hasRetryReel/hasJpTicket 10개 신규
+    필드 반환).
+  - **② 리치 bias — `SpinResolver.RollCells`**: 웹 `_roll()`의 `_reachBias`(리치 태그 심볼 ×1.5, 1스핀)를
+    `DeepRunHooks.ApplyReachBias`로 이식(P7-1/P7-2가 명시적으로 미룬 항목 해소) + 재도전릴 후처리(리치
+    다음 스핀 1칸 재굴림)까지 `RollCells` 안에서 완결. **범위 제한**: `RollCellOne`(MANIP 등 1칸씩
+    굴리는 호출부)에는 확장하지 않았다 — dev_pin RNG 소비 위상이 이미 웹과 다르다는 선례(§2-(BB) LOW
+    잔여)가 있어, 리치bias/재도전릴을 거기까지 얹으면 스핀당 다중 소진 위험만 커진다(범위 제한, 보고
+    대상).
+  - **③ 피버 게이지 — `DeepRunHooks.ProcessDeepSpinFollowups`**: 웹 game.js:960-1138 스핀 후속 처리
+    전체(희귀표본상자 rareFirstScore·퍼펙트드로우·잭팟태그 배너/bias예약·승격심볼 소모·피버 충전/발동/
+    효과/종료)를 이 신규 함수로 통합 이식, `SpinResolver.ResolveSpin`이 mode/보스/dev_safe/dev_bell
+    보정이 전부 끝난 시점(배드스핀 판정 직전)에 1회 호출한다. `Pouch.cs`에 FEVER_MAX(100)/COMBO(15)/
+    REACH(25)/JACKPOT(50)/SPINS(3)/EXP_MUL(1.30)/SCORE_MUL(1.50)/REACH_FIX(0.15)/
+    JACKPOT_SCORE_MUL(2.00)/BELL_FEST_MUL(1.5) 상수 그대로 전사. `RunState`에 FeverGauge/FeverSpins +
+    §9.0/§9.2 단회성 신호 10개(ReachBiasTag/SpinsLeft·JackpotPrismPending·FeverJackpotPrism·
+    JackpotCrownPending·RetryReelPending/Used·ReachMarkUsed·JackpotCrownUsed·BellTicketUses/
+    JpTicketUses) 신규. `Mods.feverReachFix` 신규 필드(리치표식이 참조) — **자체 검수로 발견한 정합성
+    함정**: 웹은 `res.score`/지역변수 `exp`를 스핀 결산(`r.stageExp += exp`) 이후 전혀 재대입하지
+    않고(피버/승격 보너스는 전부 `r.stageExp +=`/`r.score +=`로 런 누적치에만 가산), 피버 배율 3곳
+    (feverExpExtra/feverScoreExtra/fjScoreBonus)은 그 "고정 원본값"을 기준으로 계산한다. 이 C# 포트는
+    `gained`/`res.score`를 누적 델타 그 자체로 설계했는데, 함수 진입 시점 스냅숏(`expSnapshot`/
+    `scoreSnapshot`) 없이 라이브 값을 읽으면 피버잭팟이 앞선 보너스(희귀표본·승격심볼 등) 위에 복리로
+    얹혀 웹보다 과다 지급되는 버그가 됐다 — 1차 구현에서 직접 작성한 단위테스트(`FeverJackpotDoublesScore`,
+    1000점 시나리오 기대값 2250 vs 실측 3000)로 스스로 잡아 정정했다(함수 진입 시 스냅숏 캡처 후 피버
+    배율 계산 3곳만 스냅숏 참조로 전환, 최종 정답 2500). 유사 정합성 버그의 재발 방지를 위해 함수
+    헤더에 상세 근거를 남겼다.
+  - **④ 자동 소멸 — `StageFlow.ClearStage`**: `clearedStage==14` 클리어 시 예고 1회(`RunState.
+    DecayForewarned`), `clearedStage>=15`부터 클리어마다 `Pouch.IsAutoDecayTarget`(cat=base &&
+    !harmful) 심볼 1개 무작위 제거(DECK_MIN 미만도 허용, 대상 0개면 스킵) — 웹 그대로. `ClearOutcome.
+    decayBanner` 신규(빈 문자열=소멸 없음, UI는 P7-4). `DeepStats.AutoDecays` 카운터 신규.
+  - **⑤ POUCH 오퍼 v3 — 신규 `Run/PouchOffer.cs`**: `OfferSymbolRewards`(웹 `offerSymbolRewards`
+    그대로 — 티어 시퀀스: 보스5배수=PRISM보장+GOLD·3배수=GOLD보장+SILVER·그 외=SILVER+goldBonus확률
+    GOLD·태그잭팟/피버잭팟/잭팟왕관 신호=forcePrismFirst로 PRISM 강제. 특수 카드 저주 혼입 5%(노출
+    옵션으로 0 가능)·전설 가중(legendWeight)·S1~2 EARLY_EXP_BOOST_IDS 3:2 가중. `bounds` opt는 웹
+    원문에서도 함수 본문 어디에서도 참조되지 않는 죽은 매개변수라 이식하지 않음, 근거를 grep으로
+    확인). **2-step 커밋 — `RunPhase` 6종 신설**(EventPouch/EventPouchCost/EventPouchRemove/
+    EventRestDeep/EventGambleDeep/EventSynAugBonus — 작업 지시는 POUCH 2-step 3종만 명시했으나, REST/
+    GAMBLE 심화 2택·3스테이지 연계 보너스도 동일하게 "사용자 응답을 기다리는 오퍼" 패턴이라 P1
+    DeviceNode 선례를 그대로 넓혀 적용했다 — 이탈 사항, 이번 보고에 명시). `PouchOfferCard`/
+    `PouchPendingSpecial` 신규 타입. `RunController.DispatchPickOffer`가 `PickOffer(index)` 액션
+    하나를 이 6개 phase + 기존 EventAugment/Relic/AugLevel로 라우팅(웹 `pickPerk(idx)`가 `_pickKind`로
+    분기하는 것과 동일 설계 — Unity는 RunPhase가 그 역할). 실버=기본1개 제거·골드=기본2개(이득<3이면
+    1개)·프리즘=기본2개 또는 저주+1 선택(EventPouchCost)·저주=무료(DECK_MAX만 검사) 비용 규칙 전부
+    `Pouch.Validate`로 원자적 검증 후 커밋, 실패 시 롤백(주머니 불변) + "규칙 위반" 메시지로 RewardDone
+    귀결(웹도 성공/실패 모두 `_enterRewardDone`으로 귀결 — 별도 재시도 루프 없음). 획득 성공 시
+    `RunState.DeepPity` 예약(기존 P7-1/P7-2 정비소와 동일 관례).
+  - **⑥ JACKPOT 노드 — `PouchOffer.EnterJackpotNode`**: 현재 덱 최다 잭팟태그 기준 특수심볼 3택(미보유
+    우선, 부족하면 전체) + 스킵. **정확도 함정 주의 이식**: 후보 필터는 `Pouch.CatOf(id)=="special"`이
+    아니라 웹 그대로 `sym.special != Sp.NONE`(진리값) 기준이다 — 이 차이로 "coin"(Sp.COIN, cat="base")은
+    coin 태그 후보에 **포함**되지만 "crown"(special=Sp.NONE, cat="special")은 crown 태그 후보에서
+    **제외**된다(둘 다 실제로 웹과 대조해 확인, 테스트로 고정). 후보 0개(태그 없음/풀 소진)면 코인+5
+    폴백.
+  - **⑦ SYMAUG/SYMREL 노드 — `PouchOffer.EnterSymAugOrRel`**: 심볼증강21/심볼유물15 + 관련 일반
+    증강·유물(웹 `deepCompatPool` — dSym 참조 계열 보유수가 `Pouch.RelMin`(3, 왕관은 `RelMinBySym`=2)
+    이상일 때만 관련 있다고 판정) 혼합 오퍼. 웹은 이 둘도 일반 AUGMENT/RELIC과 동일한 `_pickKind`
+    ("AUG"/"REL")로 라우팅하므로, Unity도 **오퍼 생성만 별도 함수**로 두고 실제 그랜트(픽 확정)는
+    기존 `NodeEvents.PickOffer`를 100% 재사용한다(RunPhase를 EventAugment/EventRelic으로 공유 —
+    SymPerkDef를 `Perk`로 합성 래핑해 `Shop.PickPerksByTier`/`Shop.SetSynergyAug`/`PerkFamily.FamOf`
+    (미등록 id는 "고유 패밀리 랭크1" 폴백이라 안전)를 그대로 통과시킨다). 프리즘잉크 소비 조건이
+    SYMAUG는 "성공(PRISM 확정)했을 때만"(폴백 시 보존)로 일반 AUGMENT의 "무조건 리셋"과 실제로
+    다르다는 것을 웹 원문 대조로 확인해 그 차이까지 그대로 이식(성급한 통일 금지 — 정확도 함정 ②).
+  - **⑧ 3스테이지 증강 연계 보너스 — `NodeEvents.PickOffer`에 추가**: 심화 런 + AUG 픽(일반 AUGMENT·
+    SYMAUG 공용) + `(stage-1)%3==0 && stage-1>0`일 때, 획득 증강의 `DeepPerkMeta.DSymOf` 1차 태그와
+    일치하는 미보유·해금 특수심볼 후보가 있으면 무료 2택(획득/건너뛰기, `RunPhase.EventSynAugBonus`)
+    으로 이어간다(그랜트 자체는 이미 완료 — 오퍼만 지연). 신규 `Content/DeepPerkMeta.cs`(AUGMENTS
+    89종·RELICS 73종의 `deep`/`dSym`/`dDesc` 메타를 웹 data.js 헤더 규약대로 python 정규식 파싱해
+    id 기준 별도 테이블로 이식 — `Perk` 클래스 자체엔 필드 추가하지 않음, `Content/Pouch.cs`
+    POUCH_CAT/JACKPOT_TAG 선례와 동일한 "별도 맵" 관례).
+  - **⑨ 심화 노드 풀 — `StageFlow.RollDeepNodes`**: POUCH 고정 + second(SYMAUG 40%/SYMREL 20%(보스
+    35%)/dpool 셔플 1장) + third(dpool 비중복 1장) — dpool = SHOP/REST/GAMBLE/EVENT 상시 + stage≥6
+    CURSE/RISK + stage≥3 JACKPOT + 심볼퍽 `shopLabWeight`(연구실중독/연구실열쇠)만큼 SHOP 추가(최대
+    4장). SYMAUG 슬롯 + 레벨업 가능 보유증강 있으면 확률로 AUGLEVEL 교체(일반 런과 동일 pity 공식,
+    `AUGMENT` 대신 `SYMAUG` 슬롯 대상). `sp_deckslot`(alwaysRepair) SHOP 노드 보장. `dev_call_bell`
+    (연구실호출벨) 체크는 그 장치 자체가 Devices.cs에 없어(§2-(C-2) "심화 9종 대응 장치 없음"과 동일
+    사유) 현재 항상 false인 죽은 분기지만 웹 정확 전사 원칙에 따라 자리만 남겼다(장치 이식 시 자동
+    활성화). `NodeKind` 4종(Pouch/Jackpot/SymAug/SymRel) 신규 — 일반 런의 `RollNextNodes`는 절대
+    이 값들을 생성하지 않는다(자동플레이 스모크로 확인).
+  - **⑩ REST/GAMBLE 심화 2택 — `PouchOffer.EnterRest`/`EnterGamble`**: 심화 런 + 해골 보유 시 REST가
+    2택(코인+12 vs 해골 정화)으로, 심화 런이면 GAMBLE이 2택(코인 도박 vs 심볼 도박)으로 갈라진다.
+    **정확도 함정 ③**: 심화 `gamble_coin`은 일반 `NodeEvents.ResolveGamble`과 확률(50%)만 같을 뿐
+    실패 처리가 다르다 — 일반은 실패 시 코인을 0으로 날리지만, 심화 `gamble_coin`은 "코인 유지"(웹
+    원문 그대로, 손실 없음)다. 일반 런 분기는 기존 `NodeEvents.ResolveGamble`을 `internal`로 승격해
+    그대로 재사용(중복 정의 방지, node/coinsDelta 필드까지 보존).
+  - **⑪ 퍼펙트 드로우 — `DeepRunHooks.ProcessDeepSpinFollowups`에 포함**: 5칸 전부 동일 계열(base
+    환산, `Pouch.UpgradeParent`) + 전부 실심볼(빈칸 불성립)이면 스테이지 1회 코인+1(`RunState.
+    PerfectDrawStage`).
+  - **웹 대비 생략/이월 — 명시적으로 범위 밖(보고 대상 아님, 계획된 다음 슬라이스)**: ①
+    profile.symUnlocked(ACH_SYMBOL_UNLOCK 13종, P7-4) — 이 슬라이스는 `Pouch.DefaultUnlocked`(58종
+    기본 해금)로 근사(POUCH 오퍼·3스테이지 연계 보너스 후보 필터 둘 다 동일 근거) — 프로필 시스템이
+    붙으면 이 근사만 실제 값으로 교체하면 된다. ②symPerkMods 중 여전히 미소비인 compressScorePct/
+    balanceScore(스핀당 점수 보너스, sr_compress_contract/sr_scale) — P7-2가 미소비로 남긴 항목을
+    이번 슬라이스도 착수하지 않았다(작업 지시 §범위 밖, 웹 game.js:944-959). ③RANDPACK_*/
+    DESIGNATED_UPGRADE_CHANCE/PACKAGE_CHANCE(POUCH 오퍼 v2, 웹 자체가 "dormant, 삭제 금지"로 은퇴시킨
+    죽은 코드라 이식 대상 아님). ④hex_allornothing 저주의 dEff(전공 배율 절반 재설계, dEff 메커니즘
+    자체가 Unity에 없음 — §2-(BB) B 각주와 동일). ⑤Sp 신규 51종 중 잭팟태그 계열 10종(BELL_*/CHEER/
+    BIG_BOOM/SLOT_SHARD/JACKPOT_WAND/JACKPOT_CROWN/REACH_MARK/RETRY_REEL/JACKPOT_TICKET)을 제외한
+    나머지(CATALYST/MIRROR/TARGET/PUZZLE5/ALARM/SAFEPIN 등)의 실제 효과 — P7-1부터 이어지는 이월
+    항목, 안전핀노트(safepin)의 AugLevelChance 부스트 포함 미착수. ⑥WANDWILD(마법봉) 동일심볼 잭팟의
+    와일드 제외 로직("wandWilds") — Unity에 마법봉 특수효과 자체가 없어 대상 없음(정합 위험 없음 —
+    기존 상태 그대로). ⑦심화 업적 13종/장치 9종·UI 보드(오퍼 카드·피버 HUD·자동소멸 배너 등)·랭킹
+    3노드 분리 — 전부 P7-4.
+  - **테스트 — 신규 `Tests_P7_3_JackpotFeverOffer.cs`**: 잭팟태그 3단계(콤보/리치/태그잭팟) 손계산
+    + 동일심볼 잭팟 공존 중복금지 + 일반모드 완전격리(총 5개) · 증폭 심볼 4종 각각(환호/대폭죽/
+    슬롯조각/잭팟마법봉) · 리치bias 적용·소진 · 피버 5종(충전/발동/효과/종료/피버잭팟, 스냅숏 버그
+    정정 반영) · 승격 심볼 5종(종소리티켓·잭팟티켓 런2회 제한·리치표식 확률(feverReachFix 극단값으로
+    RNG 무관 결정론화)·재도전릴/잭팟왕관 스테이지1회) · 퍼펙트 드로우(1회성·전실심볼 요구) · 희귀표본
+    상자 · 자동소멸 3종(예고/제거/대상없음스킵) · POUCH 오퍼 티어시퀀스 4종(보스5배수/3배수/
+    forcePrismFirst/비용구조) · 2-step 커밋 6종(RunController 경유 — 실버/저주/스킵/프리즘 제거경로/
+    프리즘 저주경로/롤백) · 심화 노드풀 4종(POUCH 고정·JACKPOT stage≥3·CURSE·RISK stage≥6·일반풀
+    미사용) · 3스테이지 연계 보너스 · 심화 자동플레이 스모크(10시드×최대20000틱, 전 신기능 이벤트
+    화이트리스트 + NaN/음수/런제한 불변식). 기존 P7-1/P7-2 자동플레이 스모크 2건도 신규 이벤트 타입
+    (POUCH_OFFER 등)·신규 phase(EventPouch 등)를 인식하도록 화이트리스트/스위치를 확장했다(그 파일들
+    자체 로직은 무변경).
+  - **검증(1차 제출 시점)**: `dotnet run --project Client/Jackpot/Tools/EngineTests` 23874 →
+    **27770**(+3896), 0 실패. 오프라인 스모크 컴파일(Unity 에디터 미실행 확인 후 `dotnet exec
+    csc.dll -noconfig`, Library/Bee의 P7-2 시점 rsp에 신규 2파일만 추가) — `Assembly-CSharp`
+    (런타임, 90개 — 신규 `Content/DeepPerkMeta.cs`·`Run/PouchOffer.cs` 포함)·`Assembly-CSharp-Editor`
+    (6개, Editor rsp의 `-r:".../Assembly-CSharp.ref.dll"`을 신규 빌드한 런타임 스크래치 ref dll로
+    정정, §2-(AA) 후기 절차 그대로 재확인) 둘 다 0에러·0경고.
+  - **Opus 2차검수 반영(2026-08-09, MED 2건 + 정합 1건 + 소소 3건)**:
+    ①**[MED] compatFilter 누락**: `PouchOffer.EnterSymAugOrRel`의 5% 세트시너지 주입이 웹
+    engine.js:1265-1267·game.js:1773/1786 `opts.compatFilter`(심볼퍽이거나 `isDeepCompat` 통과) 없이
+    무조건 주입되고 있었다 — `SymPerks.Get(syn.id)!=null || DeepPerkMeta.IsDeepCompat(syn, run.Pouch)`
+    검사를 추가해 미통과 시 주입을 취소(원래 마지막 칸 유지)하도록 정정.
+    ②**[MED] REST 노드 이벤트 회귀**: `PouchOffer.cs`로 배선이 옮겨가며 `NodeEvents.ChooseNode`의
+    기존 `node = node` 관례가 REST뿐 아니라 GAMBLE 심화 분기·POUCH/JACKPOT/SYMAUG/SYMREL(신규 4종
+    NodeKind) 진입 이벤트에도 전부 누락돼 있었다 — `UI2/Run/RunView.cs:775`의 P4 완료화면 문구
+    템플릿(`switch (e.node) { case NodeKind.Rest: ... }`)과 `Profile/StatTracker.cs:264`의
+    "gambles" 통계 카운터(`if (e.node==NodeKind.Gamble) p.Inc("gambles")`)가 이 필드에 의존한다는
+    걸 확인하고 `EnterRest`/`PickRestDeep`/`EnterGamble`(심화 분기)/`PickGambleDeep`/
+    `EnterPouchOffer`/`EnterJackpotNode`/`EnterSymAugOrRel`(×2) 전부에 정확한 `node` 값을 채웠다
+    (`Resolved`/`CommitAndFinish` 헬퍼에 선택적 `node` 매개변수 추가). `Tests_S4.cs`의 `RestNode`에
+    `ev[0].node==NodeKind.Rest` 어서션을 추가해 재발 방지 고정.
+    ③**[MED] 노드 진입 4종 전용 테스트 신설**: `EnterSymAugOrRelOfferAndPickRoundTrip`(오퍼→픽→직후
+    스핀 1회까지 실행해 fx=null 합성 Perk가 `ModsBuilder.Build`를 안전하게 통과하는지 실증 — AUGMENT/
+    RELIC 양쪽), `EnterJackpotNodeCandidatePoolCoinIncludedCrownExcluded`(coin은 후보 포함·crown은
+    후보 원천배제, 각 100시드), `PickRestDeepChoosesCoinOrPurify`/`PickGambleDeepChoosesCoinOrSym`
+    (각 2분기 커밋+node 검증) 4종 신설. 심화 자동플레이 스모크의 `ChooseNode`도 항상 index 0 대신
+    시드 기반 별도 RNG로 매 스텝 유효 인덱스를 균등 무작위 선택하도록 변경(노드가 3개일 때 종전엔
+    2/3 경로가 스모크에서 전혀 실사되지 않았다).
+    ④**[웹 정합] 심화 노드 풀 stage 게이트 기준 오류**: `StageFlow.RollDeepNodes`가 JACKPOT(stage≥3)·
+    CURSE/RISK(stage≥6) 게이트에 `nextStage`(clearedStage+1)를 썼던 것을 `clearedStage`(방금 클리어한
+    스테이지, `r.stage=stage+1` 재대입 *이전* 값 — `NodeEvents.PickDevice`가 동일 시점의 `run.Stage`를
+    쓰는 것과 동일 근거)로 정정 — 등장 시점이 웹보다 1스테이지 앞당겨져 있었다. 경계값(clearedStage=2
+    vs 3, 5 vs 6)을 직접 probing하는 테스트로 교체해 재발 방지. **잔여 이탈(범위 밖, 손대지 않음)**:
+    일반 런 `RollNextNodes`는 이미 `nextStage` 관례를 쓰고 있다(이 슬라이스 이전부터 존재하던 별개
+    관례) — 이번 정정 대상이 아니다, 필요 시 별도 슬라이스에서 재검토.
+    ⑤**[소소]**: `EnterSymAugOrRel`의 picks 빈 배열 조기반환을 웹 engine.js:1258
+    `if (!picks.length) return {...}` 위치(세트시너지 5% 롤·lucky 리셋·EnsureSymPerkCard *이전*)로
+    이동(`NodeEvents.OfferPerks`의 기존 `if (picks.Count==0) return picks;` 관례와 동일 위치 — 이전엔
+    `&&` 좌변 우선평가로 picks가 비어도 `rng.Next(100)`이 소비돼 웹에 없는 RNG 소비가 있었다). 프리즘잉크
+    소비 판정도 빈 배열일 때 "실제 결과 티어"가 없으므로 요청 티어(nodeTier) 기준으로 갈라지도록 정정.
+    `Mods.cs:83` 주석의 오기 함수명(`ApplyDeepFeverAndTagFollowups`, 실제로 만든 적 없는 이름)을
+    실제 함수명 `DeepRunHooks.ProcessDeepSpinFollowups`로 정정 + `run.LastMods`가 아니라 호출 시점의
+    로컬 `mods` 인스턴스를 직접 읽고 쓴다는 정확한 설명으로 교체. `Pouch.EarlyExpBoostIds`는 그대로
+    유지하되(웹도 이 6종 가중은 항상 켜져 있고 실제 특수효과 이식 여부와 독립 축) 그중 4종(alarm/knot/
+    energypack/bandage)의 실제 특수효과는 아직 P7-3b(Sp 신규 51종 중 잭팟태그 외 나머지 전면 이식)
+    대상이라는 점을 주석으로 명시.
+  - **재검증(Opus 반영 후 최종)**: `dotnet run --project Client/Jackpot/Tools/EngineTests` 27770 →
+    **29422**(+1652), 0 실패. 오프라인 스모크 컴파일 재확인(`Assembly-CSharp` 90개·
+    `Assembly-CSharp-Editor` 6개 — 파일 목록 변경 없음, 기존 rsp 그대로 재컴파일) 둘 다 0에러·0경고.
+  - **P7-3b 예고(다음 슬라이스, 이번엔 착수하지 않음)**: 미이식 `Sp` 51종 중 잭팟태그 계열 10종을
+    제외한 나머지(CATALYST/MIRROR/TARGET/PUZZLE5/ALARM/SAFEPIN/KNOT/ENERGYPACK/BANDAGE/HOURGLASS/
+    DEVCD/GEAR/KIT 등)의 실제 특수효과를 전면 이식 확정 — `Pouch.EarlyExpBoostIds`가 참조하는 4종
+    (alarm/knot/energypack/bandage)도 이때 함께 살아난다.
+
 ## 3. 페이즈 로드맵
 
 | 페이즈 | 내용 | 상태 |
@@ -1521,6 +1702,6 @@
 | P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | ✅ 2026-08-09 완료(3/3) |
 | P5 | 사운드(절차 합성 SFX 16종 + BGM 루프) | ✅ 2026-08-09 완료 |
 | P6 | 승천 A1~A10 + 승천 랭킹 분리 | ✅ 2026-08-09 완료(랭킹 분리는 P7-4로 이관, bestAscScore 기록은 완료) |
-| P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버) + 심화 랭킹 | 🔶 진행 중(2/4 — 코어+심볼퍽/전공/정비소 완료, §2-(AA)/§2-(BB)) |
+| P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버) + 심화 랭킹 | 🔶 진행 중(3/4 — 코어+심볼퍽/전공/정비소+잭팟태그/피버/자동소멸/POUCH오퍼/노드풀 완료, §2-(AA)/§2-(BB)/§2-(CC)) |
 
 각 페이즈는 FABLE_RULES 4단계 파이프라인으로 진행하고, EngineTests 골든망을 웹 수치로 갱신하며 통과를 유지한다.

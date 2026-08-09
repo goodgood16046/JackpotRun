@@ -521,6 +521,38 @@ namespace JackpotRun.Engine
             return best;
         }
 
+        // ══════════════════════════════════════════════════════════════════════
+        // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스) — 웹 data.js DEEP.REL_MIN/
+        // REL_MIN_BY_SYM(§1071-1077)·FEVER_*/BELL_FEST_MUL(§1136-1155)·EARLY_EXP_BOOST_IDS(§1173)
+        // 그대로. Content/DeepPerkMeta.cs(IsDeepCompat)·Run/PouchOffer.cs(피버·초반 SILVER 가중)가 소비.
+        // ══════════════════════════════════════════════════════════════════════
+
+        // dSym 퍽이 "주머니 빌드에 관련 있다"고 판정되는 최소 계열 보유수(왕관은 CrownMax=2 정합으로 예외).
+        public const int RelMin = 3;
+        public static readonly Dictionary<string, int> RelMinBySym = new Dictionary<string, int> { { "crown", 2 } };
+
+        // 피버 게이지 — 웹 data.js FEVER_*.
+        public const double FeverMax = 100;
+        public const double FeverCombo = 15;
+        public const double FeverReach = 25;
+        public const double FeverJackpot = 50;
+        public const int FeverSpins = 3;
+        public const double FeverExpMul = 1.30;
+        public const double FeverScoreMul = 1.50;
+        public const double FeverReachFixAmount = 0.15;
+        public const double FeverJackpotScoreMul = 2.00;
+        // 축제종(BELL_FEST) — 피버 중 종 태그 발동 시 종 유래 EXP/점수/feverDelta 가산분에 곱하는 배율.
+        public const double BellFestMul = 1.5;
+
+        // §11 초반 밸런스 완화 레버③ — S1~2 POUCH 오퍼 SILVER 풀 가중 대상(EXP 기여형/보조 심볼).
+        // Opus 2차검수(P7-3) [소소] — 이 6종 중 alarm/knot/energypack/bandage의 "실제" 특수효과(ALARM/
+        // KNOT/ENERGYPACK/BANDAGE, Sp 신규 51종 중 잭팟태그 외 나머지)는 아직 evaluate()에 case가 없어
+        // 미발동 상태다(§2-(CC) "웹 대비 생략/이월" ⑤, 다음 슬라이스 P7-3b에서 전면 이식 예정) — 이
+        // 가중치 자체는 "오퍼 등장 확률"만 다루는 순수 데이터라 그 심볼들의 실제 효과 이식 여부와 무관하게
+        // 지금 그대로 두어도 안전하다(웹도 동일 — 가중은 항상 켜져 있고, 효과 부재와는 독립 축). P7-3b가
+        // 해당 Sp case들을 채우면 이 목록은 손댈 필요 없이 자동으로 "가중 + 실효과"가 함께 갖춰진다.
+        public static readonly string[] EarlyExpBoostIds = { "tome", "cherry_ripe", "alarm", "knot", "energypack", "bandage" };
+
         // 참조 계열 보유수 — ref="tag:X"면 태그 총수, 아니면 계열(자신+상위) 합 — 웹 `familyCount`
         // (`POUCH_FAMILY[ref] || [ref]` 폴백과 동치: ref가 Upgrade의 base키가 아니면 자기 자신만 합산).
         public static int FamilyCount(IReadOnlyDictionary<string, int> pouch, string reference)

@@ -34,6 +34,30 @@ namespace JackpotRun.Engine
         // (game.js:2523-2529)처럼 이 화면을 건너뛰고 곧장 Spin으로 간다(NodeEvents.TakeDevice 주석 참조).
         RewardDone,
         GameOver,
+
+        // ── 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스 — POUCH 오퍼 v3 2-step 커밋 +
+        // REST/GAMBLE 심화 2택 + 3스테이지 연계 보너스) — P1 DeviceNode 선례(오퍼 확정을 기다리는
+        // 전용 phase) 그대로 6종 신설. 웹은 이 전부를 `r._pickKind` 문자열 하나로 구분하지만(PERK_PICK
+        // phase 공유), Unity는 기존 EventAugment/EventRelic/EventAugLevel/DeviceNode 관례(퍽 종류별
+        // 전용 RunPhase)를 그대로 따른다 — 작업 지시 "RunPhase 3종 신설"은 POUCH 2-step(EventPouch/
+        // EventPouchCost/EventPouchRemove)만 명시했지만, REST_DEEP/GAMBLE_DEEP/SYNAUG_BONUS도 동일하게
+        // "사용자 응답을 기다리는 오퍼 상태"라 같은 패턴으로 3종을 추가했다(이탈 사항, 최종 보고에 명시).
+        //
+        // EventPouch — POUCH 노드(및 JACKPOT 노드, 웹이 같은 `_pickKind="POUCH"`로 라우팅하는 것과
+        // 동일하게 재사용) 오퍼 카드(RunState.PouchOptions) 선택 대기. skip/저주(무료)/기본없음(무료
+        // 추가)는 여기서 곧장 커밋되고, 실버/골드/프리즘은 EventPouchCost·EventPouchRemove로 이어진다.
+        EventPouch,
+        // EventPouchCost — 프리즘 특수 카드 전용, 교체 비용 방식 선택(기본 심볼 2개 제거 vs 저주+1).
+        EventPouchCost,
+        // EventPouchRemove — 제거할 기본 심볼 선택(RunState.RemoveCandidateIds) + 원자적 커밋(검증 실패 시 롤백).
+        EventPouchRemove,
+        // EventRestDeep — 심화 REST 노드 2택(코인+12 vs 해골 정화, 해골 보유 시만 등장 — 웹 game.js:1624-1634).
+        EventRestDeep,
+        // EventGambleDeep — 심화 GAMBLE 노드 2택(코인 도박 vs 심볼 도박 — 웹 game.js:1636-1663).
+        EventGambleDeep,
+        // EventSynAugBonus — 3스테이지 증강 연계 보너스(웹 game.js:2152-2184) — AUGMENT 픽 직후
+        // (stage-1)%3==0 조건 충족 시 태그 일치 특수 심볼 무료 오퍼(RunState.PouchOptions 재사용, 2장).
+        EventSynAugBonus,
     }
 
     // 스테이지 클리어 후 제시되는 노드 종류 — 02_service.md §3-E/§5. Kotlin SlotV2Engine.Node enum(ELITE 포함,
@@ -50,6 +74,21 @@ namespace JackpotRun.Engine
         Event,
         Curse,
         Risk,
+        // ── 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스 — 심화 노드 풀, 웹 game.js:
+        // 1439-1494) — 심화 런(DeepMode) 전용 4종. StageFlow.RollDeepNodes만 생성한다(일반 런의
+        // RollNextNodes는 절대 이 값들을 넣지 않음).
+        // Pouch — 심화 노드풀 첫 슬롯 고정(웹 `nodes=["POUCH", second]`). NodeEvents.ChooseNode가
+        // Run/PouchOffer.cs의 오퍼 생성으로 라우팅한다.
+        Pouch,
+        // Jackpot — 웹 dpool에 stage>=3부터 섞이는 낮은 가중 노드(§9.2 J3). 현재 덱 최다 잭팟태그
+        // 기반 특수심볼 3택+스킵 — POUCH와 동일한 EventPouch phase/카드 계약을 재사용한다.
+        Jackpot,
+        // SymAug/SymRel — 심볼증강/심볼유물 + 관련 일반 증강·유물(deepCompatPool) 혼합 오퍼. 웹은
+        // 둘 다 일반 AUGMENT/RELIC과 같은 `_pickKind`(="AUG"/"REL")로 라우팅하지만, Unity는 풀 구성이
+        // 달라 노드 선택 시점에 구분이 필요해 별도 NodeKind로 유지한다(오퍼 phase 자체는 EventAugment/
+        // EventRelic을 그대로 공유 — Run/PouchOffer.cs 참조).
+        SymAug,
+        SymRel,
         // WEB_PARITY P1 ④: 보스 클리어 직후에만 등장(웹 game.js:1438,1493 — drops.length일 때만 노드에
         // 추가되는 4번째 옵션). 선택 시 RunState.PendingDeviceDrop을 오퍼로 보여주고 장착/코인 중 택1.
         Device,
@@ -352,6 +391,51 @@ namespace JackpotRun.Engine
         // 그대로다**(웹 `E.symPerkMods(r.perks, r.pouch, r.perkLevels)` — sa_/sp_/sr_ 접두 id가 일반
         // 증강·유물·저주 id와 전역 겹치지 않아 안전하게 같은 배열/딕셔너리를 공유한다). Content/SymPerks.cs
         // 헤더 주석에 근거 상세.
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스 — 잭팟태그/피버/자동소멸/POUCH
+        // 오퍼 v3/심화 노드 풀) — 웹 game.js §9.0~§9.2/§3 V3P3/§2 V3P2 상태 필드군.
+        // ══════════════════════════════════════════════════════════════════════
+
+        // ── §9.1 J2 피버 게이지 — 웹 game.js `feverGauge`/`feverSpins` ──
+        public double FeverGauge = 0.0;
+        public int FeverSpins = 0;
+
+        // ── §9.0 J1 잭팟 태그 단회성 신호 — 웹 game.js `_reachBias`/`_jackpotPrismPending`/
+        // `_feverJackpotPrism`/`_jackpotCrownPending` + §9.2 J3 `_retryReelPending`/`_retryReelUsed`/
+        // `_reachMarkUsed`/`_jackpotCrownUsed`/`_bellTicketUses`/`_jpTicketUses` ──
+        public string ReachBiasTag = null;     // 리치 달성 다음 스핀 해당 태그 bias ×1.5 대상(null=없음)
+        public int ReachBiasSpinsLeft = 0;
+        public bool JackpotPrismPending = false;  // 태그잭팟 → 다음 POUCH 오퍼 프리즘 후보 1장 보장
+        public bool FeverJackpotPrism = false;    // 피버잭팟 → 프리즘 보장 추가(1회)
+        public bool JackpotCrownPending = false;  // 잭팟왕관 → 프리즘 보장 추가(1회)
+        public bool RetryReelPending = false;     // 재도전릴 — 다음 스핀 1칸 재굴림 예약
+        public bool RetryReelUsed = false;        // 스테이지 1회 제한(클리어 시 리셋)
+        public bool ReachMarkUsed = false;        // 스테이지 1회 제한(클리어 시 리셋)
+        public bool JackpotCrownUsed = false;     // 스테이지 1회 제한(클리어 시 리셋)
+        public int BellTicketUses = 0;            // 런 2회 제한
+        public int JpTicketUses = 0;              // 런 2회 제한(공유 카운터)
+
+        // ── §3 V3P3 자동 소멸 — 웹 game.js `_decayForewarned` ──
+        public bool DecayForewarned = false;
+
+        // ── 배치F P6 퍼펙트 드로우 — 웹 game.js `perfectDrawStage`(undefined 초기값). -1=아직 없음
+        // (stage는 1부터 시작해 항상 -1과 다르므로 웹의 "undefined !== stage" 판정과 동치). ──
+        public int PerfectDrawStage = -1;
+
+        // ── §2 V3P2 POUCH 오퍼 2-step 커밋 — 웹 game.js `r.options`(PERK_PICK 공용) 중 이 슬라이스가
+        // 다루는 카드 계약(special/skip) 전용. NodeEvents.ChooseNode(Pouch/Jackpot 노드)·
+        // Run/PouchOffer.cs(3스테이지 연계 보너스)가 채운다. ──
+        public readonly List<PouchOfferCard> PouchOptions = new List<PouchOfferCard>();
+        // 웹 `r._pendingSpecial` — 실버/골드/프리즘 특수 카드 픽 확정 전 임시 보관(교체 대상/비용 결정 중).
+        public PouchPendingSpecial PendingSpecial = null;
+        // EventPouchRemove 오퍼 — 웹 `baseSymbols`(그 자리에서 즉석 계산돼 옵션 목록으로 쓰였다가 버려짐).
+        // Unity는 RunPhase가 별도 상태라 재계산 대신 생성 시점에 스냅샷해 둔다(웹과 동일 값 — 둘 다
+        // POUCH_COST/POUCH_REMOVE 진입 시점의 run.Pouch 스냅샷).
+        public readonly List<string> RemoveCandidateIds = new List<string>();
+
+        // ── §3 Step 2/3 REST/GAMBLE 심화 2택 — 웹 `r.options`(id만 필요, PERK_PICK 공용) ──
+        public readonly List<string> DeepChoiceIds = new List<string>();
 
         public RunState(long seed)
         {

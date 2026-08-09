@@ -196,6 +196,17 @@ namespace JackpotRun.Engine
 
         // 거부.
         public string reason;
+
+        // ── 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스 — POUCH 오퍼 v3/REST·GAMBLE
+        // 심화 2택/3스테이지 연계 보너스) 신규 타입 페이로드. 새 type 값: "POUCH_OFFER"(POUCH/JACKPOT
+        // 노드·3스테이지 연계 보너스 카드 오퍼 — RunState.PouchOptions), "POUCH_COST_OFFER"(프리즘
+        // 특수 카드 교체 비용 방식 선택 — 고정 2옵션, 별도 페이로드 불필요), "POUCH_REMOVE_OFFER"
+        // (교체 대상 기본 심볼 선택 — removeCandidateIds), "DEEP_CHOICE_OFFER"(REST/GAMBLE 심화 2택
+        // — deepChoiceIds). 완료(성공/실패 불문) 이벤트는 기존 "NODE_RESOLVED"를 재사용한다(웹도
+        // POUCH 계열 전부 `_enterRewardDone` 하나로 귀결 — 성공/실패 모두 RewardMessage로 구분).
+        public IReadOnlyList<PouchOfferCard> pouchOptions;
+        public IReadOnlyList<string> removeCandidateIds;
+        public IReadOnlyList<string> deepChoiceIds;
     }
 
     // 내부 이벤트 리스트 생성 헬퍼 — Shop/NodeEvents/ItemUse/DeviceActions가 공용으로 사용.
@@ -305,7 +316,7 @@ namespace JackpotRun.Engine
             {
                 case Spin s: return WrapSpin(StageFlow.ProcessSpin(State, s.mode));
                 case ChooseNode c: return NodeEvents.ChooseNode(State, c.index, _stat);
-                case PickOffer p: return NodeEvents.PickOffer(State, p.index);
+                case PickOffer p: return DispatchPickOffer(p.index);
                 case HoldAugment h: return NodeEvents.HoldAugment(State, h.index);
                 case Retake _: return NodeEvents.Retake(State, _stat);
                 case BuyOffer b: return Shop.Buy(State, b.index);
@@ -319,6 +330,24 @@ namespace JackpotRun.Engine
                 case ProceedToStage _: return HandleProceedToStage();
                 case RepairBuy r: return RepairShop.Execute(State, r.serviceId, r.args);
                 default: return RunEvents.Rejected("UNKNOWN_ACTION");
+            }
+        }
+
+        // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스) — PickOffer 액션 하나를 여러 오퍼
+        // phase로 라우팅한다(웹 `pickPerk(idx)` 단일 함수가 `r._pickKind`로 내부 분기하는 것과 동일한
+        // 설계 — Unity는 RunPhase가 그 "kind" 역할을 대신한다). 기존 EventAugment/EventRelic/
+        // EventAugLevel은 NodeEvents.PickOffer가 계속 전담(무변경).
+        private List<RunEvent> DispatchPickOffer(int index)
+        {
+            switch (State.Phase)
+            {
+                case RunPhase.EventPouch: return PouchOffer.PickCard(State, index);
+                case RunPhase.EventPouchCost: return PouchOffer.PickCost(State, index);
+                case RunPhase.EventPouchRemove: return PouchOffer.PickRemove(State, index);
+                case RunPhase.EventRestDeep: return PouchOffer.PickRestDeep(State, index);
+                case RunPhase.EventGambleDeep: return PouchOffer.PickGambleDeep(State, index);
+                case RunPhase.EventSynAugBonus: return PouchOffer.PickSynAugBonus(State, index);
+                default: return NodeEvents.PickOffer(State, index);
             }
         }
 

@@ -121,22 +121,25 @@ namespace JackpotRun.Engine
                     return RunEvents.One(new RunEvent { type = "SHOP_OFFER", node = node, shopOffer = run.ShopOffer });
                 }
                 case NodeKind.Rest:
-                {
-                    // WEB_PARITY P1 ④: 코인 8 → 12(웹 game.js:1633 "코인 +12").
-                    run.Coins += 12;
-                    // 웹 파리티 P4 — 웹 game.js:1633 `this._enterRewardDone("🛌 휴식 — 코인 +12 획득")`.
-                    RewardFlow.Enter(run, "휴식 — 코인 +12 획득");
-                    return RunEvents.One(new RunEvent { type = "NODE_RESOLVED", node = node, coinsDelta = 12 });
-                }
+                    // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스, 웹 game.js:1624-1634) —
+                    // 심화 런 + 해골 보유 시 2택 오퍼(코인 vs 정화), 그 외(일반 런이거나 해골 없음)는
+                    // 기존 코인+12 즉시 지급 그대로(PouchOffer.EnterRest 내부가 이 분기를 전담).
+                    return PouchOffer.EnterRest(run);
                 case NodeKind.Gamble:
-                {
-                    var ev = ResolveGamble(run);
-                    // 웹 파리티 P4 — 웹 game.js:1849-1850 "도박 성공 — 코인 2배!" / "도박 실패 — 코인 유지".
-                    RewardFlow.Enter(run, ev.gambleWon ? "도박 성공 — 코인 2배!" : "도박 실패 — 코인 유지");
-                    return RunEvents.One(ev);
-                }
+                    // 웹 파리티 P7-3 — 심화 런은 2택 오퍼(코인 도박 vs 심볼 도박), 일반 런은 기존
+                    // NodeEvents.ResolveGamble 그대로(PouchOffer.EnterGamble이 두 분기를 전담).
+                    return PouchOffer.EnterGamble(run);
                 case NodeKind.Event:
                     break; // 바로 아래 공용 EVENT 테이블로
+                // ── 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스 — 심화 노드 풀) ──────
+                case NodeKind.Pouch:
+                    return PouchOffer.EnterPouchOffer(run);
+                case NodeKind.Jackpot:
+                    return PouchOffer.EnterJackpotNode(run);
+                case NodeKind.SymAug:
+                    return PouchOffer.EnterSymAugOrRel(run, isAug: true, stat);
+                case NodeKind.SymRel:
+                    return PouchOffer.EnterSymAugOrRel(run, isAug: false, stat);
                 // WEB_PARITY P1 ④: DEVICE 노드 — 오퍼 확정은 TakeDevice(RunController.Do)가 담당.
                 // PendingDeviceDrop이 비어 있으면(이론상 도달 불가 — RollNextNodes가 드랍이 있을 때만
                 // 이 노드를 얹는다, StageFlow.ClearStage 참조) 방어적으로 EVENT 폴백.
@@ -335,8 +338,10 @@ namespace JackpotRun.Engine
             return new RunEvent { type = "NODE_RESOLVED", node = NodeKind.Risk, augmentGrantedId = aug.id, curseGrantedId = curse.id };
         }
 
-        // ── GAMBLE 노드 (Kotlin L1193-1197) ──
-        private static RunEvent ResolveGamble(RunState run)
+        // ── GAMBLE 노드 (Kotlin L1193-1197) ── internal — 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19
+        // 3/4 슬라이스) Run/PouchOffer.cs의 EnterGamble이 일반 런(비심화) 분기에서 그대로 재사용한다
+        // (중복 정의 방지 — node/coinsDelta 필드까지 정확히 보존해야 하므로 로직을 복제하지 않는다).
+        internal static RunEvent ResolveGamble(RunState run)
         {
             if (run.Coins <= 0)
                 return new RunEvent { type = "NODE_RESOLVED", node = NodeKind.Gamble, gambleWon = false, coinsDelta = 0 };
@@ -483,6 +488,11 @@ namespace JackpotRun.Engine
             run.Perks.Add(perkId);
             run.PerkOfferIds.Clear();
             var grantedPerk = Perks.ById(perkId);
+            // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스) — SYMAUG/SYMREL 노드도 이
+            // 진입점을 공유한다(Run/PouchOffer.cs EnterSymAugOrRel이 같은 Phase로 라우팅). perkId가
+            // sa_/sp_/sr_ 접두 심볼퍽이면 Perks.ById가 null을 반환하므로 표시명을 SymPerks.Get으로 보강.
+            var grantedSymPerk = grantedPerk == null ? SymPerks.Get(perkId) : null;
+            string grantedName = grantedPerk != null ? grantedPerk.name : (grantedSymPerk != null ? grantedSymPerk.name : perkId);
 
             string attachedCurseId = null;
             if (isAugPick && grantedPerk != null && grantedPerk.tier == Tier.PRISM && run.Asc >= 7)
@@ -492,8 +502,49 @@ namespace JackpotRun.Engine
                 attachedCurseId = curse.id;
             }
 
+            // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스, 웹 game.js:2152-2184) — 3스테이지
+            // 증강 연계 보너스: 심화 런 + AUG 픽(일반 AUGMENT·SYMAUG 공용, isAugPick 그대로 재사용) +
+            // (stage-1)%3==0(방금 클리어한 스테이지가 3의 배수) + stage-1>0(첫 클리어 제외)일 때, 획득한
+            // 증강의 dSym이 가리키는 심볼의 1차 태그와 일치하는 미보유·해금 특수심볼 후보가 있으면 무료
+            // 2택(획득/건너뛰기) 오퍼로 이어간다(그랜트 자체는 이미 위에서 끝남 — REWARD_DONE만 지연).
+            // pickPerk 진입 시 웹 r.stage는 이미 +1돼 있다(ClearStage가 다음 스테이지로 미리 전진) —
+            // C#도 동일(StageFlow.ClearStage가 NodeSelect 진입 전에 run.Stage=nextStage 확정).
+            if (run.DeepMode && isAugPick && (run.Stage - 1) % 3 == 0 && run.Stage - 1 > 0)
+            {
+                string augFamilyTag = null;
+                string dSym = grantedSymPerk == null ? DeepPerkMeta.DSymOf(perkId) : null; // 심볼퍽은 dSym 개념 없음(웹과 동일 — SYM_AUG_BY_ID엔 dSym 필드 자체가 없음).
+                if (!string.IsNullOrEmpty(dSym))
+                {
+                    var refSym = Symbols.ById(dSym); // dSym이 "tag:X" 형태면 Symbols.ById가 null 반환 → 태그 미정 취급(웹과 동일, SYM_BY_ID["tag:X"]도 undefined).
+                    if (refSym?.tags != null && refSym.tags.Length > 0) augFamilyTag = refSym.tags[0];
+                }
+                var bonusCandidates = new List<string>();
+                for (int i = 0; i < Pouch.Symbols71.Length; i++)
+                {
+                    var sid = Pouch.Symbols71[i];
+                    if (Pouch.CatOf(sid) != "special") continue;
+                    if (run.Pouch.TryGetValue(sid, out var cnt) && cnt > 0) continue;
+                    // 웹 파리티 이전 단계(profile.symUnlocked, P7-4 범위) — Pouch.DefaultUnlocked로 근사
+                    // (Run/PouchOffer.cs EnterPouchOffer와 동일 근거, 최종 보고에 명시).
+                    if (!Pouch.DefaultUnlocked.Contains(sid)) continue;
+                    if (augFamilyTag == null) { bonusCandidates.Add(sid); continue; }
+                    var symInfo = Symbols.ById(sid);
+                    if (symInfo?.tags != null && Array.IndexOf(symInfo.tags, augFamilyTag) >= 0) bonusCandidates.Add(sid);
+                }
+                if (bonusCandidates.Count > 0)
+                {
+                    var bonusSym = run.Rng.Pick(bonusCandidates);
+                    var tier = Pouch.TierOf(bonusSym);
+                    run.PouchOptions.Clear();
+                    run.PouchOptions.Add(new PouchOfferCard { Type = PouchCardType.Special, Id = bonusSym, Tier = tier, Free = true });
+                    run.PouchOptions.Add(new PouchOfferCard { Type = PouchCardType.Skip, Tier = "SILVER", CoinBonus = 5 });
+                    run.Phase = RunPhase.EventSynAugBonus;
+                    return RunEvents.One(new RunEvent { type = "POUCH_OFFER", pouchOptions = run.PouchOptions });
+                }
+            }
+
             // 웹 파리티 P4 — 웹 game.js:2185 "${e} ${n} 획득!" (+ A7 저주 동반 시 game.js:2150 안내 병기).
-            string msg = $"{(grantedPerk != null ? grantedPerk.name : perkId)} 획득!";
+            string msg = $"{grantedName} 획득!";
             if (attachedCurseId != null)
             {
                 var curseInfo = Perks.ById(attachedCurseId);

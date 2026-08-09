@@ -465,6 +465,9 @@ namespace JackpotRun.EngineTests
             t.Eq(12, ev[0].coinsDelta, "[node:Rest] 코인 +12");
             t.Eq(12, run.Coins, "[node:Rest] 실제 코인 반영");
             t.Eq(RunPhase.RewardDone, run.Phase, "[node:Rest] Phase → RewardDone");
+            // Opus 2차검수(P7-3) 필수② — Run/PouchOffer.cs로 배선이 옮겨가며 node 필드가 누락됐던 회귀
+            // 재발 방지 고정(UI2/Run/RunView.cs:775 완료 화면 문구 템플릿이 이 필드로 분기).
+            t.Eq(NodeKind.Rest, ev[0].node, "[node:Rest] RunEvent.node=Rest(P4 완료화면 문구 템플릿 의존)");
         }
 
         private static void GambleNode(TestCtx t, IReadOnlyDictionary<string, long> stat, long seed)

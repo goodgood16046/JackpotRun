@@ -61,6 +61,11 @@ namespace JackpotRun.Engine
         // 재시작(진짜 클리어 아님). true일 때는 이 필드를 제외한 나머지 전부 기본값(0/false/null)이다 —
         // 호출측은 이 플래그부터 확인할 것(StageFlow.BuildClearEvent가 이미 이 분기를 대신 처리해 준다).
         public bool bossPhase2Restart;
+
+        // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스 — 자동 소멸, 웹 game.js:1516-1542
+        // `clearSummary.decayBanner`) — 이번 클리어에 자동 소멸 예고/발동이 있었으면 안내 문구, 없으면
+        // 빈 문자열. UI(STAGE_CLEAR 보드, P7-4)가 그대로 표시하면 된다.
+        public string decayBanner = "";
     }
 
     // 스테이지 실패(폭망) 처리 결과 — 02_service.md §3-C 체인의 귀결.
@@ -274,7 +279,13 @@ namespace JackpotRun.Engine
 
             int nextStage = clearedStage + 1;
 
-            var nodes = RollNextNodes(run.Rng, nextStage);
+            // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스, 웹 game.js:1439-1494) — 심화
+            // 런(DeepMode)은 완전히 다른 노드 풀(POUCH 고정 + SYMAUG/SYMREL/dpool)을 쓴다. 일반 런은
+            // 기존 RollNextNodes 그대로(무회귀). Opus 2차검수 [웹 정합] — RollDeepNodes의 stage 게이트는
+            // 방금 클리어한 스테이지(clearedStage) 기준(웹 `_clearStage()`의 `stage`, 재대입 전) —
+            // nextStage를 넘기면 JACKPOT/CURSE/RISK 등장이 웹보다 1스테이지 앞당겨진다(정정 근거는
+            // RollDeepNodes 헤더 주석 참조).
+            var nodes = run.DeepMode ? RollDeepNodes(run, clearedStage, boss) : RollNextNodes(run.Rng, nextStage);
 
             // WEB_PARITY P1 ④: 보스 클리어 → 장치 드랍 + DEVICE 노드 추가(웹 game.js:1438 `if (boss) {
             // const d = E.pickDevices(...)[0]; if (d) drops.push(d); }` + game.js:1499
@@ -298,7 +309,8 @@ namespace JackpotRun.Engine
             // 확률(기본10%+pity, 상한20%). 레벨업 가능한 보유 증강(<Lv3)이 있을 때만 AUGMENT 노드를
             // AUGLEVEL로 교체한다(3택 개수는 그대로 — DEVICE처럼 "추가" 옵션이 아니라 "대체"). 촉매/
             // 형광펜 부스트는 해당 아이템이 Unity에 없어 run.AugLevelBoost가 항상 0인 후크로만 존재.
-            if (AugLevels.LevelableHeld(run).Count > 0)
+            // 심화 런은 RollDeepNodes가 SYMAUG 슬롯을 대상으로 동일 로직을 이미 처리했다(무회귀).
+            if (!run.DeepMode && AugLevels.LevelableHeld(run).Count > 0)
             {
                 double chance = Math.Min(0.6, run.AugLevelChance + run.AugLevelBoost);
                 if (run.Rng.NextDouble() < chance)
@@ -312,6 +324,41 @@ namespace JackpotRun.Engine
                     run.AugLevelChance = Math.Min(0.20, run.AugLevelChance + 0.02);
                 }
                 run.AugLevelBoost = 0.0; // 촉매는 1회성(다음 기회에 소진, 웹 game.js:1506과 동일)
+            }
+
+            // 웹 파리티 P7-3(§3 V3P3, 웹 game.js:1516-1542) — 심화 자동 소멸. clearedStage==14 클리어
+            // 시(=다음 스테이지 15 진입 직전) 예고 1회, clearedStage>=15부터 클리어마다 기본 이득 심볼
+            // (cat=base && !harmful — 해골/빈칸/저주/특수 제외) 1개 무작위 제거. DECK_MIN 미만도 허용
+            // (소멸 전용 경로, 압박 의도). 대상 0개면 스킵(특수 덱 완성 상태).
+            string decayBanner = "";
+            if (run.DeepMode)
+            {
+                if (clearedStage == 14 && !run.DecayForewarned)
+                {
+                    run.DecayForewarned = true;
+                    decayBanner = "다음 스테이지부터 기본 이득 심볼이 매 클리어 1개씩 사라집니다";
+                }
+                else if (clearedStage >= 15)
+                {
+                    var decayTargets = new List<string>();
+                    foreach (var kv in run.Pouch)
+                        if (kv.Value > 0 && Pouch.IsAutoDecayTarget(kv.Key))
+                            for (int k = 0; k < kv.Value; k++) decayTargets.Add(kv.Key);
+                    if (decayTargets.Count > 0)
+                    {
+                        string picked = decayTargets[run.Rng.Next(decayTargets.Count)];
+                        var symInfo = Symbols.ById(picked);
+                        int cur = run.Pouch.TryGetValue(picked, out var pc) ? pc : 0;
+                        if (cur <= 1) run.Pouch.Remove(picked); else run.Pouch[picked] = cur - 1;
+                        DeepRunHooks.CheckArchetypeChange(run); // run.DeepArchFamily/Tier 스냅샷만 갱신(이벤트 채널 없음 — 클리어 경로는 단일 ClearOutcome 반환이라 부가 이벤트를 못 실어보낸다, 다음 정비/스핀에서 자연 재평가됨)
+                        decayBanner = $"심화 압력 — 기본 심볼이 낡아 사라졌습니다: {(symInfo != null ? symInfo.emoji + symInfo.name : picked)} 1개 제거 (해로운 심볼은 남습니다)";
+                        if (run.DeepStats != null) run.DeepStats.AutoDecays += 1;
+                    }
+                }
+                // §9.2 J3 스테이지 1회 제한 플래그 초기화(리치표식/재도전릴/잭팟왕관 — 스테이지마다 재사용 허용, 웹 game.js:1544-1549).
+                run.ReachMarkUsed = false;
+                run.RetryReelUsed = false;
+                run.JackpotCrownUsed = false;
             }
 
             // ── 상태 반영 (Kotlin clearStage L872-892) ──
@@ -372,6 +419,7 @@ namespace JackpotRun.Engine
                 usedSpins = newIdx,
                 totalSpins = spins,
                 lastSpinGain = lastSpinGainSnapshot,
+                decayBanner = decayBanner,
             };
         }
 
@@ -403,6 +451,76 @@ namespace JackpotRun.Engine
             var nodes = new List<NodeKind> { NodeKind.Augment };
             nodes.AddRange(extras);
             rng.Shuffle(nodes);
+            return nodes;
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스 — 심화 노드 풀, 웹 game.js:1439-1494)
+        // ══════════════════════════════════════════════════════════════════════
+        // POUCH 고정 + second(SYMAUG 40%/SYMREL 20%(보스35%)/dpool 셔플 1장) + third(dpool 비중복 1장,
+        // second가 SYMAUG/SYMREL이면 dsh[0], dpool 출신이면 dsh[1]) — dpool = SHOP/REST/GAMBLE/EVENT
+        // 상시 + stage>=6 CURSE/RISK + stage>=3 JACKPOT + 심볼퍽 shopLabWeight(연구실중독/연구실열쇠)만큼
+        // SHOP 추가(최대 4장). SYMAUG 슬롯 + 레벨업 가능 보유증강 있으면 확률로 AUGLEVEL(증강 레벨업)
+        // 교체(일반 런과 동일 pity 공식, AUGMENT 대신 SYMAUG 슬롯 대상). sp_deckslot(alwaysRepair)은
+        // SHOP 노드 보장(중복 방지, "추가" 옵션). dev_call_bell(연구실호출벨 — 심화 전용 신규 장치,
+        // Unity Devices.cs 미이식 — §2 P3-2 결정 로그 "심화 9건 대응 장치 없음" 참조)은 아직 장착
+        // 불가능한 id라 이 조건은 현재 항상 false(향후 장치 이식 시 자동 활성화, 웹 정확 전사 유지).
+        //
+        // Opus 2차검수(P7-3, 2026-08-09) [웹 정합] — stage 게이트 기준 정정: 웹 `_clearStage()`의
+        // `stage`는 방금 클리어한 스테이지(=이 함수 호출 시점의 `clearedStage`, `r.stage = stage+1`
+        // 재대입 *이전* 값 — pickDevices(rng, stage, ...)도 동일 `stage`를 쓰는 것과 같은 근거)다.
+        // 1차 구현은 실수로 `nextStage`(clearedStage+1)를 넘겨 JACKPOT/CURSE/RISK 등장 시점이 웹보다
+        // 1스테이지 앞당겨져 있었다 — 호출부를 `clearedStage`로 정정. 일반 런 `RollNextNodes`가 이미
+        // `nextStage` 관례를 쓰고 있는 것은 이번에 건드리지 않는다(별도 기존 이탈, §2-(CC) 잔여 이탈
+        // 항목으로 기재 — 그쪽은 이 슬라이스 범위 밖).
+        private static List<NodeKind> RollDeepNodes(RunState run, int clearedStage, bool boss)
+        {
+            var sp = SymPerks.ComputeMods(run.Perks, run.Pouch, run.PerkLevels);
+            var dpool = new List<NodeKind> { NodeKind.Shop, NodeKind.Rest, NodeKind.Gamble, NodeKind.Event };
+            if (clearedStage >= 6) { dpool.Add(NodeKind.Curse); dpool.Add(NodeKind.Risk); }
+            if (clearedStage >= 3) dpool.Add(NodeKind.Jackpot);
+            if (sp.ShopLabWeight > 0)
+            {
+                int extra = Math.Min(4, (int)sp.ShopLabWeight);
+                for (int k = 0; k < extra; k++) dpool.Add(NodeKind.Shop);
+            }
+            var dsh = new List<NodeKind>(dpool);
+            run.Rng.Shuffle(dsh);
+
+            NodeKind second;
+            double roll = run.Rng.NextDouble();
+            double relThresh = boss ? 0.35 : 0.20;
+            if (roll < 0.40) second = NodeKind.SymAug;
+            else if (roll < 0.40 + relThresh) second = NodeKind.SymRel;
+            else second = dsh[0];
+
+            bool secondFromPool = second != NodeKind.SymAug && second != NodeKind.SymRel;
+            NodeKind? thirdCandidate = secondFromPool
+                ? (dsh.Count > 1 ? dsh[1] : (NodeKind?)null)
+                : (dsh.Count > 0 ? dsh[0] : (NodeKind?)null);
+
+            var nodes = new List<NodeKind> { NodeKind.Pouch, second };
+            if (thirdCandidate.HasValue && thirdCandidate.Value != second) nodes.Add(thirdCandidate.Value);
+
+            if (second == NodeKind.SymAug && AugLevels.LevelableHeld(run).Count > 0)
+            {
+                double chance = Math.Min(0.6, run.AugLevelChance + run.AugLevelBoost);
+                if (run.Rng.NextDouble() < chance)
+                {
+                    int idx = nodes.IndexOf(NodeKind.SymAug);
+                    if (idx >= 0) nodes[idx] = NodeKind.AugLevel;
+                    run.AugLevelChance = 0.10;
+                }
+                else
+                {
+                    run.AugLevelChance = Math.Min(0.20, run.AugLevelChance + 0.02);
+                }
+                run.AugLevelBoost = 0.0;
+            }
+
+            if (sp.AlwaysRepair && !nodes.Contains(NodeKind.Shop)) nodes.Add(NodeKind.Shop);
+            if (boss && run.Device == "dev_call_bell" && !nodes.Contains(NodeKind.Shop)) nodes.Add(NodeKind.Shop);
+
             return nodes;
         }
 

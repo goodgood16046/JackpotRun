@@ -77,6 +77,19 @@ namespace JackpotRun.Engine
         // SpinResolver.Evaluate가 셀 태그 합을 [-0.5,0.5]로 클램프해 EXP에 곱한다(웹 evaluate:682-683).
         public readonly Dictionary<string, double> deepTagMul = new Dictionary<string, double>();
 
+        // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스, 웹 game.js:1117/1122/1135
+        // `r.lastMods.feverReachFix`) — 피버 중 리치 보정 확률 가산분(DEEP.FEVER_REACH_FIX=0.15).
+        // 웹은 스핀 "결산 이후"(post-Evaluate) run.lastMods를 직접 mutate해 이 필드를 채운다(스핀 도중
+        // 값이 아니라 "다음 스핀의 리치표식이 참조할 상태" 캐시) — DeepRunHooks.ProcessDeepSpinFollowups가
+        // 이 스핀에 실제로 쓰인 로컬 mods 인스턴스(ResolveSpin이 이 함수를 호출할 때 넘기는 그 mods —
+        // run.LastMods는 이 시점에 아직 갱신 전이라 직접 읽고 쓴다)에 사후 대입한다.
+        public double feverReachFix = 0.0;
+
+        // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스, 웹 game.js `_mods()` 심화블록이
+        // 세우는 `mods.deepMode`) — SpinResolver.Evaluate의 §9.0 J1 잭팟 태그 블록 게이트. 일반 런은
+        // 항상 false(DeepRunHooks.ApplyDeepMods가 심화 런에서만 true로 세운다).
+        public bool deepMode = false;
+
         // Opus 2차검수(P7-2) 필수⑤[권장] — DeepRunHooks.ApplyDeepMods 이중 호출 안전장치. 이 함수는
         // "최종 mods에 딱 1회" 주입되는 게 계약이라(호출부 헤더 주석) 같은 Mods 인스턴스에 실수로
         // 두 번 불려도(예: 향후 리팩터로 호출 지점이 늘어날 때) 아키타입/심볼퍽 배수가 중복 누적되지
@@ -104,6 +117,8 @@ namespace JackpotRun.Engine
                 cliffBurstExpMul = cliffBurstExpMul, shopPriceMul = shopPriceMul, itemPriceMul = itemPriceMul,
                 itemCapBonus = itemCapBonus, shopSlotBonus = shopSlotBonus, shopRerollDelta = shopRerollDelta,
                 DeepModsApplied = DeepModsApplied,
+                feverReachFix = feverReachFix,
+                deepMode = deepMode,
             };
             foreach (var kv in perSymbolExp) m.perSymbolExp[kv.Key] = kv.Value;
             foreach (var kv in tagExpBonus) m.tagExpBonus[kv.Key] = kv.Value;
