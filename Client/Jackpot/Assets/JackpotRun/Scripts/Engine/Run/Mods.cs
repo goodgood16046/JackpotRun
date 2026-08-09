@@ -90,6 +90,13 @@ namespace JackpotRun.Engine
         // 항상 false(DeepRunHooks.ApplyDeepMods가 심화 런에서만 true로 세운다).
         public bool deepMode = false;
 
+        // 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목② "deepFamilyBridge", 웹 game.js:461
+        // `mods = { ...mods, deepFamilyBridge: true, deepMode: true }`) — 심화 런에서 항상 deepMode와
+        // 나란히 true(퍽/주머니 상태 무관, 심화 런이면 무조건). SpinResolver.Evaluate의 famBridge가
+        // 이 플래그로 게이팅한다(상위계열 셀에 하위 base 심볼의 perSymbolExp/Score 보너스를 합산).
+        // 일반 런은 항상 false(무회귀).
+        public bool deepFamilyBridge = false;
+
         // ── 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종 전면 이식") ──────────────
         // 심볼퍽 emptyScore/emptyExp(Content/SymPerks.cs) — evaluate 빈칸활용 블록이 소비. 웹
         // game.js:469-470 `deepEmptyScore: (mods.deepEmptyScore||0)+sp.emptyScore` 그대로.
@@ -132,6 +139,7 @@ namespace JackpotRun.Engine
                 DeepModsApplied = DeepModsApplied,
                 feverReachFix = feverReachFix,
                 deepMode = deepMode,
+                deepFamilyBridge = deepFamilyBridge,
                 deepEmptyScore = deepEmptyScore, deepEmptyExp = deepEmptyExp,
                 legendStable = legendStable, shackleActive = shackleActive,
             };

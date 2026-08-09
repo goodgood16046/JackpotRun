@@ -4,6 +4,41 @@
 
 ---
 
+## 2026-08-09 - 웹 파리티 P8(최종 정리 슬라이스) — 세트 보너스 전 그룹 지급·deepFamilyBridge·§2 스윕
+
+상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(HH)·§3(P8 행)·신설 §4 참조. Sonnet 구현.
+
+- **[핵심] 세트 보너스 전 그룹 지급**: `SpinResolver.Evaluate`의 SET 블록이 최다 그룹(bestId) 1개만
+  지급하던 기술부채(§2-(DD)가 이월)를 웹 engine.js:736-750 그대로 근본 수정 — count≥2인 모든 값심볼
+  그룹 각각 지급(순회는 기존 tie-break 관례로 결정론화). `SpinResult.setIds` 신규 노출, SETFRAG
+  코인 게이트를 근사(`bestSetCount>=2`)에서 웹 원문(`setIds.Count>0`)으로 정정. `GainPanel`/`ReelView`
+  UI를 setIds 기준 다중 세트 표시로 갱신. 일반 모드 EXP 밸런스가 소폭 상승(세트 2개 동시 형성 시
+  이중 지급) — `git stash` HEAD 교차 실행으로 "두 자동플레이 스모크 블록의 궤적 변화만" 있고 나머지
+  33935개 결정론 골든은 콘솔 출력까지 바이트 단위로 무변경임을 diff로 직접 증명.
+- **deepFamilyBridge 이식**: 상위계열 심볼(cherry_ripe 등) 셀에 하위(base) 참조 perSymbolExp/Score
+  보너스를 합산하는 심화 전용 브릿지(웹 engine.js:663-668) — `Mods.deepFamilyBridge` 신설 +
+  `DeepRunHooks.ApplyDeepMods`가 deepMode와 나란히 세움 + `SpinResolver`의 evaluate 3개 소비 지점에
+  배선. 웹 harness "(DA-2) 계열 브릿지" 시나리오를 그대로 이식한 신규 테스트로 검증(cherry/gem 델타
+  비교 + skull 이중가산 방지).
+- **hex_allornothing dEff**: §2-(N)/(BB)/(DD)가 3차례 이월해 온 "심화에서 전공 배율 ×0.5" 저주 효과를
+  `DeepRunHooks.ApplyDeepMods`에 국소 배선(웹 game.js:488-496 그대로, skullPenaltyMul은 halving 제외).
+- **§2 결정 로그 전체 스윕**: catalog.json 저주 16종 descKo 스테일 텍스트를 Perks.cs 최신 desc로 동기화
+  (manifest.json 양쪽 카피 + catalog.json 재생성) · legendStable이 실제로는 이미 완료돼 있었음을 확인
+  (§2-(BB) 기록 정정, 코드 변경 없음) · dev_pin RNG 위상/EffWithLevel 화이트리스트/정비소 rarity
+  게이팅 UI 몫 3건을 현행 유지로 재확정(종결) · **신규 발견**: `AchievementEngine.ComposeStat`의
+  `distinctCharS10` 파생키가 P3-4(§2-(O)) 이후 완전한 죽은 코드였음을 확인해 제거, `StageFlow.cs`/
+  `Pouch.cs`의 스테일 주석 2건 정정(코드 무변경) · `Shop.FreshOffer`가 여전히 `offerPerks` 미기반인
+  기술부채는 재설계가 필요해 별도 슬라이스로 명시 이월(종결 아님) · "도전판"(PinnedChallenge/
+  LastCombo)은 웹에 대응 기능 자체가 없어 영구 미이식 확정.
+- **문서 마감**: `WEB_PARITY_DESIGN.md` §3 로드맵에 P8 행 추가(전 페이즈 완료) + 신설 §4("완료 요약·
+  알려진 의도적 이탈 총목록" — 의도적 이탈 11건·남은 갭 3건·웹 죽은 코드 3건·Unity 전용 확장 인덱스).
+- **검증(Opus 2차검수 반영 — 어서션 수 경로 정정)**: `dotnet run --project Client/Jackpot/Tools/
+  EngineTests` 33937 → 33180(SET 다중지급 단독 -757, 자동플레이 스모크 궤적 변동뿐 — HEAD 교차 diff로
+  원인 분리 증명 완료) → 33185(deepFamilyBridge 전용 테스트 +5) → **33190**(hex_allornothing 전용
+  테스트 +5, distinctCharS10 정리 net 0) — 0 failed. 오프라인 스모크 컴파일(Unity 2022.3.39f1
+  csc.dll, 캐시 rsp 재사용) `Assembly-CSharp`·`Assembly-CSharp-Editor` 둘 다 0에러·0경고(git stash
+  pop 이후 최종 디스크 상태로 재확인). `.meta` 신규 생성 없음(전부 기존 파일 수정).
+
 ## 2026-08-09 - 웹 파리티 P7-4b Opus 2차검수 반영 — 치명1·중대6·경미4
 
 상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(GG) 참조.

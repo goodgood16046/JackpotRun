@@ -17,10 +17,11 @@ namespace JackpotRun.Game
         // (RunController.cs 헤더 "UI 계약 주의" 2번 — 런 중 StatTracker가 같은 딕셔너리를 갱신해야
         // 원본처럼 같은 런 안에서 해금 판정이 최신 상태를 본다). Shop.PerkGate가 쓰는
         // Formulas.AccountLevel(stat)은 achievements 인자 없이 호출되므로(Shop.cs 확인) bestStage/
-        // bossClears/runs/bld_*/bc_*/cstage_*/mstage_* 원시 키만으로 충분히 계산된다 — ComposeStat이
-        // 얹는 유일한 파생키(distinctCharS10, WEB_PARITY P3-2로 lic_dev_*/bldCat_*/accountLevel은
-        // 제거됨, AchievementEngine.cs 헤더 각주 참조)의 사전계산도 필요 없어 ComposeStat을 매 런마다
-        // 새로 만들 필요가 없다.
+        // bossClears/runs/bld_*/bc_*/cstage_*/mstage_* 원시 키만으로 충분히 계산된다 — 웹 파리티
+        // P8(WEB_PARITY_DESIGN.md §2-(HH))로 `AchievementEngine.ComposeStat`이 얹던 마지막 파생키
+        // (distinctCharS10)마저 소비처 없는 죽은 계산으로 확인돼 제거됐다 — ComposeStat은 이제
+        // `profile.Stats`를 그대로 복사만 하는 항등 변환이라(파생키 자체가 0개), 매 런마다 새로
+        // 만들 필요가 원천적으로 없다(AchievementEngine.cs 헤더 각주 참조).
         public PlayerProfile Profile { get; }
 
         public RunState State => Controller.State;

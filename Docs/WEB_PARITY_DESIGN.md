@@ -2099,6 +2099,206 @@
     검증했다 — **Unity 배치 컴파일 확인은 여전히 Fable 담당**(직전 "0에러" 확인은 이 라운드 수정 전
     시점 기준).
 
+- **(HH) 2026-08-09 완료(P8 "웹 파리티 최종 정리 슬라이스" — WEB_PARITY_DESIGN.md §2 결정 로그 전체 스윕
+  + 확정 항목 3건 구현 + 문서 마감. 정답지: `public/play/engine.js`·`game.js`)**:
+  - **① [핵심] 세트 보너스 전 그룹 지급**: `SpinResolver.Evaluate`의 SET 블록(구 SpinResolver.cs:663-672)이
+    `bestId`(최다 그룹) 1개만 지급하던 것을 웹 engine.js:736-750 그대로 **count≥2인 모든 값심볼 그룹 각각**
+    `Symbols.SetExp[n]`/`SetScore[n]` 지급으로 근본 수정했다(§2-(DD) 항목⑥이 "다중 세트 지급 — 별도 최종
+    슬라이스 필요"로 이월해 둔 것). 순회 순서는 웹 for-in(JS 삽입순, 셀 스캔 좌→우 첫 등장순) 대신 기존
+    Unity tie-break 관례(`ValueIdsPriorityOrder` — 심볼 선언순 cherry/star/book/gem/crown)로 결정론화(총
+    지급액은 순서 무관, note 표시 순서에만 영향). `twoMul`(pair_match, +20%)은 웹 engine.js:743
+    `id===bestId && bestCount===2` 그대로 **최다 그룹이 정확히 2세트일 때만** 그 그룹에 적용, 다른 그룹은
+    미적용. `SpinResult.setIds`(신규 `List<string>`) 노출 — `bestSetId`는 이 목록 중 최다 그룹(표시/글로우
+    대표용)일 뿐, 실제 지급은 setIds 전체 기준. `DeepRunHooks.cs`의 SETFRAG 코인 지급 게이트를
+    `res.bestSetCount>=2`(당시 근사) → `res.setIds.Count>0`(웹 game.js:809 `res.setIds && res.setIds.length`
+    원문 그대로)으로 정정(논리적으로 동치이나 근사가 아닌 원문 표현으로 통일). **UI 대응**: `GainPanel.
+    ComputeLines`의 "세트 보너스" 줄을 `r.bestSetCount` 단일 전제에서 `r.setIds` 순회로 바꿔 그룹별로
+    한 줄씩(예: "체리 세트 2연속"/"책 세트 2연속") 항목화하고 세트 설명 박스 트리거·문구도 setIds
+    기준으로 갱신(2개 이상 동시 형성 시 "세트가 동시에 N개 형성" 문구). `ReelView.PostRevealFx`의
+    `GlowMatchingCells` 호출을 `result.bestSetId` 1회에서 `result.setIds` 전체 순회로 확장(각 그룹은
+    서로 다른 심볼 id라 칸이 겹치지 않는다 — 세트4/잭팟 연출(shake·컨버지 이펙트)은 여전히 대표 그룹
+    (bestSetId/matchCount) 기준 그대로, 재해석 범위 최소화).
+    - **밸런스 영향 — 일반 모드 EXP 변화 실측 및 분리 증명**: `Tests_RunNet_Evaluate.AdjacentPairs`
+      (cells=[cherry,cherry,book,book,star])의 기대값이 74→**82**(exp, cherry×2 세트보너스8 + book×2
+      세트보너스8 각각 지급)·3→**6**(score, SetScore3×2그룹)로 재산출됐다(python 손검산 아님 — 두
+      그룹 각각 SET_EXP[2]=8/SET_SCORE[2]=3을 더한 값, 문서 계산식 그대로 주석에 명시). `Tests_P7_3b_
+      SpEffects.SetFragGrantsCoinsOnlyWhenSetFormed`는 수동 구성 `SpinResult`에 `setIds`가 비어 있던
+      결함을 발견해 세 케이스 모두 실제 Evaluate() 산출과 동형으로 `res.setIds`를 채우도록 갱신(세트
+      성립/미성립/count==1 세 분기 모두 재확인). **HEAD 교차 실행으로 분리 증명**(검증 항목② 반영) —
+      `git stash`로 이 슬라이스 전체를 걷어낸 HEAD 상태와 최종 상태의 `dotnet run EngineTests` 전체
+      콘솔 로그를 `diff`했다: 결과는 정확히 두 자동플레이 스모크 블록(`[sim]`/`[sim100]`, RNG 기반
+      수천 스핀 시뮬레이션의 도달 스테이지 분포·액션 실행 횟수)만 달라지고(EXP 증가로 평균 도달
+      스테이지가 S3.82→S4.13/S5.17→S5.35로 상승 — "밸런스 +EXP" 방향과 일치), 그 외 **33935개 결정론
+      골든 어서션은 전부 콘솔 출력까지 바이트 단위로 동일**했다(세트 무관 골든 불변 실증 — Tests_Fx
+      스냅샷·Tests_Content2·Tests_Perks·Tests_Core·Tests_P3~P7 전 파일 무접촉 확인). 즉 이번 슬라이스가
+      들여온 유일한 수치 변화는 "세트 보너스 전 그룹 지급" 그 자체뿐이다. **밸런스 승인 기록**: 세트
+      전 그룹 지급으로 일반 모드 평균 도달 스테이지 상승(S5.17→S5.35 실측) — §0 웹 채택 원칙에 따른
+      의도 변경, **Fable 승인 2026-08-09**(§4.2 표 상단에도 동일 기록, 색인 목적 중복 게재).
+  - **② deepFamilyBridge 이식**: 웹 engine.js:663-668 `famBridge(map,sid) = (mods.deepFamilyBridge &&
+    UPG_PARENT[sid]) ? (map[UPG_PARENT[sid]] ?? 0) : 0` — 상위계열 심볼(cherry_ripe 등) 셀에 하위(base)
+    심볼 참조의 `perSymbolExp`/`perSymbolScore` 보너스가 그대로 합산되는 단방향(하위→상위) 브릿지.
+    `Mods.deepFamilyBridge`(신규 bool, 기본 false — 일반모드 무회귀) 필드를 추가하고 `DeepRunHooks.
+    ApplyDeepMods`가 웹 game.js:461 `mods = {...mods, deepFamilyBridge:true, deepMode:true}` 그대로
+    `deepMode`와 나란히 항상 true로 세운다(퍽/주머니 상태 무관, 심화 런이면 무조건). `SpinResolver.cs`에
+    `FamBridgeExp`/`FamBridgeScore` 헬퍼(기존 `PerSymExpBonus`/`PerSymScoreBonus`와 같은 패턴, `Pouch.
+    UpgradeParent`(상위→base 역매핑, §1-A #19 2/4 슬라이스에서 계열 아키타입 `ArchMul`과 이미 공용으로
+    준비돼 있던 테이블) 재사용)를 신설해 evaluate()의 **3개 소비 지점**(메인 per-cell 루프의 cellExp·
+    cellScore, TARGET(🎯표적) 근사 헬퍼 `TargetCellExp`의 cellExp)에 웹과 동일한 위치로 배선했다 —
+    반대로 `CellInfoView.cellInfo`/`RewardDoneInfo.currentStats`(칸 상세/능력치 패널 표시 전용 분해
+    함수)는 웹 원본(game.js:2706-2787 cellInfo, 1589-1613 currentStats)도 famBridge를 호출하지 않는
+    "표시 전용 quirk"라 그대로 재현 대상에서 제외(문자 그대로 웹과 동일 — 이탈 아님, 확인만).
+    - **테스트**: `Tests_RunNet_Evaluate.DeepFamilyBridge`(신규, `Tests_RunNet.cs`) — 웹 `_harness.mjs`
+      "(DA-2) 계열 브릿지" 시나리오를 델타 비교로 그대로 이식(cherry_ripe 2셀+gem_cut 1셀 조합에서
+      플래그 有/無 대조, exp 델타 4·score 델타 10 정확히 일치·플래그 없으면 base map이 상위계열에
+      완전 무누출·skull 브릿지가 skullExp 특수분기와 이중가산하지 않음 3케이스).
+  - **③ §2 결정 로그 전체 스윕** — (AA)~(GG)에 "후속/미배선/이월"로 남은 항목을 전수 재검토해 처리/기각을
+    아래에 확정 기록한다(개별 파일:line 근거는 각 항목 참조).
+    - **[처리] hex_allornothing dEff(전공 배율 절반)**: §2-(N)/(BB)/(DD)가 "dEff 메커니즘 자체가 Unity에
+      없어 미이식"으로 반복 이월해 온 항목 — 웹 game.js:488-496 "배치 A Step 1"을 그대로 옮겼다. 범용
+      dEff 메커니즘을 새로 만드는 대신(§0 "필요 최소" 원칙 — 이 저주 1건뿐이라 범용화는 과설계) `DeepRunHooks.
+      ApplyDeepMods`가 `Archetypes.ArchetypeMods`가 만든 `ExpMul`/`ScoreMul`/`CoinMul` 3개 map을
+      `mods.deepFamily*Mul`에 대입하기 직전, `run.Curses.Contains("hex_allornothing")`이면 각 값을 ×0.5
+      하는 국소 분기(`halveArch`)로 처리했다 — `SkullPenaltyMul`(강령학파 t2 해골 감점 완화)은 웹도 이
+      halving 대상이 아니므로(game.js:502, 별도로 그대로 곱함) 함께 절반내지 않는다. `Content/
+      Archetypes.cs`/`Run/DeepRunHooks.cs`의 "범위 밖" 각주를 실배선 완료로 갱신. 테스트:
+      `Tests_P7_2_SymPerks.HexAllOrNothingHalvesArchetypeMods`(cherry 전공 t2 저주 유무 대조 0.30→0.15,
+      skull 전공 skullPenaltyMul은 halving 무관 대조군 포함).
+    - **[처리] catalog.json 저주 16종 descKo 스테일 텍스트 동기화**: §2-(N)/(R)이 "표시 데이터는 건드리지
+      않음, 후속 작업"으로 명시 이월한 항목 — Perks.cs의 저주 fx가 §2-(N)에서 이미 "패널티 전용화"(양면형
+      →단면형)로 바뀌었는데 `unity-assets/manifest.json`(→`Client/Jackpot/Assets/JackpotRun/Editor/
+      SourceData/manifest.json`→`convert_manifest.py`→`catalog.json`)의 `descKo` 16건은 구 양면형 문구
+      ("요구치+12% / 클리어점수+25%" 등)를 그대로 갖고 있었다(전수 확인 — python으로 manifest.json의
+      `category=="cur"` 16건 전부 덤프해 Perks.cs `desc` 필드와 대조, 16건 전부 스테일 확인). 이 슬라이스는
+      **텍스트만** 동기화한다(신규 PNG 아트 생성은 여전히 범위 밖 — unity-assets/prompts.json 재생성이
+      필요한 별도 작업, §2-(N) 각주 그대로 유지). `unity-assets/manifest.json`과 `Editor/SourceData/
+      manifest.json`(둘이 이 슬라이스 착수 전엔 완전히 동일했음을 diff로 사전 확인 — 두 카피가 갈라져
+      있지 않은지 먼저 검증한 뒤에만 안전하게 한쪽을 다른 쪽에 덮어씀) 양쪽의 16개 `descKo`를 Perks.cs
+      `desc` 문자열 그대로(공백·`·` 구분자까지) 갱신하고 `convert_manifest.py`를 재실행해 `catalog.json`을
+      재생성했다(validation 통과 — 294건·8카테고리·스프라이트 290/290·null 토큰 0). `unity-assets/`와
+      `public/jackpotdex/img/`가 "같은 PNG"라는 CLAUDE.md 경고는 이번 변경(텍스트 필드, PNG 무관)에는
+      해당하지 않는다 — 확인만.
+    - **[확인·정정] legendStable — 실제로는 이미 완료됨(§2-(BB)의 "미이식" 기록이 스테일)**: §2-(BB)가
+      "LOW 잔여, 후속 슬라이스"로 남긴 항목이지만, 실제로는 바로 다음 §2-(DD) 슬라이스(Sp 신규 51종
+      전면 이식, 같은 날짜)가 `Mods.legendStable` 필드 신설 + `SpinResolver.Evaluate`의 LUCKY7/PRISM_SYM
+      분기(SpinResolver.cs:1095·1105·1113)에서 실제로 소비하도록 이미 완료했다 — §2-(BB) 항목의 "미착수"
+      기록이 후속 슬라이스에서 해소된 뒤 갱신되지 않은 것뿐이다(코드 재확인 결과 완전 배선 확인, 코드
+      변경 없음 — 문서 정정만).
+    - **[종결·유지] dev_pin(고정) MANIP의 RNG 소비 위상**: §2-(BB) LOW 잔여 — 웹은 5칸 전체를 한 번에
+      새로 굴린 뒤 keep 위치만 되돌리지만(`_roll` 1회, 5칸 전부 RNG 소비) Unity `HandleManip`은 keep
+      제외 자리마다 `RollCellOne`을 개별 호출(4칸만 소비)한다. ENGINE_PORT_DESIGN.md의 "RNG 소비 순서는
+      자체 재현성만 보장, 비트스트림 일치 불필요" 원칙상 결정론·재현성엔 문제가 없고, "5칸 한 번에 굴려
+      splice" 방식으로 정렬하려면 `RollCellOne`을 호출하는 다른 다수 지점(MANIP 전반)까지 구조를 바꿔야
+      해 이번 순수 정리 슬라이스 범위를 넘는다 — **현행 유지로 최종 확정**(재론 종결).
+    - **[종결·유지] SymPerks.EffWithLevel의 AugLevels 화이트리스트 의존**: §2-(BB) LOW 잔여 — 웹
+      `isSymAugLevelable`과 1:1 동치인 by-design 제약(레벨업 가능 심볼퍽은 `AugLevels` 딕셔너리 8종
+      고정 등록제)이다. 향후 9번째 이상이 추가되면 그때 `AugLevels`에 함께 등록해야 자동 반영된다는
+      점을 헤더 각주에 이미 명시해 뒀다 — **코드 변경 불필요, 현행 유지로 확정**(재론 종결).
+    - **[종결·확인] 정비소 addBasic/addHigh/addRare의 rarity 게이팅은 UI 몫**: §2-(BB) LOW 잔여 —
+      `RepairShop.ServiceToReward`가 무검증인 것은 웹 `applyShopService`도 동일(대상 후보를 희귀도로
+      좁히는 건 웹 `repairTargets()`/Unity `RepairShop.TargetsSym`·`TargetsTag`(§2-(FF)에서 이미 구현)
+      양쪽 다 UI/후보산출 계층의 몫) — **파리티 확인 완료, 이탈 아님**(재론 종결).
+    - **[신규 발견·종결] `AchievementEngine.ComposeStat`의 `distinctCharS10` 파생키 — 완전한 죽은 코드,
+      제거**: §2-(C-1) 헤더 각주가 "Characters.cs 'prodigy' unlockReq가 여전히 참조한다"며 유지 결정을
+      내렸던 파생키인데, 같은 날짜의 후속 슬라이스(§2-(O), P3-4 "해금 OR 모델 전환")가 Character/Machine
+      unlockReq를 StatReq AND에서 웹 OR 5축으로 전면 교체하며 prodigy도 `unlockStage=9 OR
+      unlockAch="stage10"`(data.js:161 그대로)로 바뀌어 이 파생키를 더는 참조하지 않게 됐다 — 이 사실
+      자체는 `Tests_S5_CharUnlockDerivedKeyGate`(§2-(S))의 테스트 주석("죽은 게이트")에 이미 기록돼
+      있었으나 실제 코드 제거는 미뤄져 있었다. 34종 achievements의 `req.key` 전수 grep으로도 이 값을
+      가리키는 항목이 0건임을 재확인 — 소비처가 완전히 사라진 죽은 계산이라 이번 슬라이스에서 최종
+      제거했다(`ComposeStat`이 이제 `profile.Stats`를 그대로 복사만 함). `Tests_S5_
+      ComposeStatDerivedKeys`(distinctCharS10 산출값만 검증하던 전용 테스트)를 삭제하고 그 존재 확인
+      의무를 `Tests_S5_ComposeStatRemovedDerivedKeys`(제거된 구 파생키 회귀 확인 테스트)에 흡수 — 원재료
+      `cstage_novice`는 파생 없이 그대로 통과함을 함께 검증(net 어서션 수 변화 없음, -2+2).
+    - **[신규 발견·정정] 스테일 주석 2건(코드 변경 없음)**: ①`StageFlow.cs:582-586`이 "dev_bell(비상졸업벨)
+      POST_SPIN 즉시강제클리어 소비 액션이 이번 P1 범위 밖이라 아직 없다"고 적어 뒀던 것은 스테일 —
+      같은 날짜 P1 Opus 1차검수 수정A(`DeviceActions.cs:37-44`)가 이미 `HandlePostSpinBell`로 실배선을
+      끝냈다(재확인 결과 정상 동작, 주석만 정정). ②`Content/Pouch.cs:17-20` 헤더가 "REL_MIN/REL_MIN_BY_SYM·
+      FEVER_*·BELL_FEST_MUL·EARLY_EXP_BOOST_IDS·ACH_SYMBOL_UNLOCK 전부 P7-1 시점 미이식"이라 적어 뒀던
+      것도 스테일 — 전수 grep 결과 5개 전부 후속 슬라이스(§2-(CC)/(EE))에서 이미 이식·소비 완료돼 있었다
+      (`Pouch.cs` 자체에 필드 정의, `DeepRunHooks.cs`/`PouchOffer.cs`/`Content/DeepSymbolUnlock.cs`가
+      소비). **진짜 범위 밖으로 남는 것은 `RANDPACK_DIST/COUNT/PRISM_BONUS`·`DESIGNATED_UPGRADE_CHANCE`·
+      `PACKAGE_CHANCE`뿐**이고, 이들은 §2-(CC)가 이미 확인한 "Sp 특수심볼이 아니라 웹 POUCH 오퍼 v2의
+      죽은 상수(v3로 완전히 대체됨)" — **웹 자체가 안 쓰는 코드라 이식 대상 아님, 종결**. 두 헤더 모두
+      정확한 현재 상태로 갱신(코드 로직 변경 없음).
+    - **[미해결·별도 슬라이스 필요, 종결 아님] `Shop.FreshOffer`가 여전히 `offerPerks`(family게이팅·
+      10%등급업) 대신 Kotlin 유래 `PickAugments`/`PickRelics`(`TierWeights`/`RollTier` 스테이지 가중
+      롤 + `GatePrism`)를 쓰는 기술부채**: §2-(P)/(U)가 각각 "판단 보류·별도 슬라이스 필요"로 반복
+      이월해 온 항목 — 웹의 진짜 상점(game.js:2334-2337)도 `offerPerks`를 직접 쓰므로 이는 여전히 실재
+      하는 파리티 갭이다. 다만 해소하려면 가격 정책(`shopPriceMul`/`itemPriceMul`)·`GatePrism`(2택 컷)·
+      `allowPrism`(EVENT_PRISM_RATE)과의 결합 방식을 새로 설계해야 하는 **단순 치환이 아닌 작업**이라
+      (§2-(U) 자체 평가) 이번 "정리" 슬라이스의 시간 예산 안에서 안전하게 재작성하기엔 무리라고 판단해
+      **다음 전용 슬라이스로 명시 이월**한다(종결 아님 — 계속 추적 대상, §4 참조).
+    - **[종결·확인] §2-(FF) 잔여 이탈 2건 — 정비 미리보기 단계 생략 · 주머니 보드 전공 게이지 텍스트
+      축약**: §2-(FF) 자신이 이미 "정보 상세도 축의 스코프 다운이며 소프트락/정합성 리스크는 없다"고
+      평가해 뒀다(3건 중 1건인 "심볼 잠금 안내 문구 근사"는 §2-(GG)에서 이미 해소됨). 둘 다 새 다단계
+      UI 컴포넌트(대상선택→미리보기→확인 2단계 시트, 전공 게이지 바 시각화)가 필요한 순수 UX 확장이고
+      `RepairShop.Execute`/주머니 보드 표시 자체의 정확성·정합성에는 영향이 없어(원자적 검증은 이미
+      보장됨) — **영구 허용 가능한 단순화로 확정, 종결**(후속 슬라이스 후보로는 계속 기재 가능하나
+      이 문서의 "결정 로그" 관점에서는 재론 대상 아님).
+    - **[종결·확인] `PlayerProfile.PinnedChallenge`/`LastCombo`("도전판" 진행률 계산)**: `PlayerProfile.cs`
+      헤더가 "이 슬라이스 범위 밖 — 구현하지 않음, 보고 대상"으로 남겨 둔 항목(03_meta §2.4, kotlin
+      레퍼런스 시절 카톡 서비스 개념). `public/play/`(data.js·game.js·engine.js·ui.js) 전수 grep 결과
+      "challenge"/"Challenge" 문자열이 **0건** — §0 "웹이 정답지" 원칙상 웹에 아예 없는 기능은 이식
+      대상이 아니다(kotlin-reference는 §0에서 이미 참고용으로 강등됨). 스키마 필드(DTO 왕복)만 보존하고
+      진행률 로직 자체는 **영구 미이식으로 확정, 종결**.
+  - **검증(Opus 2차검수 반영 — 어서션 수 경로 정정)**: `dotnet run --project Client/Jackpot/Tools/
+    EngineTests` 33937 → **33180**(SET 보너스 다중지급 단독 변화, **-757** — 자동플레이 스모크 궤적
+    변동뿐, 위 ①의 HEAD 교차 diff로 원인 분리 증명 완료. deepFamilyBridge 코드 자체는 이 시점에 이미
+    함께 배선돼 있었지만 일반모드 스모크엔 무영향이고 전용 테스트가 아직 없어 골든 수 변화는 SET
+    단독분으로 귀속) → 33185(deepFamilyBridge 전용 테스트 `Tests_RunNet_Evaluate.DeepFamilyBridge`
+    신설 +5) → 33190(hex_allornothing 전용 테스트 `Tests_P7_2_SymPerks.
+    HexAllOrNothingHalvesArchetypeMods` 신설 +5, `distinctCharS10` 정리는 삭제 테스트 -2/흡수 테스트
+    +2로 순증감 0) — **최종 33190 passed, 0 failed**. 스모크 컴파일: Unity 2022.3.39f1 `csc.dll`
+    오프라인 검증(Library/Bee 캐시 rsp 재사용 — 이번 슬라이스가 건드린 6개 기존 파일 전부 이미 rsp
+    소스 목록에 있어 재구성 불필요) — `Assembly-CSharp`(런타임)·`Assembly-CSharp-Editor` 둘 다 **0에러
+    ·0경고**(git stash pop 이후 최종 디스크 상태로 재확인까지 완료). `.meta` 파일은 신규 생성 없음
+    (전부 기존 파일 수정) — Fable 처리 대상 없음.
+  - **Opus 2차검수 반영(2026-08-09 — 세트 지급·bridge·hex 전부 엄밀 통과, -747 완전 분해 실증 확인
+    후 필수3·권장2)**:
+    - **[필수①]** `GameSession.cs:16-23`의 스테일 주석(`ComposeStat`이 여전히 `distinctCharS10` 파생키
+      1개를 얹는다고 서술)을 "파생키 0개, `profile.Stats` 그대로 복사"로 정정.
+    - **[필수②]** 어서션 수 보고 경로 정정 — 1차 제출 문서가 `33937 → 33190(SET) → 33185(+bridge) →
+      33190(+hex)`로 **비단조·중복값**(33190이 두 번, 그 사이 33185로 내려감) 오기됐던 것을 실제 세션
+      로그 기준 `33937 → 33180(SET 단독, -757) → 33185(+bridge, +5) → 33190(+hex, +5, 정리 net 0)`로
+      정정(`WEB_PARITY_DESIGN.md`·`WORKLOG.md` 양쪽) — 위 검증 문단 참조.
+    - **[필수③]** §4.2/§4.3 누락 이탈 6건 보강 — 승천 REWARD_DONE 프리뷰 웹 자체 회귀 미재현(§2-(Z)③)·
+      설정 리셋 화면 전환 생략(§2-(V))·`RewardDoneInfo.CurrentStats` ctx 신선도 quirk 미재현(§2-(W))·
+      `retake_form` `NO_LAST_SPIN` 가드(§2-(T)⑦)·`ValueIdsPriorityOrder` tie-break(P8로 twoMul 귀속
+      대상이 갈릴 수 있어 순수 표시 차이에서 실질 수치 차이로 하중 확대) 5건을 §4.2에, `RollDeepNodes`
+      (clearedStage)/`RollNextNodes`(nextStage) stage 게이트 관례 불일치 1건을 §4.3에 추가. §4.2 #11
+      (HandleManip 대상 칸 복원 기준)은 §2-(X)에서 이미 **완료 정정**된 항목이라 "알려진 이탈" 표에
+      남아 있는 게 오분류였음을 확인해 제거(완료된 수정을 "이탈"로 오분류하지 않도록 §4.2 표 전체를
+      "정정 완료" 항목 없이 재구성). 밸런스 승인 기록을 §4.2 표 상단과 §2-(HH) 항목① 본문 양쪽에
+      명문화: "세트 전 그룹 지급으로 일반 모드 평균 도달 스테이지 상승(S5.17→S5.35 실측) — §0 웹
+      채택 원칙에 따른 의도 변경, Fable 승인 2026-08-09".
+    - **[권장④ 채택] ReelView 2매치 경로 setIds 기반 다중 그룹 통일**: `TryPairAccent`가
+      `FindDominantValueSymbol`로 대표 그룹 1개만 뽑던 것을(다른 2곳 — `DetectAnticipation`/
+      `DetectNearMiss` — 은 스핀 리빌 도중 "아직 결과가 안 나온" 부분 상태를 보는 함수라 그대로 유지)
+      `result.setIds` 전체 순회로 바꿔, 두 값심볼 그룹이 동시에 정확히 2세트를 이루는 케이스에서 양쪽
+      다 펄스+파티클(FxId.Match2)이 뜨도록 했다(이 분기 진입 조건상 setIds의 모든 그룹이 반드시
+      count==2임을 방어적으로 재확인). 3+매치 경로(`GlowMatchingCells`)도 `result.setIds` 전체 순회로
+      이미 확장돼 있던 것에 웹 ui.js:397-411 `glowMatches`의 `lvl(n)=max(2,min(5,n))` 그룹별 발광
+      세기 클램프를 추가 — 그룹 크기(2~5)에 비례해 `FxId.SetHit`를 반복재생(`NodePanel.
+      PlayConfettiEscalation`과 동일 "고티어일수록 화려" 근사 원칙, 정밀 CSS 클래스 1:1 이식이
+      아니라 반복재생 스태거로 체감만 재현 — level==2 기본값은 1회만 재생해 기존 동작과 완전 동치).
+      `GroupGlowLevel`이 `result.counts[id]`를 그대로 읽는데, `SpinResolver.Evaluate`가 이미 와일드를
+      `bestSetId` 그룹에 병합해 둔 값이라(counts[bestId]+=totalWilds) 웹처럼 UI 레이어에서 별도로
+      와일드를 다시 더할 필요가 없다(값 자체가 이미 동일 — 확인만, 로직 불필요).
+    - **[권장⑤ 채택] GainPanel 세트 줄에 setExpMul/twoSetBonusMul 반영("오차를 숨기지 마라" 원칙
+      복원)**: 1차 제출은 세트 보너스 줄에 raw `Symbols.SetExp[n]`(배수 미반영)을 표시해, `mods.
+      setExpMul`이나 짝맞춤(`twoSetBonusMul`) 보정분이 조용히 "기타" 잔차 줄로 흡수되고 있었다 —
+      `ComputeLines`는 설계 원칙상 `Mods`를 다시 계산하지 않으므로(엔진 재계산 금지), `SpinResolver.
+      Evaluate`의 SET 블록이 이미 그 최종값을 적어 둔 `SpinResult.notes`의 `"{emoji}×{cnt} 세트
+      +{add}"`(add=SetExp[n]×setExpMul×twoMul 이미 반영됨) 문자열을 역파싱하는 신규 `ParseSetBonusNote`
+      헬퍼로 정확한 지급액을 얻어 표시한다(못 찾으면 raw SetExp[n]로 안전 폴백 — 정상 경로에선 도달
+      불가). Mods 재계산 없이 "엔진이 이미 계산해 둔 정확한 값"을 그대로 재사용하는 방식이라 설계
+      원칙(재계산 금지)과 정확성(오차 은닉 금지) 양쪽을 동시에 만족한다.
+    - **재검증**: `dotnet run --project Client/Jackpot/Tools/EngineTests` **33190 passed, 0 failed**
+      (엔진 레이어 무변경 — GameSession.cs/ReelView.cs/GainPanel.cs는 UI2·Game 계층이라 EngineTests
+      대상 밖, 어서션 수 불변 확인). 오프라인 스모크 컴파일 재확인 —
+      `Assembly-CSharp`(GameSession.cs·ReelView.cs·GainPanel.cs 수정분 포함)·`Assembly-CSharp-Editor`
+      둘 다 **0에러·0경고**.
+
 ## 3. 페이즈 로드맵
 
 | 페이즈 | 내용 | 상태 |
@@ -2109,6 +2309,69 @@
 | P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | ✅ 2026-08-09 완료(3/3) |
 | P5 | 사운드(절차 합성 SFX 16종 + BGM 루프) | ✅ 2026-08-09 완료 |
 | P6 | 승천 A1~A10 + 승천 랭킹 분리 | ✅ 2026-08-09 완료(랭킹 분리는 P7-4로 이관, bestAscScore 기록은 완료) |
-| P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버·Sp 51종 특수효과) + 심화 랭킹 | ✅ 2026-08-09 완료 — 엔진 4/4(§2-(AA)/(BB)/(CC)/(DD)) + P7-4 UI/업적/해금/랭킹 2슬라이스 완료(§2-(EE) 홈 토글·심화 업적13·심볼해금13·랭킹3노드·NodePanel 라벨·HUD 배지, §2-(FF) POUCH 오퍼 3화면·정비 탭·주머니 보드·HUD 피버/전공·도감 심화3탭 — 소프트락 결함 해소 포함). Unity 에디터 실컴파일 최종 확인은 Fable 진행 중 |
+| P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버·Sp 51종 특수효과) + 심화 랭킹 | ✅ 2026-08-09 완료 — 엔진 4/4(§2-(AA)/(BB)/(CC)/(DD)) + P7-4 UI/업적/해금/랭킹 2슬라이스 완료(§2-(EE) 홈 토글·심화 업적13·심볼해금13·랭킹3노드·NodePanel 라벨·HUD 배지, §2-(FF) POUCH 오퍼 3화면·정비 탭·주머니 보드·HUD 피버/전공·도감 심화3탭 — 소프트락 결함 해소 포함). Unity 배치 컴파일은 Fable이 확인 완료(§2-(FF)/(GG) 이후) |
+| **P8** | 웹 파리티 최종 정리: 세트 보너스 전 그룹 지급 · deepFamilyBridge · hex_allornothing dEff · catalog.json 저주 텍스트 동기화 · §2 결정 로그 전체 스윕(죽은 코드·스테일 주석 정리) · 문서 마감(§3/§4) | ✅ 2026-08-09 완료(§2-(HH)) — 남은 파리티 갭은 §4 참조(Shop.FreshOffer offerPerks 미기반이 유일한 추적 대상) |
 
 각 페이즈는 FABLE_RULES 4단계 파이프라인으로 진행하고, EngineTests 골든망을 웹 수치로 갱신하며 통과를 유지한다.
+
+## 4. 완료 요약 · 알려진 의도적 이탈 총목록
+
+P1~P8 전 페이즈가 완료됐다(§3). 이 절은 §2 결정 로그(A~HH)에서 최종적으로 남은 상태를 한 곳에
+추려 정리한다 — **새로운 결정이 아니라 기존 결정의 색인**이다(각 항목의 상세 근거는 괄호 안 §2
+항목을 참조).
+
+### 4.1 완료 요약
+
+- **P1~P2**: 룰 파리티(첫판 즉시시작·특수스핀 첫사용무료·실패체인·노드 보상·자발적 포기, 클리어
+  점수 공식·총배율 캡 제거·보스 grad 정리)
+- **P3**: 메타 웹화(XP/레벨·업적 34종·숙련도·증강 레벨업·해금 OR 모델·콘텐츠 증보 35종)
+- **P4**: 화면 흐름(홈·REWARD_DONE·셀 정보 탭·클리어 등급 연출·튜토리얼·설정 시트)
+- **P5**: 사운드(절차 합성 SFX+BGM)
+- **P6**: 승천 A1~A10
+- **P7**: 심화모드 전체(주머니·심볼72종·심볼퍽36종·정비소·전공6계열·잭팟태그·피버·Sp 특수효과)
+- **P8**: 세트 보너스 다중지급·deepFamilyBridge·hex_allornothing dEff + 결정 로그 스윕(죽은 코드/
+  스테일 주석 정리, catalog.json 텍스트 동기화)
+
+**밸런스 승인 기록** — 세트 전 그룹 지급(§2-(HH) 항목①)으로 일반 모드 평균 도달 스테이지가 상승했다
+(자동플레이 스모크 100시드 실측 `avg=S5.17→S5.35`, `[sim]` 블록 `avg=S3.82→S4.13`) — 이는 §0 "충돌
+시 웹 채택이 기본" 원칙에 따른 **의도된 수치 변경**이며 회귀가 아니다. **Fable 승인 2026-08-09**.
+
+| # | 항목 | 결정 | 근거 |
+|---|---|---|---|
+| 1 | 불운 게이지 모델 | 웹(해골+1/무해골-1, 보상 무연동)은 자체 UI 문구조차 미이행한 회귀로 판정 — Unity 현행(누적식 forceRare) 유지 | §2-(A) |
+| 2 | RNG | Unity 결정론 단일시드 유지(웹 Math.random 비재현) | §2-(D) |
+| 3 | 장치 추첨(EVENT-6·보스드랍) owned 필터 | 웹은 `curses`를 잘못 넘기는 버그로 사실상 미필터 — Unity는 의도적으로 정상 필터+전량보유 폴백 적용 | §2-(F) |
+| 4 | 장치 획득 시 저장 시점 | 웹처럼 즉시 저장하지 않고 기존 관례(GAME_OVER 일괄 저장) 유지 — 런 도중 강제종료 시 유실 가능성 인지 | §2-(H) |
+| 5 | dev_major favoredCat | "장착 여부 무관 상시 편향"이던 Kotlin 유래 버그를 고치며 동시에 "장착 시에만" 편향으로 밸런스 축소(버그 수정이 아니라 승인된 밸런스 결정) | §2-(U)④ |
+| 6 | ReleaseDeviceUse(배터리/정비키트) "최후 1건" 근사 | `HashSet` 구조상 "최후" 개념이 없어 열거 순서상 첫 항목으로 근사 — 실질 영향 미미 | §2-(DD)⑤ |
+| 7 | dev_pin(고정) MANIP RNG 소비 위상 | keep 제외 자리만 개별 굴림(4칸) vs 웹 5칸 일괄 굴림 — 자체 재현성엔 문제없어 현행 유지 | §2-(BB), §2-(HH) 재확정 |
+| 8 | SymPerks.EffWithLevel 화이트리스트 의존 | 웹 `isSymAugLevelable`과 1:1 동치(by-design) — 9번째 이상 레벨업 심볼퍽 추가 시 등록 필요 | §2-(BB), §2-(HH) 재확정 |
+| 9 | curseGaugeUp(🩸피방울/🧿저주눈)·hasBlackCard의 UnluckyGauge 가산 미적용 | 웹은 순수 표시용 게이지라 무해했지만 Unity 게이지는 실제 보상 연동이 있어 "저주가 게이지를 채우는" 부작용 방지 차 제거 | §2-(DD) Opus 반영⑤ |
+| 10 | 잭팟 EXP(jackpotFixed) 배수 적용 범위 | 심화 전용 신규 메커니즘(specialMul·exp=0 리셋)만 적용, 기존 전역 expMul 등 나머지 배수는 P2 결정대로 계속 배제 | §2-(DD) Opus 반영⑥ |
+| 11 | 승천 REWARD_DONE 프리뷰의 웹 자체 회귀 미재현 | 웹 `nextPreview.quota`는 `ascMods`(quotaMul/bossQuotaMul/bossPhase2×1.3)를 곱하지 않아 승천 런에서 항상 과소 표시되는 자체 버그 — Unity `RewardDoneView.NextPreview`는 `QuotaOf` 6축 전부 포함한 정확한 값을 보여준다(§0 "웹 쪽이 명백한 회귀 버그일 때만 예외" 조항) | §2-(Z) Opus 반영③ |
+| 12 | 설정 리셋 시 화면 전환 생략 | 웹은 초기화 후 화면을 갈아치우지만 Unity는 이미 메뉴 화면에서만 진입 가능해 카드만 새로고침 — 결과(로그인 화면부터 재시작)는 동일 | §2-(V) |
+| 13 | `RewardDoneInfo.CurrentStats`의 ctx 신선도 | 웹 `_ctx()`는 갱신 전 이전 스테이지의 stale `r.spins/r.quota`를 참조하는 사소한 quirk가 있으나 Unity는 "다음 스테이지 시작 직전"의 정확한 값으로 채워 재현하지 않음 | §2-(W) |
+| 14 | `retake_form`(재수강신청서)의 `NO_LAST_SPIN` 사전 검증 | 웹 `useItem()` 단일 파이프라인엔 이 가드 자체가 없지만, Unity는 "거부 시 RNG 포함 아무 것도 변형하지 않는다"는 자체 불변식을 지키기 위해 keep 롤보다 앞에 둔 Unity 전용 방어 | §2-(T)⑦ |
+| 15 | `ValueIdsPriorityOrder`(값심볼 동점 tie-break) — **P8로 하중 확대** | Kotlin `HashMap` 버킷 순서 대신 심볼 선언순(cherry/star/book/gem/crown)으로 결정론화한 것 — 웹은 `for..in` 삽입순(셀 스캔 좌→우 첫 등장순)이라 카운트가 동점일 때 어느 그룹이 `bestId`가 되는지 갈릴 수 있다. P8 이전엔 SET 보너스 note 텍스트(어떤 심볼 이모지가 찍히는지)에만 영향이던 순수 표시 차이였지만, P8의 `twoMul`(pair_match +20%)이 "정확히 `bestId`인 2세트 그룹에만" 적용되므로 **동점 상황에서 어느 그룹이 +20%를 받는지가 갈릴 수 있는 실질 수치 차이로 격상**됐다(발생 빈도는 낮음 — 두 값심볼 그룹이 동시에 count==2로 동점이어야 함). ENGINE_PORT_DESIGN.md 01_engine.md §11-7의 기존 결정(의도된 결정론화)을 그대로 유지 — 재설계 대상 아니지만 영향 범위가 넓어졌음을 명시 | `SpinResolver.cs` "동점(tie) 결정론 처리" 주석, §2-(HH) |
+
+### 4.3 남은 파리티 갭(추적 대상 — 종결 아님, 후속 슬라이스 필요)
+
+| # | 항목 | 왜 미해결인가 |
+|---|---|---|
+| 1 | `Shop.FreshOffer`가 `offerPerks`(family게이팅·10%등급업) 대신 구식 `PickAugments`/`PickRelics`(스테이지 가중 롤) 사용 | 가격 정책·GatePrism·allowPrism과의 결합을 새로 설계해야 하는 비-치환 작업(§2-(P)/(U)/(HH)) |
+| 2 | 정비소 "대상선택→미리보기→확인" 2단계가 아니라 즉시 커밋 | 별도 미리보기 UI 컴포넌트 필요(§2-(FF), 소프트락/정합성 리스크는 없음 — §2-(HH)에서 영구 허용으로 재확인) |
+| 3 | 주머니 보드의 전공 게이지가 바 시각화 대신 텍스트 요약 | 동상(위와 동일 판단) |
+| 4 | `StageFlow.RollDeepNodes`(심화)는 `clearedStage` 기준, `RollNextNodes`(일반)는 `nextStage` 기준으로 노드 stage 게이트를 검사 — 두 관례가 서로 다름 | §2-(CC)④가 심화 쪽만 정정하며 "일반 런은 이 슬라이스 이전부터 존재하던 별개 관례, 정정 대상 아님 — 필요 시 별도 슬라이스에서 재검토"로 명시 이월. 웹 쪽 실제 기준과 어느 쪽이 맞는지 별도 대조가 필요 |
+
+### 4.4 웹 자체 죽은 코드 — 이식 대상 아님(종결)
+
+| # | 항목 | 근거 |
+|---|---|---|
+| 1 | `stageClearScore()`(engine.js:73-80) | 웹 전체에 호출부 0곳(죽은 export) — §2-(J) |
+| 2 | POUCH 오퍼 v2 잔재(`RANDPACK_DIST/COUNT/PRISM_BONUS`·`DESIGNATED_UPGRADE_CHANCE`·`PACKAGE_CHANCE`) | v3로 완전 대체된 죽은 상수 — §2-(CC), §2-(HH) 재확인 |
+| 3 | "도전판"(PinnedChallenge/LastCombo 진행률 로직) | `public/play/` 전수 grep 결과 대응 기능 0건(kotlin-reference 시절 개념) — §2-(HH) |
+
+### 4.5 Unity 전용 확장(웹에 없지만 유지 — §1-B 결정)
+
+PickView 분석 화면(추천/시너지 등급) · 결정론 단일시드 RNG · 보류파일(dev_holdfile) 등 드랍 전용
+장치 4종 · FxKit 파티클 — 전부 §1-B에서 "유지" 확정, 웹 파리티 위배 아님.

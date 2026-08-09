@@ -786,7 +786,25 @@ namespace JackpotRun.UI2
             // bestSetId==jackpotSym(전 칸 동일 심볼)이므로 GlowMatchingCells 한 번으로 전칸이 켜진다.
             if (hasSet)
             {
-                GlowMatchingCells(result.bestSetId);
+                // 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목①, Opus 2차검수 권장④) —
+                // count>=2인 모든 값심볼 그룹이 각각 세트 보너스를 받으므로(SpinResult.setIds), 대표
+                // 그룹(bestSetId) 하나만 켜던 걸 setIds 전체로 확장한다(각 그룹은 서로 다른 심볼 id라
+                // GlowMatchingCells를 여러 번 불러도 칸이 겹치지 않는다 — 세트4/잭팟 연출(아래
+                // shake/컨버지)은 여전히 대표 그룹(bestSetId/matchCount) 기준 그대로). 그룹별 글로우
+                // 세기는 웹 ui.js:397 `lvl(n) = max(2, min(5, n))` 그대로 GroupGlowLevel로 클램프해
+                // 넘긴다(2매치=1회 발광 그대로, 3~5매치는 반복재생으로 강도 escalation).
+                if (result.setIds != null && result.setIds.Count > 0)
+                {
+                    for (int gi = 0; gi < result.setIds.Count; gi++)
+                    {
+                        var gid = result.setIds[gi];
+                        GlowMatchingCells(gid, GroupGlowLevel(result, gid));
+                    }
+                }
+                else
+                {
+                    GlowMatchingCells(result.bestSetId, GroupGlowLevel(result, result.bestSetId));
+                }
                 // S15 §B 표 "세트 3매치 ⑤"(4매치·잭팟도 "위 +" 누적) — 화면 하단(잭팟의 "가장자리"는
                 // 겸용, FxPrefabGen.Build_RisingLight 주석 참조)에서 상승 광입자.
                 FxKit.I?.Play(FxId.RisingLight, reelRow);
@@ -841,16 +859,39 @@ namespace JackpotRun.UI2
         // 칸에 골드 테두리 펄스 + 레이어드 파티클(FxId.Match2: 심볼색 파편12+링1+별4)을 함께 낸다.
         // 이전엔 Outline 펄스만 있어 "Outline 단독 사용" 위반이었다 — 이번 슬라이스에서 파티클을 항상
         // 함께 재생하도록 고쳤다(설계 "Outline/플래시 단독 사용 금지").
+        // 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목①, Opus 2차검수 권장④) — 이 메서드는
+        // PostRevealFx의 "hasSet==false"(bestCount<3) 분기에서만 불린다. 그 조건에서는 setIds에 담긴
+        // 모든 그룹이 반드시 count==2다(bestCount가 전체 최댓값인데 <3 이므로 다른 그룹도 전부 <=2,
+        // setIds는 count>=2만 담으므로 정확히 2로 확정) — 구현을 `FindDominantValueSymbol`로 대표
+        // 그룹 1개만 뽑던 것에서 setIds 전체 순회로 바꿔, 두 값심볼 그룹이 동시에 2세트를 이룬
+        // 케이스에서 양쪽 다 연출되게 한다(세트 보너스 지급도 P8부터 양쪽 다 받으므로 시각 연출도
+        // 동일 원칙 — 지급과 연출의 불일치를 없앤다).
         private void TryPairAccent(SpinResult result)
         {
+            if (result.setIds != null && result.setIds.Count > 0)
+            {
+                for (int gi = 0; gi < result.setIds.Count; gi++)
+                {
+                    var gid = result.setIds[gi];
+                    int cnt = (result.counts != null && result.counts.TryGetValue(gid, out var c)) ? c : 0;
+                    if (cnt != 2) continue; // 방어적 재확인(이 분기에서는 항상 참이어야 함)
+                    PairAccentCells(gid);
+                }
+                return;
+            }
+            // 방어적 폴백(setIds 미제공 — 정상 경로에선 도달 불가, 구 대표-그룹 로직 유지).
             FindDominantValueSymbol(result, result.cells.Count, out string bestId, out int bestCount);
             if (bestCount != 2 || bestId == null) return;
+            PairAccentCells(bestId);
+        }
 
-            Color tint = SymbolTintById.TryGetValue(bestId, out var symTint) ? symTint : Color.white;
+        private void PairAccentCells(string symId)
+        {
+            Color tint = SymbolTintById.TryGetValue(symId, out var symTint) ? symTint : Color.white;
             for (int i = 0; i < _cells.Count; i++)
             {
                 var cv = _cells[i];
-                if (cv.glow == null || cv.lastSymId != bestId) continue;
+                if (cv.glow == null || cv.lastSymId != symId) continue;
                 cv.glow.enabled = true;
                 cv.glow.effectColor = UiKit.Accent;
                 StartCoroutine(PulseOutline(cv.glow));
@@ -874,11 +915,20 @@ namespace JackpotRun.UI2
             }
         }
 
-        private void GlowMatchingCells(string symId)
+        // 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목①, Opus 2차검수 권장④, 웹 ui.js:
+        // 397-411 glowMatches의 `lvl(n) = max(2, min(5, n))`) — 그룹 크기(2~5)에 비례해 FxId.SetHit를
+        // 반복재생한다(NodePanel.PlayConfettiEscalation과 동일 "고티어일수록 화려하다" 근사 원칙 —
+        // 웹처럼 CSS 클래스/파티클 크기를 직접 바꾸는 정밀 1:1 이식이 아니라 반복재생으로 체감만
+        // 재현). level==2(최솟값, 기존 호출부 전부의 기본값)는 1회만 재생해 무회귀.
+        private static readonly int[] GlowBurstsByLevel = { 1, 2, 3, 4 }; // index=level-2(레벨 2~5)
+        private const float GlowBurstStagger = 0.06f;
+
+        private void GlowMatchingCells(string symId, int level = 2)
         {
             if (string.IsNullOrEmpty(symId)) return;
             // S15 §B — fx_set_hit의 파편 레이어는 심볼색 틴트 전제(SpinStop과 동일 팔레트 규약).
             Color tint = SymbolTintById.TryGetValue(symId, out var symTint) ? symTint : Color.white;
+            int bursts = GlowBurstsByLevel[Mathf.Clamp(level, 2, 5) - 2];
             for (int i = 0; i < _cells.Count; i++)
             {
                 var cv = _cells[i];
@@ -886,8 +936,29 @@ namespace JackpotRun.UI2
                 cv.glow.enabled = true;
                 cv.glow.effectColor = UiKit.Accent;
                 StartCoroutine(PulseOutline(cv.glow));
-                FxKit.I?.Play(FxId.SetHit, cv.rt, tint);
+                StartCoroutine(GlowBurstEscalationRoutine(cv.rt, tint, bursts));
             }
+        }
+
+        private IEnumerator GlowBurstEscalationRoutine(RectTransform target, Color tint, int bursts)
+        {
+            for (int i = 0; i < bursts; i++)
+            {
+                FxKit.I?.Play(FxId.SetHit, target, tint);
+                if (i < bursts - 1) yield return new WaitForSeconds(GlowBurstStagger);
+            }
+        }
+
+        // 그룹 표시 크기(웹 ui.js:398 `grpSize`) → 2~5 레벨 클램프. Unity `result.counts[id]`는
+        // `SpinResolver.Evaluate`가 이미 와일드를 bestSetId 그룹에 병합해 둔 최종값이라(counts[bestId]
+        // += totalWilds) 이 함수에서 별도로 와일드를 다시 더할 필요가 없다(웹은 raw 셀 스캔에서
+        // 와일드를 제외하고 집계해 UI 레이어가 bestSetId일 때만 +wilds 하지만, Unity는 엔진 산출
+        // counts를 그대로 읽으면 이미 동일한 값이 된다).
+        private static int GroupGlowLevel(SpinResult result, string id)
+        {
+            if (string.IsNullOrEmpty(id) || result?.counts == null) return 2;
+            int n = result.counts.TryGetValue(id, out var c) ? c : 2;
+            return Mathf.Clamp(n, 2, 5);
         }
 
         private IEnumerator PulseOutline(Outline outline)

@@ -48,6 +48,10 @@ namespace JackpotRun.Engine
         public Dictionary<string, int> tagCounts;
         public string bestSetId;   // null = 세트 없음
         public int bestSetCount;
+        // 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목①, 웹 setIds) — count>=2인 모든
+        // 값심볼 그룹 id 목록(순서 = ValueIdsPriorityOrder 결정론, 위 SET 블록 참조). bestSetId는
+        // 이 목록 중 최다 그룹(표시/글로우 대표용)일 뿐 — 실제 지급은 이 목록 전체 기준.
+        public List<string> setIds;
         public int skulls;
         public bool flameNext;
         public bool seedNext;
@@ -349,6 +353,30 @@ namespace JackpotRun.Engine
             return mods.perSymbolScore.TryGetValue(info.sym, out var v) ? v : 0;
         }
 
+        // 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목② "deepFamilyBridge", 웹 engine.js:
+        // 663-668 `famBridge`) — 심화 계열 브릿지: 상위계열 심볼(cherry_ripe 등) 셀에 하위(base) 심볼
+        // 참조의 perSymbolExp/Score 보너스를 그대로 합산한다(방향은 하위→상위 단방향, 이중가산 없음
+        // — 상위 자신의 perSymbolExp는 별도로 그대로 적용되고 이건 "추가" 합산). mods.deepFamilyBridge가
+        // 꺼져 있으면(일반모드는 항상 이 경우) 무조건 0 — 무회귀. Pouch.UpgradeParent(상위→base 역매핑,
+        // §1-A #19 2/4 슬라이스에서 계열 아키타입 ArchMul과 공용으로 이미 준비돼 있던 테이블)를 재사용.
+        private static int FamBridgeExp(Mods mods, string sid)
+        {
+            if (!mods.deepFamilyBridge) return 0;
+            if (!Pouch.UpgradeParent.TryGetValue(sid, out var parentId)) return 0;
+            var parentInfo = Symbols.ById(parentId);
+            if (parentInfo == null) return 0;
+            return mods.perSymbolExp.TryGetValue(parentInfo.sym, out var v) ? v : 0;
+        }
+
+        private static int FamBridgeScore(Mods mods, string sid)
+        {
+            if (!mods.deepFamilyBridge) return 0;
+            if (!Pouch.UpgradeParent.TryGetValue(sid, out var parentId)) return 0;
+            var parentInfo = Symbols.ById(parentId);
+            if (parentInfo == null) return 0;
+            return mods.perSymbolScore.TryGetValue(parentInfo.sym, out var v) ? v : 0;
+        }
+
         // 웹 파리티 P7-2(§1-A #19 B, 웹 engine.js:671-672 `famBase`/`archMul`) — 심볼 id → base 계열
         // (상위계열이면 Pouch.UpgradeParent로 환산, 아니면 자기 자신) 기준으로 계열 아키타입 곱셈
         // 증가분을 조회한다. map이 비어있으면(일반모드 항상 이 경우) 즉시 0 — 무회귀.
@@ -543,7 +571,7 @@ namespace JackpotRun.Engine
             for (int idx = 0; idx < cells.Count; idx++)
             {
                 var s = cells[idx].sym;
-                double cellExp = s.exp + PerSymExpBonus(mods, s.id);
+                double cellExp = s.exp + PerSymExpBonus(mods, s.id) + FamBridgeExp(mods, s.id);
                 if (s.tags != null)
                 {
                     for (int ti = 0; ti < s.tags.Length; ti++)
@@ -575,7 +603,7 @@ namespace JackpotRun.Engine
                 if (idx == reel / 2) cellExp *= mods.centerExpMul; // 가운데 칸 강화
                 exp += cellExp;
                 // 웹 engine.js:690 — 계열 아키타입 점수 곱(보석상).
-                double cellScore = s.score + PerSymScoreBonus(mods, s.id);
+                double cellScore = s.score + PerSymScoreBonus(mods, s.id) + FamBridgeScore(mods, s.id);
                 double asm = ArchMul(mods.deepFamilyScoreMul, s.id);
                 if (asm != 0) cellScore *= (1 + asm);
                 score += cellScore;
@@ -660,14 +688,26 @@ namespace JackpotRun.Engine
             for (int i = 0; i < cells.Count; i++) if (cells[i].sym.special == Sp.SEED) { anySeed = true; break; }
             if (anySeed) notes.Add("🌱 다음 성장↑");
 
-            // 세트 보너스
-            if (bestId != null && bestCount >= 2)
+            // 세트 보너스 — 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목①, 웹 engine.js:
+            // 736-750): count>=2인 모든 값심볼 그룹이 "각각" 보너스를 받는다(구 Unity는 최다 그룹
+            // bestId 1개만 지급하던 기술부채 — §2-(DD) 항목⑥에서 발견돼 이 슬라이스가 근본 수정).
+            // 순회 순서는 웹 for-in(JS 삽입순, cell 스캔 좌→우 첫 등장 순)이 아니라 기존 Unity
+            // tie-break 관례(ValueIdsPriorityOrder — 위 "동점 결정론 처리" 주석 참조, 심볼 선언순
+            // cherry/star/book/gem/crown)로 결정론화한다 — 순서는 note 표시 순서에만 영향(지급 총량은
+            // 순서 무관, 그룹별 독립 가산이라).
+            var setIds = new List<string>();
+            for (int svi = 0; svi < ValueIdsPriorityOrder.Length; svi++)
             {
-                int n = Math.Min(bestCount, Symbols.SetExp.Length - 1);
-                double twoMul = bestCount == 2 ? mods.twoSetBonusMul : 1.0;
+                var sid = ValueIdsPriorityOrder[svi];
+                if (!counts.TryGetValue(sid, out var cnt) || cnt < 2) continue;
+                int n = Math.Min(cnt, Symbols.SetExp.Length - 1);
+                // pair_match(짝맞춤): 최다 그룹이 "정확히" 2세트일 때만 그 그룹에 +20%(twoSetBonusMul,
+                // 웹 engine.js:743 `id === bestId && bestCount === 2`) — 다른 그룹은 twoMul 미적용.
+                double twoMul = (sid == bestId && bestCount == 2) ? mods.twoSetBonusMul : 1.0;
                 double add = Symbols.SetExp[n] * mods.setExpMul * twoMul;
                 exp += add; score += Symbols.SetScore[n];
-                notes.Add($"{Symbols.ById(bestId).emoji}×{bestCount} 세트 +{(int)add}");
+                setIds.Add(sid);
+                notes.Add($"{Symbols.ById(sid).emoji}×{cnt} 세트 +{(int)add}");
                 if (twoMul != 1.0) notes.Add($"👯짝맞춤 +{(int)((twoMul - 1.0) * 100)}%");
             }
 
@@ -1166,6 +1206,7 @@ namespace JackpotRun.Engine
                 tagCounts = tagCounts,
                 bestSetId = bestId,
                 bestSetCount = bestCount,
+                setIds = setIds,
                 skulls = skulls,
                 flameNext = false,
                 seedNext = anySeed,
@@ -1224,7 +1265,7 @@ namespace JackpotRun.Engine
         private static double TargetCellExp(Cell c, int idx, int reel, Mods mods)
         {
             var s = c.sym;
-            double ce = s.exp + PerSymExpBonus(mods, s.id);
+            double ce = s.exp + PerSymExpBonus(mods, s.id) + FamBridgeExp(mods, s.id);
             if (s.tags != null)
                 for (int ti = 0; ti < s.tags.Length; ti++)
                     ce += mods.tagExpBonus.TryGetValue(s.tags[ti], out var teb) ? teb : 0;

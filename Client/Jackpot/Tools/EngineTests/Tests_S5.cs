@@ -1159,29 +1159,11 @@ namespace JackpotRun.EngineTests
         }
     }
 
-    // ── ④ ComposeStat 파생키 — distinctCharS10만 남았다(WEB_PARITY P3-2, AchievementEngine.cs 헤더
-    // 각주) — bldCat_*/bldTotal/bldAllBasic/bldAllMaster/accountLevel은 소비처가 없어 제거됐다(아래
-    // Tests_S5_ComposeStatRemovedDerivedKeys가 그 제거 자체를 회귀 확인한다).
-    internal static class Tests_S5_ComposeStatDerivedKeys
-    {
-        public static void Run(TestCtx t)
-        {
-            var profile = new PlayerProfile();
-            profile.Stats["cstage_novice"] = 10;
-            profile.Stats["cstage_scholar"] = 15;
-            profile.Stats["cstage_gambler"] = 9; // 미달(<10)
-            var composed = AchievementEngine.ComposeStat(profile);
-            t.Eq(2L, composed["distinctCharS10"], "[compose-derived] distinctCharS10 == 2 (novice·scholar만 >=10)");
-
-            // 빈 프로필은 distinctCharS10 == 0.
-            var empty = AchievementEngine.ComposeStat(new PlayerProfile());
-            t.Eq(0L, empty["distinctCharS10"], "[compose-derived] 빈 프로필 distinctCharS10 == 0");
-        }
-    }
-
     // ── 제거된 구 파생키 회귀 확인 — WEB_PARITY P3-2로 lic_dev_*/bldCat_*/bldTotal/bldAllBasic/
-    // bldAllMaster/accountLevel이 ComposeStat 반환값에서 전부 빠졌는지 직접 확인한다(각 키가 여전히
-    // 남아있다면 "실제로 안 쓰이는 파생만 제거" 지시를 어긴 것 — 작업 지시 2번).
+    // bldAllMaster/accountLevel이, P8 §2 스윕으로 distinctCharS10마저 ComposeStat 반환값에서 전부
+    // 빠졌는지 직접 확인한다(각 키가 여전히 남아있다면 "실제로 안 쓰이는 파생만 제거" 지시를 어긴 것
+    // — 작업 지시 2번). 구 Tests_S5_ComposeStatDerivedKeys(distinctCharS10 산출값 자체를 검증하던
+    // 테스트)는 그 파생키가 완전히 사라지며 자연히 존재 이유가 없어져 이 테스트로 흡수·삭제했다.
     internal static class Tests_S5_ComposeStatRemovedDerivedKeys
     {
         public static void Run(TestCtx t)
@@ -1190,6 +1172,7 @@ namespace JackpotRun.EngineTests
             p.Stats["bld_fast_start"] = 1;
             p.Stats["closeClears"] = 5;
             p.Stats["bestStage"] = 6; // 구 lic_safe AND 조건(closeClears>=5 && bestStage>=6) 충족 상태로도 확인
+            p.Stats["cstage_novice"] = 10; // 구 distinctCharS10 원재료 — 파생키 자체가 없어졌는지 확인용
             var composed = AchievementEngine.ComposeStat(p);
 
             t.True(!composed.ContainsKey("lic_dev_safe"), "[compose-removed] lic_dev_safe 파생키 제거 확인");
@@ -1198,20 +1181,23 @@ namespace JackpotRun.EngineTests
             t.True(!composed.ContainsKey("bldAllBasic"), "[compose-removed] bldAllBasic 파생키 제거 확인");
             t.True(!composed.ContainsKey("bldAllMaster"), "[compose-removed] bldAllMaster 파생키 제거 확인");
             t.True(!composed.ContainsKey("accountLevel"), "[compose-removed] accountLevel 파생키 제거 확인");
+            t.True(!composed.ContainsKey("distinctCharS10"), "[compose-removed] distinctCharS10 파생키 제거 확인(P8 §2 스윕)");
 
-            // 반면 원재료로 넣어둔 bld_fast_start/closeClears/bestStage는 그대로 통과돼야 한다
-            // (ComposeStat이 profile.Stats를 복사만 하고 값을 지우지는 않는다는 계약 확인).
+            // 반면 원재료로 넣어둔 bld_fast_start/closeClears/bestStage/cstage_novice는 그대로
+            // 통과돼야 한다(ComposeStat이 profile.Stats를 복사만 하고 값을 지우거나 파생하지 않는다는
+            // 계약 확인).
             t.Eq(1L, composed["bld_fast_start"], "[compose-removed] 원재료 bld_fast_start는 그대로 통과");
             t.Eq(5L, composed["closeClears"], "[compose-removed] 원재료 closeClears는 그대로 통과");
             t.Eq(6L, composed["bestStage"], "[compose-removed] 원재료 bestStage는 그대로 통과");
+            t.Eq(10L, composed["cstage_novice"], "[compose-removed] 원재료 cstage_novice는 파생 없이 그대로 통과");
         }
     }
 
     // ── M1 회귀 → 웹 파리티 P3-4로 갱신: prodigy는 더 이상 distinctCharS10(파생키) 게이트를 쓰지 않는다.
     // Characters.cs가 unlockReq(StatReq AND)를 전면 폐기하고 웹 OR 5축(unlockRuns/Score/Stage/Level/Ach)
     // 으로 교체되면서, prodigy도 data.js:161 그대로 unlockStage=9 OR unlockAch="stage10"이 됐다
-    // (distinctCharS10 파생키 자체는 AchievementEngine.ComposeStat에 여전히 남아 있지만 — Perks.cs
-    // "prodigy unlockReq가 여전히 참조" 각주는 이제 사문화됐다 — 소비처가 없는 죽은 계산일 뿐이다).
+    // (distinctCharS10 파생키 자체는 당시 AchievementEngine.ComposeStat에 여전히 남아 있었으나 — P8
+    // §2 스윕에서 소비처 없는 죽은 계산으로 확인돼 완전히 제거됐다, AchievementEngine.cs 헤더 각주 참조).
     // 이 테스트는 그 이관이 실제로 반영됐는지(OR 두 축 각각 단독으로 충분한지) 확인한다.
     internal static class Tests_S5_CharUnlockDerivedKeyGate
     {

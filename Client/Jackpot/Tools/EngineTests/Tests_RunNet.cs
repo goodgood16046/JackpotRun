@@ -446,6 +446,7 @@ namespace JackpotRun.EngineTests
             EndsMatchNoCap(t);
             SkullPenaltyAndBonus(t);
             RareBurst(t);
+            DeepFamilyBridge(t);
         }
 
         // 💣 폭탄 — cells=[cherry,bomb,book,star,gem], bomb(idx1) 양옆(idx0 cherry, idx2 book) 제거.
@@ -530,9 +531,12 @@ namespace JackpotRun.EngineTests
             var mods = new Mods { adjacentSameExp = 20 };
             var res = SpinResolver.Evaluate(UnusedRng, cells, mods, spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
 
-            // 기본합 6+12+8=26, +세트2(cherry) 보너스8=34, +인접쌍2×20=40 → 74
-            t.Eq(74L, res.exp, "[adjacent] (26+세트보너스8)+인접쌍2×20=74");
-            t.Eq(3L, res.score, "[adjacent] score=세트2 SetScore3(그 외 base score 0)");
+            // 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목①) — count>=2인 값심볼 그룹이
+            // "각각" 세트 보너스를 받는다(cherry×2와 book×2 둘 다, 구 Unity는 최다 그룹 1개만 지급하는
+            // 기술부채였다 — 재산출). 기본합 6+12+8=26, +세트2(cherry)보너스8+세트2(book)보너스8=16 → 42,
+            // +인접쌍2×20=40 → 82.
+            t.Eq(82L, res.exp, "[adjacent] (26+세트보너스8+8)+인접쌍2×20=82");
+            t.Eq(6L, res.score, "[adjacent] score=세트2(cherry)+세트2(book) SetScore3+3=6(그 외 base score 0)");
             t.True(res.notes.Contains("🔗 인접 2쌍 +40"), "[adjacent] note: \"🔗 인접 2쌍 +40\"");
         }
 
@@ -593,6 +597,47 @@ namespace JackpotRun.EngineTests
             // 기본 score = crown50+세트2 SetScore3=53, ×rareBurstScoreMul1.5=79.5→79.
             t.Eq(79L, res.score, "[rareBurst] (50+세트보너스3)×1.5=79.5→79 (python 검산)");
             t.True(res.notes.Contains("💫운명폭발 EXP ×1.8"), "[rareBurst] note: \"💫운명폭발 EXP ×1.8\"");
+        }
+
+        // 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목②, 웹 _harness.mjs "(DA-2) 계열
+        // 브릿지(deepFamilyBridge)" 그대로 이식) — 상위계열 셀(cherry_ripe/gem_cut 등)에 하위(base)
+        // 심볼 참조의 perSymbolExp/Score 보너스가 그대로 합산되는지(mods.deepFamilyBridge=true일 때만),
+        // 플래그가 꺼져 있으면 완전히 무반영(기존 동작 보존)인지, skull 브릿지가 skullExp(특수분기)와
+        // 이중가산하지 않는지를 웹과 동일하게 "델타 비교"로 검증(절대값이 아니라 있음/없음 차이만 보므로
+        // base exp/score 상수를 몰라도 됨 — 웹 harness와 같은 강건한 검증 방식).
+        private static void DeepFamilyBridge(TestCtx t)
+        {
+            // cherry_ripe/gem_cut은 VALUE_IDS(cherry/star/book/gem/crown)가 아니라 SET 블록과 무접촉 —
+            // 순수 브릿지 델타만 관찰(웹 harness cellsU 그대로).
+            var cellsU = new List<Cell> { C("cherry_ripe"), C("cherry_ripe"), C("gem_cut"), C("book"), C("star") };
+
+            var mWith = new Mods { deepFamilyBridge = true };
+            mWith.perSymbolExp[Sym.Cherry] = 2;
+            mWith.perSymbolScore[Sym.Gem] = 10;
+            var mNo = new Mods();
+            mNo.perSymbolExp[Sym.Cherry] = 2;
+            mNo.perSymbolScore[Sym.Gem] = 10;
+
+            var r1 = SpinResolver.Evaluate(UnusedRng, cellsU, mWith, spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
+            var r2 = SpinResolver.Evaluate(UnusedRng, cellsU, mNo, spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
+            t.Eq(4L, r1.exp - r2.exp, "[fambridge] cherry+2 × cherry_ripe 2셀 = exp 델타 4");
+            t.Eq(10L, r1.score - r2.score, "[fambridge] gem+10 × gem_cut 1셀 = score 델타 10");
+
+            // 플래그 없으면 base(cherry/gem) 참조는 상위계열(cherry_ripe/gem_cut) 셀에 완전 무반영
+            // (기존 동작 보존 — mNo와 플래그조차 없는 순정 Mods()가 정확히 같아야 한다).
+            var r0 = SpinResolver.Evaluate(UnusedRng, cellsU, new Mods(), spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
+            t.Eq(r0.exp, r2.exp, "[fambridge] perSymbolExp base map은 플래그 없이 상위계열에 누출되지 않음(exp)");
+            t.Eq(r0.score, r2.score, "[fambridge] perSymbolExp base map은 플래그 없이 상위계열에 누출되지 않음(score)");
+
+            // skull: perSymbolExp.skull 브릿지는 정확히 1회 가산 — skullExp(SKULL 특수분기, 이미 별도로
+            // 셀당 가산됨)와 이중가산하지 않는지 확인.
+            var skCells = new List<Cell> { C("skull_black"), C("cherry"), C("book"), C("star"), C("gem") };
+            var mSk = new Mods { deepFamilyBridge = true, skullExp = 5 };
+            mSk.perSymbolExp[Sym.Skull] = 3;
+            var mSk0 = new Mods { skullExp = 5 };
+            var a = SpinResolver.Evaluate(UnusedRng, skCells, mSk, spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
+            var b = SpinResolver.Evaluate(UnusedRng, skCells, mSk0, spinIndex: 1, spinsPerStage: 5, flamePenalty: false);
+            t.Eq(3L, a.exp - b.exp, "[fambridge:skull] skull+3 브릿지 1회만(skullExp 이중가산 없음)");
         }
     }
 

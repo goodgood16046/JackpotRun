@@ -96,11 +96,17 @@ namespace JackpotRun.UI2
             SetChip(scoreChipRoot, scoreChipBg, scoreChipLabel, "점수", result.score, UiKit.Blue);
             SetChip(coinChipRoot, coinChipBg, coinChipLabel, "코인", result.coins, UiKit.Accent);
 
-            // 세트 설명 박스 — bestSetCount>=2일 때만.
-            bool showSetExplain = result.bestSetCount >= 2;
+            // 세트 설명 박스 — 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목①): count>=2인
+            // 모든 값심볼 그룹이 각각 보너스를 받으므로(setIds), 트리거도 bestSetCount 단일 전제 대신
+            // setIds 소스로 통일(값은 사실상 동치 — 어떤 그룹이든 count>=2가 있으면 bestCount도 >=2).
+            bool showSetExplain = result.setIds != null && result.setIds.Count > 0;
             if (setExplainRoot != null) setExplainRoot.gameObject.SetActive(showSetExplain);
             if (showSetExplain && setExplainText != null)
-                setExplainText.text = $"같은 심볼 {result.bestSetCount}개 — 개수가 많을수록 보너스가 크게 늘어납니다";
+            {
+                setExplainText.text = result.setIds.Count > 1
+                    ? $"같은 심볼 세트가 동시에 {result.setIds.Count}개 형성됐어요 — 개수가 많을수록 보너스가 크게 늘어납니다"
+                    : $"같은 심볼 {result.bestSetCount}개 — 개수가 많을수록 보너스가 크게 늘어납니다";
+            }
 
             // 대문짝 — N은 outcome.gained(모드·보스·안전장치까지 반영된 실제 획득 EXP).
             if (bigNumberText != null)
@@ -226,13 +232,30 @@ namespace JackpotRun.UI2
                 }
             }
 
-            // 세트 보너스.
-            if (r.bestSetCount >= 2)
+            // 세트 보너스 — 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목①): count>=2인
+            // 모든 값심볼 그룹이 각각 지급되므로(r.setIds, 구 bestSetCount 단일 전제 결함 수정) 그룹별로
+            // 한 줄씩 항목화한다(2개 이상 동시 형성은 희소하지만 발생 시 둘 다 정확히 보여야 "기타" 잔차로
+            // 조용히 흡수되지 않는다 — 지시 원문 "오차를 숨기지 마라"). Opus 2차검수 권장⑤ — 이 줄의
+            // 값은 `mods.setExpMul`/`twoSetBonusMul`(짝맞춤 +20%)이 곱해진 "실제 지급액"이어야 한다
+            // (raw `Symbols.SetExp[n]`만 쓰면 배수 반영분이 조용히 "기타" 잔차로 흡수돼 그만큼 오차를
+            // 숨기는 셈). `ComputeLines`는 설계 원칙상 Mods를 다시 계산하지 않으므로(엔진 재계산 금지),
+            // 엔진이 SET 블록에서 이미 그 최종값을 적어 둔 `r.notes`의 "{emoji}×{cnt} 세트 +{add}"
+            // (SpinResolver.cs, add=SetExp[n]*setExpMul*twoMul 이미 반영됨)를 파싱해 그대로 쓴다 — 못
+            // 찾으면(정상 경로에선 도달 불가) raw SetExp[n]으로 안전 폴백.
+            if (r.setIds != null)
             {
-                int n = Mathf.Min(r.bestSetCount, Symbols.SetExp.Length - 1);
-                long v = Symbols.SetExp[n];
-                a.Add(new GainLine($"세트 {r.bestSetCount}연속", SignedAmount(v), v, UiKit.Accent));
-                sumA += v;
+                for (int si = 0; si < r.setIds.Count; si++)
+                {
+                    var sid = r.setIds[si];
+                    int cnt = (r.counts != null && r.counts.TryGetValue(sid, out var c)) ? c : 0;
+                    if (cnt < 2) continue;
+                    var sinfo = Symbols.ById(sid);
+                    int n = Mathf.Min(cnt, Symbols.SetExp.Length - 1);
+                    long v = ParseSetBonusNote(r.notes, sinfo?.emoji, cnt) ?? Symbols.SetExp[n];
+                    string label = sinfo != null ? $"{sinfo.name} 세트 {cnt}연속" : $"세트 {cnt}연속";
+                    a.Add(new GainLine(label, SignedAmount(v), v, UiKit.Accent));
+                    sumA += v;
+                }
             }
 
             // 해골 페널티 — "해골빌드"(보너스로 전환된 경우) 노트가 있으면 이 줄은 생략하고 잔차로
@@ -300,5 +323,22 @@ namespace JackpotRun.UI2
         }
 
         private static string SignedAmount(long v) => v >= 0 ? $"+{NumberFormat.Comma(v)}" : $"-{NumberFormat.Comma(-v)}";
+
+        // 웹 파리티 P8(Opus 2차검수 권장⑤) — SpinResolver.cs SET 블록의 `notes.Add($"{emoji}×{cnt}
+        // 세트 +{add}")`(add = SetExp[n]*mods.setExpMul*twoMul, 이미 배수 반영된 최종값)를 역파싱해
+        // Mods를 다시 계산하지 않고도 정확한 지급액을 얻는다. 못 찾으면 null(호출측이 raw SetExp[n]로
+        // 안전 폴백).
+        private static long? ParseSetBonusNote(List<string> notes, string emoji, int cnt)
+        {
+            if (notes == null || string.IsNullOrEmpty(emoji)) return null;
+            string prefix = $"{emoji}×{cnt} 세트 +";
+            for (int i = 0; i < notes.Count; i++)
+            {
+                var note = notes[i];
+                if (note == null || !note.StartsWith(prefix, StringComparison.Ordinal)) continue;
+                if (long.TryParse(note.Substring(prefix.Length), out var v)) return v;
+            }
+            return null;
+        }
     }
 }

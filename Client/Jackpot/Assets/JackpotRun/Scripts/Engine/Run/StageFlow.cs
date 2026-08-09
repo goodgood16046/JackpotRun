@@ -579,10 +579,12 @@ namespace JackpotRun.Engine
                 var f = new FailureOutcome { kind = "POST_SPIN", deficitAtFailure = deficit };
                 if (gamblerReroll) f.manipHints.Add("GAMBLER_REROLL");
                 if (manipAvail) f.manipHints.Add("DEVICE:" + dev.id);
-                // [통합 결손 — 보고 대상] dev_bell은 kind=="INSTANT"(ARMED류)라 DeviceActions.Handle의
-                // POST_SPIN 분기(kind!="MANIP"이면 거부)를 그대로는 통과하지 못한다 — 이 조건 추가는
-                // "_canRecover 상당" 게이트만 웹과 맞춘 것이고, POST_SPIN 진입 후 dev_bell을 실제로
-                // 소비하는 액션(웹 emergencyBell(), 항상 즉시클리어)은 이번 P1 범위 밖이라 아직 없다.
+                // [P8 §2 스윕에서 정정 — 이 주석은 P1 시점 스테일이었다] dev_bell은 kind=="INSTANT"
+                // (ARMED류)라 DeviceActions.Handle의 POST_SPIN 분기(kind!="MANIP"이면 거부)를 그대로는
+                // 통과하지 못하지만, `DeviceActions.Handle`이 `dev.id=="dev_bell"`을 그 거부보다 먼저
+                // 특례 분기해 `HandlePostSpinBell`(웹 emergencyBell(), game.js:1326-1331 대응 — 즉시
+                // 강제클리어)로 라우팅한다(P1 Opus 1차검수 수정A, DeviceActions.cs:37-44 참조) — 실제로는
+                // 이미 소비 가능하다.
                 if (bellReady) f.manipHints.Add("DEVICE:dev_bell");
                 return f;
             }

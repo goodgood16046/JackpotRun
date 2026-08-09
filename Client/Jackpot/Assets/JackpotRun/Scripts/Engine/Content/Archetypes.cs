@@ -11,11 +11,12 @@ namespace JackpotRun.Engine
     // coin🪙조폐국 · flame🔥화력발전. 주머니 계열 비중(share=familyCount/총량)이 임계(ArchT1/T2)
     // 도달 시 발동 — 최대 share 계열 1개만 활성(단일 전공, 동률은 선언 순서 우선).
     //
-    // [P7-2 범위 밖 — hex_allornothing(⚡일발역전) 저주의 심화 전용 dEff={archetypeMul:0.5}(전공
-    // 배율 절반) 재설계] 웹 game.js:489-496 — 저주/증강의 "dEff"(deepMode 전용 효과 오버라이드)
-    // 자체가 Unity 엔진에 없는 별개 메커니즘이라(ModsBuilder는 fx만 안다) 이 슬라이스에서 새로
-    // 만들지 않는다. 이 커브가 이식되면 DeepRunHooks.ApplyDeepMods가 여기서 만든 ExpMul/ScoreMul/
-    // CoinMul을 곱하기 직전에 halve하면 된다.
+    // [P7-2 당시 범위 밖 → 웹 파리티 P8에서 실배선 완료] hex_allornothing(⚡일발역전) 저주의 심화
+    // 전용 dEff={archetypeMul:0.5}(전공 배율 절반) 재설계 — 웹 game.js:489-496. 저주/증강의 "dEff"
+    // (deepMode 전용 효과 오버라이드) 범용 메커니즘 자체는 여전히 Unity 엔진에 없지만(ModsBuilder는
+    // fx만 안다), hex_allornothing 1건뿐이라 범용화 대신 `DeepRunHooks.ApplyDeepMods`가 이 클래스가
+    // 만든 ExpMul/ScoreMul/CoinMul을 곱하기 직전에 `run.Curses.Contains("hex_allornothing")`이면
+    // 값을 절반으로 halve하는 국소 분기로 처리했다(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목③).
     public sealed class ArchetypeDef
     {
         public string Family, Ref, Emoji, Name, Metric;

@@ -33,6 +33,7 @@ namespace JackpotRun.EngineTests
             EvaluateArchetypeScoreMul(t);
             EvaluateArchetypeCoinMul(t);
             EvaluateArchetypeSkullBranchExpMul(t);
+            HexAllOrNothingHalvesArchetypeMods(t);
             DeepPenaltyFullFormula(t);
 
             RepairPhaseGate(t);
@@ -407,6 +408,47 @@ namespace JackpotRun.EngineTests
             var res = SpinResolver.Evaluate(rng, raw, modsArch, 1, 5, false);
             // skull: se=10×1.3=13, ×2=26. 17+26=43.
             t.Eq(43L, res.exp, "[evaluate-arch] 강령학파 t2 -> 해골 EXP 가산분에도 30% 적용, exp=43");
+        }
+
+        // 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목③ 잔여 스윕, 웹 game.js:488-496
+        // "배치 A Step 1: hex_allornothing dEff") — ⚡일발역전 저주를 보유한 심화 런은 ApplyDeepMods가
+        // 전공 배율 증가분(deepFamilyExpMul/ScoreMul/CoinMul)을 절반만 mods에 꽂는지, skullPenaltyMul
+        // (강령학파 t2 해골 감점 완화)은 이 halving 대상이 아닌지(웹도 별도로 그대로 곱함) 확인.
+        private static void HexAllOrNothingHalvesArchetypeMods(TestCtx t)
+        {
+            var run = MakeDeepRun(90310L);
+            run.Pouch.Clear();
+            run.Pouch["cherry"] = 40; // 과수원(cherry) t2 — share=40/40=1.0>=0.40
+            var mods = new Mods();
+            DeepRunHooks.ApplyDeepMods(mods, run);
+            t.EqTol(0.30, mods.deepFamilyExpMul["cherry"], "[hex] 저주 없으면 t2 그대로 +30%");
+
+            var runCursed = MakeDeepRun(90311L);
+            runCursed.Pouch.Clear();
+            runCursed.Pouch["cherry"] = 40;
+            runCursed.Curses.Add("hex_allornothing");
+            var modsCursed = new Mods();
+            DeepRunHooks.ApplyDeepMods(modsCursed, runCursed);
+            t.EqTol(0.15, modsCursed.deepFamilyExpMul["cherry"], "[hex] 저주 보유 시 +30% -> +15%(절반)");
+
+            // skullPenaltyMul은 halving 대상 아님 — 강령학파(skull) t2(SkullPenaltyMul=0.5)로 대조.
+            var runSkullNoCurse = MakeDeepRun(90312L);
+            runSkullNoCurse.Pouch.Clear();
+            runSkullNoCurse.Pouch["skull"] = 40;
+            var modsSkullNoCurse = new Mods();
+            DeepRunHooks.ApplyDeepMods(modsSkullNoCurse, runSkullNoCurse);
+
+            var runSkullCursed = MakeDeepRun(90313L);
+            runSkullCursed.Pouch.Clear();
+            runSkullCursed.Pouch["skull"] = 40;
+            runSkullCursed.Curses.Add("hex_allornothing");
+            var modsSkullCursed = new Mods();
+            DeepRunHooks.ApplyDeepMods(modsSkullCursed, runSkullCursed);
+
+            t.EqTol(0.5, modsSkullNoCurse.skullPenaltyMul, "[hex] 저주 없이 강령학파 t2 -> skullPenaltyMul=0.5(대조군)");
+            t.EqTol(0.5, modsSkullCursed.skullPenaltyMul, "[hex] 저주 보유해도 skullPenaltyMul은 halving 무관(그대로 0.5)");
+            // 반면 expMul 쪽은 여전히 halve된다(같은 skull 전공, 다른 축).
+            t.EqTol(0.15, modsSkullCursed.deepFamilyExpMul["skull"], "[hex] skull 전공 expMul도 +30%->+15%(절반)");
         }
 
         private static void DeepPenaltyFullFormula(TestCtx t)

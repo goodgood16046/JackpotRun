@@ -15,23 +15,21 @@ namespace JackpotRun.Engine
     // req.key도 이 파생키들을 가리키지 않고(전수 확인), Character/Machine unlockReq도 마찬가지라 안전하게
     // 제거했다 — Formulas.AccountExp/AccountLevel 함수 자체는 그대로 살아있다(Shop.PerkGate가 원재료
     // Stats로 직접 호출 중, 전공/퍽 게이트 폐기는 다음 슬라이스).
-    // [유지한 구 파생키] distinctCharS10 — Characters.cs "prodigy" unlockReq가 여전히 참조한다(웹에
-    // 대응 없는 Unity 자체 캐릭터 해금 조건, 이 슬라이스 범위 밖이라 손대지 않음).
+    // [P8 §2 스윕에서 제거 완료] distinctCharS10 — 당시엔 "Characters.cs 'prodigy' unlockReq가 여전히
+    // 참조한다"며 유지했으나, 같은 날짜의 후속 슬라이스(WEB_PARITY P3-4, §2-(O))가 Character/Machine의
+    // unlockReq(StatReq AND)를 웹 OR 5축(unlockRuns/Score/Stage/Level/Ach)으로 전면 교체하면서
+    // prodigy도 data.js:161 그대로 `unlockStage=9 OR unlockAch="stage10"`로 바뀌어 이 파생키를 더는
+    // 참조하지 않게 됐다(Tests_S5.cs Tests_S5_CharUnlockDerivedKeyGate가 그 이관을 이미 검증 — "죽은
+    // 게이트"라고 자체 주석까지 남겼었다). 34종 achievements의 req.key 어디도 이 값을 가리키지 않고
+    // (Achievements.cs 전수 확인), Character/Machine unlockReq도 이제 이 필드 자체가 없어 참조 불가능
+    // 하다 — 소비처가 완전히 사라진 죽은 계산이라 이번 슬라이스에서 최종 제거했다.
     public static class AchievementEngine
     {
-        // ── composeStat 이식(축소판) — PlayerProfile.Stats(원재료) 위에 distinctCharS10 파생키만 얹은
-        // 새 딕셔너리를 반환한다. PlayerProfile.Stats 자체는 건드리지 않는다. ──
+        // ── composeStat 이식 — PlayerProfile.Stats(원재료) 그대로 복사한 딕셔너리를 반환한다(더는
+        // 파생키가 없다 — 위 각주 참조). PlayerProfile.Stats 자체는 건드리지 않는다. ──
         public static Dictionary<string, long> ComposeStat(PlayerProfile profile)
         {
-            var stat = new Dictionary<string, long>(profile.Stats);
-
-            // 파생키: 서로다른 캐릭 N명 S10.
-            long distinctCharS10 = 0;
-            foreach (var kv in profile.Stats)
-                if (kv.Key.StartsWith("cstage_", StringComparison.Ordinal) && kv.Value >= 10) distinctCharS10++;
-            stat["distinctCharS10"] = distinctCharS10;
-
-            return stat;
+            return new Dictionary<string, long>(profile.Stats);
         }
 
         // ── 신규 달성 업적 판정 — 웹 game.js:2604-2612 "if (!p.unlocked.includes(a.id) &&

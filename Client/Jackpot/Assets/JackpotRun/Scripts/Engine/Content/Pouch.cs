@@ -14,10 +14,14 @@ namespace JackpotRun.Engine
     // [P7-1 범위 밖이었으나 P7-2에서 편입] REPAIR_SERVICES(정비소)는 Content/RepairServices.cs로,
     // POUCH_UPGRADE(상위계열 매핑)는 바로 아래 Upgrade/UpgradeParent로, ARCH_T1/T2(전공 발동)는
     // Content/Archetypes.cs로 각각 이식했다(WEB_PARITY_DESIGN.md §1-A #19 2/4 슬라이스).
-    // [여전히 범위 밖 — 데이터는 옮기지 않음, 보고 대상] RANDPACK_DIST/COUNT/PRISM_BONUS·
-    // DESIGNATED_UPGRADE_CHANCE·PACKAGE_CHANCE(오퍼 2-step)·REL_MIN/REL_MIN_BY_SYM(전공 게이트)·
-    // FEVER_*(피버 게이지)·BELL_FEST_MUL·EARLY_EXP_BOOST_IDS(오퍼 가중)·ACH_SYMBOL_UNLOCK(심볼 해금)
-    // — 전부 P7-3(잭팟태그/피버/오퍼) 또는 P7-4(업적) 범위. 작업 지시 §범위 그대로.
+    // [P8 §2 스윕에서 확인 — 이 각주는 P7-1 시점 스테일이었다] REL_MIN/REL_MIN_BY_SYM(전공 게이트,
+    // 아래 필드 — §2-(CC) 소비)·FEVER_*(피버 게이지, Mods.cs/DeepRunHooks.cs — §2-(CC))·BELL_FEST_MUL
+    // (아래 필드, DeepRunHooks.cs 축제종 배너)·EARLY_EXP_BOOST_IDS(아래 필드, PouchOffer.cs 오퍼 가중)·
+    // ACH_SYMBOL_UNLOCK(Content/DeepSymbolUnlock.cs — §2-(EE))은 전부 후속 슬라이스(P7-2~P7-4)에서
+    // 이식 완료됐다. **여전히 진짜 범위 밖(웹 자체가 죽은 데이터, §2-(CC)에서 확인·종결)**:
+    // RANDPACK_DIST/COUNT/PRISM_BONUS·DESIGNATED_UPGRADE_CHANCE·PACKAGE_CHANCE — Sp 특수심볼이 아니라
+    // 웹 POUCH 오퍼 v2의 죽은 상수(v3로 대체됨)라 애초에 이식 대상이 아니다(§0 "웹 채택이 기본" 원칙과
+    // 무관 — 웹 스스로도 안 쓰는 코드를 옮길 이유가 없음).
     public static class Pouch
     {
         // ── §1.1 V3P1 심볼 카테고리 — base(9)/harmful(해골·빈칸·저주 계열)/special(나머지) 전수 분류.

@@ -502,7 +502,11 @@ namespace JackpotRun.EngineTests
         {
             var run = MakeDeepRun(12);
             long before = run.Coins;
+            // 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목①) — 게이트가 `res.setIds`
+            // 기반으로 정정되며(웹 game.js:809 `res.setIds && res.setIds.length` 그대로) 이 필드도
+            // 실제 Evaluate() 산출과 동형으로 채워야 한다(단독 그룹 세트 형성 시 setIds=[그 id]).
             var res = EmptyRes(); res.setFrag = true; res.bestSetId = "cherry"; res.bestSetCount = 2;
+            res.setIds = new List<string> { "cherry" };
             long gained = 0; var notes = new List<string>();
             DeepRunHooks.ProcessDeepSpinFollowups(run, new Mods(), res, ref gained, notes);
             t.Eq(before + 2, run.Coins, "[follow:setfrag] 세트 형성(count>=2) 시 코인+2");
@@ -510,16 +514,19 @@ namespace JackpotRun.EngineTests
             var run2 = MakeDeepRun(13);
             long before2 = run2.Coins;
             var res2 = EmptyRes(); res2.setFrag = true; res2.bestSetId = null; res2.bestSetCount = 0;
+            res2.setIds = new List<string>();
             DeepRunHooks.ProcessDeepSpinFollowups(run2, new Mods(), res2, ref gained, notes);
             t.Eq(before2, run2.Coins, "[follow:setfrag:no-set] 세트 미형성(bestSetId null)이면 무효과");
 
             // Opus 2차검수(P7-3b) [HIGH-1] — bestSetId는 count==1(값심볼이 딱 1개만 나와도 "최다"로
             // 채워짐)이어도 non-null일 수 있다(SpinResolver.Evaluate의 bestId 결정 루프 참조) — 구
             // `bestSetId != null` 게이트는 이 경우도 "세트 형성"으로 오판정해 코인을 지급하던 버그였다.
-            // bestSetCount>=2로 정정한 뒤 count==1(세트 아님) 케이스가 실제로 미발동하는지 확인.
+            // 웹 파리티 P8 이후엔 `res.setIds`(count>=2인 그룹만 채워짐, count==1이면 항상 빈 리스트)로
+            // 게이트하므로 이 케이스가 실제로 미발동하는지 확인.
             var run3 = MakeDeepRun(14);
             long before3 = run3.Coins;
             var res3 = EmptyRes(); res3.setFrag = true; res3.bestSetId = "cherry"; res3.bestSetCount = 1;
+            res3.setIds = new List<string>();
             DeepRunHooks.ProcessDeepSpinFollowups(run3, new Mods(), res3, ref gained, notes);
             t.Eq(before3, run3.Coins, "[follow:setfrag:count1] bestSetCount==1(세트 아님)이면 bestSetId가 있어도 무효과");
         }

@@ -120,8 +120,9 @@ namespace JackpotRun.Engine
         //   제거했다(웹 `if (r.pouch)`는 빈 객체 `{}`도 truthy라 항상 통과 — SymPerks.ComputeMods/
         //   Archetypes.PouchArchetype 둘 다 빈/0-총량 pouch를 안전하게 중립값으로 처리하므로 별도
         //   가드가 애초에 불필요했다).
-        // [P7-2 범위 밖] hex_allornothing 저주의 dEff={archetypeMul:0.5}(전공 배율 절반, 심화 전용
-        // 재설계)는 Content/Archetypes.cs 헤더 각주 참조 — dEff 메커니즘 자체가 없어 미이식.
+        // [P7-2 당시 범위 밖 → P8에서 실배선 완료] hex_allornothing 저주의 dEff={archetypeMul:0.5}
+        // (전공 배율 절반)는 아래 본문의 halveArch 분기 참조(WEB_PARITY_DESIGN.md §2 결정 로그 확정
+        // 항목③ 잔여 스윕) — Content/Archetypes.cs 헤더 각주도 함께 갱신.
         public static void ApplyDeepMods(Mods mods, RunState run)
         {
             if (mods == null || run == null || !run.DeepMode || mods.DeepModsApplied) return;
@@ -130,6 +131,9 @@ namespace JackpotRun.Engine
             // 세우는 `mods.deepMode = true`. SpinResolver.Evaluate의 잭팟 태그 블록이 이 플래그로
             // 게이팅한다(일반모드는 이 함수 자체가 조기 반환해 항상 false).
             mods.deepMode = true;
+            // 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목②) — 웹 game.js:461
+            // `deepFamilyBridge: true`도 deepMode와 나란히 항상 세운다(퍽/주머니 상태 무관).
+            mods.deepFamilyBridge = true;
 
             // 웹 game.js:454 — 정비소 '태그 강화'(run.DeepTagBuff) 직접 반영. pouch 상태와 무관하게 항상
             // 가장 먼저 적용(웹은 이 줄이 아래 심볼퍽 병합보다 앞선 별도 `if` 문).
@@ -145,9 +149,17 @@ namespace JackpotRun.Engine
 
             var arch = Archetypes.PouchArchetype(run.Pouch);
             var am = Archetypes.ArchetypeMods(arch);
-            foreach (var kv in am.ExpMul) mods.deepFamilyExpMul[kv.Key] = kv.Value;
-            foreach (var kv in am.ScoreMul) mods.deepFamilyScoreMul[kv.Key] = kv.Value;
-            foreach (var kv in am.CoinMul) mods.deepFamilyCoinMul[kv.Key] = kv.Value;
+            // 웹 파리티 P8(WEB_PARITY_DESIGN.md §2 결정 로그 확정 항목③ 잔여 스윕, 웹 game.js:488-496
+            // "배치 A Step 1: hex_allornothing dEff") — ⚡일발역전(hex_allornothing) 저주를 보유한
+            // 심화 런은 전공(아키타입) 배율 증가분(expMul/scoreMul/coinMul map, 각 값에 ×0.5)이 절반만
+            // 적용된다(예 t2 expMul.cherry=0.30 → 0.15). skullPenaltyMul(강령학파 t2 해골 감점 완화)은
+            // 이 halving 대상이 아니다(웹도 별도로 그대로 곱함, 위 game.js:502 참조) — 이전 슬라이스가
+            // "dEff 메커니즘 자체가 없어 미이식"으로 §범위 밖에 남겨 뒀던 항목(Content/Archetypes.cs
+            // 헤더 각주 참조)을 이번 정리 슬라이스에서 실배선한다.
+            bool halveArch = run.Curses != null && run.Curses.Contains("hex_allornothing");
+            foreach (var kv in am.ExpMul) mods.deepFamilyExpMul[kv.Key] = halveArch ? kv.Value * 0.5 : kv.Value;
+            foreach (var kv in am.ScoreMul) mods.deepFamilyScoreMul[kv.Key] = halveArch ? kv.Value * 0.5 : kv.Value;
+            foreach (var kv in am.CoinMul) mods.deepFamilyCoinMul[kv.Key] = halveArch ? kv.Value * 0.5 : kv.Value;
             if (am.SkullPenaltyMul != 1.0) mods.skullPenaltyMul *= am.SkullPenaltyMul;
 
             // 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종 전면 이식") — 웹 game.js:
@@ -443,14 +455,17 @@ namespace JackpotRun.Engine
             {
                 if (ReleaseDeviceUse(run) == null) run.DeepShopSlotBonus = Math.Min(2, run.DeepShopSlotBonus + 1);
             }
-            // 🧩세트조각(근사) — Opus 2차검수(P7-3b) [HIGH-1] 게이트 정정: bestSetId는 count==1이어도
+            // 🧩세트조각 — Opus 2차검수(P7-3b) [HIGH-1] 게이트 정정 이력: bestSetId는 count==1이어도
             // "최다 값심볼"로 채워진다(SpinResolver.Evaluate의 bestId 결정 루프는 counts에 있는 어떤
-            // 항목이든 1개만 있어도 bestId로 잡는다 — "세트"의 정의는 count>=2). 웹 setIds도 count>=2
-            // 항목만 채우므로 `res.bestSetCount >= 2`로 정정(구 `bestSetId != null`은 값심볼이 1개만
-            // 나와도 세트로 오판정하는 버그였다). Unity Evaluate는 "최다 세트 1개"만 판정(setIds
-            // 다중집합 미보유, 기존 코어 evaluate의 사전 제약 — 웹 setIds 기반 전 그룹 지급 규칙 자체는
-            // 별도 최종 슬라이스로 이월, §2-(DD) 기재)이므로 bestSetCount가 그 근사 기준이다.
-            if (res.setFrag && res.bestSetCount >= 2) run.Coins += 2;
+            // 항목이든 1개만 있어도 bestId로 잡는다 — "세트"의 정의는 count>=2). 당시엔 `res.bestSetCount
+            // >= 2`로 근사했으나(§2-(DD) — Unity Evaluate가 "최다 세트 1개"만 판정해 웹 setIds 다중집합이
+            // 아직 없었음), 웹 파리티 P8(§2 결정 로그 확정 항목①)이 Evaluate의 SET 블록을 count>=2인
+            // 모든 그룹 지급으로 근본 수정하며 진짜 `res.setIds`가 생겼다 — 이제 웹 game.js:809
+            // `res.setIds && res.setIds.length` 그대로 정확히 옮긴다(bestSetCount>=2와 논리적으로 동치
+            // — 어떤 그룹이든 count>=2면 그 그룹의 count가 곧 bestCount의 하한이 아니므로 완전한
+            // 동치는 아니지만, "setIds가 비어있지 않다" ⇔ "count>=2인 값심볼 그룹이 최소 1개 존재"
+            // ⇔ "bestCount>=2"이므로 실질적으로 동일한 조건 — 근사가 아니라 웹 원문 표현으로 통일).
+            if (res.setFrag && res.setIds != null && res.setIds.Count > 0) run.Coins += 2;
             // Opus 2차검수(P7-3b) [MED-5, Fable 결정] — 🩸피방울/🧿저주눈/💳검은카드의 UnluckyGauge
             // 가산을 제거했다. 웹은 이 게이지가 순수 표시용(연동 보상 없음)이라 무해했지만, Unity의
             // UnluckyGauge는 §2-(A) 결정대로 실제 보상 연동(만땅 시 forceRare 희귀 보장)이 있는 게이지다

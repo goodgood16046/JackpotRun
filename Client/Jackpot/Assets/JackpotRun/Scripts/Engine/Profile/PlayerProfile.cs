@@ -15,9 +15,10 @@ namespace JackpotRun.Engine
     // 156개 고유 key 사전)로 나뉘어 있었으나, C# 포팅은 이 구분을 유지할 이유가 없어(03_meta §6-4가 명시적으로
     // 허용) 단일 `Dictionary<string,long> Stats`로 통합했다. bld_<id>(테마빌드 25종 완성 플래그, StatTracker가
     // setMax)처럼 achievement 판정에 간접적으로만 쓰이는 원시 키도 이 딕셔너리에 함께 산다 — "156개 고유 key"
-    // 더하기 이런 파생-원천 키까지 전부 여기 하나로 모인다. lic_dev_*·distinctCharS10·bldCat_*/bldTotal/
-    // bldAllBasic/bldAllMaster·accountLevel은 여기 저장하지 않는다(Kotlin composeStat과 동일하게 매번
-    // AchievementEngine.ComposeStat이 즉석 계산하는 파생값 — 저장하면 이중 갱신 위험).
+    // 더하기 이런 파생-원천 키까지 전부 여기 하나로 모인다. lic_dev_*·bldCat_*/bldTotal/bldAllBasic/
+    // bldAllMaster·accountLevel은 여기 저장하지 않는다(전부 소비처가 없어 AchievementEngine.
+    // ComposeStat에서 완전히 제거됐다 — distinctCharS10도 P8 §2 스윕에서 같은 이유로 마저 제거,
+    // AchievementEngine.cs 헤더 각주 참조. ComposeStat은 이제 profile.Stats를 그대로 복사만 한다).
     //
     // ── SlotV2ScoreRow(03_meta §3.3) 잔여 필드 ────────────────────────────────────────
     // bestScore/bestStage/runs는 SlotV2ScoreRow에도 있지만 Kotlin composeStat이 AchRow와 max()로 병합해
