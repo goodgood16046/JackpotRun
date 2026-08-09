@@ -156,6 +156,7 @@ namespace JackpotRun.Engine
             // blocker 설명 그대로). 이전에는 항상 RollRaw(일반 가중추첨)라 심화 런에서도 주머니 밖
             // 72종 전체에서 예언 결과가 나올 수 있었다.
             var raw = SpinResolver.RollCells(run, mods, Formulas.REEL, run.SeedNext);
+            if (run.DeepMode) raw = DeepRunHooks.ApplyGrowNext(run, raw);
             if (run.DeepMode) raw = DeepRunHooks.ApplyDeepPity(run, raw);
             run.LockedNext.Clear();
             run.LockedNext.AddRange(raw.Select(c => c.sym.id));

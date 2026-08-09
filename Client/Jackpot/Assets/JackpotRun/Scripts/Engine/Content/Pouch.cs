@@ -185,6 +185,11 @@ namespace JackpotRun.Engine
             { "저주", "CURSE" },
         };
 
+        // 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종 전면 이식") — 웹 data.js
+        // POUCH_RARITY_ORDER 그대로. 🧪촉매(CATALYST)가 "매핑 대상 중 최저등급 1개"를 고를 때 등급
+        // 서열 비교에 쓴다(SpinResolver.Evaluate).
+        public static readonly string[] RarityOrder = { "기본", "고급", "희귀", "전설", "저주" };
+
         // 소모형/일회용 속성 — 웹 data.js POUCH_USE(12개 키) 그대로. "instant"=등장 즉시 발동+덱 -1,
         // "fuse"=덱 상주, 조건 충족 시 발동+제거. 미등록 id는 use 없음(영구 상주, C# 조회는 null/미존재).
         // [P7-1 범위] 이번 슬라이스는 "instant" 값만 소비한다(DeepRunHooks.ConsumeInstantSymbols) —

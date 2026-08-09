@@ -1687,10 +1687,220 @@
   - **재검증(Opus 반영 후 최종)**: `dotnet run --project Client/Jackpot/Tools/EngineTests` 27770 →
     **29422**(+1652), 0 실패. 오프라인 스모크 컴파일 재확인(`Assembly-CSharp` 90개·
     `Assembly-CSharp-Editor` 6개 — 파일 목록 변경 없음, 기존 rsp 그대로 재컴파일) 둘 다 0에러·0경고.
-  - **P7-3b 예고(다음 슬라이스, 이번엔 착수하지 않음)**: 미이식 `Sp` 51종 중 잭팟태그 계열 10종을
-    제외한 나머지(CATALYST/MIRROR/TARGET/PUZZLE5/ALARM/SAFEPIN/KNOT/ENERGYPACK/BANDAGE/HOURGLASS/
-    DEVCD/GEAR/KIT 등)의 실제 특수효과를 전면 이식 확정 — `Pouch.EarlyExpBoostIds`가 참조하는 4종
-    (alarm/knot/energypack/bandage)도 이때 함께 살아난다.
+- **(DD) 2026-08-09 완료(P7-3b "심화모드(심볼 덱/주머니) 4/4 — Sp 신규 51종 중 잭팟태그 외 나머지
+  전면 이식" — WEB_PARITY_DESIGN.md §1-A #19 마지막 슬라이스)**: 웹 `engine.js` evaluate 특수심볼
+  체인(§566-1083)·`game.js` `_applyDeepSpinMeta`(§768-862)·`spin()` 프리훅(§892 temp_wild·§907-916
+  fate_vortex)·`_openShop`/`_freshShop`(§2304-2347)·`_beginStage` 안전핀 pity(§1478-1488) 전수 대조.
+  - **① 미이식 인벤토리(작업 착수 전 확정) — 발동 지점별 39종**(51종 중 §2-(CC)가 이미 마친 잭팟태그
+    계열 13종 — BELL_ECHO/BELL_FEST/BELL_GOLD/BELL_SMALL/BELL_TICKET/BIG_BOOM/CHEER/JACKPOT_CROWN/
+    JACKPOT_TICKET/JACKPOT_WAND/REACH_MARK/RETRY_REEL/SLOT_SHARD — 는 제외):
+
+    | Sp | 발동 지점 | 웹 근거 |
+    |---|---|---|
+    | PURIFY·MIRROR·CATALYST | evaluate(즉시, BOMB 이전) | engine.js:584-617 |
+    | WANDWILD | evaluate(즉시, wild 집계 직후) | engine.js:648-661 |
+    | TARGET | evaluate(즉시, 빈칸활용 이후) | engine.js:716-730 |
+    | PUZZLE5 | evaluate(즉시, SET 이후) | engine.js:751-758 |
+    | CURSE_BLOOD·CURSE_CANDLE | evaluate(즉시, 해골페널티 이후) | engine.js:888-895 |
+    | CURSE_BOOM·BANDAGE·KNOT·ENERGYPACK·FAKECROWN·EVOCORE·LUCKY7·PRISM_SYM | evaluate(즉시, 배수형 블록) | engine.js:938-1007 |
+    | ALARM·GEAR·HOURGLASS·SEED_ANY·SEED_HIGH | evaluate 신호→스핀 후속(다음 스핀) | engine.js:1037-1041, game.js:770-776 |
+    | RECEIPT·COUPON·CART·BLACKCARD | evaluate 신호→상점 훅 | engine.js:1043-1045,1066, game.js:777-780,2306-2320,2325-2345 |
+    | SHIELD·EXEMPT | evaluate 신호→보스 스핀 훅 | engine.js:1046-1047, game.js:919-928 |
+    | DEVCD·KIT | evaluate 신호→스핀 후속(근사: 장치 재사용) | engine.js:1048-1049, game.js:788,798-806 |
+    | AUGCHANCE·AUGLEVEL | evaluate 신호→스핀 후속 | engine.js:1051-1052, game.js:791-797 |
+    | SETFRAG | evaluate 신호→스핀 후속(근사) | engine.js:1053, game.js:809 |
+    | CURSE_EYE | evaluate 신호→스핀 후속(저주게이지+보상후보) | engine.js:1055-1056, game.js:811-813 |
+    | SAFEPIN | evaluate 신호→스핀 후속(마킹)→굴림 시(스테이지 시작 AUGLEVEL pity) | engine.js:1062, game.js:844-846,1478-1488 |
+    | CRYSTAL | evaluate 신호→스핀 후속(즉시소비)→상점 훅(반영) | engine.js:1063, game.js:836-841,2308-2313 |
+    | TEMPWILD | 굴림 시(스핀 프리훅 무조건 주입)+evaluate 신호→스핀 후속(자연등장 시만 소비) | engine.js:1064, game.js:849-852,892 |
+    | FATEVORTEX | 굴림 시(스핀 중 2회굴림 비교)+스핀 후속(소비) | engine.js:1065, game.js:854-860,907-916 |
+    | SHACKLE | 상주(주머니 보유 기반, mods 훅) | engine.js:1067, game.js:421-422,509-511 |
+    합 39종. 웹에도 진짜 휴면인 항목(RANDPACK_*/DESIGNATED_UPGRADE_CHANCE/PACKAGE_CHANCE)은 Sp 심볼이
+    아니라 POUCH 오퍼 v2 죽은 데이터라 이 인벤토리 대상이 아님(§2-(CC) 이미 명시, 재확인만).
+  - **② evaluate() 체인 삽입** — `SpinResolver.Evaluate`에 웹 순서 그대로 삽입: `specialMul` 로컬
+    변수 신설(웹 L583) → PURIFY(해골→빈칸, 앞부터 N개) → MIRROR(양끝 상호복사, 거울 자신이 끝칸이면
+    소스 제외로 미발동) → CATALYST(POUCH_UPGRADE 최저등급 1개 강화, 대상 없으면 값심볼 존재 시 근사
+    +3) → 기존 BOMB/MAGNET(무변경) → WANDWILD(와일드 집계 직후, `wandWilds` 신설·잭팟 게이트는
+    `jackpotCount = bestCount - wandWilds`로 제외) → 기존 per-cell 루프(무변경) → 빈칸활용(`mods.
+    deepEmptyScore/deepEmptyExp`, 신규 Mods 필드) → TARGET(최고 cellExp 값심볼 +50%, 아키타입 곱
+    미포함이 웹과 동일) → 기존 KEY/SET(무변경) → PUZZLE5(값심볼 종류수 4=+150/5=+300) → 기존
+    JACKPOT(잭팟 게이트만 위 jackpotCount로 정정)/잭팟태그 블록(무변경) → 기존 인접/양끝/해골페널티
+    (무변경) → CURSE_BLOOD(+2/개, 심볼 자체 exp8과 합쳐 개당 +10) → CURSE_CANDLE(해골수 비례 배율
+    specialMul, 해골0=EXP0) → 기존 FLAME/첫막스핀/신규16종배수/phoenix(무변경) → **Phase4 배수형
+    블록**: CURSE_BOOM(개당 50/50 ×2 또는 EXP0) → instant 5종(BANDAGE 해골패널티 1개분 상쇄·KNOT
+    양끝일치 +20·ENERGYPACK specialMul×1.30·FAKECROWN crown과 동일 exp/score 직접 가산·EVOCORE
+    IsAutoDecayTarget 셀 1개→SILVER 특수 랜덤 치환) → LUCKY7(specialMul×7 + score/coins 직접 ×7) →
+    PRISM_SYM(4택 랜덤: EXP+40/점수+120/코인+3/specialMul×1.5, `mods.legendStable`이면 항상
+    마지막 분기 고정) → specialMul 캡+적용(`Formulas.MAX_SPIN_EXP_MUL`, 기존 상수 재사용) → 기존
+    전역배수(무변경). `Mods.cs`에 `deepEmptyScore`/`deepEmptyExp`/`legendStable`/`shackleActive`
+    4필드 신설(전부 기본값 무해, `DeepRunHooks.ApplyDeepMods`가 심볼퍽/주머니 상태에서 채운다).
+  - **③ SpinResult 반환 신호 27종 신설**: growNext/alarmNext/carryExp/gearNext/receiptNext/
+    couponNext/cartNext/shieldNext/exemptNext/batteryNext/kitNext/augChanceNext/augLevelNext/
+    setFrag/curseGaugeUp/curseEyeNext/lucky7/hasBandage/hasKnot/hasEnergyPack/hasFakeCrown/
+    hasEvoCore/hasSafePin/hasCrystal/hasTempWild/hasFateVortex/hasBlackCard/hasShackle — 전부 웹
+    engine.js:1026-1082 반환 계약 그대로.
+  - **④ 스핀 후속 소비 — `DeepRunHooks.ProcessDeepSpinFollowups` 확장**(웹 `_applyDeepSpinMeta`
+    대응 블록을 rareFirstScore 직후·퍼펙트드로우 이전에 삽입, 웹 실제 호출 순서와 동일 위치):
+    ⏳모래시계 이월 소비(`run.CarryOverExp` 소진→gained 가산, expSnapshot 캡처 "이후"라 피버 배율
+    기준값 오염 없음) → growNext 저장 → alarm/gear→`PendingNextExpMul` 누적곱 → carryExp→
+    `CarryOverExp` 예약 → receipt/coupon/cart→상점 플래그 3종 → shield/exempt→보스 플래그 2종 →
+    battery/kit→`ReleaseDeviceUse`(근사, 아래 ⑤) → augChance→`AugLevelBoost`+0.15(웹 game.js:791
+    예고대로 실제 발동원이 생겨 이제 후크가 아니라 실제 작동) → augLevel→`AugLevels.LevelableHeld`
+    최저레벨 1개 즉시 레벨업 → setFrag→`bestSetId!=null`이면 코인+2(근사, 아래 ⑥) → curseGaugeUp→
+    `UnluckyGauge` 가산(판단 근거는 아래 ⑦) → curseEyeNext→`DeepRewardBonus`+1(상한2) →
+    instant(BANDAGE/KNOT/ENERGYPACK/FAKECROWN/EVOCORE) 덱소비는 기존 P7-1
+    `ConsumeInstantSymbols`(등장 여부만 보고 id당 최대1회)가 이미 처리 — 중복 소비 없음 → 검은카드
+    등장→불운게이지+1만(덱 소비는 상점 진입 시 별도) → 수정구→즉시 1개 소비+`DeepCrystalPending`+1 →
+    안전핀→이번 스테이지 등장 마킹만(`SafePinActive`, 실소비는 아래 ⑧) → 임시와일드→**자연 드로우로
+    등장했을 때만** 1개 소비(조건부 소모 요구사항 충족 — 무조건 소모 아님) → 운명의소용돌이→스테이지당
+    1회 소비(아래 ⑨).
+  - **⑤ 배터리/정비키트 근사 — `DeepRunHooks.ReleaseDeviceUse`(신규)**: 웹 `_releaseDeviceUse()`는
+    `usedCmds`가 배열이라 "최후 1건"(splice)을 고르지만, Unity `RunState.UsedCmds`는
+    `HashSet<string>`(순서 없음)이라 "최후"라는 개념 자체가 구조적으로 없다 — MANIP 마커
+    (`Devices.ById(id)?.kind=="MANIP"`) 중 열거 순서상 처음 발견되는 1건을 해제하는 것으로
+    근사했다(이탈 사항, 웹 자체가 "과대약속 금지·정직히 근사"로 명시한 기능이라 실질 영향 미미로 판단).
+  - **⑥ 세트조각 근사 — Unity SET 다중집합 미보유 발견(별도 기술부채, 이번 슬라이스 범위 밖)**: 웹
+    evaluate SET 블록(engine.js:736-750)은 `counts`의 모든 값심볼id(count≥2)에 대해 **각각** 세트
+    보너스를 지급하고 `setIds` 배열로 추적하는데, Unity `SpinResolver.Evaluate`의 SET 블록은
+    `bestId`(최다 그룹) **1개만** 보너스를 지급한다(P7-1 이전부터 있던 구조 — reel=5·VALUE_IDS 5종
+    조건에서 두 값심볼이 동시에 count≥2가 되는 경우 자체는 가능하다). SETFRAG의 "세트 형성 여부"
+    판정은 Unity에 `setIds`가 없어 `bestSetId!=null`로 근사했다 — 근본 수정(다중 세트 지급)은 기존
+    골든 테스트 전반에 영향을 주는 별도 슬라이스가 필요해 이번 범위에서 손대지 않았다(신규 발견,
+    보고 대상 — Fable 판단 필요).
+  - **⑦ 저주게이지 판단 — §2-(A) 결정과의 관계**: §2-(A)는 "웹의 해골+1/무해골-1 per-spin 게이지
+    갱신 규칙"을 회귀로 판정해 Unity 자체 불운게이지 모델(나쁜스핀 누적·만땅 forceRare)을 유지하기로
+    결정했다. 이번 슬라이스의 CURSE_BLOOD/CURSE_EYE(`curseGaugeUp`)·BLACKCARD(등장 시 +1)는 그
+    "골격 교체" 결정과는 다른 축(심화 주머니 전용 저주 심볼의 국소적 추가 가산)이라 판단해, 별도
+    게이지를 신설하지 않고 기존 `RunState.UnluckyGauge`에 그대로 가산하도록 배선했다(이 심볼들은
+    weight=0·심화 주머니 전용이라 일반 런에는 절대 등장하지 않아 §2-(A) 결정 적용 대상인 일반경로와
+    충돌하지 않는다). 이탈 판단 근거 명시 — 보고 대상.
+  - **⑧ 안전핀노트 pity 배선 — `StageFlow.RollDeepNodes`**: SYMAUG 슬롯의 AUGLEVEL pity 롤이
+    실패(미발동)하는 분기에서 `run.SafePinActive`(이번 스테이지 안전핀 등장 마킹) && 주머니 보유
+    시 `AugLevelChance`에 +1%p 추가 누적 후 안전핀 1개 소비(웹 game.js:1478-1484 그대로). `
+    SafePinActive`는 second==SYMAUG 여부와 무관하게 매 `RollDeepNodes` 호출마다 무조건 리셋(웹
+    game.js:1488 위치 그대로, if 블록 밖).
+  - **⑨ 운명의소용돌이 — 웹 quirk 재현**: `!r.lockedNext` 가드가 웹 원문에서 바로 앞 줄
+    (`r.lockedNext = null;`, 분기 무관 무조건 실행)에 의해 이미 null로 리셋된 뒤라 **사실상 항상
+    참인 죽은 조건**임을 확인했다 — Unity `RunState.LockedNext`는 이 시점까지 아직 안 비워지므로
+    (비우는 시점은 상태 반영부, evaluate 이후) 문자 그대로 옮기면 예언(LockedNext) 스핀에서 웹과
+    달리 미발동하는 실질적 차이가 생긴다. 웹의 "실질 항상-참" 동작을 그대로 재현하기 위해
+    LockedNext 조건 자체를 Unity 포트에서 생략했다(SpinResolver.cs 주석에 근거 명시). 스테이지당
+    1회(`FateVortexUsedStage`), 소비는 별도 스테이지 카운터(`FateVortexConsumedStage`)로 중복 방지.
+  - **⑩ 방패/시험지 — `SpinResolver.ResolveSpin` 보스 처리 재구성**: `run.BossExempt`가 strict/luck
+    보스 감점룰 자체를 이번 스핀만 건너뛰고(finals는 대상 아님, 웹과 동일), 아니면 `ApplyBoss` 결과가
+    원래 gained보다 작을 때만(=실제 패널티가 있었을 때만) `run.BossShield`가 그 결과를 무시하고 원래
+    gained를 유지 — 웹 game.js:919-928 그대로. 테스트는 `run.LockedNext`로 보스 페널티가 확정적으로
+    발동하는 셀 조합을 강제해 결정론화했다(luck 보스, ⭐👑🌀 없음 → ×0.8 확정).
+  - **⑪ 족쇄 — `Mods.shackleActive`/`SpinResolver.EffSpins`**: 웹은 `_beginStage()`에서 `r.spins`를
+    스테이지당 1회 계산해 저장하지만, Unity `EffSpins(run,mods)`는 저장된 "spins" 필드 없이 매 호출
+    순수함수로 재계산한다 — `mods.shackleActive`(주머니 보유 기반, 스핀 중 불변) && 보스 스테이지면
+    -1을 그 함수 안에 직접 넣어 "스테이지 시작 1회 계산·고정"과 동치 결과를 얻는다(구조적 재설계,
+    수치는 웹과 동일). 클리어코인+4는 `DeepRunHooks.ApplyDeepMods`가 `mods.clearCoinBonus`에 직접
+    가산.
+  - **⑫ 상점 훅 — `Shop.cs`/`NodeEvents.cs`**: `ShopPriceMul`에 `receiptMul`(0.9, `run.
+    DeepShopDiscount`) 곱 추가, `ShopSlotBonus`에 `cartBonus`(`run.DeepShopSlotBonus`) 가산 추가 —
+    이전 슬라이스(P3.5)가 "P7 미구현이라 생략"으로 명시했던 두 항목을 실배선했다. 쿠폰
+    (`run.DeepShopCoupon`)은 `Shop.FreshOffer`가 셔플 직전 무작위 1항목에 -15%+`couponTag`(신규
+    `ShopEntry.couponTag` 필드, UI 배지용) 적용. 검은카드(`run.BlackCardShopFree`)는 `Shop.Buy`의
+    최우선 가드(prism_ink 중복구매 가드 다음)로 1회 무료 구매를 허용. `NodeEvents.ChooseNode`의
+    Shop 분기가 웹 `_openShop()` 순서 그대로 진입 훅(수정구 예약치→`DeepRewardBonus` 이관, 검은카드
+    1개 소비→`BlackCardShopFree`) → `FreshOffer` 호출 → 영수증/쿠폰/장바구니 플래그 리셋을 수행한다.
+    `DeepRewardBonus`는 `PouchOffer.EnterPouchOffer`의 `ExtraCards` 계산에 합류(웹 game.js:1738
+    1회성 소진 그대로).
+  - **⑬ 굴림 시 효과 확인**: temp_wild는 `SpinResolver.ResolveSpin`이 모든 거부 체크 통과 직후
+    (mods 계산 이후·롤 이전) `run.Pouch`에 1개 이상이면 무조건 `arm.Add("wild_temp")`(이미 존재하는
+    "wild_temp" NEXTSPIN 아이템의 cellOp 코드를 그대로 재사용, fx 없음이라 안전). retry_reel은
+    §2-(CC)에서 이미 `RollCells`에 배선 완료 확인(잔여 없음, 재확인만).
+  - **웹 대비 생략/이월 — 명시적 판단(보고 대상)**: ①`mods.deepFamilyBridge`(웹 engine.js
+    famBridge — 상위계열 셀에 하위 참조 perSymbolExp/Score를 합산하는 별도 브릿지 메커니즘)는 Sp
+    특수값이 아니라 독립된 mods 플래그라 이번 "Sp 39종" 범위 밖으로 판단해 미착수(전수 grep 결과
+    Unity에 대응 필드 자체가 없음을 확인 — 신규 발견, 향후 슬라이스 필요). ②`legendStable`의 장치
+    발동원(`dev_legend_seal`)은 그 장치 자체가 Devices.cs에 없어(§2-(C-2) "심화 9종 대응 장치 없음"과
+    동일 사유) 심볼퍽(`sr_legend_seal`) 경로로만 발동 가능 — 기존 정책과 일치, 이탈 아님. ③
+    `hasShackle`/`hasFateVortex`(SpinResult 신호 자체)는 웹도 이 두 불리언 필드를 evaluate 계약에는
+    포함하되 game.js 어디에서도 직접 소비하지 않는 것을 확인(구조적 신호 유지 목적) — Unity도 동일하게
+    필드만 채우고 소비처를 만들지 않았다(웹 그대로, 이탈 아님).
+  - **테스트 — 신규 `Tests_P7_3b_SpEffects.cs`**: evaluate 즉시효과 18종(정화·거울·촉매×2·마법봉×2·
+    빈칸활용·표적·퍼즐×2·피방울·검은초×2·불안정폭탄(통계)·instant 5종·럭키7·프리즘×2(legendStable
+    고정+통계)) + DeepRunHooks 소비 17종(growNext·알람/톱니·모래시계 예약·소비·상점3플래그·보스2플래그·
+    배터리·정비키트·형광펜·복습책·세트조각×2·저주게이지·저주눈·검은카드·수정구·안전핀·임시와일드
+    (조건부 미소모 포함)·운명의소용돌이(스테이지 1회)) + SpinResolver 파이프라인 5종(growNext 실제
+    치환×3·임시와일드 무조건 주입(20시드)·운명의소용돌이 재굴림(10시드)·족쇄 스핀감소+클리어코인·
+    방패/시험지 보스처리) + Shop 5종(영수증·장바구니·쿠폰·검은카드무료·NodeEvents진입훅) +
+    StageFlow 1종(안전핀 pity, 400시드 탐색) + 심화 자동플레이 스모크(10시드×20000틱, 신규 효과
+    관측 카운트 리포트 — 총 스핀수 낮은 표본(10시드 합계 수백 스핀 수준)이라 대부분 0회 관측이나,
+    이는 이 심볼들이 전부 심화 주머니 오퍼로 "먼저 획득"해야 등장 가능해 짧은 자동플레이 표본에서는
+    자연 발생 빈도가 낮기 때문 — 개별 결정론 테스트 60여 건이 이미 각 효과를 정확히 검증했으므로
+    `t.Report`(하드 실패 아님)로만 기록, §2-(CC) 선례와 동일 방침).
+  - **검증(1차 제출)**: `dotnet build`/`dotnet run --project Client/Jackpot/Tools/EngineTests` 0에러 ·
+    29422(직전 슬라이스 종료 시점 표기 오차로 실측 29421 — §2-(CC) 마지막 수치와 스모크 카운트
+    변동분 포함 자연 변동, 0실패로 무회귀 확인) → **34080**(+4659), 0 실패.
+  - **Opus 2차검수 반영(2026-08-09, HIGH 1건·MED 5건·LOW 일괄 5건 — 체인 순서·무회귀 SHA 일치
+    실증 통과 후 추가 지적)**:
+    ①**[HIGH] SETFRAG 게이트 정정**: `DeepRunHooks.cs`의 `res.bestSetId != null`을
+    `res.bestSetCount >= 2`로 정정. `bestId`는 값심볼이 1개만 나와도(count==1) 채워지므로(
+    `SpinResolver.Evaluate`의 bestId 결정 루프가 "최다"만 보고 최소 개수를 요구하지 않음) 구 게이트는
+    "세트 아님"도 세트로 오판정해 코인을 지급하던 버그였다 — `bestSetCount==1`이 무효과임을 확인하는
+    테스트 추가. 웹 setIds 기반 "전 그룹 각각 지급" 규칙 자체(Unity가 "최다 세트 1개"만 지급하는 기존
+    기술부채)는 이번에도 미착수 — 별도 최종 슬라이스로 이월(위 ⑥ 참조).
+    ②**[MED] FATEVORTEX instant 소비 정렬**: `DeepRunHooks.ConsumeInstantSymbols`의 시그니처를
+    `IReadOnlyList<Cell> raw`에서 `SpinResult res`로 변경 — evaluate()가 실제로 계산한
+    `hasBandage/hasKnot/hasEnergyPack/hasFakeCrown/hasEvoCore`(웹 `res.hasX`, 폭탄 등으로 사라진
+    경우 정확히 false) 5개 플래그를 직접 소비한다. 호출 시점도 `SpinResolver.ResolveSpin`에서 fate_vortex
+    2번째 굴림 채택 판정 "이후"로 이동 — 1차 구현은 Evaluate 호출 전(raw만 보고) 선(先)소비해, res2가
+    채택되면 "버려진 첫 굴림" 기준으로 잘못 소비하고 있었다. `Tests_P7_1_Pouch.
+    InstantSymbolConsumption`도 새 시그니처(SpinResult 플래그 직접 구성)로 갱신.
+    ③**[MED] FATEVORTEX rawIds 정합**: res2 채택 시 `raw`(그리고 그로부터 파생되는 `rawIds`/
+    `run.LastCells`)도 raw2로 함께 교체 — 1차 구현은 res만 바뀌고 raw/rawIds가 여전히 "버려진" 첫
+    굴림을 가리켜 릴 표시(run.LastCells)·셀 정보 탭(CellInfoView)이 실제 채택된 결과와 어긋났다.
+    ④**[MED] EffSpins 족쇄 정합**: `SpinResolver.EffSpins`가 `mods.shackleActive` 대신
+    `run.Pouch["shackle"]`(+`run.DeepMode`)을 직접 참조하도록 정정. `mods.shackleActive`는
+    `DeepRunHooks.ApplyDeepMods`를 거친 mods에만 채워지는데, `ResolveSpin`의 `preMods`/`preMods0`
+    (3단계 mods 재계산의 앞 두 단계)·`GameSession.PreviewQuotaSpins`·`DeviceActions`/`ItemUse`의
+    재계산 mods 등 여러 경로가 이 함수를 거치지 않은 mods 스냅샷으로 `EffSpins`를 호출해 "족쇄를
+    보유해도 어떤 mods를 넘겼는지에 따라 스핀수가 달라지는" 불일치가 있었다 — `run.Pouch`를 직접
+    보면 4경로 모두 한 번에 일관되게 해결된다. 테스트를 "ApplyDeepMods 미적용 mods로도 동일 결과"
+    직접 검증으로 갱신(제어군도 mods가 아니라 shackle 미보유 별도 run으로 재구성 — mods 무관 설계라
+    기존 "같은 run·mods만 다르게" 비교 방식 자체가 더 이상 유효하지 않았음).
+    ⑤**[MED — Fable 결정] 저주게이지 가산 제외**: 🩸피방울/🧿저주눈(`curseGaugeUp`)·💳검은카드
+    (`hasBlackCard`)의 `UnluckyGauge` 가산을 제거했다. 웹은 이 게이지가 순수 표시용(보상 연동 없음)
+    이라 무해했지만, Unity의 UnluckyGauge는 §2-(A) 결정대로 실제 보상 연동(만땅 시 forceRare 희귀
+    보장)이 있는 게이지다 — 저주 심볼이 이 게이지를 채워주면 "저주를 뽑을수록 다음 보상이 좋아진다"는
+    부호가 뒤집힌 인센티브가 생긴다(웹엔 없던 부작용, 1차 구현이 이 차이를 간과). `SpinResult.
+    curseGaugeUp`/`hasBlackCard` 필드 자체는 데이터 계약 유지(hasShackle/hasFateVortex와 동일한
+    "구조적 신호만 유지, 소비처 없음" 패턴), 소비 로직만 제거 — 회귀 방지 테스트(가산 없음 확인)로 고정.
+    ⑥**[MED — Fable 결정] 잭팟 EXP 순서 — specialMul/exp=0을 jackpotFixed에도 적용**: 웹은 잭팟 EXP
+    (jb)를 evaluate 초반에 `exp`에 곧장 합쳐 넣으므로(engine.js:765) 이후의 CURSE_CANDLE/CURSE_BOOM
+    exp=0 리셋과 specialMul 캡이 잭팟 가산분까지 함께 적용된다. Unity는 P2 결정(§2-B)에 따라
+    `jackpotFixed`를 전역 expMul 밖의 별도 누산기로 분리 유지하지만, 이번 슬라이스가 새로 들여온
+    "심화 전용" 메커니즘(specialMul·exp=0 리셋)만큼은 웹 순서를 반영해 `jackpotFixed`도 함께 리셋/
+    캡 적용하도록 정정(일반 런은 이 심볼들 자체가 등장 불가라 무접촉 확인). **잔여 이탈**: 전역
+    expMul 배제(P2 결정)·FLAME/첫막스핀/rareBurst/set3/perfectShape/phoenix 등 나머지 EXP 배수들은
+    여전히 jackpotFixed에 적용하지 않는다(웹은 이들도 전부 적용하지만, 이번 정정은 "심화 전용 신규
+    메커니즘"으로 범위를 좁혔다 — 전면 재정렬은 기존 골든 전반에 영향을 주는 별도 슬라이스 필요).
+    ⑦**[LOW 일괄]**: FATEVORTEX 소비 주기를 스테이지 스코프(`FateVortexUsedStage`/
+    `FateVortexConsumedStage`, int)에서 웹 실사용 quirk와 맞는 런 스코프(`FateVortexUsed`/
+    `FateVortexConsumed`, bool)로 통일 — 전설 등급 희소성과 맞물려 "런 1회"로 수렴하는 웹 동작을
+    그대로 재현. 모래시계 이월 소비를 `gained`(ref, RunBestSpin/LastGain 오염 위험) 대신
+    `run.StageExp` 직접 가산으로 변경(웹 `r.stageExp += co`와 동일 — 스핀 실적 지표 오염 해소).
+    수정구/임시와일드/운명의소용돌이(DeepRunHooks)·검은카드(NodeEvents Shop 진입)·안전핀노트
+    (StageFlow AUGLEVEL pity) — 주머니가 실제로 줄어드는 5개 지점 전부에 `DeepRunHooks.
+    CheckArchetypeChange(run)` 호출 추가(웹 `this._checkArchetype();` 그대로, 이벤트 채널이 없는
+    자리라 반환값은 버리고 전공 스냅샷 갱신만 취함 — 자동소멸 기존 선례와 동일 패턴). Lucky7 테스트에
+    값심볼(cherry/gem) 조합으로 EXP×7(specialMul 경유)·점수×7(직접 곱) 손계산 어서션 추가(기존
+    테스트는 coin만 써서 두 배수 자체를 검증하지 못했다). 심화 자동플레이 스모크에 신규 특수심볼
+    39종을 시작 주머니에 소량(각 2개) 직접 심어 넣어 관측 카운트를 실측 가능한 수준으로 확보(정화·
+    미러·빈칸·퍼즐 등 여전히 0회인 항목은 표본 63스핀 내 저빈도 — 개별 결정론 테스트가 정확도를
+    담보하므로 하드 실패 아님, 유지).
+  - **재검증(Opus 2차검수 반영 후)**: `dotnet run --project Client/Jackpot/Tools/EngineTests`
+    34080 → **33734**(순 감소 — 주요인은 심화 자동플레이 스모크에 신규 특수심볼을 시드하며 런이
+    더 일찍 끝나 총 스텝 수가 줄어든 것(스텝당 불변식 어서션이 매 스텝 반복되는 구조라 스텝 수
+    감소가 곧 어서션 수 감소로 직결 — 총 스핀수 171→63), instant 소모 테스트가 raw 개별 셀 구성에서
+    SpinResult 플래그 직접 구성으로 단순화된 것도 소폭 기여. 개별 결정론 테스트(비-스모크)는 오히려
+    순증(SETFRAG count==1 케이스·족쇄 mods-무관성·Lucky7 EXP/점수 검증 등 신규 어서션 추가) — 0실패로
+    무회귀 확인), 0 실패.
+  - **P7 완료**: §1-A #19 "심화모드(심볼 덱/주머니)" 4/4 슬라이스 전부 완료 — 남은 항목은 전부 P7-4
+    (UI 보드·심화 업적/장치·랭킹 3노드 분리)로 이관.
 
 ## 3. 페이즈 로드맵
 
@@ -1702,6 +1912,6 @@
 | P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | ✅ 2026-08-09 완료(3/3) |
 | P5 | 사운드(절차 합성 SFX 16종 + BGM 루프) | ✅ 2026-08-09 완료 |
 | P6 | 승천 A1~A10 + 승천 랭킹 분리 | ✅ 2026-08-09 완료(랭킹 분리는 P7-4로 이관, bestAscScore 기록은 완료) |
-| P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버) + 심화 랭킹 | 🔶 진행 중(3/4 — 코어+심볼퍽/전공/정비소+잭팟태그/피버/자동소멸/POUCH오퍼/노드풀 완료, §2-(AA)/§2-(BB)/§2-(CC)) |
+| P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버·Sp 51종 특수효과) + 심화 랭킹 | ✅ 2026-08-09 완료(4/4, §2-(AA)/§2-(BB)/§2-(CC)/§2-(DD)) — 남은 항목은 P7-4(UI 보드·심화 업적/장치·랭킹 분리)로 이관 |
 
 각 페이즈는 FABLE_RULES 4단계 파이프라인으로 진행하고, EngineTests 골든망을 웹 수치로 갱신하며 통과를 유지한다.

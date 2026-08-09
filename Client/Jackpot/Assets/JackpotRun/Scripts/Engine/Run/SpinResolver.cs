@@ -71,6 +71,42 @@ namespace JackpotRun.Engine
         public bool hasReachMark;      // 🎯리치표식 보유
         public bool hasRetryReel;      // 🔁재도전릴 보유
         public bool hasJpTicket;       // 🎟잭팟티켓 보유
+
+        // ── 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종 전면 이식") — 웹
+        // engine.js:1026-1082 나머지 반환 신호. DeepRunHooks.ProcessDeepSpinFollowups(웹
+        // _applyDeepSpinMeta 대응)가 소비한다. 전부 mods.deepMode 게이트 밖에서도 계산되지만(웹도
+        // 동일 — evaluate 자체는 항상 이 필드들을 계산), 신규 special 셀은 일반모드에 절대 등장하지
+        // 않으므로(weight=0) 값 자체가 항상 기본값(null/0/false)이라 자연히 무회귀다.
+        public string growNext;        // "ANY"|"HIGH"|null — 🌱씨앗/🌿새싹 다음 스핀 성장 예약
+        public bool alarmNext;         // ⏰알람 — 다음 스핀 EXP+10%
+        public long carryExp;          // ⏳모래시계 — 이번 EXP 30% 다음 스핀 이월
+        public bool gearNext;          // ⚙톱니(근사) — 다음 스핀 EXP+10%
+        public bool receiptNext;       // 🧾영수증 — 다음 상점 전체 -10%
+        public bool couponNext;        // 🎟쿠폰 — 다음 상점 상품 1개 할인
+        public bool cartNext;          // 🛒장바구니 — 다음 상점 상품칸 +1
+        public bool shieldNext;        // 🛡방패 — 다음 보스 패널티 1회 방어
+        public bool exemptNext;        // 📋시험지 — 다음 보스 감점룰 1회 무시
+        public bool batteryNext;       // 🔋배터리(근사) — 장치 재사용 1회 허용
+        public bool kitNext;           // 🧰정비키트(근사) — 장치 재사용 1회 허용/상점칸+1 폴백
+        public bool augChanceNext;     // 🖍형광펜 — 다음 증강 레벨업 확률 +15%
+        public bool augLevelNext;      // 📚복습책 — 보유 증강 최저레벨 1개 즉시 레벨업
+        public bool setFrag;           // 🧩세트조각(근사) — 세트 형성 시 코인+2
+        public int curseGaugeUp;       // 🩸피방울/🧿저주눈 개수 — 저주게이지(불운게이지 근사) 가산량
+        public bool curseEyeNext;      // 🧿저주눈 — 다음 주머니 보상 후보 +1
+        public bool lucky7;            // 7️⃣ 이번 스핀 럭키7 발동(업적/UX)
+        // instant(이번 스핀 소비·DeepRunHooks.ProcessDeepSpinFollowups에서 해당 심볼 덱-1):
+        public bool hasBandage;
+        public bool hasKnot;
+        public bool hasEnergyPack;
+        public bool hasFakeCrown;
+        public bool hasEvoCore;
+        // fuse(조건 도달 시 소비·각 훅 발동 시 소비):
+        public bool hasSafePin;        // 🧷 레벨업 실패 시 누적
+        public bool hasCrystal;        // 🔮 다음 보상 후보 +1(fuse: 상점 진입 훅)
+        public bool hasTempWild;       // 🧲 이번 스핀 와일드 취급(fuse: 릴 추출 시 훅)
+        public bool hasFateVortex;     // 🌀 스핀 2회 굴려 유리한 쪽(fuse: 스핀전 훅)
+        public bool hasBlackCard;      // 💳 다음 상점 1개 무료+불운+1(fuse: 상점 진입 훅)
+        public bool hasShackle;        // ⛓ 보스 관련(상주·주머니 보유 기반, ApplyDeepMods 게이팅)
     }
 
     // ResolveSpin() 한 번 호출(스핀 1회 전체 파이프라인) 결과. StageFlow가 이 값을 보고 클리어/실패를
@@ -333,11 +369,78 @@ namespace JackpotRun.Engine
             var notes = new List<string>();
             var cells = new List<Cell>(raw);
             int reel = Math.Max(cells.Count, 1);
+            // 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종 전면 이식", 웹 engine.js:583)
+            // — 누적 특수배수(럭키7×7·검은초·불안정폭탄·프리즘) 전용 변수. 일반경로는 1(무영향)로 남아
+            // 아래 특수배수 캡 블록에서 사실상 no-op 처리된다.
+            double specialMul = 1.0;
 
             // 🌱 씨앗 성장 표기(첫 매치만)
             for (int i = 0; i < cells.Count; i++)
             {
                 if (cells[i].tag == "🌱→") { notes.Add($"🌱 씨앗→{cells[i].sym.emoji}"); break; }
+            }
+
+            // 🧹 정화도구(PURIFY) — 웹 engine.js:584-592. 해골(SKULL) 1개→빈칸, 정화도구 수만큼 앞 해골부터.
+            int purifyN = 0;
+            for (int i = 0; i < cells.Count; i++) if (cells[i].sym.special == Sp.PURIFY) purifyN++;
+            if (purifyN > 0)
+            {
+                int purified = 0;
+                for (int i = 0; i < reel && purified < purifyN; i++)
+                {
+                    if (cells[i].sym.special == Sp.SKULL) { cells[i] = new Cell(EmptySym, "🧹"); purified++; }
+                }
+                if (purified > 0) notes.Add($"🧹 해골 {purified}개 정화");
+            }
+
+            // 🪞 거울(MIRROR) — 웹 engine.js:593-598. 1번칸↔마지막칸 상호복사(거울 자체는 소스 제외).
+            bool hasMirror = false;
+            for (int i = 0; i < cells.Count; i++) if (cells[i].sym.special == Sp.MIRROR) { hasMirror = true; break; }
+            if (hasMirror && reel >= 2)
+            {
+                var mirA = cells[0]; var mirB = cells[reel - 1];
+                bool mirAOk = mirA.sym.special != Sp.MIRROR, mirBOk = mirB.sym.special != Sp.MIRROR;
+                if (mirAOk && mirBOk)
+                {
+                    cells[0] = new Cell(mirB.sym, "🪞");
+                    cells[reel - 1] = new Cell(mirA.sym, "🪞");
+                    notes.Add("🪞 양끝 미러");
+                }
+            }
+
+            // 🧪 촉매(CATALYST) — 웹 engine.js:599-617. 상위계열 매핑(POUCH_UPGRADE) 가능한 최저등급
+            // 심볼 1개를 상위로 강화. 매핑 대상이 없으면 값심볼 존재 시 근사(+3 EXP, catalystApproxExp로
+            // per-cell 루프 이후 가산). 촉매 여러개여도 1회만.
+            double catalystApproxExp = 0.0;
+            {
+                bool hasCatalyst = false;
+                for (int i = 0; i < cells.Count; i++) if (cells[i].sym.special == Sp.CATALYST) { hasCatalyst = true; break; }
+                if (hasCatalyst)
+                {
+                    int catBi = -1;
+                    for (int i = 0; i < cells.Count; i++)
+                    {
+                        string cid = cells[i].sym.id;
+                        if (!Pouch.Upgrade.ContainsKey(cid)) continue;
+                        if (catBi < 0 || CatalystRank(cid) < CatalystRank(cells[catBi].sym.id)) catBi = i;
+                    }
+                    if (catBi >= 0)
+                    {
+                        var catFrom = cells[catBi].sym;
+                        var catUp = Symbols.ById(Pouch.Upgrade[catFrom.id]);
+                        if (catUp != null)
+                        {
+                            cells[catBi] = new Cell(catUp, "🧪");
+                            notes.Add($"🧪 {catFrom.emoji}→{catUp.emoji} 강화");
+                        }
+                    }
+                    else
+                    {
+                        bool anyValueSym = false;
+                        for (int i = 0; i < cells.Count; i++) if (ValueIds.Contains(cells[i].sym.id)) { anyValueSym = true; break; }
+                        if (anyValueSym) { catalystApproxExp = 3; notes.Add("🧪 촉매(강화 +3)"); }
+                    }
+                }
             }
 
             // 💣 폭탄 — 등장한 폭탄 개수만큼 각각 양옆 제거 → EXP 환산. 폭탄끼리는 안 지움, 중복 제거 방지.
@@ -398,6 +501,22 @@ namespace JackpotRun.Engine
                 if (s.special == Sp.WILD) wilds++;
                 else if (s.id != "empty" && ValueIds.Contains(s.id)) counts[s.id] = counts.TryGetValue(s.id, out var c) ? c + 1 : 1;
             }
+            // 🪄 마법봉(WANDWILD) — 웹 engine.js:648-655. 무작위 1심볼을 와일드 취급(치환 아님·세트/양끝
+            // 보조에만). 상한: 마법봉 기여 최대 1 + 실와일드 합이 reel-1 초과 못함. 잭팟 게이트는 마법봉
+            // 기여 제외(아래 jackpotCount).
+            int wandWilds = 0;
+            {
+                bool hasWandWild = false;
+                for (int i = 0; i < cells.Count; i++) if (cells[i].sym.special == Sp.WANDWILD) { hasWandWild = true; break; }
+                if (hasWandWild)
+                {
+                    int cap = Math.Max(0, (reel - 1) - wilds);
+                    wandWilds = Math.Min(1, cap);
+                    if (wandWilds > 0) notes.Add("🪄 마법봉 와일드");
+                }
+            }
+            int totalWilds = wilds + wandWilds;
+
             string bestId = null;
             int bestTmp = 0;
             for (int i = 0; i < ValueIdsPriorityOrder.Length; i++)
@@ -405,8 +524,8 @@ namespace JackpotRun.Engine
                 var sid = ValueIdsPriorityOrder[i];
                 if (counts.TryGetValue(sid, out var cnt) && cnt > bestTmp) { bestTmp = cnt; bestId = sid; }
             }
-            if (bestId != null && wilds > 0) counts[bestId] = counts[bestId] + wilds;
-            else if (bestId == null && wilds > 0) { bestId = "cherry"; counts["cherry"] = wilds; }
+            if (bestId != null && totalWilds > 0) counts[bestId] = counts[bestId] + totalWilds;
+            else if (bestId == null && totalWilds > 0) { bestId = "cherry"; counts["cherry"] = totalWilds; }
             int bestCount = bestId != null && counts.TryGetValue(bestId, out var bc) ? bc : 0;
 
             // 기본 EXP/점수/코인 + 즉발 심볼효과 + 태그 집계
@@ -488,6 +607,47 @@ namespace JackpotRun.Engine
                 }
             }
             exp += bombExp;
+            if (catalystApproxExp != 0) exp += catalystApproxExp; // 🧪 촉매 근사(+3) — 매핑 대상 없을 때만
+
+            // ── Phase 5 심화: 빈칸활용/빈칸설명서(심화 심볼증강·유물) — 웹 engine.js:701-714 ──
+            if (mods.deepEmptyScore != 0 || mods.deepEmptyExp != 0)
+            {
+                int emptyN = 0;
+                for (int i = 0; i < cells.Count; i++) if (cells[i].sym.id == "empty") emptyN++;
+                if (emptyN > 0)
+                {
+                    if (mods.deepEmptyExp != 0) exp += emptyN * mods.deepEmptyExp;
+                    if (mods.deepEmptyScore != 0) score += emptyN * mods.deepEmptyScore;
+                    var emptyParts = new List<string>();
+                    if (mods.deepEmptyExp != 0) emptyParts.Add($"+{(int)(emptyN * mods.deepEmptyExp)}EXP");
+                    if (mods.deepEmptyScore != 0) emptyParts.Add($"+{(int)(emptyN * mods.deepEmptyScore)}점");
+                    notes.Add($"▫ 빈칸 {emptyN}개 활용 {string.Join("·", emptyParts)}");
+                }
+            }
+
+            // 🎯 표적(TARGET) — 웹 engine.js:716-730. 근사: 최고 cellExp 값심볼 칸 1개 효과 +50%(1회만·
+            // 중복곱 방지). per-cell 루프의 cellExp 공식(아키타입 곱 제외 — 웹과 동일)을 재현해 최고 칸을
+            // 찾고, 그 50%를 exp에 가산.
+            {
+                bool hasTarget = false;
+                for (int i = 0; i < cells.Count; i++) if (cells[i].sym.special == Sp.TARGET) { hasTarget = true; break; }
+                if (hasTarget)
+                {
+                    double best = 0;
+                    for (int i = 0; i < cells.Count; i++)
+                    {
+                        if (!ValueIds.Contains(cells[i].sym.id)) continue;
+                        double v = TargetCellExp(cells[i], i, reel, mods);
+                        if (v > best) best = v;
+                    }
+                    if (best > 0)
+                    {
+                        double bonus = best * 0.5;
+                        exp += bonus;
+                        notes.Add($"🎯 표적 최고칸 +50% (+{(int)Math.Floor(bonus)})");
+                    }
+                }
+            }
 
             if (keyCount > 0)
             {
@@ -511,9 +671,25 @@ namespace JackpotRun.Engine
                 if (twoMul != 1.0) notes.Add($"👯짝맞춤 +{(int)((twoMul - 1.0) * 100)}%");
             }
 
-            // 🎰 잭팟 — 전 칸 동일(와일드 포함) 심볼
+            // 🧩 퍼즐(PUZZLE5) — 웹 engine.js:751-758. 서로 다른 값심볼 종류 수 → 점수 보너스(1회만).
+            // reel=5·값심볼 5종(왕관 포함)이라 "정확히 5종"은 극희소 → 완화 2단(4종+150/5종+300).
+            {
+                bool hasPuzzle = false;
+                for (int i = 0; i < cells.Count; i++) if (cells[i].sym.special == Sp.PUZZLE5) { hasPuzzle = true; break; }
+                if (hasPuzzle)
+                {
+                    var kinds = new HashSet<string>();
+                    for (int i = 0; i < cells.Count; i++) if (ValueIds.Contains(cells[i].sym.id)) kinds.Add(cells[i].sym.id);
+                    int puzzleBonus = kinds.Count >= 5 ? 300 : kinds.Count >= 4 ? 150 : 0;
+                    if (puzzleBonus > 0) { score += puzzleBonus; notes.Add($"🧩 퍼즐 {kinds.Count}종 +{puzzleBonus}점"); }
+                }
+            }
+
+            // 🎰 잭팟 — 전 칸 동일(와일드 포함) 심볼. ★마법봉 와일드 기여는 잭팟 게이트에서 제외(인위적
+            // 잭팟 남발 차단, 웹 engine.js:759-761 jackpotCount). 세트/표기엔 bestCount 유지.
             string jackpotSym = null;
-            if (bestId != null && bestCount >= reel && reel >= 5)
+            int jackpotCount = bestCount - wandWilds;
+            if (bestId != null && jackpotCount >= reel && reel >= 5)
             {
                 jackpotSym = bestId;
                 int jb = bestId switch
@@ -695,6 +871,46 @@ namespace JackpotRun.Engine
                 }
             }
 
+            // 🩸 피방울(CURSE_BLOOD) — 웹 engine.js:888-890. 셀 exp 8(데이터)+추가 +2/개 = 개당 +10.
+            {
+                int bloodN = 0;
+                for (int i = 0; i < cells.Count; i++) if (cells[i].sym.special == Sp.CURSE_BLOOD) bloodN++;
+                if (bloodN > 0)
+                {
+                    int bloodAdd = 2 * bloodN;
+                    exp += bloodAdd;
+                    notes.Add($"🩸 피방울 {bloodN}개 +{8 * bloodN + bloodAdd}");
+                }
+            }
+
+            // 🕯 검은초(CURSE_CANDLE) — 웹 engine.js:891-895. 해골 수만큼 배율(개당+25%·상한×2.5).
+            // 해골 0이면 이번 스핀 EXP 0(저주 리스크).
+            {
+                bool hasCandle = false;
+                for (int i = 0; i < cells.Count; i++) if (cells[i].sym.special == Sp.CURSE_CANDLE) { hasCandle = true; break; }
+                if (hasCandle)
+                {
+                    if (skulls > 0)
+                    {
+                        double cm = Math.Min(1 + 0.25 * skulls, 2.5);
+                        specialMul *= cm;
+                        notes.Add($"🕯 검은초 ☠{skulls} ×{FmtMul(cm)}");
+                    }
+                    else
+                    {
+                        // Opus 2차검수(P7-3b) [MED-6, Fable 결정] — 웹은 잭팟 EXP(jb)를 evaluate 초반에
+                        // `exp`에 곧장 합쳐 넣으므로(engine.js:765) 이 exp=0 리셋이 잭팟 가산분까지
+                        // 함께 지운다. Unity는 P2 결정(§2-B, 잭팟 고정가산은 전역 expMul 밖)에 따라
+                        // jackpotFixed를 별도 누산기로 분리 유지하지만, "심화 전용" 신규 효과(검은초/
+                        // 불안정폭탄의 exp=0)만큼은 웹 순서를 그대로 반영해 jackpotFixed도 함께
+                        // 지운다(일반 런은 이 심볼 자체가 등장 불가라 무접촉).
+                        exp = 0;
+                        jackpotFixed = 0;
+                        notes.Add("🕯 검은초 — 해골없음 EXP 0");
+                    }
+                }
+            }
+
             // 🔥 불꽃
             bool anyFlame = false;
             for (int i = 0; i < cells.Count; i++) if (cells[i].sym.special == Sp.FLAME) { anyFlame = true; break; }
@@ -743,6 +959,134 @@ namespace JackpotRun.Engine
                 notes.Add($"🔥불사조 EXP ×{FmtMul(mods.cliffBurstExpMul)}");
             }
 
+            // ══════════════════════════════════════════════════════════════════════
+            //  Phase 4 — 배수형/전설 특수심볼(전역배 직전, specialMul 누적 → 캡) — 웹 engine.js:936-1012.
+            // ══════════════════════════════════════════════════════════════════════
+            bool lucky7 = false;
+            // 🧨 불안정폭탄(CURSE_BOOM) — 개당 50% 대폭발(×2)·50% 불발(EXP 0). 여러개면 독립 판정.
+            {
+                int boomN = 0;
+                for (int i = 0; i < cells.Count; i++) if (cells[i].sym.special == Sp.CURSE_BOOM) boomN++;
+                for (int k = 0; k < boomN; k++)
+                {
+                    if (rng.NextDouble() < 0.5) { specialMul *= 2.0; notes.Add("🧨 대폭발 ×2"); }
+                    else
+                    {
+                        // Opus 2차검수(P7-3b) [MED-6, Fable 결정] — CURSE_CANDLE 분기와 동일 근거로
+                        // jackpotFixed도 함께 리셋(웹 순서 그대로, 일반 런 무접촉).
+                        exp = 0;
+                        jackpotFixed = 0;
+                        notes.Add("🧨 불발 — EXP 0");
+                        break;
+                    }
+                }
+            }
+
+            // ── V3P4: instant 소모형/일회용 효과(deepMode 전용) — 웹 engine.js:945-991. 아래 결과는
+            // DeepRunHooks.ProcessDeepSpinFollowups가 소비 후 해당 심볼 -1 처리(instant 제거). ──
+            bool hasBandage = false, hasKnot = false, hasEnergyPack = false, hasFakeCrown = false, hasEvoCore = false;
+            for (int i = 0; i < cells.Count; i++)
+            {
+                var sp2 = cells[i].sym.special;
+                if (sp2 == Sp.BANDAGE) hasBandage = true;
+                else if (sp2 == Sp.KNOT) hasKnot = true;
+                else if (sp2 == Sp.ENERGYPACK) hasEnergyPack = true;
+                else if (sp2 == Sp.FAKECROWN) hasFakeCrown = true;
+                else if (sp2 == Sp.EVOCORE) hasEvoCore = true;
+            }
+            //  🩹붕대(BANDAGE): 이번 스핀 해골 패널티 1개분 감소(위에서 이미 음수 반영된 패널티 상쇄).
+            if (hasBandage && skulls > 0)
+            {
+                exp += Formulas.SKULL_PENALTY;
+                notes.Add("🩹 붕대 — 해골 패널티 1개분 감소");
+            }
+            //  🪢매듭(KNOT): 첫 칸·마지막 칸이 같은 심볼(빈칸 제외)이면 EXP+20.
+            if (hasKnot && reel >= 2 && cells[0].sym.id != "empty" && cells[0].sym.id == cells[reel - 1].sym.id)
+            {
+                exp += 20;
+                notes.Add($"🪢 매듭 — 양끝 동일({cells[0].sym.emoji}) EXP +20");
+            }
+            //  🧃에너지팩(ENERGYPACK): 이번 스핀 EXP +30%(specialMul에 가산).
+            if (hasEnergyPack) { specialMul *= 1.30; notes.Add("🧃 에너지팩 — 이번 스핀 EXP +30%"); }
+            //  👑가짜왕관(FAKECROWN): 왕관과 동등한 EXP/점수 직접 부여(업적 추적 제외는 game 계층 몫).
+            if (hasFakeCrown)
+            {
+                var crownSym = Symbols.ById("crown");
+                if (crownSym != null) { exp += crownSym.exp; score += crownSym.score; }
+                notes.Add("👑 가짜왕관 — 왕관 취급 (업적 제외)");
+            }
+            //  🧬진화핵(EVOCORE): 기본 이득 심볼(IsAutoDecayTarget) 1개를 SILVER 특수 랜덤으로 교체
+            //  (셀 내 변환. re-evaluate 없음 — 변환 후 기존 cells로 최종 집계).
+            if (hasEvoCore)
+            {
+                var evoBaseIdxs = new List<int>();
+                for (int i = 0; i < cells.Count; i++) if (Pouch.IsAutoDecayTarget(cells[i].sym.id)) evoBaseIdxs.Add(i);
+                if (evoBaseIdxs.Count > 0)
+                {
+                    int evoBi = evoBaseIdxs[rng.Next(evoBaseIdxs.Count)];
+                    var silverPool = new List<string>();
+                    for (int i = 0; i < Pouch.Symbols71.Length; i++)
+                    {
+                        var pid = Pouch.Symbols71[i];
+                        if (Pouch.CatOf(pid) == "special" && Pouch.TierOf(pid) == "SILVER" && Symbols.ById(pid) != null)
+                            silverPool.Add(pid);
+                    }
+                    if (silverPool.Count > 0)
+                    {
+                        string newId = silverPool[rng.Next(silverPool.Count)];
+                        var newSym = Symbols.ById(newId);
+                        var evoFrom = cells[evoBi].sym;
+                        cells[evoBi] = new Cell(newSym, "🧬");
+                        notes.Add($"🧬 진화핵 — {evoFrom.emoji}{evoFrom.name} → {newSym.emoji}{newSym.name} 변환");
+                    }
+                }
+            }
+
+            //  7️⃣ 럭키7(LUCKY7): 3개+ → EXP/점수/코인 7배. ★배수 상한(specialMul 캡)으로 폭주 제어.
+            {
+                int luckyN = 0;
+                for (int i = 0; i < cells.Count; i++) if (cells[i].sym.id == "lucky7") luckyN++;
+                if (luckyN >= 3)
+                {
+                    lucky7 = true;
+                    specialMul *= 7;
+                    score *= 7;
+                    coinsAcc *= 7;
+                    notes.Add($"7️⃣ 럭키7 ×{luckyN} — 7배!{(mods.legendStable ? " 🔏안정" : "")}");
+                }
+            }
+            //  🌈 프리즘(PRISM_SYM): 무작위 프리즘급 미니효과 1택(폭 좁게). 여러개면 각각 1택.
+            //  🔏전설봉인기(mods.legendStable): 랜덤 대신 최선 효과(EXP×1.5)로 안정 발동.
+            {
+                int prismN = 0;
+                for (int i = 0; i < cells.Count; i++) if (cells[i].sym.special == Sp.PRISM_SYM) prismN++;
+                for (int k = 0; k < prismN; k++)
+                {
+                    int pick = mods.legendStable ? 3 : rng.Next(4);
+                    switch (pick)
+                    {
+                        case 0: exp += 40; notes.Add("🌈 프리즘 — EXP +40"); break;
+                        case 1: score += 120; notes.Add("🌈 프리즘 — 점수 +120"); break;
+                        case 2: coinsAcc += 3; notes.Add("🌈 프리즘 — 코인 +3"); break;
+                        default:
+                            specialMul *= 1.5;
+                            notes.Add($"🌈 프리즘 — EXP ×1.5{(mods.legendStable ? " 🔏안정" : "")}");
+                            break;
+                    }
+                }
+            }
+            //  ★특수배수 누적 캡(럭키7×7·검은초·불안정폭탄·프리즘 곱 폭주 차단). 일반경로는 specialMul=1(무영향).
+            // Opus 2차검수(P7-3b) [MED-6, Fable 결정] — 웹은 jb를 evaluate 초반에 `exp`에 곧장 합쳐
+            // 넣으므로(engine.js:765) 이 캡도 잭팟 가산분까지 함께 곱한다. jackpotFixed는 심화 전용
+            // 신규 경로(specialMul)에만 이렇게 합류하고, 아래 전역 expMul에는 여전히 배제된다(P2 결정
+            // 유지 — 잔여 이탈, §2-(DD) 참조). 일반 런은 specialMul이 항상 1이라 무접촉.
+            if (specialMul != 1.0)
+            {
+                specialMul = Math.Min(specialMul, Formulas.MAX_SPIN_EXP_MUL);
+                exp *= specialMul;
+                jackpotFixed *= specialMul;
+            }
+
             // 전역 배수 + 고정(잭팟은 아직 미포함)
             long preMulExp = Math.Max((long)exp, 0);
             exp = exp * mods.expMul + mods.flatExp;
@@ -750,7 +1094,8 @@ namespace JackpotRun.Engine
             // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): 총배율 캡 제거 — 웹 engine.js에는 이 자리에서
             // center/ends/flame/first·last/rareBurst/set3/perfectShape/global 곱을 클램프하는 로직이
             // 없다(grep 결과: 웹 MAX_SPIN_EXP_MUL은 specialMul 캡 전용, Formulas.cs 주석 참조). 잭팟
-            // 고정가산은 원래도 캡 예외(곱 밖)였으므로 위치는 그대로 유지.
+            // 고정가산은 원래도 캡 예외(곱 밖)였으므로 위치는 그대로 유지 — 전역 expMul만 배제(위
+            // specialMul/exp=0 리셋은 이제 함께 반영, P7-3b [MED-6] 잔여 이탈로 명시).
             exp += jackpotFixed;
 
             // 신규 16종 per-spin 점수 배수
@@ -763,12 +1108,58 @@ namespace JackpotRun.Engine
             }
             score = score * mods.scoreMul + mods.flatScore;
             int coins = (int)(coinsAcc * mods.coinMul) + Formulas.COIN_BASE;
+            long finalExp = Math.Max((long)exp, 0);
+
+            // ── 웹 파리티 P7-3b — 다음스핀/상점/보스/fuse 신호 일괄 집계(웹 engine.js:1026-1082). 전부
+            // 최종 cells(폭탄/자석/거울/촉매/진화핵 변형 반영 후) 기준 — 웹과 동일 소스에서 읽는다. ──
+            string growNext = null;
+            bool alarmNext = false, hourglassPresent = false, gearNext = false;
+            bool receiptNext = false, couponNext = false, cartNext = false;
+            bool shieldNext = false, exemptNext = false, batteryNext = false, kitNext = false;
+            bool augChanceNext = false, augLevelNext = false, setFrag = false, curseEyeNext = false;
+            bool hasSafePin = false, hasCrystal = false, hasTempWild = false, hasFateVortex = false;
+            bool hasBlackCard = false, hasShackle = false;
+            int curseGaugeUp = 0;
+            bool seedAnyPresent = false, seedHighPresent = false;
+            for (int i = 0; i < cells.Count; i++)
+            {
+                var sp3 = cells[i].sym.special;
+                switch (sp3)
+                {
+                    case Sp.SEED_ANY: seedAnyPresent = true; break;
+                    case Sp.SEED_HIGH: seedHighPresent = true; break;
+                    case Sp.ALARM: alarmNext = true; break;
+                    case Sp.HOURGLASS: hourglassPresent = true; break;
+                    case Sp.GEAR: gearNext = true; break;
+                    case Sp.RECEIPT: receiptNext = true; break;
+                    case Sp.COUPON: couponNext = true; break;
+                    case Sp.CART: cartNext = true; break;
+                    case Sp.SHIELD: shieldNext = true; break;
+                    case Sp.EXEMPT: exemptNext = true; break;
+                    case Sp.DEVCD: batteryNext = true; break;
+                    case Sp.KIT: kitNext = true; break;
+                    case Sp.AUGCHANCE: augChanceNext = true; break;
+                    case Sp.AUGLEVEL: augLevelNext = true; break;
+                    case Sp.SETFRAG: setFrag = true; break;
+                    case Sp.CURSE_EYE: curseEyeNext = true; curseGaugeUp++; break;
+                    case Sp.CURSE_BLOOD: curseGaugeUp++; break;
+                    case Sp.SAFEPIN: hasSafePin = true; break;
+                    case Sp.CRYSTAL: hasCrystal = true; break;
+                    case Sp.TEMPWILD: hasTempWild = true; break;
+                    case Sp.FATEVORTEX: hasFateVortex = true; break;
+                    case Sp.BLACKCARD: hasBlackCard = true; break;
+                    case Sp.SHACKLE: hasShackle = true; break;
+                }
+            }
+            // growNext 우선순위: SEED_ANY("ANY")가 SEED_HIGH("HIGH")보다 우선 — 웹 engine.js:1037-1038 그대로.
+            growNext = seedAnyPresent ? "ANY" : (seedHighPresent ? "HIGH" : null);
+            long carryExp = hourglassPresent ? (long)Math.Floor(finalExp * 0.3) : 0;
 
             return new SpinResult
             {
                 cells = cells,
                 rawCells = new List<Cell>(raw), // [표시 전용] 변형 이전 입력 스냅샷 — Cell은 교체 시 새 인스턴스라 리스트 복사로 충분
-                exp = Math.Max((long)exp, 0),
+                exp = finalExp,
                 score = Math.Max((long)score, 0),
                 coins = coins,
                 counts = counts,
@@ -793,7 +1184,60 @@ namespace JackpotRun.Engine
                 hasReachMark = hasReachMark,
                 hasRetryReel = hasRetryReel,
                 hasJpTicket = hasJpTicket,
+                growNext = growNext,
+                alarmNext = alarmNext,
+                carryExp = carryExp,
+                gearNext = gearNext,
+                receiptNext = receiptNext,
+                couponNext = couponNext,
+                cartNext = cartNext,
+                shieldNext = shieldNext,
+                exemptNext = exemptNext,
+                batteryNext = batteryNext,
+                kitNext = kitNext,
+                augChanceNext = augChanceNext,
+                augLevelNext = augLevelNext,
+                setFrag = setFrag,
+                curseGaugeUp = curseGaugeUp,
+                curseEyeNext = curseEyeNext,
+                lucky7 = lucky7,
+                hasBandage = hasBandage,
+                hasKnot = hasKnot,
+                hasEnergyPack = hasEnergyPack,
+                hasFakeCrown = hasFakeCrown,
+                hasEvoCore = hasEvoCore,
+                hasSafePin = hasSafePin,
+                hasCrystal = hasCrystal,
+                hasTempWild = hasTempWild,
+                hasFateVortex = hasFateVortex,
+                hasBlackCard = hasBlackCard,
+                hasShackle = hasShackle,
             };
+        }
+
+        // 🧪촉매(CATALYST) 등급 서열 비교 헬퍼 — Pouch.RarityOrder 인덱스(작을수록 낮은 등급).
+        private static int CatalystRank(string id) => Array.IndexOf(Pouch.RarityOrder, Pouch.RarityOf(id));
+
+        // 🎯표적(TARGET) 근사 — 웹 engine.js:719-726의 inline cellExpOf를 그대로 옮긴 헬퍼. 본계산의
+        // per-cell cellExp 공식과 동일(아키타입 곱(archMul)·해골 분기는 값심볼 한정이라 여기 대상 없음
+        // — 웹도 이 헬퍼엔 archMul을 넣지 않는다, VALUE_IDS만 호출측에서 필터).
+        private static double TargetCellExp(Cell c, int idx, int reel, Mods mods)
+        {
+            var s = c.sym;
+            double ce = s.exp + PerSymExpBonus(mods, s.id);
+            if (s.tags != null)
+                for (int ti = 0; ti < s.tags.Length; ti++)
+                    ce += mods.tagExpBonus.TryGetValue(s.tags[ti], out var teb) ? teb : 0;
+            if (mods.deepTagMul.Count > 0 && s.tags != null)
+            {
+                double tagMul = 0;
+                for (int ti2 = 0; ti2 < s.tags.Length; ti2++)
+                    tagMul += mods.deepTagMul.TryGetValue(s.tags[ti2], out var tv) ? tv : 0;
+                tagMul = Math.Max(-0.5, Math.Min(0.5, tagMul));
+                if (tagMul != 0) ce *= (1 + tagMul);
+            }
+            if (idx == reel / 2) ce *= mods.centerExpMul;
+            return ce;
         }
 
         // 잭팟 태그 → 표시 라벨 — 웹 engine.js:830 TAG_EMOJI 그대로. internal — DeepRunHooks의 스핀
@@ -816,8 +1260,27 @@ namespace JackpotRun.Engine
         // ── spinsPerStage / effSpins / qOf / cmdCoinCost ────────────────────────
         public static int SpinsPerStage(Mods mods) => ModsBuilder.SpinsPerStage(mods);
 
-        public static int EffSpins(RunState run, Mods mods) =>
-            Math.Max(SpinsPerStage(mods) + run.StageBonusSpins + Bosses.Spins(run.Stage), Formulas.MIN_SPINS);
+        public static int EffSpins(RunState run, Mods mods)
+        {
+            int spins = Math.Max(SpinsPerStage(mods) + run.StageBonusSpins + Bosses.Spins(run.Stage), Formulas.MIN_SPINS);
+            // 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종") — ⛓족쇄(SHACKLE) 영구 저주,
+            // 웹 game.js:421-422 `if (r.deepMode && mods.shackleActive && r.boss && r.spins > 1) r.spins -= 1;`.
+            // 웹은 이 값을 `_beginStage()`에서 스테이지당 1회만 계산해 저장하지만, Unity는 EffSpins 자체가
+            // run.StageBonusSpins 기반 순수함수라(저장된 "spins" 필드가 없음) 매 호출마다 동일 조건으로
+            // 재계산해도 결과는 스테이지 내내 상수(주머니 shackle 보유량은 스핀 중 변하지 않음) — 웹의
+            // "스테이지 시작 시 1회 계산·고정"과 동치.
+            // Opus 2차검수(P7-3b) [MED-4] — `mods.shackleActive` 대신 `run.Pouch["shackle"]`을 직접
+            // 참조하도록 정정. `mods.shackleActive`는 `DeepRunHooks.ApplyDeepMods`가 채우는데, 이
+            // 함수를 거치지 않은 mods 스냅샷(ResolveSpin의 preMods/preMods0, GameSession.
+            // PreviewQuotaSpins, DeviceActions/ItemUse의 재계산 mods 등)으로 EffSpins를 호출하는
+            // 경로가 여럿 있어 "족쇄를 보유해도 어떤 mods를 넘겼는지에 따라 스핀수가 달라지는" 불일치가
+            // 있었다. run.Pouch를 직접 보면 이 4경로 모두 한 번에 일관되게 해결된다(mods 인자 자체는
+            // 시그니처 호환을 위해 유지 — 다른 계산엔 여전히 필요).
+            if (run.DeepMode && Bosses.For(run.Stage) != null && spins > 1
+                && run.Pouch.TryGetValue("shackle", out var shackleN) && shackleN > 0)
+                spins -= 1;
+            return spins;
+        }
 
         // 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18, 웹 game.js:423 `r.quota = Math.max(1, Math.floor(
         // E.quota(stage) * mods.quotaMul * E.bossQuotaMul(stage) * am.quotaMul * (r.boss ? am.bossQuotaMul
@@ -973,6 +1436,13 @@ namespace JackpotRun.Engine
             // 웹 파리티 P7-2 blocker(§0) — `Symbols.ById("empty")`가 null이라 LockedNext 경로가
             // CellsFromIds(구버전)를 타면 "empty" 칸이 조용히 드롭돼 릴 칸수가 줄어들 수 있었다(위
             // CellsFromIds 헤더 주석 참조) — rng/pouch를 함께 넘겨 "random"까지 안전하게 왕복시킨다.
+            // 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종", 웹 game.js:892 `spin()`
+            // 프리훅) — 🧲임시와일드(temp_wild) 보유 시 매 스핀 무조건 wild_temp cellOp 주입(자연 등장
+            // 여부 무관 — "소유" 자체가 효과, fuse 소비는 실제 temp_wild 심볼이 자연히 드로우됐을 때만
+            // DeepRunHooks가 처리한다). "wild_temp"는 실제 Item 카탈로그에 fx 없는 순수 cellOp 코드라
+            // (Items.cs — eraser_old/fake_crown과 동일 부류) ApplyItemMods에 섞여 들어가도 무해하다.
+            if (run.DeepMode && run.Pouch.TryGetValue("temp_wild", out var twStock) && twStock > 0) arm.Add("wild_temp");
+
             List<Cell> raw;
             if (run.LockedNext.Count > 0)
             {
@@ -981,15 +1451,46 @@ namespace JackpotRun.Engine
             else
             {
                 raw = RollCells(run, mods, reel, run.SeedNext);
+                if (run.DeepMode) raw = DeepRunHooks.ApplyGrowNext(run, raw);
                 if (run.DeepMode) raw = DeepRunHooks.ApplyDeepPity(run, raw);
             }
             ApplyCellOps(raw, arm, run.Rng);
-            // 웹 파리티 P7-1 작업 지시 6번 — "등장 즉시 덱 -1"인 instant 소모 심볼(POUCH_USE)의 단순화
-            // 버전(실제 개별 효과는 P7-2/3). DeepRunHooks.ConsumeInstantSymbols 헤더 각주 참조.
-            if (run.DeepMode) DeepRunHooks.ConsumeInstantSymbols(run, raw);
-            var rawIds = raw.Select(c => c.sym.id).ToList();
 
             var res = Evaluate(run.Rng, raw, mods, run.SpinIndex, spins, run.FlameNext);
+            // 웹 파리티 P7-3b — 🌀운명의소용돌이(FATEVORTEX·fuse) 런 1회: 2번째 굴림을 수행해
+            // 더 좋은 결과 채택(웹 game.js:907-916). [웹 quirk 재현] 웹 원문의 `!r.lockedNext` 가드는
+            // 바로 위 줄(`r.lockedNext = null;`, 이 스핀이 lockedNext를 썼든 안 썼든 무조건 실행)에서
+            // 이미 null로 리셋된 뒤라 사실상 항상 참(=죽은 가드)이다 — Unity는 run.LockedNext를 이
+            // 시점까지 아직 비우지 않으므로(비우는 시점은 아래 상태 반영부) 문자 그대로 "LockedNext
+            // 비어있을 때만" 조건을 그대로 옮기면 웹과 실제로 달라진다(예언 스핀에서 미발동). 웹의
+            // "실질 항상-참" 동작을 그대로 재현하기 위해 LockedNext 조건 자체를 넣지 않는다.
+            if (run.DeepMode && run.Pouch.TryGetValue("fate_vortex", out var fvStock) && fvStock > 0
+                && !run.FateVortexUsed)
+            {
+                var raw2 = RollCells(run, mods, reel, false);
+                var res2 = Evaluate(run.Rng, raw2, mods, run.SpinIndex, spins, run.FlameNext);
+                if (res2.exp > res.exp)
+                {
+                    // Opus 2차검수(P7-3b) [MED-3] — 채택된 굴림(res2)이 실제로 릴에 표시될 셀이므로
+                    // raw/rawIds도 함께 res2 쪽으로 교체해야 한다(웹은 애초에 단일 `res`만 다뤄 이런
+                    // 괴리가 없음). 1차 구현은 raw/rawIds가 여전히 "버려진" 첫 번째 굴림을 가리켜
+                    // run.LastCells(릴 표시용)·CellInfoView(셀 정보 탭)가 실제 채택된 결과와 어긋났었다.
+                    raw = raw2;
+                    res = res2;
+                    res.notes.Add("🌀 운명의소용돌이 — 더 좋은 결과 선택");
+                }
+                else
+                {
+                    res.notes.Add("🌀 운명의소용돌이 — 원래 결과 유지");
+                }
+                run.FateVortexUsed = true;
+            }
+            // Opus 2차검수(P7-3b) [MED-2] — instant 5종(bandage/knot/energypack/fake_crown_sym/
+            // evo_core) 소비를 fate_vortex 채택 "이후"의 최종 res 기준으로 옮겼다(웹 `_applyDeepSpinMeta
+            // (res)`가 실제로 쓰이는 res를 소비하는 것과 동일 순서 — 이전엔 Evaluate 호출 전 raw만 보고
+            // 선(先)소비해, fate_vortex가 res2를 채택하면 "버려진 첫 굴림" 기준으로 잘못 소비하고 있었다).
+            if (run.DeepMode) DeepRunHooks.ConsumeInstantSymbols(run, res);
+            var rawIds = raw.Select(c => c.sym.id).ToList();
             long gained = res.exp;
             var outcomeNotes = new List<string>(res.notes);
             bool prayMiracle = false;
@@ -1033,9 +1534,28 @@ namespace JackpotRun.Engine
             var boss = Bosses.For(run.Stage);
             if (boss != null)
             {
-                var (g2, bn) = ApplyBoss(boss, gained, res, run.SpinIndex, spins);
-                gained = g2;
-                if (!string.IsNullOrEmpty(bn)) outcomeNotes.Add(bn.TrimStart(' ', '·'));
+                // 웹 파리티 P7-3b — 🛡방패(SHIELD)/📋시험지(EXEMPT), 웹 game.js:919-928. 시험지=strict/luck
+                // 감점룰 자체를 이번 스핀만 무시(발동 시에만 소비). 방패=보스 패널티(EXP 감소)만 방어(보너스는
+                // 유지) — 발동 실제로 패널티가 있었을 때만 소비. 둘 다 심화모드 전용(일반 런은 항상 false).
+                if (run.DeepMode && run.BossExempt && (boss.id == "strict" || boss.id == "luck"))
+                {
+                    run.BossExempt = false;
+                    outcomeNotes.Add("📋 시험지 — 보스 감점룰 무시");
+                }
+                else
+                {
+                    var (g2, bn) = ApplyBoss(boss, gained, res, run.SpinIndex, spins);
+                    if (run.DeepMode && run.BossShield && g2 < gained)
+                    {
+                        run.BossShield = false;
+                        outcomeNotes.Add("🛡 방패 — 보스 패널티 방어");
+                    }
+                    else
+                    {
+                        gained = g2;
+                        if (!string.IsNullOrEmpty(bn)) outcomeNotes.Add(bn.TrimStart(' ', '·'));
+                    }
+                }
             }
 
             if (devEq != null && devEq.id == "dev_safe")

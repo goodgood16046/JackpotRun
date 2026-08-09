@@ -514,9 +514,23 @@ namespace JackpotRun.Engine
                 else
                 {
                     run.AugLevelChance = Math.Min(0.20, run.AugLevelChance + 0.02);
+                    // 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종") — 🧷안전핀노트
+                    // (safepin·fuse), 웹 game.js:1478-1484. AUGLEVEL 미발생 시(이 else 분기) 이번
+                    // 스테이지 safepin이 등장했었다면(run.SafePinActive) pity에 +1%p 추가 누적 후 소비.
+                    if (run.Pouch.TryGetValue("safepin", out var spn) && spn > 0 && run.SafePinActive)
+                    {
+                        run.AugLevelChance = Math.Min(0.20, run.AugLevelChance + 0.01);
+                        run.Pouch["safepin"] = spn - 1;
+                        if (run.Pouch["safepin"] <= 0) run.Pouch.Remove("safepin");
+                        // Opus 2차검수(P7-3b) [LOW 일괄] — 웹 game.js:1482 `this._checkArchetype();` 그대로.
+                        DeepRunHooks.CheckArchetypeChange(run);
+                    }
                 }
                 run.AugLevelBoost = 0.0;
             }
+            // 웹 game.js:1488 `r._safePinActive = false;` — second==SYMAUG 분기 밖(스테이지마다 항상)
+            // 무조건 리셋.
+            run.SafePinActive = false;
 
             if (sp.AlwaysRepair && !nodes.Contains(NodeKind.Shop)) nodes.Add(NodeKind.Shop);
             if (boss && run.Device == "dev_call_bell" && !nodes.Contains(NodeKind.Shop)) nodes.Add(NodeKind.Shop);

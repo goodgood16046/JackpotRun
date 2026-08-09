@@ -12,6 +12,9 @@ namespace JackpotRun.Engine
         public char kind;
         public string id;
         public int price;
+        // 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종") — 웹 game.js:2344 `o.couponTag =
+        // true`. 🎟쿠폰(deepShopCoupon)이 이 항목에 적용됐음을 표시(UI 배지용, 가격 계산엔 이미 반영됨).
+        public bool couponTag;
     }
 
     // 상점(EVENT_SHOP) — 02_service.md §4 그대로(판매 기능 없음, §4-E). 오퍼 생성/가격/리롤/구매 처리.
@@ -52,17 +55,26 @@ namespace JackpotRun.Engine
         }
 
         // 웹 game.js:2327 `pm = max(0.4, ascMods(r.asc).shopPriceMul * (sm.shopPriceMul||1) * receiptMul)`
-        // — 승천(ascMods)은 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18)로 배선했다. 심화 영수증
-        // (receiptMul)은 P7 미구현이라 여전히 생략(곱연산 항이라 나중에 그대로 끼워 넣을 수 있다).
-        private static double ShopPriceMul(RunState run, Mods mods) =>
-            Math.Max(0.4, AscMods.Get(run.Asc).ShopPriceMul * mods.shopPriceMul);
+        // — 승천(ascMods)은 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18)로 배선했다. 웹 파리티 P7-3b
+        // (WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종") — 🧾영수증(receiptMul, run.DeepShopDiscount)
+        // 실배선. NodeEvents.ChooseNode의 Shop 분기가 FreshOffer 호출 "이전"에 이 값을 아직 리셋하지
+        // 않으므로(리셋은 FreshOffer 직후) 여기서 안전하게 읽을 수 있다.
+        private static double ShopPriceMul(RunState run, Mods mods)
+        {
+            double receiptMul = (run.DeepMode && run.DeepShopDiscount) ? 0.9 : 1.0;
+            return Math.Max(0.4, AscMods.Get(run.Asc).ShopPriceMul * mods.shopPriceMul * receiptMul);
+        }
 
         // 웹 game.js:2328 `itemPm = max(0.4, pm * (sm.itemPriceMul||1))`.
         private static double ItemPriceMul(RunState run, Mods mods) => Math.Max(0.4, ShopPriceMul(run, mods) * mods.itemPriceMul);
 
-        // 웹 game.js:2330 `slot = max(0, min(3, (sm.shopSlotBonus||0) + cartBonus))` — cartBonus(🛒장바구니,
-        // 심화 전용)는 P7 미구현이라 생략.
-        private static int ShopSlotBonus(Mods mods) => Math.Max(0, Math.Min(3, mods.shopSlotBonus));
+        // 웹 game.js:2330 `slot = max(0, min(3, (sm.shopSlotBonus||0) + cartBonus))`. 웹 파리티 P7-3b —
+        // 🛒장바구니(cartBonus, run.DeepShopSlotBonus) 실배선.
+        private static int ShopSlotBonus(RunState run, Mods mods)
+        {
+            int cartBonus = run.DeepMode ? run.DeepShopSlotBonus : 0;
+            return Math.Max(0, Math.Min(3, mods.shopSlotBonus + cartBonus));
+        }
 
         // 웹 game.js:2363 `cost = max(2, 6 + shopRerollDelta)`.
         public static int RerollCostFor(RunState run) => Math.Max(2, BaseRerollCost + ShopMods(run).shopRerollDelta);
@@ -360,7 +372,7 @@ namespace JackpotRun.Engine
             var mods = ShopMods(run);
             double pm = ShopPriceMul(run, mods);
             double itemPm = ItemPriceMul(run, mods);
-            int slot = ShopSlotBonus(mods);
+            int slot = ShopSlotBonus(run, mods);
 
             List<Perk> GatePrism(List<Perk> list)
             {
@@ -378,6 +390,15 @@ namespace JackpotRun.Engine
                 .Select(i => new ShopEntry { kind = 'I', id = i.id, price = RoundPrice(i.coinCost * itemPm) });
 
             var all = augs.Concat(relics).Concat(items).ToList();
+            // 웹 파리티 P7-3b — 🎟쿠폰(run.DeepShopCoupon), 웹 game.js:2342-2345. 무작위 상품 1개 추가
+            // -15% 할인(표시용 couponTag). 웹은 이 시점(셔플 이전)의 배열에서 뽑는다 — Unity는 이후 곧장
+            // rng.Shuffle(all)로 순서가 다시 섞이므로 시점 차이가 관측 가능한 차이를 만들지 않는다.
+            if (run.DeepMode && run.DeepShopCoupon && all.Count > 0)
+            {
+                int ci = rng.Next(all.Count);
+                all[ci].price = Math.Max(1, (int)Math.Round(all[ci].price * 0.85, MidpointRounding.AwayFromZero));
+                all[ci].couponTag = true;
+            }
             rng.Shuffle(all);
             return all;
         }
@@ -391,12 +412,16 @@ namespace JackpotRun.Engine
             // 웹 파리티 P3-4 Opus 2차검수 웹 이탈 정리⑤(game.js:2350 shopBuy 최우선 가드) — 프리즘잉크는
             // 런당 1회만 구매 가능. 코인/가방 체크보다 먼저(웹과 동일 순서).
             if (entry.id == "prism_ink" && run.PrismInkBought) return RunEvents.Rejected("PRISM_INK_ALREADY_BOUGHT");
-            if (run.Coins < entry.price) return RunEvents.Rejected("INSUFFICIENT_COINS");
+            // 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종") — 💳검은카드(BlackCardShopFree),
+            // 웹 game.js:2351-2355. 상점 진입 시 세팅된 1회 무료 플래그(NodeEvents.ChooseNode Shop 분기).
+            bool isFree = run.DeepMode && run.BlackCardShopFree;
+            if (!isFree && run.Coins < entry.price) return RunEvents.Rejected("INSUFFICIENT_COINS");
             bool isItem = entry.kind != 'A' && entry.kind != 'R';
             // 웹 game.js:2301 `_giveItem` cap = 3 + itemCapBonus(item_bag 등) — ItemUse.EffectiveSlots로 위임.
             if (isItem && run.Items.Count >= ItemUse.EffectiveSlots(run)) return RunEvents.Rejected("BAG_FULL");
 
-            run.Coins -= entry.price;
+            if (isFree) run.BlackCardShopFree = false;
+            else run.Coins -= entry.price;
             run.UsedCmds.Add("RUNSHOP"); // 런 끝까지 보존(StageFlow.ClearStage의 usedCmds 리셋 예외 목록)
             if (entry.id == "prism_ink") run.PrismInkBought = true;
             if (isItem) run.Items.Add(entry.id);
@@ -408,7 +433,7 @@ namespace JackpotRun.Engine
 
             return RunEvents.One(new RunEvent
             {
-                type = "SHOP_PURCHASED", shopBought = entry, shopOffer = run.ShopOffer, coinsDelta = -entry.price,
+                type = "SHOP_PURCHASED", shopBought = entry, shopOffer = run.ShopOffer, coinsDelta = isFree ? 0 : -entry.price,
             });
         }
 

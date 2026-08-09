@@ -90,6 +90,19 @@ namespace JackpotRun.Engine
         // 항상 false(DeepRunHooks.ApplyDeepMods가 심화 런에서만 true로 세운다).
         public bool deepMode = false;
 
+        // ── 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종 전면 이식") ──────────────
+        // 심볼퍽 emptyScore/emptyExp(Content/SymPerks.cs) — evaluate 빈칸활용 블록이 소비. 웹
+        // game.js:469-470 `deepEmptyScore: (mods.deepEmptyScore||0)+sp.emptyScore` 그대로.
+        // DeepRunHooks.ApplyDeepMods가 채운다. 일반 모드는 항상 0(무회귀).
+        public double deepEmptyScore = 0.0;
+        public double deepEmptyExp = 0.0;
+        // 전설봉인함(sr_legend_seal 심볼퍽 + 주머니 전설(👑/7️⃣/🌈) 보유) — 웹 game.js:476-481. 프리즘/
+        // 럭키7의 랜덤 효과를 "최선 효과 고정"으로 안정화(SpinResolver.Evaluate PRISM_SYM/LUCKY7 분기).
+        public bool legendStable = false;
+        // ⛓족쇄(SHACKLE) 영구 저주 — 웹 game.js:509-511 `shackleActive`. 보스 스테이지 스핀-1
+        // (SpinResolver.EffSpins)·클리어코인+4(DeepRunHooks.ApplyDeepMods가 clearCoinBonus에 직접 가산).
+        public bool shackleActive = false;
+
         // Opus 2차검수(P7-2) 필수⑤[권장] — DeepRunHooks.ApplyDeepMods 이중 호출 안전장치. 이 함수는
         // "최종 mods에 딱 1회" 주입되는 게 계약이라(호출부 헤더 주석) 같은 Mods 인스턴스에 실수로
         // 두 번 불려도(예: 향후 리팩터로 호출 지점이 늘어날 때) 아키타입/심볼퍽 배수가 중복 누적되지
@@ -119,6 +132,8 @@ namespace JackpotRun.Engine
                 DeepModsApplied = DeepModsApplied,
                 feverReachFix = feverReachFix,
                 deepMode = deepMode,
+                deepEmptyScore = deepEmptyScore, deepEmptyExp = deepEmptyExp,
+                legendStable = legendStable, shackleActive = shackleActive,
             };
             foreach (var kv in perSymbolExp) m.perSymbolExp[kv.Key] = kv.Value;
             foreach (var kv in tagExpBonus) m.tagExpBonus[kv.Key] = kv.Value;

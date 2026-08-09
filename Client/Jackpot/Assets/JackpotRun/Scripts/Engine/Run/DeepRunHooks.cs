@@ -31,6 +31,26 @@ namespace JackpotRun.Engine
             return raw;
         }
 
+        // 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종 전면 이식") — 웹 game.js:696-705
+        // `_growNextRoll(raw)`. 🌱씨앗/🌿새싹 성장 — 심화모드 전용, "fresh 굴림"(LockedNext 재사용
+        // 아님)에서만 raw 무작위 1칸을 성장 심볼로 치환하고 RunState.GrowNext 소진. "ANY"=기본심볼
+        // 5종 중 무작위, "HIGH"=체리/책/별 3종 중 무작위(둘 다 rng 2회 소비 — 심볼 선택 후 칸 선택,
+        // 웹과 동일 순서). ApplyDeepPity 호출부(ResolveSpin·DeviceActions.HandlePeek) 둘 다 이 함수를
+        // 먼저 태워야 웹과 같은 순서(growNextRoll → pityRoll)가 재현된다.
+        private static readonly string[] GrowPoolAny = { "cherry", "book", "star", "gem", "coin" };
+        private static readonly string[] GrowPoolHigh = { "cherry", "book", "star" };
+
+        public static List<Cell> ApplyGrowNext(RunState run, List<Cell> raw)
+        {
+            if (!run.DeepMode || run.GrowNext == null || raw == null || raw.Count == 0) return raw;
+            var pool = run.GrowNext == "HIGH" ? GrowPoolHigh : GrowPoolAny;
+            string gid = pool[run.Rng.Next(pool.Length)];
+            var gsym = Symbols.ById(gid);
+            if (gsym != null) raw[run.Rng.Next(raw.Count)] = new Cell(gsym, "🌱→");
+            run.GrowNext = null;
+            return raw;
+        }
+
         // 심화모드 압축 패널티(요구치 배수) — 일반모드는 항상 1(무영향), 웹 `_deepPenalty()` 그대로.
         // 웹 파리티 P7-2(WEB_PARITY_DESIGN.md §1-A #19 2/4 슬라이스 A) — P7-1이 TODO로 남겨 둔 나머지
         // 두 항(심볼퍽 penaltyMul 완화 클램프 + 전설봉인함 보스요구 25% 감쇄)을 채운다: base(총량 압축
@@ -129,6 +149,29 @@ namespace JackpotRun.Engine
             foreach (var kv in am.ScoreMul) mods.deepFamilyScoreMul[kv.Key] = kv.Value;
             foreach (var kv in am.CoinMul) mods.deepFamilyCoinMul[kv.Key] = kv.Value;
             if (am.SkullPenaltyMul != 1.0) mods.skullPenaltyMul *= am.SkullPenaltyMul;
+
+            // 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종 전면 이식") — 웹 game.js:
+            // 469-470 심볼퍽 emptyScore/emptyExp → SpinResolver.Evaluate 빈칸활용 블록이 소비.
+            mods.deepEmptyScore += sp.EmptyScore;
+            mods.deepEmptyExp += sp.EmptyExp;
+
+            // 웹 game.js:476-481 — 전설봉인함(sr_legend_seal 심볼퍽) + 주머니 전설(👑crown/7️⃣lucky7/
+            // 🌈prism_sym) 보유 시 legendStable 안정 발동(프리즘/럭키7 랜덤효과 최선 고정).
+            if (sp.LegendSeal)
+            {
+                int legends = (run.Pouch.TryGetValue("crown", out var lc1) ? lc1 : 0)
+                            + (run.Pouch.TryGetValue("lucky7", out var lc2) ? lc2 : 0)
+                            + (run.Pouch.TryGetValue("prism_sym", out var lc3) ? lc3 : 0);
+                if (legends > 0) mods.legendStable = true;
+            }
+
+            // 웹 game.js:509-511 — ⛓족쇄(SHACKLE) 영구 저주: 주머니 보유 시 shackleActive(보스 스핀-1,
+            // SpinResolver.EffSpins가 소비) + 클리어코인+4(clearCoinBonus에 직접 가산).
+            if (run.Pouch.TryGetValue("shackle", out var shackleN) && shackleN > 0)
+            {
+                mods.shackleActive = true;
+                mods.clearCoinBonus += 4;
+            }
         }
 
         // 웹 파리티 P7-2(§1-A #19 B, 웹 game.js:548-558 `_checkArchetype()`) — 주머니 변경(정비소 구매)
@@ -168,21 +211,31 @@ namespace JackpotRun.Engine
         // 0이면 키 제거). 실제 게임 효과는 P7-2/3가 이 감산 자리 옆에 이어붙이면 된다 — 이중 소모
         // (효과 로직이 따로 또 -1 하는 것) 방지를 위해 P7-2/3 구현 시 이 함수를 대체/확장하는 쪽으로
         // 통합할 것(지금은 자리만 예약).
-        public static void ConsumeInstantSymbols(RunState run, IReadOnlyList<Cell> raw)
+        // Opus 2차검수(P7-3b) [MED-2] — P7-1 시절엔 instant 5종(bandage/knot/energypack/
+        // fake_crown_sym/evo_core)의 실제 효과가 아직 없어 "raw(evaluate 입력 원시 셀)에 등장했는가"로
+        // 근사했었다. 이제 evaluate()가 실제 효과와 함께 `SpinResult.hasBandage` 등 5개 플래그를
+        // 정확히 계산해 반환한다(웹 `res.hasX` 그대로, engine.js:1058-1060) — 이 플래그들은 evaluate
+        // 내부에서 폭탄/자석/거울/촉매가 이미 반영된 "최종" cells 기준이라, 예를 들어 폭탄에 날아가
+        // 사라진 붕대는 hasBandage=false로 정확히 빠진다(raw 스캔은 이 사실을 몰라 여전히 소비해
+        // 버리는 오차가 있었다). 시그니처를 `SpinResult`로 바꿔 이 실제 신호를 그대로 소비하도록
+        // 정정 — id당 최대 1회(웹과 동일, 5종은 서로 다른 id라 애초에 중복 걱정 없음)만 제거한다.
+        public static void ConsumeInstantSymbols(RunState run, SpinResult res)
         {
-            if (!run.DeepMode || raw == null) return;
-            var consumedThisSpin = new HashSet<string>();
-            for (int i = 0; i < raw.Count; i++)
+            if (!run.DeepMode || res == null) return;
+            ConsumeInstantOne(run, "bandage", res.hasBandage);
+            ConsumeInstantOne(run, "knot", res.hasKnot);
+            ConsumeInstantOne(run, "energypack", res.hasEnergyPack);
+            ConsumeInstantOne(run, "fake_crown_sym", res.hasFakeCrown);
+            ConsumeInstantOne(run, "evo_core", res.hasEvoCore);
+        }
+
+        private static void ConsumeInstantOne(RunState run, string id, bool appeared)
+        {
+            if (!appeared) return;
+            if (run.Pouch.TryGetValue(id, out var n) && n > 0)
             {
-                var id = raw[i].sym?.id;
-                if (string.IsNullOrEmpty(id)) continue;
-                if (!Pouch.Use.TryGetValue(id, out var use) || use != "instant") continue;
-                if (!consumedThisSpin.Add(id)) continue; // 이미 이번 스핀에 이 id를 처리함(웹: 등장 여부만 봄)
-                if (run.Pouch.TryGetValue(id, out var n) && n > 0)
-                {
-                    if (n <= 1) run.Pouch.Remove(id);
-                    else run.Pouch[id] = n - 1;
-                }
+                if (n <= 1) run.Pouch.Remove(id);
+                else run.Pouch[id] = n - 1;
             }
         }
 
@@ -254,6 +307,123 @@ namespace JackpotRun.Engine
                     notes.Add($"🧰 희귀표본 첫 발견 점수 +{bonus}");
                 }
             }
+
+            // ── ⏳모래시계 이월 소비 — 웹 game.js:970 `if (r.deepMode && r.carryOverExp) { const co =
+            // r.carryOverExp; r.carryOverExp = 0; r.stageExp += co; ... }`. 지난 스핀에서 예약된
+            // CarryOverExp를 이번 스핀 게이지에 1회 가산(소진 후 0).
+            // Opus 2차검수(P7-3b) [LOW 일괄] — 웹은 `r.stageExp`(런 누적치)에 직접 더할 뿐 스핀
+            // 지역변수 `exp`는 절대 건드리지 않는다. 1차 구현은 `gained`(ref)에 더했는데, `gained`는
+            // 이 함수 종료 후 `run.RunBestSpin`(이번 런 최고 EXP 기록)·`run.LastGain`(이번 스핀 표시
+            // 값) 계산에도 그대로 쓰여 "지난 스핀 이월분"이 "이번 스핀 실적"으로 오염되는 문제가 있었다
+            // (웹은 애초에 그 두 값이 `exp`가 아니라 별도 소스라 이 문제 자체가 없다). `run.StageExp`에
+            // 직접 가산해 fever 배율 기준값(expSnapshot)뿐 아니라 bestSpin/lastGain 오염까지 함께
+            // 해소한다 — ResolveSpin이 함수 종료 후 `newExp = run.StageExp + gained`로 재조합하므로
+            // 여기서 미리 올려둔 `run.StageExp`는 그대로 합산에 반영된다(이중 가산 아님).
+            if (run.CarryOverExp != 0)
+            {
+                long co = run.CarryOverExp;
+                run.CarryOverExp = 0;
+                run.StageExp += co;
+                notes.Add($"⏳ 이월 EXP +{co}");
+            }
+
+            // ── V3P4b: 다음 스핀/상점/보스 상태 신호 + instant/fuse 소모 — 웹 game.js:768-862
+            // `_applyDeepSpinMeta(res)` 그대로(호출 위상은 이 함수 안에서 rareFirstScore 직후로 정렬 —
+            // 웹도 rareFirstScore(960-968) 다음이 carryOverExp(970)→applyDeepSpinMeta(981) 순서). ──
+            if (res.growNext != null) run.GrowNext = res.growNext;
+            if (res.alarmNext) run.PendingNextExpMul *= 1.1;
+            if (res.gearNext) run.PendingNextExpMul *= 1.1;
+            if (res.carryExp > 0) run.CarryOverExp += res.carryExp;
+            if (res.receiptNext) run.DeepShopDiscount = true;
+            if (res.couponNext) run.DeepShopCoupon = true;
+            if (res.cartNext) run.DeepShopSlotBonus = Math.Min(2, run.DeepShopSlotBonus + 1);
+            if (res.shieldNext) run.BossShield = true;
+            if (res.exemptNext) run.BossExempt = true;
+            // 🔋배터리/🧰정비키트(근사) — 이번 스테이지 능동장치 사용기록 1건 해제(재사용 1회 허용).
+            if (res.batteryNext) ReleaseDeviceUse(run);
+            // 🖍형광펜(AUGCHANCE) — 다음 AUGLEVEL 노드 등장 확률 +15%(RunState.AugLevelBoost, StageFlow 소비).
+            if (res.augChanceNext) run.AugLevelBoost += 0.15;
+            // 📚복습책(AUGLEVEL) — 보유 증강 중 최저레벨 1개 즉시 레벨업(없으면 무효).
+            if (res.augLevelNext)
+            {
+                var levelable = AugLevels.LevelableHeld(run);
+                if (levelable.Count > 0)
+                {
+                    levelable.Sort((a, b) =>
+                        (run.PerkLevels.TryGetValue(a, out var la) ? la : 1) -
+                        (run.PerkLevels.TryGetValue(b, out var lb) ? lb : 1));
+                    string target = levelable[0];
+                    int curLv = run.PerkLevels.TryGetValue(target, out var lc) ? lc : 1;
+                    run.PerkLevels[target] = Math.Min(3, curLv + 1);
+                    notes.Add("📚 복습책 — 증강 레벨업!");
+                }
+            }
+            if (res.kitNext)
+            {
+                if (ReleaseDeviceUse(run) == null) run.DeepShopSlotBonus = Math.Min(2, run.DeepShopSlotBonus + 1);
+            }
+            // 🧩세트조각(근사) — Opus 2차검수(P7-3b) [HIGH-1] 게이트 정정: bestSetId는 count==1이어도
+            // "최다 값심볼"로 채워진다(SpinResolver.Evaluate의 bestId 결정 루프는 counts에 있는 어떤
+            // 항목이든 1개만 있어도 bestId로 잡는다 — "세트"의 정의는 count>=2). 웹 setIds도 count>=2
+            // 항목만 채우므로 `res.bestSetCount >= 2`로 정정(구 `bestSetId != null`은 값심볼이 1개만
+            // 나와도 세트로 오판정하는 버그였다). Unity Evaluate는 "최다 세트 1개"만 판정(setIds
+            // 다중집합 미보유, 기존 코어 evaluate의 사전 제약 — 웹 setIds 기반 전 그룹 지급 규칙 자체는
+            // 별도 최종 슬라이스로 이월, §2-(DD) 기재)이므로 bestSetCount가 그 근사 기준이다.
+            if (res.setFrag && res.bestSetCount >= 2) run.Coins += 2;
+            // Opus 2차검수(P7-3b) [MED-5, Fable 결정] — 🩸피방울/🧿저주눈/💳검은카드의 UnluckyGauge
+            // 가산을 제거했다. 웹은 이 게이지가 순수 표시용(연동 보상 없음)이라 무해했지만, Unity의
+            // UnluckyGauge는 §2-(A) 결정대로 실제 보상 연동(만땅 시 forceRare 희귀 보장)이 있는 게이지다
+            // — 저주 심볼이 이 게이지를 채워주면 "저주를 뽑을수록 다음 보상이 좋아진다"는 부호가
+            // 뒤집힌 인센티브가 생긴다(웹엔 없던 부작용). 1차 구현은 이 차이를 간과하고 웹 그대로
+            // 가산했었다 — Opus 2차검수로 발견해 제거(SpinResult.curseGaugeUp/hasBlackCard 필드
+            // 자체는 데이터 계약 유지, 소비처만 없앰 — hasShackle/hasFateVortex와 동일한 "구조적 신호만
+            // 유지" 패턴).
+            if (res.curseEyeNext) run.DeepRewardBonus = Math.Min(2, run.DeepRewardBonus + 1);
+            // instant(BANDAGE/KNOT/ENERGYPACK/FAKECROWN/EVOCORE) 자체 덱 소비는 이미 SpinResolver.
+            // ResolveSpin이 Evaluate 이전에 DeepRunHooks.ConsumeInstantSymbols로 처리한다(등장 여부만
+            // 보고 id당 최대 1회, P7-1부터 존재) — 여기서 중복 소비하지 않는다.
+            // 💳검은카드(fuse): 실제 무료상품/소비는 상점 진입 시 NodeEvents.ChooseNode Shop 분기가
+            // 처리한다(웹 game.js:2314-2320과 동일 분리) — 스핀 등장 자체는 위 [MED-5] 결정대로 더 이상
+            // 아무 효과가 없다(웹은 불운게이지 표시만 했지만 그 소비처를 제거).
+            // 🔮수정구(fuse): 스핀 중 등장 시 즉시 소비 + 상점 진입 시 반영될 예약치(DeepCrystalPending)에 가산.
+            if (res.hasCrystal && run.Pouch.TryGetValue("crystal", out var cyStock) && cyStock > 0)
+            {
+                run.DeepCrystalPending += 1;
+                run.Pouch["crystal"] = cyStock - 1;
+                if (run.Pouch["crystal"] <= 0) run.Pouch.Remove("crystal");
+                // Opus 2차검수(P7-3b) [LOW 일괄] — 웹 `this._checkArchetype();`(주머니 감소 시 전공
+                // 발동/승급/소멸 재평가) 그대로. 이벤트 채널이 없는 자리(§CheckArchetypeChange 기존
+                // 선례 — StageFlow 자동소멸과 동일 패턴)라 반환값은 버리고 스냅샷 갱신만 취한다.
+                CheckArchetypeChange(run);
+            }
+            // 🧷안전핀노트(fuse): 이번 스테이지 등장 마킹만(실제 소비는 StageFlow.RollDeepNodes의
+            // AUGLEVEL pity 실패 분기가 담당 — 웹 game.js:1478-1484).
+            if (res.hasSafePin && run.Pouch.TryGetValue("safepin", out var spStock) && spStock > 0)
+                run.SafePinActive = true;
+            // 🧲임시와일드(fuse): 이번 스핀 자연 드로우로 등장했을 때만 소비(spin() 프리훅의 무조건
+            // wild_temp 주입과는 별개 — 웹 game.js:849-852).
+            if (res.hasTempWild && run.Pouch.TryGetValue("temp_wild", out var twConsume) && twConsume > 0)
+            {
+                run.Pouch["temp_wild"] = twConsume - 1;
+                if (run.Pouch["temp_wild"] <= 0) run.Pouch.Remove("temp_wild");
+                CheckArchetypeChange(run); // [LOW 일괄] 웹 game.js:851 `this._checkArchetype();`
+            }
+            // 🌀운명의소용돌이(fuse): 2번째 굴림은 SpinResolver.ResolveSpin이 이미 수행 — 여기선 소비만.
+            // Opus 2차검수(P7-3b) [LOW 일괄] — 웹 실사용 패턴을 재확인한 결과 `_fateVortexUsed`/
+            // `_fateVortexConsumed`는 스테이지 번호가 아니라 "이번 런에서 이미 썼는가"로 실질 소비되는
+            // quirk(스테이지가 바뀌어도 재발동하는 사례가 관측되지 않음 — 전설 등급이라 통상 1개만
+            // 보유하는 구조적 희소성과 맞물려 "런 1회"로 수렴)라 스테이지 스코프 대신 런 스코프 단일
+            // 플래그(`RunState.FateVortexUsed`/`FateVortexConsumed`)로 통일했다(아래).
+            if (run.FateVortexUsed && !run.FateVortexConsumed
+                && run.Pouch.TryGetValue("fate_vortex", out var fvConsume) && fvConsume > 0)
+            {
+                run.Pouch["fate_vortex"] = fvConsume - 1;
+                if (run.Pouch["fate_vortex"] <= 0) run.Pouch.Remove("fate_vortex");
+                run.FateVortexConsumed = true;
+                CheckArchetypeChange(run); // [LOW 일괄] 웹 game.js:858 `this._checkArchetype();`
+            }
+            // ⛓족쇄(SHACKLE): permanent harmful — 소비/fuse 없음(런 내내 효과 유지, ApplyDeepMods가
+            // shackleActive/clearCoinBonus로 이미 반영).
 
             // ── 배치F P6 퍼펙트 드로우 — 5칸 전부 동일 계열(base 환산), 빈칸 불성립, 스테이지 1회 —
             // 웹 game.js:985-998. ★클리어 판정 전이므로 run.Stage는 여전히 "이번" 스테이지.
@@ -409,6 +579,30 @@ namespace JackpotRun.Engine
 
             if (jtBanner.Length > 0) notes.Add(jtBanner);
             if (feverBanner.Length > 0) notes.Add(feverBanner);
+        }
+
+        // 웹 game.js:864-871 `_releaseDeviceUse()` — 근사(웹 자체가 "과대약속 금지·정직히 근사"로
+        // 명시한 기능). 이번 스테이지 UsedCmds 중 "활성(MANIP) 장치 사용 기록" 1건을 제거해 재사용을
+        // 허용한다. 웹은 usedCmds가 배열이라 "최후 1건"(splice, 특수스핀 기록 보존)을 고를 수 있지만,
+        // Unity RunState.UsedCmds는 HashSet<string>(순서 없음·중복 불가)이라 "최후"라는 개념 자체가
+        // 없다 — MANIP 마커 중 아무 1개(열거 순서상 처음 발견되는 것)를 해제하는 것으로 근사한다(웹도
+        // "과대약속 금지·정직히 근사"라 명시한 기능이라 이 정도 근사 차이는 실질적 영향이 없다). 웹은
+        // DEVICE_CMDS(장치 cmd 코드 집합)로 판별하지만 Unity는 그런 별도 cmd 코드 테이블이 없다 — 대신
+        // DeviceActions가 실제로 UsedCmds에 쌓는 관례(장치 사용 시 dev.id 자체를 마커로 추가)를 그대로
+        // 활용해 Devices.ById(id)?.kind=="MANIP"인 마커만 대상으로 삼는다(특수스핀 마커 "FOCUS"/
+        // "ALLIN"/"PRAY"/"LAST"/"N", "RUNSHOP", "GREROL" 등은 Devices.ById가 null을 반환해 자동으로
+        // 보존된다). 해제된 마커 id(없으면 null) 반환.
+        private static string ReleaseDeviceUse(RunState run)
+        {
+            if (run?.UsedCmds == null) return null;
+            string found = null;
+            foreach (var id in run.UsedCmds)
+            {
+                var dev = Devices.ById(id);
+                if (dev != null && dev.kind == "MANIP") { found = id; break; }
+            }
+            if (found != null) run.UsedCmds.Remove(found);
+            return found;
         }
 
         // 배율 표기 — 소수 2자리·끝0제거(SpinResolver.FmtMul과 동일 규칙, private이라 재사용 대신 축소

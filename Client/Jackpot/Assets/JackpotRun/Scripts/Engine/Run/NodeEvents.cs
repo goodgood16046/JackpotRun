@@ -111,12 +111,33 @@ namespace JackpotRun.Engine
                 }
                 case NodeKind.Shop:
                 {
+                    // 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종") — 웹 game.js:
+                    // 2308-2320 `_openShop()` 진입 훅(수정구/검은카드). FreshOffer(receiptMul/cartBonus
+                    // 소비)보다 먼저 실행해도 결과는 동일(서로 다른 필드) — 웹 원문 순서 그대로 유지.
+                    if (run.DeepMode && run.DeepCrystalPending > 0)
+                    {
+                        run.DeepRewardBonus = Math.Min(2, run.DeepRewardBonus + run.DeepCrystalPending);
+                        run.DeepCrystalPending = 0;
+                    }
+                    if (run.DeepMode && run.Pouch.TryGetValue("black_card", out var bcAvail) && bcAvail > 0)
+                    {
+                        run.BlackCardShopFree = true;
+                        run.Pouch["black_card"] = bcAvail - 1;
+                        if (run.Pouch["black_card"] <= 0) run.Pouch.Remove("black_card");
+                        // Opus 2차검수(P7-3b) [LOW 일괄] — 웹 game.js:2317-2318 `this._checkArchetype();`
+                        // 그대로. 이벤트 채널이 없는 자리(반환 이벤트는 SHOP_OFFER 단일 고정)라 스냅숏
+                        // 갱신만 취한다(DeepRunHooks.CheckArchetypeChange 기존 선례와 동일 패턴).
+                        DeepRunHooks.CheckArchetypeChange(run);
+                    }
                     var offer = Shop.FreshOffer(run, stat);
                     run.ShopOffer.Clear();
                     run.ShopOffer.AddRange(offer);
                     // 웹 파리티 P4 — 웹 game.js:2305 `r.shopBought = []`(상점 진입 시 구매 이력 리셋).
                     // Shop.Leave가 REWARD_DONE 메시지 조립에 쓴다.
                     run.ShopBoughtLabels.Clear();
+                    // 웹 파리티 P7-3b — 🧾영수증/🎟쿠폰/🛒장바구니는 상점을 여는 이번 1회에만 반영(위
+                    // FreshOffer가 이미 소비) → 진열 생성 직후 소진(reroll 재적용 방지). 웹 game.js:2307.
+                    if (run.DeepMode) { run.DeepShopDiscount = false; run.DeepShopCoupon = false; run.DeepShopSlotBonus = 0; }
                     run.Phase = RunPhase.EventShop;
                     return RunEvents.One(new RunEvent { type = "SHOP_OFFER", node = node, shopOffer = run.ShopOffer });
                 }

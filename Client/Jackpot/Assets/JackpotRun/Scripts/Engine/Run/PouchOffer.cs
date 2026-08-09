@@ -247,6 +247,10 @@ namespace JackpotRun.Engine
             bool useJtPrism = run.JackpotPrismPending; if (useJtPrism) run.JackpotPrismPending = false;
             bool useFeverPrism = run.FeverJackpotPrism; if (useFeverPrism) run.FeverJackpotPrism = false;
             bool useJpCrownPrism = run.JackpotCrownPending; if (useJpCrownPrism) run.JackpotCrownPending = false;
+            // 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종") — 🧿저주눈(즉시)/🔮수정구
+            // (상점 진입 시 이관)이 쌓아 둔 DeepRewardBonus. 웹 game.js:1738 `bonus = r.deepRewardBonus||0;
+            // r.deepRewardBonus = 0;` — 1회성 소진(오퍼 후보 +N).
+            int deepRewardBonus = run.DeepRewardBonus; run.DeepRewardBonus = 0;
 
             var opts = new Options
             {
@@ -257,7 +261,7 @@ namespace JackpotRun.Engine
                 SymUnlocked = Pouch.DefaultUnlocked,
                 NoCurseAdds = sp.CurseChance < 0,
                 LegendWeight = (int)sp.LegendWeight,
-                ExtraCards = (int)(sp.RewardBonus + sp.AddBasicDelta),
+                ExtraCards = deepRewardBonus + (int)(sp.RewardBonus + sp.AddBasicDelta),
                 GoldBonus = sp.RareChance,
                 ForcePrismFirst = useJtPrism || useFeverPrism || useJpCrownPrism,
             };

@@ -527,56 +527,47 @@ namespace JackpotRun.EngineTests
             t.True(!result4.Any(c => c.sym.id == "lucky7"), "[pity] 만료 시 강제 치환 없음");
         }
 
-        // ── instant 소모(작업 지시 6번 단순화 버전) — 등장 즉시 덱에서 "id당 최대 1개" 제거, fuse는
-        // 이번 슬라이스 미소비. Opus 2차검수(P7-1, 2026-08-09) [MED]③ — 웹 game.js:814-828은
-        // evaluate()가 뽑은 "이번 스핀에 등장했는가"(불리언, 개수 아님)만 보고 remove n:1을 최대 1회
-        // 적용한다 — 같은 instant 심볼이 5칸 중 여러 번 등장해도 덱에서는 정확히 1개만 빠진다.
+        // ── instant 소모 — 등장 즉시 덱에서 "id당 최대 1개" 제거, fuse는 애초에 대상 아님.
+        // Opus 2차검수(P7-1, 2026-08-09) [MED]③가 "raw 등장 여부(불리언)만 보고 최대 1회"로 정정한
+        // 뒤, Opus 2차검수(P7-3b) [MED-2]가 시그니처를 SpinResult로 다시 바꿨다 — evaluate()가 실제로
+        // 계산한 hasBandage/hasKnot/hasEnergyPack/hasFakeCrown/hasEvoCore 5개 플래그(웹 res.hasX,
+        // 폭탄 등으로 사라진 경우 false로 정확히 빠짐)를 그대로 읽는 쪽이 raw 재스캔보다 정확하다.
         private static void InstantSymbolConsumption(TestCtx t)
         {
             var run = MakeDeepRun(301L);
             run.Pouch.Clear();
             run.Pouch["bandage"] = 1;
-            var raw = new List<Cell>
-            {
-                new Cell(Symbols.ById("bandage")), new Cell(Symbols.ById("cherry")),
-                new Cell(Symbols.ById("bandage")), new Cell(Symbols.ById("book")), new Cell(Symbols.ById("star")),
-            };
-            DeepRunHooks.ConsumeInstantSymbols(run, raw);
+            DeepRunHooks.ConsumeInstantSymbols(run, new SpinResult { hasBandage = true });
             t.True(!run.Pouch.ContainsKey("bandage"), "[instant] 소진되면 키 자체 제거(0 하한)");
 
+            // fuse 심볼(safepin)은 ConsumeInstantSymbols 대상 자체가 아니다(instant 5종 하드코딩) —
+            // 관련 없는 플래그를 넘겨도 안전하게 무영향.
             var run2 = MakeDeepRun(302L);
             run2.Pouch.Clear();
             run2.Pouch["safepin"] = 3;
-            var raw2 = new List<Cell> { new Cell(Symbols.ById("safepin")) };
-            DeepRunHooks.ConsumeInstantSymbols(run2, raw2);
-            t.Eq(3, run2.Pouch["safepin"], "[instant] fuse 심볼은 이번 슬라이스에서 미소비(그대로 3)");
+            DeepRunHooks.ConsumeInstantSymbols(run2, new SpinResult { hasKnot = false });
+            t.Eq(3, run2.Pouch["safepin"], "[instant] fuse 심볼(safepin)은 대상 아님(그대로 3)");
 
-            // 웹 game.js:814-828 golden — 같은 instant 심볼(knot)이 5칸 중 2번 등장해도 "등장했는가"만
-            // 보므로 덱에서는 정확히 1개만 빠진다(5→4, 중복 등장이 추가로 깎지 않음).
+            // 웹 res.hasKnot는 이미 "등장했는가"(불리언)라 중복 등장 개념 자체가 없다 — 플래그 1개당
+            // 최대 1개만 차감.
             var run3 = MakeDeepRun(303L);
             run3.Pouch.Clear();
             run3.Pouch["knot"] = 5;
-            var raw3 = new List<Cell> { new Cell(Symbols.ById("knot")), new Cell(Symbols.ById("knot")) };
-            DeepRunHooks.ConsumeInstantSymbols(run3, raw3);
-            t.Eq(4, run3.Pouch["knot"], "[instant] 웹 golden — 같은 id 중복 등장(2회)도 덱에서는 1개만 차감(5-1=4)");
+            DeepRunHooks.ConsumeInstantSymbols(run3, new SpinResult { hasKnot = true });
+            t.Eq(4, run3.Pouch["knot"], "[instant] hasKnot=true는 정확히 1개만 차감(5-1=4)");
 
-            // 서로 다른 instant id 2종이 각각 등장하면 각자 최대 1개씩(합쳐서 2개) 빠진다 — "id당" 규칙 확인.
+            // 서로 다른 instant id 2종이 각각 플래그로 서면 각자 독립적으로 1개씩 빠진다.
             var run5 = MakeDeepRun(305L);
             run5.Pouch.Clear();
             run5.Pouch["knot"] = 5;
             run5.Pouch["bandage"] = 5;
-            var raw5 = new List<Cell>
-            {
-                new Cell(Symbols.ById("knot")), new Cell(Symbols.ById("knot")), new Cell(Symbols.ById("knot")),
-                new Cell(Symbols.ById("bandage")), new Cell(Symbols.ById("bandage")),
-            };
-            DeepRunHooks.ConsumeInstantSymbols(run5, raw5);
-            t.Eq(4, run5.Pouch["knot"], "[instant] knot 3회 등장해도 1개만 차감(5-1=4)");
-            t.Eq(4, run5.Pouch["bandage"], "[instant] bandage 2회 등장해도 1개만 차감(5-1=4, id별 독립)");
+            DeepRunHooks.ConsumeInstantSymbols(run5, new SpinResult { hasKnot = true, hasBandage = true });
+            t.Eq(4, run5.Pouch["knot"], "[instant] knot 플래그 1개만 차감(5-1=4)");
+            t.Eq(4, run5.Pouch["bandage"], "[instant] bandage 플래그도 독립적으로 1개만 차감(5-1=4, id별 독립)");
 
             var run4 = S4TestHelpers.NewRun(304L);
             run4.Pouch["bandage"] = 1;
-            DeepRunHooks.ConsumeInstantSymbols(run4, raw);
+            DeepRunHooks.ConsumeInstantSymbols(run4, new SpinResult { hasBandage = true });
             t.Eq(1, run4.Pouch["bandage"], "[instant] DeepMode=false면 무시");
         }
 

@@ -281,9 +281,10 @@ namespace JackpotRun.Engine
 
         // AUGLEVEL 노드 등장 확률(pity) — 기본 10%, 미발동 시 +2%p 누적(상한 20%), 발동 시 10%로 리셋.
         public double AugLevelChance = 0.10;
-        // 🖍형광펜/🧪증강촉매(aug_catalyst) 동형 부스트 — 해당 아이템이 Unity 콘텐츠에 아직 없어 항상 0인
-        // 후크만 존재(웹 game.js:791 `_augLevelBoost += 0.15`). 그 아이템이 추가되면 그 case에서 이
-        // 필드에 가산하기만 하면 StageFlow.ClearStage의 pity 계산이 자동으로 반영한다.
+        // 🖍형광펜(AUGCHANCE) — 웹 game.js:791 `_augLevelBoost += 0.15`. 웹 파리티 P7-3b(WEB_PARITY_
+        // DESIGN.md §1-A #19 "Sp 신규 51종")부터 DeepRunHooks.ProcessDeepSpinFollowups가 res.
+        // augChanceNext 신호로 이 필드에 실제로 가산한다(이전엔 대응 심볼 효과가 없어 항상 0인 후크뿐
+        // 이었다) — StageFlow.ClearStage/RollDeepNodes의 pity 계산이 자동으로 반영.
         public double AugLevelBoost = 0.0;
 
         // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14, 웹 game.js:320 `_prismInk`) — 💧프리즘잉크
@@ -436,6 +437,38 @@ namespace JackpotRun.Engine
 
         // ── §3 Step 2/3 REST/GAMBLE 심화 2택 — 웹 `r.options`(id만 필요, PERK_PICK 공용) ──
         public readonly List<string> DeepChoiceIds = new List<string>();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 웹 파리티 P7-3b(WEB_PARITY_DESIGN.md §1-A #19 "Sp 신규 51종 전면 이식") — 웹 game.js
+        // §Phase4 `_applyDeepSpinMeta`(768-862)·`_openShop`/`_freshShop`(2304-2347)·`_beginStage`
+        // (407-422)가 참조하는 다음스핀/상점/보스/fuse 상태 필드군.
+        // ══════════════════════════════════════════════════════════════════════
+
+        // 🌱씨앗/🌿새싹 — 다음 스핀 성장 예약("ANY"|"HIGH"|null). SpinResolver.RollCells가 소비 예정
+        // (웹 `_growNextRoll`) — 이번 슬라이스는 신호 저장까지만, 실제 성장 치환은 후속 슬라이스.
+        public string GrowNext = null;
+        // ⏳모래시계 — 이번 스핀 EXP 30% 다음 스핀 이월. SpinResolver.ResolveSpin이 소진.
+        public long CarryOverExp = 0;
+        // 🧾영수증/🎟쿠폰/🛒장바구니 — 다음 상점 1회 적용 플래그(Shop.FreshOffer가 소진).
+        public bool DeepShopDiscount = false;
+        public bool DeepShopCoupon = false;
+        public int DeepShopSlotBonus = 0;
+        // 🛡방패/📋시험지 — 다음 보스 스핀 1회용(SpinResolver.ResolveSpin이 소진).
+        public bool BossShield = false;
+        public bool BossExempt = false;
+        // 🧿저주눈(즉시)/🔮수정구(상점 진입 시 이관) — 다음 주머니(POUCH) 오퍼 후보 +N(상한 2).
+        public int DeepRewardBonus = 0;
+        public int DeepCrystalPending = 0;
+        // 💳검은카드 — 다음 상점 1개 무료(상점 진입 시 세팅, Shop.Buy가 소진).
+        public bool BlackCardShopFree = false;
+        // 🧷안전핀노트 — 이번 스테이지 등장 마킹(StageFlow.RollDeepNodes의 AUGLEVEL pity 실패 분기가 소비).
+        public bool SafePinActive = false;
+        // 🌀운명의소용돌이 — 2번째 굴림 비교(SpinResolver.ResolveSpin)·소비(DeepRunHooks.
+        // ProcessDeepSpinFollowups). Opus 2차검수(P7-3b) [LOW 일괄] — 웹 실사용 quirk 재확인 결과
+        // 스테이지 스코프가 아니라 런 스코프(런 전체 1회)로 통일 — 전설 등급 희소성과 맞물려 실질
+        // "런 1회"로만 관측되는 웹 동작을 그대로 재현(기존 스테이지번호 트래킹 방식에서 단순 bool로 전환).
+        public bool FateVortexUsed = false;
+        public bool FateVortexConsumed = false;
 
         public RunState(long seed)
         {
