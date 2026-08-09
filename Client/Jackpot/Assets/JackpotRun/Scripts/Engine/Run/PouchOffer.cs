@@ -254,11 +254,11 @@ namespace JackpotRun.Engine
 
             var opts = new Options
             {
-                // 웹 파리티 이전 단계(profile.symUnlocked, ACH_SYMBOL_UNLOCK 13종) — P7-1/P7-2가 "옮기지
-                // 않음"으로 명시한 P7-4 범위다. 이번 슬라이스는 Pouch.DefaultUnlocked(58종 기본 해금)로
-                // 근사한다 — 웹의 "unlockedSet 없으면 전체 허용" 폴백보다 더 정확한 근사(실제 웹도 해금
-                // 전엔 58종만 통과)이므로 프로필 시스템이 붙기 전까지 합리적인 대체다. 최종 보고에 명시.
-                SymUnlocked = Pouch.DefaultUnlocked,
+                // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20) — profile.symUnlocked(ACH_SYMBOL_
+                // UNLOCK 13종) 실해금 배선 완료. run.SymUnlocked는 RunController 생성자가 profile.
+                // EffectiveSymUnlocked()(=Pouch.DefaultUnlocked ∪ profile.SymUnlocked)로 미리 채워
+                // 둔 미러다(P7-1/2/3이 Pouch.DefaultUnlocked로 근사해 두었던 자리를 교체).
+                SymUnlocked = run.SymUnlocked,
                 NoCurseAdds = sp.CurseChance < 0,
                 LegendWeight = (int)sp.LegendWeight,
                 ExtraCards = deepRewardBonus + (int)(sp.RewardBonus + sp.AddBasicDelta),
@@ -640,9 +640,14 @@ namespace JackpotRun.Engine
         // 일반 EventAugment/EventRelic과 공유 — RunState.Perks/PerkLevels가 sa_/sp_/sr_ id도 함께
         // 저장하는 구조라 안전, Content/SymPerks.cs 헤더 각주 참조).
         // ══════════════════════════════════════════════════════════════════
-        private static Tier ParseTier(string t) => t switch { "GOLD" => Tier.GOLD, "PRISM" => Tier.PRISM, _ => Tier.SILVER };
+        // Opus 2차검수(P7-4b) [치명] — ParseTier/WrapSymPerk을 internal로 승격했다(원래 private).
+        // UI2/Run/Panels/PerkOfferPanel.cs가 이 둘을 그대로 재사용해 SYMAUG/SYMREL 오퍼 카드의
+        // "Perks.ById(id)==null" 폴백(심볼퍽은 Perks.cs 카탈로그에 없다)을 처리한다 — 중복 정의 대신
+        // 단일 소스 재사용(§NodeEvents.PickOffer가 이미 같은 "Perks.ById 우선, 없으면 SymPerks.Get"
+        // 원칙을 그랜트 경로에서 쓰고 있다 — 표시 경로도 동일 원칙을 따라야 정합).
+        internal static Tier ParseTier(string t) => t switch { "GOLD" => Tier.GOLD, "PRISM" => Tier.PRISM, _ => Tier.SILVER };
 
-        private static Perk WrapSymPerk(SymPerkDef sp, PCat cat) => new Perk
+        internal static Perk WrapSymPerk(SymPerkDef sp, PCat cat) => new Perk
         {
             id = sp.id, name = sp.name, emoji = sp.emoji, desc = sp.desc,
             cat = cat, tier = ParseTier(sp.tier), price = 0, school = "", fx = null, unlockLevel = 0,

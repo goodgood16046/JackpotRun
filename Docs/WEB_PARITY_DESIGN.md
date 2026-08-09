@@ -1902,6 +1902,203 @@
   - **P7 완료**: §1-A #19 "심화모드(심볼 덱/주머니)" 4/4 슬라이스 전부 완료 — 남은 항목은 전부 P7-4
     (UI 보드·심화 업적/장치·랭킹 3노드 분리)로 이관.
 
+- **(EE) 2026-08-09 P7-4 1차 슬라이스(부분 완료, Opus 2차검수 전) — "심화모드 최종: UI + 심화 업적 +
+  심볼 해금 + 랭킹 3노드"**: 작업 지시 8개 항목 중 엔진 배선 위주 4개(①⑥⑦ + ③ 일부)를 완결하고,
+  UiSceneBuilder 신규 대형 레이아웃이 필요한 나머지(②일부·③대부분·④·⑤·⑧)는 라이브 Unity 에디터
+  없이는 시각 검증이 불가능해 이번 슬라이스 범위에서 제외했다(이탈·생략 보고, 아래 명시).
+  - **① 홈 심화 토글 해제**: `MenuView.OnDeepModeClicked`/`OnNormalModeClicked` 신설 — 웹
+    `deepToggle`(ui.js "selDeep=!selDeep; if(selDeep) selAsc=0")과 동일하게 실토글로 전환, 승천
+    선택기는 `RefreshAscSelector`가 `!appRoot.SelectedDeep`을 추가 조건으로 숨긴다(상호배제, 엔진은
+    P7-1부터 이미 강제). `UiSceneBuilder.BuildGameModeSelector`/`BuildModeCard`를 재작성해 두 카드
+    모두 Button+PressFx+실시간 갱신 가능한 Outline/이름 Text 참조를 노출하고, `MenuView.
+    RefreshGameModeSelector`가 선택 상태에 따라 다시 칠한다. "준비 중" 배지·잠금 로직 제거.
+  - **⑥ 심화 업적 13종 + 심볼 해금 13종**: `DeepRunHooks.TrackDeepStatsAndBossAch(run, boss,
+    scoreAtClear)` 신설(웹 `_trackDeepStats`/`_markDeepBossAchievements` 그대로, `StageFlow.
+    ClearStage`가 매 클리어 호출) — P7-1이 "골격만"으로 남겨 뒀던 `DeepStats`의 8개 불리언 플래그
+    (Compress95Clear 등)·RaresSeen/LegendsSeen·MaxTotal·BossClears를 처음으로 실제 채운다.
+    `StatTracker.ApplyGameOverTracking`에 웹 game.js:2581-2599 그대로의 심화 카운터 롤업 블록을
+    추가(`deepRuns`/`deepBossClears`/`deepMaxTotal`/`deepCompress95` 등 13개 키, `PlayerProfile.
+    DeepRaresSeenIds`/`DeepLegendsSeenIds` 신규 통산 집합). `Content/DeepSymbolUnlock.cs`(신규,
+    data.js:834-848 ACH_SYMBOL_UNLOCK 13매핑) + `AchievementEngine.Evaluate`가 신규 달성 시
+    `profile.SymUnlocked`(신규)에 추가. `RunState.SymUnlocked`(신규, profile.EffectiveSymUnlocked()
+    미러 — `RunController` 생성자 트레일링 매개변수 `symUnlocked`로 시딩, 미지정 시 기존 근사값
+    `Pouch.DefaultUnlocked`로 안전 폴백)로 `PouchOffer.EnterPouchOffer`·`NodeEvents.PickOffer`(3스테이지
+    연계 보너스)의 "Pouch.DefaultUnlocked 근사" 자리를 실해금 값으로 교체(§2-(BB)/(CC)가 명시적으로
+    남겨 둔 자리). `GameSession`이 `Profile.EffectiveSymUnlocked()`를 넘긴다. `PlayerProfile`/
+    `ProfileDto`에 `SymUnlocked`/`DeepRaresSeenIds`/`DeepLegendsSeenIds` 3개 왕복 필드 추가(마이그레이션
+    가드 불필요 — 기본값 빈 배열이 자연히 "해금 없음").
+    **회귀 발견 및 정정**: `RunState.SymUnlocked` 신설 직후 `Tests_P7_3_JackpotFeverOffer.
+    SynAugBonusOffersMatchingTagSymbol`이 실패했다 — 4개 P7 테스트 파일의 `MakeDeepRun` 헬퍼가
+    `RunController`를 거치지 않고 `RunState`를 직접 생성해 `SymUnlocked`가 항상 빈 집합이었던 것
+    (이전엔 엔진이 `Pouch.DefaultUnlocked`를 직접 참조해 문제가 없었다). 4개 헬퍼 전부에
+    `run.SymUnlocked.UnionWith(Pouch.DefaultUnlocked)`를 추가해 정정 — 부수적으로 이전까지 항상
+    "특수 카드 0장"으로 죽어 있던 POUCH 오퍼 분기들이 실제로 실행되면서 어서션이 29422(§2-(DD) 재검증
+    최종치와 별개로 그 사이 스모크 변동 반영된 33734 기준) 확인.
+    **재검증**: `dotnet run --project Client/Jackpot/Tools/EngineTests` **33734 passed, 0 failed**
+    (직전 기준 대비 무회귀 확인 완료).
+  - **⑦ 랭킹 3노드**: `RankingService.cs` 전면 재작성 — `RankBoard{Normal,Asc,Deep}` → 노드
+    `slotrank`/`slotrank_asc`/`slotrank_deep`(웹 rank.js와 1:1), 게스트 키는 기존 `PlayerId()`(GUID
+    "N", 32자리 16진수)를 그대로 재사용(RTDB 키 제약 문자와 충돌 없음 확인 — Unity에 계정 로그인이
+    없어 `u_<uid>` 경로는 대상 아님). `TrySubmitAll`이 `profile.BestScore/BestAscScore/BestDeepScore`
+    3필드(+`BestAscStage` 신규, asc 보드 stage 필드용)를 각각 보드별 로컬 캐시(PlayerPrefs, 보드별
+    분리 키)와 비교해 갱신분만 PUT — 웹의 "런 종료 자동(각 보드 점수>0)"을 "프로필의 보드별 최고기록이
+    실제로 바뀌는 시점(Intro 재진입)에 자동 재평가"로 구현(프로필 필드 자체가 이미 GAME_OVER 즉시
+    갱신되므로 사실상 동치, 매 화면전환마다 재확인하는 게 오히려 네트워크 실패 시 재시도까지 자연스럽게
+    보장). `RankView.cs`에 3탭(BoardOrder/BoardLabel 정적 배열, DexView.SetCategory와 동일한 문자열
+    persistent listener 관례로 `SetBoard(string)`) 추가. `UiSceneBuilder.BuildRankScreen`이 DexView
+    탭 빌드 코드를 그대로 재사용해 탭 3개를 짓는다. **구 `jackpotrank` 단일 노드는 폐기** — 코드에서
+    완전히 제거(더는 읽지도 쓰지도 않음). 마이그레이션은 미출시 단계라 기록이 사실상 없어 생략(작업
+    지시 그대로).
+  - **③ 일부 — NodePanel 노드 카드 라벨**: `NodePanel.NodeKindInfo`에 `NodeKind.Pouch`(◈ 심볼
+    주머니)/`Jackpot`(✪ 잭팟 노드)/`SymAug`(✨ 심볼 증강)/`SymRel`(◆ 심볼 유물) 4종 추가 — 작업 지시가
+    명시한 "NodePanel ❔ Pouch 해소"만 완료. 웹 원문 이모지(🎒🎰)는 astral이라 S8 항목⑤ 관례대로 BMP
+    기호(◈/✪)로 대체.
+  - **② 일부 — HUD 심화 배지**: 승천 배지(`ascBadgeText`)와 심화 배지는 RunController가 이미
+    상호배제하므로(deep이면 asc 항상 0) 같은 UI 슬롯을 안전하게 공유할 수 있다고 판단해, 신규 UI
+    요소를 만드는 대신 `HudView.RefreshStageCurses`가 `run.DeepMode`일 때 이 슬롯에
+    "◈ {총량}/{상한}{+패널티%}"(`Pouch.Total`/`RepairShop.Bounds`/`DeepRunHooks.DeepPenalty` 조합)를
+    대신 채우도록 확장했다(레이아웃 변경 없음, 제로 리스크).
+  - **⚠️ 이번 슬라이스 미착수(범위 초과 판단, 다음 슬라이스로 이월) — 전부 라이브 Unity 에디터의 시각
+    검증(레이아웃 실측)이 필요한 신규 대형 UI라 이 세션엔 연결된 에디터 인스턴스가 없어 보류했다**:
+    1. **전공 칩+게이지·피버 게이지 바·"N스핀 남음"**(작업 지시 ②의 나머지) — 웹 `archHudChip`/
+       `feverHudHtml`/`archGaugeHtml`(ui.js:38-74)에 대응하는 새 HUD 행이 필요한데, 현재 `Hud` 패널이
+       고정 높이(210)라 새 행을 안전하게 넣으려면 패널 전체 높이·아래 릴 섹션 flex 배분을 함께
+       조정해야 한다 — 시각 확인 없이 수치만으로 밀어 넣으면 클리핑/겹침 위험이 커 보류.
+    2. **POUCH 오퍼 화면 3종**(EventPouch/EventPouchCost/EventPouchRemove, 작업 지시 ③ 대부분) —
+       엔진은 이미 완비(`RunController.Do(new PickOffer(idx))` 하나로 6개 phase 전부 라우팅,
+       `RunState.PouchOptions`/`RemoveCandidateIds`/`DeepChoiceIds`/`PendingSpecial` 전부 P7-3에서
+       완성) — UI만 없다. 카드 리스트형 새 패널(PerkOfferPanel과 데이터 모델이 달라 그대로 재사용
+       불가 — `PouchOfferCard`는 `Perk`가 아니다) + REST/GAMBLE 심화 2택(ConfirmSheetPopup 재사용
+       가능하나 다인스턴스 배선 필요) 신설이 필요.
+    3. **정비소 '심볼 정비' 탭**(ShopPanel, 작업 지시 ④) — 엔진 `RepairShop.Execute`/
+       `RepairServices.All`/`RunController.Do(new RepairBuy(...))` 완비, UI만 없음.
+    4. **주머니 덱 보드 확인 시트**(작업 지시 ⑤) — 액션바 아이콘 + 심볼별 카드 그리드 신설 필요.
+    5. **도감 심화 3탭**(심볼72/심볼증강/심볼유물, 작업 지시 ⑧) — `JackpotCatalog`가 이 3개 카테고리를
+       전혀 모른다(art 파이프라인이 심볼 72종/심볼퍽 36종 스프라이트를 만든 적이 없음 — §2-(R) 폴백
+       합성 선례를 확장해야 함). `DexView.tabImages`/`IsUnlocked`/`BuildSubline`에도 분기 추가 필요.
+    이 5건은 전부 **엔진 API가 이미 완비**돼 있어(P7-1/2/3/3b) 다음 UI 슬라이스가 화면만 지으면 되는
+    상태다 — 순수 신규 UiSceneBuilder 레이아웃 작업량이 커서(추정 각 150~300줄) 한 세션에 안전하게
+    끝내기 어렵다고 판단해 분리했다(Fable 판단 필요 — 승인 대상).
+  - **스모크 컴파일**: 이 슬라이스는 라이브 Unity 에디터 인스턴스가 연결되지 않아(세션 시작 시
+    `mcpforunity://instances` 확인 결과 0개) 과거 슬라이스들이 하던 `dotnet exec csc.dll` 오프라인
+    스모크(Library/Bee 캐시 rsp 재사용)를 **실행하지 못했다** — 그 rsp 자체가 2026-07-30자 스테일
+    캐시(P7 전체 착수 이전)라 소스 파일 목록부터 다시 구성해야 해 이번 세션 범위를 벗어난다고 판단.
+    대신 (a) 엔진 레이어는 `dotnet run --project Client/Jackpot/Tools/EngineTests`로 100% 검증
+    (33734/33734), (b) UI2/Editor 레이어(MenuView/RankView/NodePanel/HudView/UiSceneBuilder)는
+    코드 직접 재독해로 수동 검토만 했다 — **Unity 에디터 실컴파일로 아직 확인되지 않았다**(Fable/Opus가
+    에디터를 열어 1차 확인 필요, 최우선 검수 대상).
+
+- **(FF) 2026-08-09 P7-4b(P7-4 이월분 완결) — POUCH 오퍼 3화면 + JACKPOT/SYMAUG/SYMREL/REST_DEEP/
+  GAMBLE_DEEP + 정비 탭 + 주머니 보드 시트 + HUD 피버/전공 + 도감 심화 3탭**: §2-(EE)가 "라이브 에디터
+  없이는 위험"으로 미룬 항목 전부를 이번 슬라이스가 마감했다(Fable이 UiSceneBuilder Editor 배치 컴파일을
+  0에러로 확인한 상태에서 착수 — §2-(EE)가 지적한 치명 결함부터 처리).
+  - **🔴 치명 결함 해소(최우선)**: §2-(EE) 완료 시점(홈 심화 토글 실해제)부터 심화 런의 EventPouch/
+    EventPouchCost/EventPouchRemove/EventRestDeep/EventGambleDeep/EventSynAugBonus 6개 phase는
+    `RunController.Do(new PickOffer(idx))` 하나로만 빠져나갈 수 있는데 그걸 호출할 UI가 전혀 없어
+    소프트락이었다 — 신규 `UI2/Run/Panels/ListPickerPanel.cs`(범용 N-카드 선택 시트, NodePanel의 단순
+    카드 리스트를 모델로 하되 카드 개수가 가변(1~70+)이라 별도 컴포넌트로 신설)를 만들어 `RunView.
+    ShowDeepOffer(run)`가 6개 phase 전부를 구동한다(RunView.RefreshPhasePanel에 `IsDeepOfferPhase`
+    가드 + switch case 추가). 카드 데이터는 이벤트 페이로드가 아니라 RunState를 직접 읽는다
+    (PouchOptions/RemoveCandidateIds/DeepChoiceIds/PendingSpecial — NodePanel과 동일 설계 원칙).
+    GambleDeep은 선택지가 1개(symGambleOk=false)일 수도 있는데, 카드 리스트 방식이라 "숨겨진 두 번째
+    버튼" 같은 함정 없이 자연스럽게 1장만 뜬다(ConfirmSheetPopup 고정 2버튼 방식이었다면 별도 분기가
+    필요했을 지점 — 설계로 회피). SYMAUG/SYMREL 노드는 이미 `NodeEvents.EnterSymAugOrRel`이 EventAugment/
+    EventRelic phase를 직접 재사용하도록 P7-3에서 배선돼 있어(§2-(CC)) 기존 PerkOfferPanel이 무변경으로
+    이미 처리한다 — 이번 슬라이스는 실제로 UI가 없었던 EventPouch 계열 5종 + JACKPOT(EventPouch 공유)만
+    신규 배선.
+  - **정비소 '심볼 정비' 탭**: `ShopPanel.cs` 전면 확장 — 웹 renderShop의 상점|정비 탭 바(심화 런에서만
+    노출)를 추가하고, 대상선택이 필요한 7개 서비스(addBasic/addHigh/addRare/remove/upgrade/swap/
+    tagbuff)는 `ListPickerPanel`을 재사용한 서브시트(`repairTargetPanel`, ShopPanel 전용 별도 인스턴스)로
+    후보를 보여준다. 후보 산출 로직 자체가 엔진에 없어(`RepairShop.Execute`는 이미 정해진 인자만 검증)
+    신규 `RepairShop.TargetsSym`/`TargetsTag`(웹 `repairTargets()` 그대로 이식 — addBasic/High/Rare는
+    희귀도+해금 필터, remove/upgrade는 보유분, swap from/to, tagbuff는 태그별 개수 내림차순)를 엔진에
+    추가했다. **이탈 사항**: 웹은 "대상선택 → 확인(미리보기)" 2단계지만, 이 슬라이스는 대상 선택 즉시
+    커밋한다(`RepairShop.Execute`가 원자적으로 검증·거부해 안전은 보장되지만 미리보기 확인 단계가
+    없다 — 시간 제약으로 생략, 소프트락과 무관한 UX 단순화이므로 별도 슬라이스 대상으로 보고).
+  - **런 중 주머니 덱 보드**: 액션바에 심화 전용 "주머니" 버튼 신설(`RunBuildResult.pouchButton`,
+    `RunView.RefreshPouchButton`이 매 액션 배치 후 `run.DeepMode`로 토글) → 별도 `pouchBoardPanel`
+    인스턴스(ListPickerPanel 재사용, `deepOfferPanel`과 공유하지 않음 — phase 가드에 걸려 즉시
+    닫히는 충돌을 피하려 분리)를 연다. 부제 요약(총량/상한·압축 패널티·전공 비중·잭팟 태그 밀도) +
+    심볼별 카드(개수·분류·희귀도·소모속성·잭팟태그 뱃지, 정렬은 웹 `deckSortEntries`와 동일하게
+    특수→기본→해로운·개수 내림차순) — 작업 지시 "정보 완전성 우선"에 맞춰 웹의 전공 게이지 바 시각화는
+    텍스트 요약으로 축약했다(이탈 사항).
+  - **HUD 피버 게이지 + 전공 칩**: `Hud` 패널을 210→260으로 키워 신규 행(전공 칩 텍스트 + 피버 상태
+    텍스트/바)을 추가 — 일반 런은 텍스트가 항상 빈 문자열이라(기존 ascBadgeText "행 통째로 숨기지
+    않고 내용만 지운다" 관례) 얇은 빈 줄만 남는다. 승천 배지와 마찬가지로 이번엔 심화 배지 자체를
+    §2-(EE)에서 이미 ascBadgeText 슬롯에 넣어 뒀으므로(상호배제라 슬롯 공유 안전) 이번엔 순수 신규
+    행만 추가하면 됐다. 피버 발동 중(`FeverSpins>0`)엔 바가 100% 고정 + 적색, 대기 중엔 `FeverGauge/
+    Pouch.FeverMax` 비율.
+  - **도감 심화 3탭**: `JackpotCatalog.CategoryOrder`에 `sym`/`symaug`/`symrel` 3종 추가(기존 8→11) —
+    `DexView`의 탭 빌드/`SetCategory` 로직이 이미 `CategoryOrder`를 순회하는 완전 데이터 기반 구조라
+    UiSceneBuilder 쪽 탭 바 자체는 무변경으로 3탭이 자동 생성된다. `JackpotCatalog.
+    BuildSyntheticEntries()`에 심볼 72종(§2-(R) 합성 엔트리 선례 확장, EXP/점수/코인+태그를 descKo로
+    합성) + 심볼증강 21 + 심볼유물 15(레벨/업적 게이트가 원래 없어 항상 해금)를 추가했다. 심볼 도감의
+    "미발견 ???" 판정은 `PlayerProfile.EffectiveSymUnlocked()`(§2-(EE)가 이미 만든 실해금 소스)를
+    그대로 재사용 — `DexView.BuildCard`의 `lockable` 플래그에 `CatSym`을 추가해야 마스킹이 실제로
+    켜진다는 걸 코드 리뷰 중 확인(추가 안 하면 IsUnlocked 계산은 맞아도 잠금 오버레이 자체가 안 그려짐).
+    **이탈 사항**: 잠금 심볼 14종(72-58)의 해금 안내 문구는 "어느 업적인지" 심볼별로 정확히 짚어주는
+    대신(id→업적 역매핑이 필요) `CatDev` 4종과 동일한 카테고리 공용 고정 문구로 근사했다(정보 완전성
+    미달, 시간 제약 — 보고 대상).
+  - **검증**: `dotnet run --project Client/Jackpot/Tools/EngineTests` **33734 passed, 0 failed**
+    (RepairShop.TargetsSym/TargetsTag 추가 후 재확인, 무회귀). UI2/Editor 레이어(ListPickerPanel 신설
+    + ShopPanel/RunView/HudView/DexView/JackpotCatalog/UiSceneBuilder 수정)는 이번에도 라이브 에디터가
+    이 세션엔 연결되지 않아 코드 재독해 수동 검토만 했다 — Fable이 별도로 Unity 배치 컴파일을 돌려
+    확인 중(작업 지시 "Unity 배치 컴파일은 내가 확인했다"가 이전 라운드 기준이라 이번 라운드 신규
+    코드는 아직 그 확인을 못 받았음, 최우선 재확인 대상).
+  - **P7-4 남은 항목**: 없음(이번 슬라이스로 §2-(EE)가 이월한 6항목 전부 완료). 잔여 이탈 3건(정비
+    미리보기 단계 생략·주머니 보드 전공 게이지 텍스트 축약·심볼 잠금 안내 문구 근사)은 전부 "정보
+    상세도" 축의 스코프 다운이며 소프트락/정합성 리스크는 없다 — 후속 슬라이스 후보로 기재.
+
+- **(GG) 2026-08-09 Opus 2차검수(§2-(FF) 대상) 반영 — 치명1·중대6·경미4**: 상세는 Sonnet 구현 세션
+  기준(다음 Opus 검수 전).
+  - **[치명] PerkOfferPanel 심볼퍽 폴백**: `Perks.ById(id)`가 sa_/sp_/sr_ 접두 심볼퍽 id를 모르는 채로
+    `if (perk==null) continue;`가 카드를 통째로 건너뛰던 버그 — SYMAUG/SYMREL 오퍼가 전부 심볼퍽이면
+    빈 오퍼(0장)가 뜨는 소프트락이었다. `PouchOffer.WrapSymPerk`/`ParseTier`를 `private`→`internal`로
+    승격해 `PerkOfferPanel.ResolvePerk`가 `Perks.ById` 우선·실패 시 `SymPerks.Get`+`WrapSymPerk`로
+    합성하도록 정정(maxTier 루프·BuildCards 둘 다) — `NodeEvents.PickOffer`의 그랜트 경로가 이미 쓰던
+    동일 원칙을 표시 경로에도 통일 적용.
+  - **[중대] 스핀 시점 희귀/전설 발견 집계**: `DeepRunHooks.ProcessDeepSpinFollowups`에 웹 game.js:975
+    (`res.cells` 순회 → `RaresSeen`/`LegendsSeen` 추가) 대응 블록 신설 — §2-(FF)까지는 클리어 시점
+    스냅샷만 있어 클리어 전에 소모되는 희귀/전설 심볼(instant 등)이 발견 기록에서 누락됐다.
+  - **[중대] 신규 심화 UI 전역 astral 정리**: RunView(`SymLabel`/`ShowPouchBoard`의 `arch.Emoji`/
+    `RepairServiceLabel`/`ArchetypeLabel`), HudView(`archChipText`의 `arch.Emoji`), ShopPanel
+    (`SymLabel`+아이콘 슬롯 `sv.emoji`+정비 대상선택 시트 타이틀 4곳)에 `TextSanitize.StripAstral`
+    적용. 도감 신규 108종(심볼72+심볼증강21+심볼유물15)은 emoji가 "유일한 아이콘"이라 지우면 빈
+    박스만 남는 문제라 다른 처방 — `JackpotCatalog.SafeIcon(emoji,name)`을 신설해 astral이면 이름
+    첫 글자로 대체(합성 시점 1회 계산, DexView/DexDetailPopup 등 이 emoji를 읽는 모든 곳에 자동 적용).
+  - **[중대] 도감 심볼 탭 집합 교정**: `Symbols.All`(72, key/dice/seed 등 주머니 무관 항목 포함) →
+    `Pouch.Symbols71`(71, 웹 POUCH_SYMBOLS — key/dice/seed 제외·empty/random 포함)로 교정.
+    `Symbols.ById("empty"/"random")`는 null이라(별도 센티널) 고정 라벨로 합성. 잠금 안내도 카테고리
+    공용 고정 문구 대신 `Content/DeepSymbolUnlock.cs` 역매핑으로 실제 해금 업적의 이름·설명을
+    그대로 인용(`DexView.BuildLockHint`의 CatSym 특례 제거, 공용 `pick.unlock` 경로로 통합).
+  - **[중대] 랭킹**: ① `public/ranking/app.js`(앱+웹 통합 단일 보드 정적 페이지, §2-(FF)/§2-(EE)에서
+    빠뜨렸던 소비처)를 구 `jackpotrank` → `slotrank`로 갱신(행 스키마 동일이라 render()/row() 무변경).
+    ② `RankingService.SubmitRoutine`을 로컬 PlayerPrefs 캐시 비교 방식에서 웹 rank.js와 동일한
+    "원격 선-GET → 우리 점수가 더 높으면 전체 갱신(ts 새로) → 같거나 낮으면 닉네임만(바뀌었을 때)
+    보존 갱신 → 둘 다 같으면 PUT 생략"으로 전환(로컬 캐시는 앱 재설치 등으로 원격과 어긋날 수 있어
+    폐기 — `SentScorePrefKey`/`SentNickPrefKey` 제거).
+  - **[중대] 신규 엔진 표면 테스트**: `Tests_P7_4_DeepUI.cs` 신설 — 심화 업적 13키 각각 (threshold-1
+    미달성/threshold 달성+심볼해금) 트리거를 `Achievements.All.Where(deep)` 순회로 데이터 자체를
+    단일 진실 공급원 삼아 검증, `RunState.SymUnlocked`가 `PouchOffer.OfferSymbolRewards` 후보를
+    실제로 제한하는지(빈 집합→Skip만·단일 id→그 id만), `RunController` 생성자의 symUnlocked 폴백
+    계약(null→DefaultUnlocked, 명시값→그 값 그대로), `RepairShop.TargetsSym`(addBasic/remove/upgrade/
+    swap from·to)·`TargetsTag`, `ProfileDto`의 `SymUnlocked`/`DeepRaresSeenIds`/`DeepLegendsSeenIds`/
+    `BestAscStage` 왕복, `StatTracker`의 `BestAscStage` 갱신(+더 낮은 점수 후속 런 불변 대조군) — 7개
+    그룹.
+  - **[경미 일괄]**: `rest_purify` 문구를 실동작(swap 아님, 순수 -1 제거)에 맞게 "해골 정화(빈칸으로)"
+    → "해골 제거(총량 -1)"로 정정. `HudView.feverBarBg`를 신설 배선해 일반 런에서 피버 바 트랙 자체를
+    `SetActive(false)`(빈 진행바 잔여물 제거). `ListPickerPanel.Awake`의 `closeButton.onClick.
+    AddListener(Hide)`는 `Show()`가 매번 `RemoveAllListeners()`로 덮어써 한 번도 실행되지 않는
+    사문이라 제거. `UiSceneBuilder`의 "CategoryOrder 8종 고정" 주석을 "11종(§2-(FF) 심화 3탭 추가)"로
+    정정(코드 자체는 이미 `order.Length` 기반이라 무변경).
+  - **검증**: `dotnet run --project Client/Jackpot/Tools/EngineTests` **33734 → 33937(+203)**, **0
+    failed**(Tests_P7_4_DeepUI.cs 신규 7그룹 전부 통과, 기존 무회귀). UI2/Editor 레이어(PerkOfferPanel/
+    ShopPanel/HudView/DexView/JackpotCatalog/RankingService/UiSceneBuilder)는 이 세션에도 라이브
+    Unity 에디터 인스턴스가 연결되지 않아(`mcpforunity://instances` 재확인 시도했으나 이번엔 해당
+    리소스 자체가 이 세션에 노출되지 않음) 코드 재독해 + 중괄호 균형 대조(전 파일 open==close 확인)로만
+    검증했다 — **Unity 배치 컴파일 확인은 여전히 Fable 담당**(직전 "0에러" 확인은 이 라운드 수정 전
+    시점 기준).
+
 ## 3. 페이즈 로드맵
 
 | 페이즈 | 내용 | 상태 |
@@ -1912,6 +2109,6 @@
 | P4 | 화면 흐름 웹화: 홈 · REWARD_DONE 능력치 · 셀 정보 탭 · 클리어 등급 연출 · 튜토리얼 · 설정 | ✅ 2026-08-09 완료(3/3) |
 | P5 | 사운드(절차 합성 SFX 16종 + BGM 루프) | ✅ 2026-08-09 완료 |
 | P6 | 승천 A1~A10 + 승천 랭킹 분리 | ✅ 2026-08-09 완료(랭킹 분리는 P7-4로 이관, bestAscScore 기록은 완료) |
-| P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버·Sp 51종 특수효과) + 심화 랭킹 | ✅ 2026-08-09 완료(4/4, §2-(AA)/§2-(BB)/§2-(CC)/§2-(DD)) — 남은 항목은 P7-4(UI 보드·심화 업적/장치·랭킹 분리)로 이관 |
+| P7 | 심화모드 전체(주머니·심볼72·심볼퍽·정비소·전공·잭팟태그·피버·Sp 51종 특수효과) + 심화 랭킹 | ✅ 2026-08-09 완료 — 엔진 4/4(§2-(AA)/(BB)/(CC)/(DD)) + P7-4 UI/업적/해금/랭킹 2슬라이스 완료(§2-(EE) 홈 토글·심화 업적13·심볼해금13·랭킹3노드·NodePanel 라벨·HUD 배지, §2-(FF) POUCH 오퍼 3화면·정비 탭·주머니 보드·HUD 피버/전공·도감 심화3탭 — 소프트락 결함 해소 포함). Unity 에디터 실컴파일 최종 확인은 Fable 진행 중 |
 
 각 페이즈는 FABLE_RULES 4단계 파이프라인으로 진행하고, EngineTests 골든망을 웹 수치로 갱신하며 통과를 유지한다.

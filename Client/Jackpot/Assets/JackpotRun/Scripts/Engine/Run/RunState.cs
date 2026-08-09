@@ -359,6 +359,16 @@ namespace JackpotRun.Engine
         // 이 필드를 읽는다.
         public readonly Dictionary<string, int> Pouch = new Dictionary<string, int>();
 
+        // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 `_symUnlockedSet()` — DEFAULT_UNLOCKED_
+        // SYMS(58) ∪ profile.symUnlocked) — 이번 런에서 유효한 "심볼 해금" 집합의 미러. RunState.
+        // OwnedDeviceIds(§P1 ④ 각주와 동일 관례 — 상위 계층 PlayerProfile은 여기서 직접 참조할 수 없어
+        // (설계 원칙 6), 호출측(GameSession→RunController 생성자)이 profile.EffectiveSymUnlocked()로
+        // 채워 넣는다. 심화 런이 아니면(DeepMode=false) 아무도 읽지 않지만 항상 채워 둔다(null 가드
+        // 불필요). PouchOffer.EnterPouchOffer(POUCH 오퍼)·NodeEvents.PickOffer(3스테이지 연계 보너스
+        // 후보 필터)가 이 필드를 읽는다 — P7-1/2/3이 Pouch.DefaultUnlocked로 근사해 두었던 자리를
+        // 실해금 값으로 교체.
+        public readonly HashSet<string> SymUnlocked = new HashSet<string>();
+
         // 배치F P2(웹 game.js:337 `deepPity: null`) — 획득 심볼 2스핀 보장 상태. add/upgrade(P7-2/3
         // 보상 지급) 직후 설정되고 DeepRunHooks.ApplyDeepPity가 첫 fresh 굴림에서 소진한다. 이 슬라이스는
         // 지급 진입점(오퍼)이 없어 상태·치환 로직만 준비 — 테스트는 이 필드를 직접 세팅해 검증한다.

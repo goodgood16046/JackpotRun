@@ -252,7 +252,8 @@ namespace JackpotRun.Engine
         // 실수로 asc>0+deep=true 조합이 새지 않게 한다.
         public RunController(string charId, string machineId, string deviceId, long seed,
             IReadOnlyDictionary<string, long> stat, string deviceId2 = "",
-            IReadOnlyCollection<string> ownedDeviceIds = null, int asc = 0, bool deep = false)
+            IReadOnlyCollection<string> ownedDeviceIds = null, int asc = 0, bool deep = false,
+            IReadOnlyCollection<string> symUnlocked = null)
         {
             _stat = stat ?? new Dictionary<string, long>();
             var run = new RunState(seed);
@@ -267,6 +268,11 @@ namespace JackpotRun.Engine
             if (ownedDeviceIds != null) run.OwnedDeviceIds.UnionWith(ownedDeviceIds);
             run.DeepMode = deep;
             run.Asc = deep ? 0 : AscMods.Clamp(asc);
+            // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20) — profile.symUnlocked 실해금 배선.
+            // symUnlocked가 null이면(호출측이 아직 이 매개변수를 모르는 기존 테스트/호출부 등) P7-1/2/3
+            // 슬라이스가 근사로 쓰던 Pouch.DefaultUnlocked(58종)로 안전하게 폴백한다 — 트레일링 선택적
+            // 매개변수 관례(deviceId2/ownedDeviceIds/asc/deep과 동일, 기존 호출부 100% 호환).
+            run.SymUnlocked.UnionWith(symUnlocked ?? Pouch.DefaultUnlocked);
             if (deep)
             {
                 foreach (var kv in Pouch.NewStartPouch()) run.Pouch[kv.Key] = kv.Value;

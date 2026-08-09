@@ -1,4 +1,10 @@
-// 잭팟런 글로벌 랭킹 — jackpotrank 1회 읽기 → score 내림차순·ts 오름차순 정렬 → 상위 100 렌더
+// 잭팟런 글로벌 랭킹(일반 보드, 앱+웹 통합) — Opus 2차검수(P7-4b) [중대⑤①] — 웹 파리티 P7-4
+// 랭킹 3노드 전환(slotrank/slotrank_asc/slotrank_deep, WEB_PARITY_DESIGN.md §1-A #20)으로 구 단일
+// 노드 jackpotrank는 폐기됐다(Unity RankingService.cs·웹 rank.js 둘 다 더는 쓰지 않음) — 이 페이지가
+// 계속 jackpotrank를 읽으면 그 시점 이후로는 새 기록이 전혀 반영되지 않는 스테일 페이지가 된다.
+// slotrank(일반 보드)로 갱신 — 행 스키마({nick,score,stage,ts})가 동일해 render()/row() 로직은 무변경.
+// slotrank_asc(승천)/slotrank_deep(심화) 등 별도 탭은 이 페이지 범위 밖(단일 보드 유지, 3탭은 앱 내
+// RankView.cs가 담당) — slotrank 1회 읽기 → score 내림차순·ts 오름차순 정렬 → 상위 100 렌더.
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
@@ -21,7 +27,7 @@ const db = getDatabase(app);
 boot();
 async function boot() {
   try {
-    const snap = await get(ref(db, "jackpotrank"));
+    const snap = await get(ref(db, "slotrank"));
     const val = snap.exists() ? snap.val() : null;
     render(val);
   } catch (e) {

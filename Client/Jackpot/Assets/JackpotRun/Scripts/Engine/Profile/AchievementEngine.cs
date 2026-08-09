@@ -61,6 +61,11 @@ namespace JackpotRun.Engine
                 // 없이 범용으로 찾는다. 매칭되는 장치가 없으면(대부분의 34종) 아무 일도 하지 않는다.
                 var dev = Array.Find(Devices.All, d => d.unlockAch == a.id);
                 if (dev != null) profile.OwnedDevices.Add(dev.id);
+
+                // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 game.js:2609-2611 ACH_SYMBOL_UNLOCK)
+                // — 심화 업적 13종 중 대응 항목이 있으면 심볼 해금(HashSet.Add가 자연히 멱등).
+                if (DeepSymbolUnlock.ByAchId.TryGetValue(a.id, out var symId))
+                    profile.SymUnlocked.Add(symId);
             }
 
             return newly;

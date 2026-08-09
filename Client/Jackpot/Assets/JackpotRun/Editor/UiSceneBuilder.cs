@@ -381,7 +381,16 @@ namespace JackpotRun.EditorTools
             public Text levelXpText;
             public RectTransform levelBarFill;
             public Image levelBarFillImage;
+            // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심화모드 선택기 실토글 전환. 두
+            // 카드 다 런타임에 선택 상태를 다시 칠해야 해서(선택 상태가 이제 고정이 아니다) 카드별
+            // Outline/이름 Text까지 노출한다(BuildModeCard 반환값 그대로 저장).
+            public Button modeNormalButton;
+            public Outline modeNormalOutline;
+            public Text modeNormalNameText;
             public Button modeDeepButton;
+            public Outline modeDeepOutline;
+            public Text modeDeepNameText;
+            public Text deepHintText;
 
             // ── 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — 승천(심화 학기) 선택기(웹 ascSelector()) ──
             public RectTransform ascSectionRoot;
@@ -465,6 +474,15 @@ namespace JackpotRun.EditorTools
             public Button tutorialButton;
             public Button settingsButton;
 
+            // 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 archHudChip/feverHudHtml ui.js:38-56)
+            // — 전공(계열 아키타입) 칩 + 피버 게이지/"N스핀 남음". 일반 런은 항상 빈 문자열(HudView가
+            // 내용만 지움 — hud 패널 자체는 고정 높이라 행을 통째로 숨기지 않는다, 기존 ascBadgeText
+            // 관례 그대로).
+            public Text archChipText;
+            public Text feverText;
+            public RectTransform feverBarBg;
+            public RectTransform feverBarFill;
+
             public RectTransform reelSectionRoot;
             public RectTransform reelRow;
             public RectTransform cellTemplate;
@@ -500,6 +518,9 @@ namespace JackpotRun.EditorTools
             public RectTransform deviceButtonTemplate;
             // WEB_PARITY P1 ⑤: "게임 포기" 액션바 진입점(웹 ui.js:849-871).
             public Button giveUpButton;
+            // 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 ui.js:730 `data-act="pouch"`) —
+            // 심화 런 전용 "주머니" 액션바 버튼(일반 런은 숨김, RunView가 run.DeepMode로 토글).
+            public Button pouchButton;
 
             // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — 튜토리얼 오버레이 + 설정 시트(overlay
             // 확보 후 BuildPlayScene이 별도로 채운다 — BuildRunScreen 시점엔 overlay가 아직 없음).
@@ -538,6 +559,15 @@ namespace JackpotRun.EditorTools
             // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — 튜토리얼 오버레이 + 설정 시트.
             public UI2.TutorialOverlay tutorialOverlay;
             public UI2.SettingsSheet settingsSheet;
+            // 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심화 런 오퍼 6종(EventPouch/
+            // EventPouchCost/EventPouchRemove/EventRestDeep/EventGambleDeep/EventSynAugBonus) 공용
+            // 카드 리스트 시트. dismissOnScrimClick:false — "반드시 하나를 골라야" 진행되는 화면이라
+            // NodePanel/PerkOfferPanel과 동일하게 스크림 탭으로 못 빠져나간다(소프트락 방지 원칙 —
+            // 애초에 취소 경로 자체가 없다).
+            public UI2.ListPickerPanel deepOfferPanel;
+            // 웹 파리티 P7-4b — 런 중 주머니 덱 보드(정보 조회 전용, dismissOnScrimClick 대신 closeButton
+            // 사용 — deepOfferPanel과 달리 "닫기"가 항상 가능해야 하므로 Show(...,onClose:...)를 넘긴다).
+            public UI2.ListPickerPanel pouchBoardPanel;
         }
 
         private sealed class DexBuildResult
@@ -562,6 +592,8 @@ namespace JackpotRun.EditorTools
             public Text statusText;
             public RectTransform listContent;
             public RectTransform rowTemplate;
+            // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #20) — 3보드 탭(일반/승천/심화).
+            public Image[] tabImages;
         }
 
         // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #15 B) — 레벨 보상 화면(LevelRewardsView.cs) 결과 컨테이너.
@@ -1112,7 +1144,13 @@ namespace JackpotRun.EditorTools
             so.FindProperty("levelXpText").objectReferenceValue = r.levelXpText;
             so.FindProperty("levelBarFill").objectReferenceValue = r.levelBarFill;
             so.FindProperty("levelBarFillImage").objectReferenceValue = r.levelBarFillImage;
+            so.FindProperty("modeNormalButton").objectReferenceValue = r.modeNormalButton;
+            so.FindProperty("modeNormalOutline").objectReferenceValue = r.modeNormalOutline;
+            so.FindProperty("modeNormalNameText").objectReferenceValue = r.modeNormalNameText;
             so.FindProperty("modeDeepButton").objectReferenceValue = r.modeDeepButton;
+            so.FindProperty("modeDeepOutline").objectReferenceValue = r.modeDeepOutline;
+            so.FindProperty("modeDeepNameText").objectReferenceValue = r.modeDeepNameText;
+            so.FindProperty("deepHintText").objectReferenceValue = r.deepHintText;
             so.FindProperty("ascSectionRoot").objectReferenceValue = r.ascSectionRoot;
             so.FindProperty("ascBadgeText").objectReferenceValue = r.ascBadgeText;
             so.FindProperty("ascLevelText").objectReferenceValue = r.ascLevelText;
@@ -1186,11 +1224,12 @@ namespace JackpotRun.EditorTools
             return result;
         }
 
-        // ── 웹 파리티 P4(§1-A #15 A.2) — 게임 모드 선택기(웹 deepSelector(), ui.js:559-570) ─────────
-        // Opus 2차검수(P4 1/3) 폴리시⑤ — 웹은 두 카드 다 <button>(탭 시 눌림 피드백)이라 "일반" 카드도
-        // Button+PressFx를 붙인다(BuildModeCard가 항상 붙임). "일반"은 P7 이전엔 다른 모드로 전환할
-        // 수단이 없어(항상 선택 상태) 클릭 리스너는 달지 않는다 — 존재 이유는 순수 터치 피드백(눌림
-        // 스케일 애니메이션) 파리티다. "심화 · 심볼 덱"만 실제 리스너(토스트 안내)를 건다.
+        // ── 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 deepSelector(), ui.js:559-570) ─────
+        // 심화모드(심볼 덱) 선택기 — 해금 없음, 항상 노출·항상 탭 가능한 실토글로 전환(구 P4 슬라이스의
+        // "심화는 P7 미구현이라 준비 중 잠금"을 해제). 두 카드 모두 Button+PressFx를 붙이고 실제
+        // onClick 리스너를 건다(MenuView.OnNormalModeClicked/OnDeepModeClicked) — 선택 상태(Outline
+        // 색·이름 텍스트 색)는 빌드 시점엔 임시값만 칠하고 MenuView.RefreshGameModeSelector가 매
+        // Refresh마다 appRoot.SelectedDeep 기준으로 다시 칠한다.
         private static void BuildGameModeSelector(RectTransform col, MenuBuildResult result)
         {
             var header = UiKit.Text(col, "게임 모드", 22, UiKit.TextSecondary, TextAnchor.MiddleLeft, true);
@@ -1199,33 +1238,50 @@ namespace JackpotRun.EditorTools
             var row = UiKit.HGroup(col, 14, new RectOffset(), true, true);
             UiKit.SizeHint(row, preferredHeight: 132, flexibleHeight: 0);
 
-            BuildModeCard(row, "일반", "고정 확률 (기본)", selected: true, locked: false);
-            var deepCard = BuildModeCard(row, "심화 · 심볼 덱", "주머니 확률 · 덱빌딩", selected: false, locked: true);
-            result.modeDeepButton = deepCard.GetComponent<Button>();
+            var normalCard = BuildModeCard(row, "일반", "고정 확률 (기본)");
+            result.modeNormalButton = normalCard.button;
+            result.modeNormalOutline = normalCard.outline;
+            result.modeNormalNameText = normalCard.nameText;
+
+            var deepCard = BuildModeCard(row, "심화 · 심볼 덱", "주머니 확률 · 덱빌딩");
+            result.modeDeepButton = deepCard.button;
+            result.modeDeepOutline = deepCard.outline;
+            result.modeDeepNameText = deepCard.nameText;
+
+            // 웹 ui.js:568 `deep-hint`(selDeep일 때만 노출) — 압축/랭킹 격리 안내 2줄. 초기엔 숨김
+            // (RefreshGameModeSelector가 SelectedDeep에 따라 SetActive).
+            result.deepHintText = UiKit.Text(col,
+                "스테이지마다 심볼 보상으로 주머니(확률 덱)를 다듬어요. 압축하면 확률이 오르는 대신 요구 EXP도 올라가요.\n심화모드는 확률 소스가 달라 일반 랭킹과 별도예요.",
+                16, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(result.deepHintText, preferredHeight: 66, flexibleHeight: 0);
+            result.deepHintText.gameObject.SetActive(false);
         }
 
-        private static RectTransform BuildModeCard(RectTransform parent, string title, string desc, bool selected, bool locked)
+        private sealed class ModeCardResult
+        {
+            public Button button;
+            public Outline outline;
+            public Text nameText;
+        }
+
+        private static ModeCardResult BuildModeCard(RectTransform parent, string title, string desc)
         {
             var card = UiKit.Panel(parent, "Mode_" + title, Color.white, UiSpriteGen.Load("w_card_grad"));
             UiKit.SizeHint(card, flexibleWidth: 1, preferredHeight: 132, flexibleHeight: 0);
-            UiKit.AddGlowOutline(card.gameObject, selected ? UiKit.Accent : UiKit.Bd, 2f).enabled = true;
+            var outline = UiKit.AddGlowOutline(card.gameObject, UiKit.Bd, 2f);
+            outline.enabled = true;
             var cardBtn = card.gameObject.AddComponent<Button>();
             cardBtn.targetGraphic = card.GetComponent<Image>();
             card.gameObject.AddComponent<PressFx>();
 
             var inner = UiKit.VGroup(card, 4, new RectOffset(16, 16, 16, 14), true, true);
             UiKit.Fill(inner);
-            var nameText = UiKit.Text(inner, title, 21, selected ? UiKit.Accent : UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            var nameText = UiKit.Text(inner, title, 21, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
             UiKit.SizeHint(nameText, preferredHeight: 28, flexibleHeight: 0);
             var descText = UiKit.Text(inner, desc, 16, UiKit.TextSecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(descText, preferredHeight: 22, flexibleHeight: 0);
-            if (locked)
-            {
-                var badge = UiKit.Text(inner, "준비 중", 15, UiKit.TextSecondary, TextAnchor.MiddleCenter, true);
-                UiKit.SizeHint(badge, preferredHeight: 22, flexibleHeight: 0);
-            }
 
-            return card;
+            return new ModeCardResult { button = cardBtn, outline = outline, nameText = nameText };
         }
 
         // ── 웹 파리티 P6(WEB_PARITY_DESIGN.md §1-A #18) — 승천(심화 학기) 선택기(웹 ascSelector(),
@@ -1850,7 +1906,10 @@ namespace JackpotRun.EditorTools
         private static void BuildRunHud(RectTransform col, RunBuildResult result)
         {
             var hud = UiKit.Panel(col, "Hud", UiKit.PanelBg);
-            UiKit.SizeHint(hud, preferredHeight: 210, flexibleHeight: 0);
+            // 웹 파리티 P7-4b — 심화 전공칩/피버 행 추가분(+50, 아래 DeepStatusRow/FeverBar) 반영해
+            // 210→260. 일반 런은 그 행들의 텍스트/바가 항상 빈 값이라(기존 ascBadgeText 관례) 시각적
+            // 여백만 살짝 늘 뿐 레이아웃이 깨지지 않는다 — 정확한 여백감은 Fable의 에디터 육안 확인 대상.
+            UiKit.SizeHint(hud, preferredHeight: 260, flexibleHeight: 0);
             result.hudRoot = hud;
             result.hudOutline = UiKit.AddGlowOutline(hud.gameObject, UiKit.Bad, 4f);
 
@@ -1908,6 +1967,22 @@ namespace JackpotRun.EditorTools
             UiKit.SizeHint(result.coinsText, flexibleWidth: 1, flexibleHeight: 0);
             result.scoreText = UiKit.Text(statsRow, "", 20, UiKit.Blue, TextAnchor.MiddleRight, true);
             UiKit.SizeHint(result.scoreText, flexibleWidth: 1, flexibleHeight: 0);
+
+            // ── 웹 파리티 P7-4b(웹 archHudChip/feverHudHtml, ui.js:38-56) — 전공 칩 + 피버 상태 ──
+            // 일반 런은 텍스트가 항상 빈 문자열이라(HudView.RefreshDeepStatus) 얇은 빈 줄만 남는다
+            // (기존 ascBadgeText "행 통째로 숨기지 않고 내용만 지운다" 관례 재사용).
+            var deepStatusRow = UiKit.HGroup(hudCol, 10, new RectOffset(0, 0, 0, 0), true, true);
+            UiKit.SizeHint(deepStatusRow, preferredHeight: 26, flexibleHeight: 0);
+            result.archChipText = UiKit.Text(deepStatusRow, "", 17, UiKit.Accent, TextAnchor.MiddleLeft, true);
+            UiKit.SizeHint(result.archChipText, flexibleWidth: 1, flexibleHeight: 0);
+            result.feverText = UiKit.Text(deepStatusRow, "", 17, UiKit.TextSecondary, TextAnchor.MiddleRight, true);
+            UiKit.SizeHint(result.feverText, preferredWidth: 200, flexibleHeight: 0);
+
+            var feverBarBg = UiKit.Panel(hudCol, "FeverBarBg", UiKit.Hex("#2A3048"), UiSpriteGen.Load("bar_bg_r12"));
+            UiKit.SizeHint(feverBarBg, preferredHeight: 10, flexibleHeight: 0);
+            result.feverBarBg = feverBarBg;
+            result.feverBarFill = UiKit.Panel(feverBarBg, "Fill", UiKit.Bad, UiSpriteGen.Load("bar_fill_r12"));
+            UiKit.SetAnchors(result.feverBarFill, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
 
             // 불운 게이지 5칸(UNLUCKY_MAX) — 고정 5개. S8 항목⑤: 🍀(astral)는 렌더링되지 않는다 —
             // 한글 라벨("행운")로 대체.
@@ -2269,6 +2344,12 @@ namespace JackpotRun.EditorTools
             UiKit.SizeHint(result.deviceRow, flexibleWidth: 1, preferredHeight: 80, flexibleHeight: 0);
             result.deviceButtonTemplate = BuildLabeledButtonTemplate(result.deviceRow, panelSprite);
 
+            // 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 ui.js:730 👝주머니) — 심화 런
+            // 전용, 기본 숨김(RunView.RefreshPouchButton이 run.DeepMode로 SetActive 토글).
+            result.pouchButton = UiKit.Button(toolRow, "주머니", new Vector2(0, 80), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, panelSprite);
+            UiKit.SizeHint(result.pouchButton, preferredWidth: 140, preferredHeight: 80, flexibleWidth: 0, flexibleHeight: 0);
+            result.pouchButton.gameObject.SetActive(false);
+
             // WEB_PARITY P1 ⑤: "게임 포기" — 웹 액션바 giveUpBtn()과 같은 취지로 작고 눈에 덜 띄는
             // 톤(Panel2/ghost) + 구석 배치(toolRow 맨 끝, 오작동 방지). 클릭 시 확인 시트를 거친다
             // (RunView.OnGiveUpClicked).
@@ -2312,6 +2393,8 @@ namespace JackpotRun.EditorTools
             so.FindProperty("deviceRow").objectReferenceValue = r.deviceRow;
             so.FindProperty("deviceButtonTemplate").objectReferenceValue = r.deviceButtonTemplate;
             so.FindProperty("giveUpButton").objectReferenceValue = r.giveUpButton;
+            so.FindProperty("pouchButton").objectReferenceValue = r.pouchButton;
+            so.FindProperty("pouchBoardPanel").objectReferenceValue = overlay.pouchBoardPanel;
             so.FindProperty("nodePanel").objectReferenceValue = overlay.nodePanel;
             so.FindProperty("perkOfferPanel").objectReferenceValue = overlay.perkOfferPanel;
             so.FindProperty("shopPanel").objectReferenceValue = overlay.shopPanel;
@@ -2328,6 +2411,8 @@ namespace JackpotRun.EditorTools
             so.FindProperty("settingsSheet").objectReferenceValue = overlay.settingsSheet;
             so.FindProperty("tutorialButton").objectReferenceValue = r.tutorialButton;
             so.FindProperty("settingsButton").objectReferenceValue = r.settingsButton;
+            // 웹 파리티 P7-4b — 심화 오퍼 6종 공용 시트.
+            so.FindProperty("deepOfferPanel").objectReferenceValue = overlay.deepOfferPanel;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
@@ -2352,6 +2437,12 @@ namespace JackpotRun.EditorTools
             so.FindProperty("bossBannerText").objectReferenceValue = r.bossBannerText;
             so.FindProperty("bossVignetteGroup").objectReferenceValue = r.bossVignetteGroup;
             so.FindProperty("runScreenRoot").objectReferenceValue = r.root;
+            // 웹 파리티 P7-4b — 전공 칩 + 피버 상태(텍스트+바). Opus 2차검수(P7-4b) [경미②] —
+            // feverBarBg도 배선(일반 런에서 통째로 SetActive(false)하기 위해 HudView가 참조 필요).
+            so.FindProperty("archChipText").objectReferenceValue = r.archChipText;
+            so.FindProperty("feverText").objectReferenceValue = r.feverText;
+            so.FindProperty("feverBarBg").objectReferenceValue = r.feverBarBg;
+            so.FindProperty("feverBarFill").objectReferenceValue = r.feverBarFill;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
         }
@@ -2457,6 +2548,10 @@ namespace JackpotRun.EditorTools
                 // Opus 2차검수 필수⑥ — 런 화면 설정 시트엔 데이터 초기화 행을 짓지 않는다(웹 설정
                 // 시트에 없는 요소, 홈 전용 진입점만 유지).
                 settingsSheet = BuildSettingsSheet(overlay, "RunSettingsSheet", includeReset: false),
+                // 웹 파리티 P7-4b — 심화 오퍼 6종 공용 시트(RunView.ShowDeepOffer가 구동).
+                deepOfferPanel = BuildListPickerPanel(overlay, "DeepOfferPanel", dismissOnScrimClick: false),
+                // 웹 파리티 P7-4b — 런 중 주머니 덱 보드(액션바 "주머니" 버튼, RunView.OnPouchButtonClicked).
+                pouchBoardPanel = BuildListPickerPanel(overlay, "PouchBoardPanel", dismissOnScrimClick: false),
             };
         }
 
@@ -2833,6 +2928,75 @@ namespace JackpotRun.EditorTools
             return card;
         }
 
+        // ── ListPickerPanel(신규, 웹 파리티 P7-4b) ─────────────────────────────────────
+        // BuildNodePanel과 동일한 BuildSheetChrome 골격(배너 없이 제목+부제+스크롤 카드열만) — 심화
+        // 런 오퍼 6종(RunView.ShowDeepOffer)과 상점 '심볼 정비' 대상 선택(ShopPanel) 양쪽이 이 하나를
+        // 공유한다(호출부마다 별도 인스턴스, 같은 빌더 재사용). closeButton은 dismissOnScrimClick과
+        // 별개로 항상 짓되(런타임 Show가 onClose==null이면 SetActive(false)) — "취소 가능한" 상점
+        // 대상선택에서만 실제로 노출된다.
+        private static UI2.ListPickerPanel BuildListPickerPanel(Transform overlay, string name, bool dismissOnScrimClick)
+        {
+            var chrome = BuildSheetChrome(overlay, name, 1300f, dismissOnScrimClick);
+            var col = chrome.cardCol;
+
+            var titleText = UiKit.Text(col, "", 28, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.SizeHint(titleText, preferredHeight: 44, flexibleHeight: 0);
+            var subtitleText = UiKit.Text(col, "", 18, UiKit.TextSecondary, TextAnchor.UpperCenter);
+            UiKit.SizeHint(subtitleText, preferredHeight: 54, flexibleHeight: 0);
+
+            var scroll = UiKit.Scroll(col, out var cardsContent, vertical: true);
+            UiKit.SizeHint(scroll, flexibleHeight: 1);
+            SetupStackContent(cardsContent, 4, 10, 12);
+            var cardTemplate = BuildListPickerCardTemplate(cardsContent);
+
+            var closeButton = UiKit.Button(col, "닫기", new Vector2(0, 76), UiKit.Panel2, UiKit.TextSecondary, null, UiSpriteGen.Load("w_ghost_btn"));
+            UiKit.SizeHint(closeButton, preferredHeight: 76, flexibleHeight: 0);
+            UiKit.AddGlowOutline(closeButton.gameObject, UiKit.Bd2, 2f).enabled = true;
+            closeButton.gameObject.SetActive(false); // 기본 숨김 — Show(onClose!=null)일 때만 런타임이 켠다.
+
+            var view = chrome.scrim.gameObject.AddComponent<UI2.ListPickerPanel>();
+            var so = new SerializedObject(view);
+            so.FindProperty("titleText").objectReferenceValue = titleText;
+            so.FindProperty("subtitleText").objectReferenceValue = subtitleText;
+            so.FindProperty("cardsContent").objectReferenceValue = cardsContent;
+            so.FindProperty("cardTemplate").objectReferenceValue = cardTemplate;
+            so.FindProperty("cardRect").objectReferenceValue = chrome.card;
+            so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
+            so.FindProperty("closeButton").objectReferenceValue = closeButton;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return view;
+        }
+
+        // 자식 경로 계약(ListPickerPanel.cs): "Content/Head"·"Content/Body"·"Content/Badge"(전부 Text).
+        // NodePanel 카드 톤 그대로(w_card_grad+bd 1.5+gloss) + Badge 한 줄(티어/비용 요약) 추가.
+        private static RectTransform BuildListPickerCardTemplate(Transform parent)
+        {
+            var card = UiKit.Panel(parent, "ListPickerCardTemplate", Color.white, UiSpriteGen.Load("w_card_grad"));
+            UiKit.SizeHint(card, preferredHeight: 168, flexibleHeight: 0);
+            UiKit.AddGlowOutline(card.gameObject, UiKit.Bd, 1.5f).enabled = true;
+            var btn = card.gameObject.AddComponent<Button>();
+            btn.targetGraphic = card.GetComponent<Image>();
+            card.gameObject.AddComponent<PressFx>();
+
+            var inner = UiKit.VGroup(card, 4, new RectOffset(22, 22, 14, 14), true, true);
+            inner.name = "Content";
+            UiKit.Fill(inner);
+            var head = UiKit.Text(inner, "", 24, UiKit.TextPrimary, TextAnchor.MiddleLeft, true);
+            head.name = "Head";
+            UiKit.SizeHint(head, preferredHeight: 32, flexibleHeight: 0);
+            var badge = UiKit.Text(inner, "", 16, UiKit.Accent, TextAnchor.MiddleLeft, true);
+            badge.name = "Badge";
+            UiKit.SizeHint(badge, preferredHeight: 22, flexibleHeight: 0);
+            var body = UiKit.Text(inner, "", 17, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            body.name = "Body";
+            UiKit.SizeHint(body, flexibleHeight: 1);
+
+            AddGloss(card, 67f); // 40% of 168 — 기존 카드 관례.
+
+            card.gameObject.SetActive(false);
+            return card;
+        }
+
         // ── PerkOfferPanel ───────────────────────────────────────────────────────────
         // S15 §C 전면 재설계 — 하단 시트(BuildSheetChrome)를 버리고 로그라이크 표준 모달로 교체:
         // 전체화면 딤 0.72(baked, BuildSheetChrome의 0.62와 다른 값이라 헬퍼를 공유하지 않는다) +
@@ -3020,6 +3184,39 @@ namespace JackpotRun.EditorTools
             var leaveButton = UiKit.Button(btnRow, "나가기 ▶", new Vector2(0, 90), UiKit.Accent, UiKit.Ink, null, UiSpriteGen.Load("w_gold_btn"));
             UiKit.SizeHint(leaveButton, flexibleWidth: 1, preferredHeight: 90, flexibleHeight: 0);
 
+            // ── 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심화 전용 탭 바(상점|심볼 정비).
+            // 일반 런은 심화 탭 자체가 없어(웹 renderShop "deep이 아니면 항상 buy") 이 행을 통째로
+            // 숨긴다(ShopPanel.Show가 run.DeepMode로 SetActive 토글). DexView 카테고리 탭과 동일한
+            // pill 토글 방식이지만 고정 2개라 스크롤 없이 HGroup 직결.
+            var tabRow = UiKit.HGroup(col, 10, new RectOffset(0, 0, 0, 8), true, true);
+            UiKit.SizeHint(tabRow, preferredHeight: 64, flexibleHeight: 0);
+            var buyTabImg = UiKit.Panel(tabRow, "Tab_buy", UiKit.Panel3, UiKit.PillSprite(64f));
+            UiKit.SizeHint(buyTabImg, flexibleWidth: 1, preferredHeight: 64, flexibleHeight: 0);
+            var buyTabBtn = buyTabImg.gameObject.AddComponent<Button>();
+            buyTabBtn.targetGraphic = buyTabImg.GetComponent<Image>();
+            buyTabImg.gameObject.AddComponent<PressFx>();
+            UiKit.AddGlowOutline(buyTabImg.gameObject, UiKit.Bd, 1.5f).enabled = true;
+            var buyTabLabel = UiKit.Text(buyTabImg, "상점", 19, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.Fill(buyTabLabel.rectTransform);
+            var repairTabImg = UiKit.Panel(tabRow, "Tab_repair", UiKit.PanelBg, UiKit.PillSprite(64f));
+            UiKit.SizeHint(repairTabImg, flexibleWidth: 1, preferredHeight: 64, flexibleHeight: 0);
+            var repairTabBtn = repairTabImg.gameObject.AddComponent<Button>();
+            repairTabBtn.targetGraphic = repairTabImg.GetComponent<Image>();
+            repairTabImg.gameObject.AddComponent<PressFx>();
+            UiKit.AddGlowOutline(repairTabImg.gameObject, UiKit.Bd, 1.5f).enabled = true;
+            var repairTabLabel = UiKit.Text(repairTabImg, "심볼 정비", 19, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+            UiKit.Fill(repairTabLabel.rectTransform);
+            tabRow.gameObject.SetActive(false); // 기본 숨김 — ShopPanel.Show가 run.DeepMode일 때만 켠다.
+
+            // ── 웹 파리티 P7-4b — 정비 요약줄(총량/상한/압축/태그강화, ShopPanel.RefreshRepairSummary) ──
+            var repairSummaryText = UiKit.Text(col, "", 17, UiKit.TextSecondary, TextAnchor.UpperLeft);
+            UiKit.SizeHint(repairSummaryText, preferredHeight: 46, flexibleHeight: 0);
+            repairSummaryText.gameObject.SetActive(false);
+
+            // 심화 상점 대상선택 서브시트(추가/제거/업그레이드/교체/태그) — 취소 가능(dismissOnScrimClick
+            // 관례와 별개로 ListPickerPanel.closeButton이 담당, 웹 repairCancel과 동일하게 상점으로 복귀).
+            var repairTargetPanel = BuildListPickerPanel(overlay, "RepairTargetPanel", dismissOnScrimClick: false);
+
             var view = scrim.gameObject.AddComponent<UI2.ShopPanel>();
             var so = new SerializedObject(view);
             so.FindProperty("titleText").objectReferenceValue = titleText;
@@ -3031,6 +3228,13 @@ namespace JackpotRun.EditorTools
             so.FindProperty("leaveButton").objectReferenceValue = leaveButton;
             so.FindProperty("cardRect").objectReferenceValue = chrome.card;
             so.FindProperty("dimGroup").objectReferenceValue = chrome.dimGroup;
+            so.FindProperty("tabRow").objectReferenceValue = tabRow;
+            so.FindProperty("buyTabImage").objectReferenceValue = buyTabImg.GetComponent<Image>();
+            so.FindProperty("buyTabButton").objectReferenceValue = buyTabBtn;
+            so.FindProperty("repairTabImage").objectReferenceValue = repairTabImg.GetComponent<Image>();
+            so.FindProperty("repairTabButton").objectReferenceValue = repairTabBtn;
+            so.FindProperty("repairSummaryText").objectReferenceValue = repairSummaryText;
+            so.FindProperty("repairTargetPanel").objectReferenceValue = repairTargetPanel;
             so.ApplyModifiedPropertiesWithoutUndo();
             return view;
         }
@@ -3859,10 +4063,12 @@ namespace JackpotRun.EditorTools
             result.statRunsText = BuildStatTile(statsRow, "런");
             result.statTotalScoreText = BuildStatTile(statsRow, "통산 점수");
 
-            // 카테고리 탭 — 96, JackpotCatalog.CategoryOrder 8종 고정(제목은 JackpotCatalog.CategoryTitle,
-            // S8에서 이모지 제거됨). pill(UiKit.PillSprite(96)) — 활성/비활성은 배경색만 토글
-            // (Panel3/PanelBg, §0 토큰), 테두리는 정적 bd(활성 시 amber로 바뀌는 CSS 디테일은 생략 —
-            // 재해석 보고 대상).
+            // 카테고리 탭 — 96, JackpotCatalog.CategoryOrder 순회(제목은 JackpotCatalog.CategoryTitle,
+            // S8에서 이모지 제거됨). Opus 2차검수(P7-4b) [경미④] — "8종 고정" 주석은 웹 파리티 P7-4b가
+            // 심화 도감 3탭(sym/symaug/symrel)을 CategoryOrder에 추가하며 스테일해졌다(정정: 현재
+            // 11종, 이 루프 자체는 애초에 order.Length를 그대로 쓰는 완전 데이터 기반이라 코드 변경은
+            // 필요 없었다). pill(UiKit.PillSprite(96)) — 활성/비활성은 배경색만 토글(Panel3/PanelBg,
+            // §0 토큰), 테두리는 정적 bd(활성 시 amber로 바뀌는 CSS 디테일은 생략 — 재해석 보고 대상).
             var tabPill = UiKit.PillSprite(96f);
             var tabScroll = UiKit.Scroll(col, out var tabsContent, vertical: false);
             UiKit.SizeHint(tabScroll, preferredHeight: 96, flexibleHeight: 0);
@@ -4123,6 +4329,34 @@ namespace JackpotRun.EditorTools
             result.backButton = UiKit.Button(header, "← 메뉴", new Vector2(160, 70), UiKit.Hex("#2A3048"), UiKit.TextPrimary, null, panelSprite);
             UiKit.SizeHint(result.backButton, preferredWidth: 160, preferredHeight: 70, flexibleWidth: 0, flexibleHeight: 0);
 
+            // ── 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #20) — 3보드 탭(일반/승천/심화) ──────────────
+            // DexView 카테고리 탭과 동일한 pill 배경 토글 방식(고정 3개라 스크롤은 불필요, HGroup 직결).
+            var tabPill = UiKit.PillSprite(72f);
+            var tabsRow = UiKit.HGroup(col, 10, new RectOffset(24, 24, 0, 8), true, true);
+            UiKit.SizeHint(tabsRow, preferredHeight: 72, flexibleHeight: 0);
+            result.tabImages = new Image[UI2.RankView.BoardOrder.Length];
+            for (int i = 0; i < UI2.RankView.BoardOrder.Length; i++)
+            {
+                string boardKey = UI2.RankView.BoardOrder[i];
+                var tabGo = new GameObject("Tab_" + boardKey, typeof(RectTransform), typeof(Image), typeof(Button), typeof(PressFx));
+                var tabRt = (RectTransform)tabGo.transform;
+                tabRt.SetParent(tabsRow, false);
+                var tabImg = tabGo.GetComponent<Image>();
+                tabImg.sprite = tabPill;
+                tabImg.type = Image.Type.Sliced;
+                tabImg.color = i == 0 ? UiKit.Panel3 : UiKit.PanelBg;
+                UiKit.AddGlowOutline(tabGo, UiKit.Bd, 1.5f).enabled = true;
+                result.tabImages[i] = tabImg;
+                var tabBtn = tabGo.GetComponent<Button>();
+                tabBtn.targetGraphic = tabImg;
+                UiKit.SizeHint(tabBtn, flexibleWidth: 1, preferredHeight: 72, flexibleHeight: 0);
+
+                var tabLabel = UiKit.Text(tabRt, UI2.RankView.BoardLabel[i], 18, UiKit.TextPrimary, TextAnchor.MiddleCenter, true);
+                UiKit.Fill(tabLabel.rectTransform);
+
+                UnityEditor.Events.UnityEventTools.AddStringPersistentListener(tabBtn.onClick, result.view.SetBoard, boardKey);
+            }
+
             // 상태 문구(로딩/빈 목록/오류) — RankView.OnEnable·OnFetchOk·OnFetchError가 채운다.
             result.statusText = UiKit.Text(col, "", UiKit.TextStyle.BodySecondary, TextAnchor.MiddleCenter);
             UiKit.SizeHint(result.statusText, preferredHeight: 64, flexibleHeight: 0);
@@ -4180,6 +4414,7 @@ namespace JackpotRun.EditorTools
             so.FindProperty("statusText").objectReferenceValue = r.statusText;
             so.FindProperty("listContent").objectReferenceValue = r.listContent;
             so.FindProperty("rowTemplate").objectReferenceValue = r.rowTemplate;
+            SetObjectArray(so, "tabImages", r.tabImages);
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 

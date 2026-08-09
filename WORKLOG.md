@@ -4,6 +4,76 @@
 
 ---
 
+## 2026-08-09 - 웹 파리티 P7-4b Opus 2차검수 반영 — 치명1·중대6·경미4
+
+상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(GG) 참조.
+
+- **[치명] PerkOfferPanel SYMAUG/SYMREL 소프트락**: `Perks.ById`가 모르는 심볼퍽 id를 카드 목록에서
+  통째로 스킵하던 버그 — 오퍼가 전부 심볼퍽이면 카드 0장(소프트락). `PouchOffer.WrapSymPerk`/
+  `ParseTier`를 internal로 승격해 `PerkOfferPanel.ResolvePerk`가 폴백하도록 정정.
+- **[중대]** 스핀 시점 희귀/전설 발견 집계(`DeepRunHooks`, 웹 game.js:975 대응) 추가 · 신규 심화 UI
+  전역 astral 정리(`TextSanitize.StripAstral` + 도감 108종 전용 `JackpotCatalog.SafeIcon` 이름 첫
+  글자 폴백) · 도감 심볼 탭을 `Pouch.Symbols71` 기준으로 교정 + 잠금 안내를 실제 해금 업적 문구로 ·
+  `public/ranking/app.js`를 `slotrank`로 갱신 + `RankingService` 제출을 원격 선-조회 방식으로 전환 ·
+  신규 `Tests_P7_4_DeepUI.cs`(7그룹: 심화 업적13·symUnlocked 필터·RunController 폴백·TargetsSym/Tag·
+  ProfileDto 왕복·BestAscStage).
+- **[경미]** rest_purify 문구 정정·FeverBarBg SetActive(deep)·ListPickerPanel Awake 사문 제거·
+  UiSceneBuilder 스테일 주석 정정.
+- **검증**: `dotnet run --project Client/Jackpot/Tools/EngineTests` **33734 → 33937(+203), 0
+  failed**. UI2/Editor 레이어는 라이브 에디터 미연결로 코드 재독해만 완료 — Unity 배치 컴파일은
+  Fable 재확인 대상.
+
+## 2026-08-09 - 웹 파리티 P7-4b(P7 완료) — POUCH 오퍼 3화면·정비 탭·주머니 보드·HUD 피버/전공·도감 심화3탭
+
+상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(FF) 참조. Sonnet 구현, P7-4 1차 슬라이스(§2-(EE)) 이월분 마감.
+
+- **🔴 치명 결함부터 해소**: §2-(EE)가 홈 심화 토글을 실해제한 뒤로 심화 런의 EventPouch/
+  EventPouchCost/EventPouchRemove/EventRestDeep/EventGambleDeep/EventSynAugBonus 6개 phase에
+  대응하는 UI가 전혀 없어 소프트락 상태였다 — 신규 `UI2/Run/Panels/ListPickerPanel.cs`(가변 개수
+  카드 선택 시트) + `RunView.ShowDeepOffer`로 6개 phase 전부를 배선해 해소. SYMAUG/SYMREL은 기존
+  PerkOfferPanel이 이미 처리 중이라 무변경.
+- **정비소 '심볼 정비' 탭**: `ShopPanel.cs`에 상점|정비 탭 추가, 대상선택 7종은 `ListPickerPanel`
+  서브시트 재사용. 엔진에 `RepairShop.TargetsSym`/`TargetsTag`(웹 `repairTargets()` 이식) 신규 추가.
+- **런 중 주머니 덱 보드**: 액션바 "주머니" 버튼(심화 전용) → 요약(총량/압축/전공/잭팟태그) + 심볼별
+  카드 목록.
+- **HUD**: 전공 칩 + 피버 게이지 바/"N스핀 남음" 신규 행(Hud 패널 210→260).
+- **도감**: `sym`/`symaug`/`symrel` 3탭 추가(`JackpotCatalog.CategoryOrder` 확장만으로 탭 바가 자동
+  생성되는 기존 데이터 기반 구조 재활용) — 심볼 잠금 판정은 §2-(EE)의 `PlayerProfile.
+  EffectiveSymUnlocked()` 재사용.
+- **검증**: `dotnet run --project Client/Jackpot/Tools/EngineTests` **33734 passed, 0 failed**(무회귀).
+  UI2/Editor 레이어는 라이브 에디터 미연결로 코드 재독해 수동 검토만 완료 — Fable의 Unity 배치 컴파일
+  재확인 대상(직전 확인은 이번 라운드 신규 코드 반영 전 시점).
+- **이탈 3건(전부 "정보 상세도" 스코프 다운, 소프트락/정합성 리스크 없음)**: 정비 대상선택 즉시 커밋
+  (웹의 미리보기 확인 단계 생략) · 주머니 보드 전공 게이지를 텍스트로 축약(바 시각화 아님) · 잠금
+  심볼 14종 해금 안내를 심볼별이 아닌 카테고리 공용 고정 문구로 근사.
+
+## 2026-08-09 - 웹 파리티 P7-4 1차 슬라이스(부분 완료) — 홈 토글·심화 업적13·심볼해금13·랭킹3노드
+
+상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(EE) 참조. Sonnet 구현, Opus 2차검수 전.
+
+- **완료**: ①홈 심화모드 토글 실선택 전환(잠금 해제, 승천 선택기와 상호배제) · ⑥심화 업적 13종
+  실배선(`DeepRunHooks.TrackDeepStatsAndBossAch` 신설 — P7-1이 골격만 남겨 뒀던 `DeepStats` 8개
+  플래그·RaresSeen/LegendsSeen·MaxTotal·BossClears를 처음 채움, `StatTracker`가 웹 그대로 프로필
+  카운터 13종에 롤업) + `ACH_SYMBOL_UNLOCK` 13매핑(`Content/DeepSymbolUnlock.cs` 신규) +
+  `profile.SymUnlocked`(신규, `RunState.SymUnlocked`로 미러돼 POUCH 오퍼/3스테이지 연계 보너스가
+  P7-1~3이 근사로 남겨 뒀던 `Pouch.DefaultUnlocked` 자리를 실해금값으로 교체) · ⑦랭킹 3노드 전환
+  (`RankingService`/`RankView` 전면 재작성 — `slotrank`/`slotrank_asc`/`slotrank_deep`, 게스트 키는
+  기존 GUID pid 재사용, 구 `jackpotrank` 폐기) · ③ 일부(NodePanel 노드 카드 라벨 4종) · ② 일부(HUD
+  심화 배지 — 승천 배지 슬롯 재사용, 상호배제라 제로 리스크).
+- **회귀 발견·정정**: `RunState.SymUnlocked` 신설 직후 P7 테스트 4개 파일의 `MakeDeepRun` 헬퍼가
+  `RunController`를 안 거쳐 이 필드가 항상 비어 POUCH 오퍼 특수카드가 전부 죽던 버그를 자체 테스트
+  (`Tests_P7_3_JackpotFeverOffer`)로 잡아 정정. `dotnet run --project Client/Jackpot/Tools/EngineTests`
+  **33734 passed, 0 failed**(엔진 레이어 100% 검증).
+- **미착수(다음 슬라이스 이월, 이유: 라이브 Unity 에디터 없이는 신규 대형 레이아웃 시각검증 불가)**:
+  전공칩+피버게이지바+"N스핀 남음"(HUD 나머지) · POUCH 오퍼 화면 3종(EventPouch/Cost/Remove) · 정비소
+  '심볼 정비' 탭 · 주머니 덱 보드 확인 시트 · 도감 심화 3탭(심볼/심볼증강/심볼유물) — **전부 엔진 API는
+  이미 완비**(P7-1/2/3/3b), UI만 없는 상태.
+- **스모크 컴파일 미실행**: 세션 시작 시 연결된 Unity 에디터 인스턴스 0개(`mcpforunity://instances`
+  확인) — 과거 슬라이스가 쓰던 오프라인 `dotnet exec csc.dll` rsp 캐시도 2026-07-30자 스테일(P7 착수
+  이전)이라 이번 세션 범위에서 재구성하지 않았다. UI2/Editor 레이어(MenuView/RankView/NodePanel/
+  HudView/UiSceneBuilder) 변경분은 코드 재독해로만 검토 — **Unity 에디터 실컴파일 확인이 아직 없다**
+  (Opus/Fable 최우선 확인 필요).
+
 ## 2026-08-09 - 웹 파리티 P7-3b(심화모드 4/4, P7 완료) — Sp 신규 39종 특수심볼 효과 전면 이식
 
 상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(DD) 참조. 요약:

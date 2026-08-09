@@ -748,6 +748,12 @@ namespace JackpotRun.EngineTests
             var run = S4TestHelpers.NewRun(seed);
             run.DeepMode = true;
             foreach (var kv in Pouch.NewStartPouch()) run.Pouch[kv.Key] = kv.Value;
+            // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20) — RunState.SymUnlocked 신설로
+            // Pouch.DefaultUnlocked 직접 참조가 run.SymUnlocked 경유로 바뀌었다. 이 헬퍼는
+            // RunController를 거치지 않고 RunState를 직접 만들어(그 생성자의 기본 폴백을 못 탐) —
+            // RunController가 symUnlocked 미지정 시 쓰는 것과 동일한 기본값(Pouch.DefaultUnlocked)을
+            // 여기서 직접 채워 기존 테스트 동작을 그대로 보존한다.
+            run.SymUnlocked.UnionWith(Pouch.DefaultUnlocked);
             return run;
         }
     }

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using JackpotRun.Core;
 using JackpotRun.Engine;
 using UnityEngine;
 
@@ -14,10 +15,16 @@ namespace JackpotRun.Data
         public const string CatCur = "cur";
         public const string CatItem = "item";
         public const string CatAch = "ach";
+        // 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심화 도감 3탭(심볼72/심볼증강21/심볼유물15).
+        // 전량 catalog.json에 없는 신규 카테고리라(art 파이프라인이 이 콘텐츠를 다룬 적이 없음) 100%
+        // BuildSyntheticEntries가 합성한다 — §2-(R) "catalog 미스 시 Engine 콘텐츠 직접 합성" 선례 확장.
+        public const string CatSym = "sym";
+        public const string CatSymAug = "symaug";
+        public const string CatSymRel = "symrel";
 
         public static readonly string[] CategoryOrder =
         {
-            CatChar, CatMac, CatDev, CatAug, CatRel, CatCur, CatItem, CatAch
+            CatChar, CatMac, CatDev, CatAug, CatRel, CatCur, CatItem, CatAch, CatSym, CatSymAug, CatSymRel
         };
 
         private static CatalogData _data;
@@ -93,6 +100,18 @@ namespace JackpotRun.Data
             }
         }
 
+        // Opus 2차검수(P7-4b) [중대③] — 심볼/심볼퍽 108종(72+21+15)의 emoji는 web data.js 원문을
+        // 그대로 옮긴 것이라(Achievements.cs처럼 astral을 데이터 단에서 손질한 적이 없음) 다수가
+        // astral(레거시 uGUI Text 미표시). 도감 그리드 카드는 이 emoji가 "유일한 아이콘"(실 스프라이트가
+        // 없다)이라 그냥 지워버리면(TextSanitize.StripAstral) 빈 아이콘 박스만 남는다 — 지시대로
+        // "이름 첫 글자"로 대체해 최소한 무언가는 보이게 한다. 합성 시점(카탈로그 로드 1회)에 한 번만
+        // 계산해 두면 DexView/DexDetailPopup 등 이 CatalogEntry.emoji를 읽는 모든 곳에 자동 적용된다.
+        private static string SafeIcon(string emoji, string name)
+        {
+            if (!string.IsNullOrEmpty(emoji) && TextSanitize.StripAstral(emoji) == emoji) return emoji; // 이미 BMP-safe.
+            return !string.IsNullOrEmpty(name) ? name.Substring(0, 1) : "❔";
+        }
+
         private static CatalogEntry Synthetic(
             string id, string category, string key, string emoji, string nameKo, string descKo,
             string tier = "", string deviceKind = "", string command = "", string unlockAch = "",
@@ -156,6 +175,60 @@ namespace JackpotRun.Data
                 list.Add(Synthetic("item_" + it.id, CatItem, it.id, it.emoji, it.name, it.desc,
                     itemKind: it.kind, coinCost: it.coinCost));
             }
+
+            // ── 웹 파리티 P7-4b/Opus 2차검수(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심화 도감 3탭 ──────
+            // [중대④ 정정] 이전엔 Symbols.All(72 — key/dice/seed 등 주머니와 무관한 엔진 내부 심볼
+            // 포함)을 그대로 순회했다. 웹 POUCH_SYMBOLS(=Pouch.Symbols71, 71개 — key/dice/seed 제외·
+            // empty/random 포함)로 교정한다 — Symbols.ById("empty"/"random")는 null이라(SpinResolver.
+            // EmptySym 등 별도 센티널) 이 둘은 카탈로그 룩업 대신 고정 라벨로 합성한다(RunView.SymLabel/
+            // ShopPanel.SymLabel과 동일 관례).
+            // [중대④ 정정] 잠금 안내도 "심화 업적 달성으로 해금"(카테고리 공용 고정 문구) 대신 실제
+            // 해금 업적(Content/DeepSymbolUnlock.cs 역매핑)의 이름·설명을 그대로 인용한다.
+            var symToAch = new Dictionary<string, string>();
+            foreach (var kv in DeepSymbolUnlock.ByAchId) symToAch[kv.Value] = kv.Key;
+
+            foreach (var symId in Pouch.Symbols71)
+            {
+                var s = Symbols.ById(symId);
+                string emoji, name;
+                var descParts = new List<string>();
+                bool rare;
+                if (s != null)
+                {
+                    emoji = s.emoji; name = s.name; rare = s.rare;
+                    descParts.Add($"EXP+{s.exp} · 점수+{s.score} · 코인+{s.coin}");
+                    if (s.tags != null && s.tags.Length > 0) descParts.Add("태그: " + string.Join(", ", s.tags));
+                }
+                else
+                {
+                    // empty/random — Pouch 전용 센티널(Symbols.All엔 없음).
+                    emoji = symId == "empty" ? "▫" : "◎";
+                    name = symId == "empty" ? "빈칸" : "랜덤칸";
+                    descParts.Add(symId == "empty" ? "빈 칸(효과 없음)" : "주머니에서 실심볼을 다시 뽑음(없으면 빈칸)");
+                    rare = false;
+                }
+
+                bool hasPick = false;
+                PickInfo pick = null;
+                if (symToAch.TryGetValue(symId, out var achId))
+                {
+                    var ach = Achievements.ById(achId);
+                    if (ach != null)
+                    {
+                        hasPick = true;
+                        pick = new PickInfo { unlock = $"심화 업적 '{ach.name}' 달성으로 해금 — {ach.desc}" };
+                    }
+                }
+                list.Add(Synthetic("sym_" + symId, CatSym, symId, SafeIcon(emoji, name), name, string.Join(" · ", descParts),
+                    tier: Pouch.TierOf(symId), rare: rare, hasPick: hasPick, pick: pick));
+            }
+            // 심볼증강 21 + 심볼유물 15 — 레벨/업적 게이트가 없어(SymPerkDef에 unlockLevel 필드 자체가
+            // 없음) DexView.IsUnlocked 기본 분기(char/mac/dev/sym 4종 외 항상 true)를 그대로 탄다(잠금 없음).
+            foreach (var p in SymPerks.Augments)
+                list.Add(Synthetic("symaug_" + p.id, CatSymAug, p.id, SafeIcon(p.emoji, p.name), p.name, p.desc, tier: p.tier));
+            foreach (var p in SymPerks.Relics)
+                list.Add(Synthetic("symrel_" + p.id, CatSymRel, p.id, SafeIcon(p.emoji, p.name), p.name, p.desc, tier: p.tier));
+
             return list;
         }
 
@@ -206,6 +279,9 @@ namespace JackpotRun.Data
                 case CatCur: return "저주";
                 case CatItem: return "아이템";
                 case CatAch: return "업적";
+                case CatSym: return "심볼";
+                case CatSymAug: return "심볼증강";
+                case CatSymRel: return "심볼유물";
                 default: return cat;
             }
         }

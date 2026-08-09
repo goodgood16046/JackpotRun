@@ -43,6 +43,9 @@ namespace JackpotRun.UI2
         [SerializeField] private RectTransform deviceRow;
         // WEB_PARITY P1 ⑤: "게임 포기 (즉시 결산)" 진입점 — 웹 액션바 giveUpBtn() 대응(ui.js:849-871).
         [SerializeField] private Button giveUpButton;
+        // 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 ui.js:730 👝주머니) — 심화 런 전용
+        // 주머니 덱 보드 진입점(정보 조회 전용, RunController 액션을 보내지 않는다).
+        [SerializeField] private Button pouchButton;
         [SerializeField] private RectTransform deviceButtonTemplate; // 자식 경로 계약: Label(Text)
 
         // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — HUD "?"(튜토리얼 재시작)/"⚙"(설정) 버튼.
@@ -61,6 +64,15 @@ namespace JackpotRun.UI2
         [SerializeField] private RewardDonePanel rewardDonePanel;
         [SerializeField] private BagPopup bagPopup;
         [SerializeField] private ManipPickPopup manipPickPopup;
+        // 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심화 런 오퍼 6종(EventPouch/
+        // EventPouchCost/EventPouchRemove/EventRestDeep/EventGambleDeep/EventSynAugBonus) 공용 시트.
+        // 이 패널이 없으면 심화 런이 이 phase들에서 소프트락된다(치명 — RunController.Do(new
+        // PickOffer(idx))로만 빠져나갈 수 있는데 그걸 부를 UI가 전혀 없었다).
+        [SerializeField] private ListPickerPanel deepOfferPanel;
+        // 웹 파리티 P7-4b — 런 중 주머니 덱 보드(정보 조회 전용, phase와 무관하게 열고 닫을 수 있어
+        // deepOfferPanel과 별도 인스턴스로 둔다 — 공유하면 RefreshPhasePanel의 IsDeepOfferPhase 가드가
+        // "오퍼 phase가 아닐 때" 이 보드를 즉시 다시 닫아버린다).
+        [SerializeField] private ListPickerPanel pouchBoardPanel;
         // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 셀 정보 탭(openCellSheet 대응).
         [SerializeField] private CellInfoSheet cellInfoSheet;
         // WEB_PARITY P1 ⑤/④: 범용 확인 시트(ConfirmSheetPopup) 인스턴스 2개 — 포기 확인 / DEVICE 노드
@@ -77,6 +89,9 @@ namespace JackpotRun.UI2
         private ClearOutcome _lastClear;
         private RunEvent _lastOfferEvent;
         private FailureOutcome _lastFailure;
+        // 웹 파리티 P7-4b — POUCH_OFFER 이벤트의 node(Pouch/Jackpot, null=3스테이지 연계 보너스 등
+        // node 미표기 오퍼)를 캐시해 ShowDeepOffer 헤더 문구를 구분한다(_lastOfferEvent와 동일 관례).
+        private NodeKind? _lastPouchNode;
 
         // 웹 파리티 P5(WEB_PARITY_DESIGN.md §1-A #17, 웹 ui.js:695 `if (st.stage !== curStage) {
         // curStage = st.stage; if (st.boss) snd.sfx("boss"); }` — renderPlay(SPIN/POST_SPIN)에서만
@@ -118,6 +133,8 @@ namespace JackpotRun.UI2
                 bagButton.onClick.AddListener(() => bagPopup?.Show(_session.State, itemId => Send(new UseItem(itemId))));
             if (giveUpButton != null)
                 giveUpButton.onClick.AddListener(OnGiveUpClicked);
+            if (pouchButton != null)
+                pouchButton.onClick.AddListener(OnPouchButtonClicked);
             // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 셀 탭 → CellInfoSheet.
             reelView?.SetCellTapHandler(OnCellTapped);
 
@@ -228,6 +245,7 @@ namespace JackpotRun.UI2
             _lastClear = null;
             _lastOfferEvent = null;
             _lastFailure = null;
+            _lastPouchNode = null;
             _lastBossCheckStage = 0; // 웹 curStage 초기값 0 그대로 — 첫 renderPlay에서도 보스 체크가 돈다.
 
             notesFeed?.Clear();
@@ -281,6 +299,8 @@ namespace JackpotRun.UI2
             rewardDonePanel?.Hide();
             bagPopup?.Hide();
             manipPickPopup?.Hide();
+            deepOfferPanel?.Hide();
+            pouchBoardPanel?.Hide();
             cellInfoSheet?.Hide();
             giveUpConfirmPopup?.Hide();
             deviceOfferPopup?.Hide();
@@ -332,6 +352,7 @@ namespace JackpotRun.UI2
             RefreshBagLabel();
             RefreshDeviceRow();
             RefreshModeButtons();
+            RefreshPouchButton();
             RefreshPhasePanel();
             // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 tutLive 호출 지점 — render() 매번) — 3단
             // 라이브 안내는 모든 액션 배치 처리 후 현재 phase/stage를 본다(스핀뿐 아니라 노드선택·상점
@@ -441,6 +462,8 @@ namespace JackpotRun.UI2
             if (phase != RunPhase.GameOver) gameOverPanel?.Hide();
             if (phase != RunPhase.DeviceNode) deviceOfferPopup?.Hide();
             if (phase != RunPhase.RewardDone) rewardDonePanel?.Hide();
+            // 웹 파리티 P7-4b — 심화 오퍼 6종 공용 시트(치명 소프트락 방지, 필드 선언부 각주 참조).
+            if (!IsDeepOfferPhase(phase)) deepOfferPanel?.Hide();
 
             switch (phase)
             {
@@ -457,7 +480,10 @@ namespace JackpotRun.UI2
                     break;
                 case RunPhase.EventShop:
                     // 웹 파리티 P5(웹 ui.js:170 `st = g.shopBuy(...); snd.sfx("coin");`) — 구매 확정 시점.
-                    shopPanel?.Show(run, idx => { SoundKit.Sfx("coin"); Send(new BuyOffer(idx)); }, () => Send(new RerollShop()), () => Send(new LeaveShop()));
+                    // 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심볼 정비 구매도 동일한
+                    // "확정 시 코인 사운드" 규약을 그대로 따른다(웹 repairDoBuy도 snd.sfx("coin")).
+                    shopPanel?.Show(run, idx => { SoundKit.Sfx("coin"); Send(new BuyOffer(idx)); }, () => Send(new RerollShop()), () => Send(new LeaveShop()),
+                        (serviceId, args) => { SoundKit.Sfx("coin"); Send(new RepairBuy(serviceId, args)); });
                     break;
                 case RunPhase.PostSpin:
                     postSpinPanel?.Show(run, _lastFailure, OpenManipPicker, () => Send(new GamblerReroll()), () => Send(new Continue()));
@@ -474,9 +500,190 @@ namespace JackpotRun.UI2
                 case RunPhase.RewardDone:
                     rewardDonePanel?.Show(run, () => Send(new ProceedToStage()));
                     break;
+                // 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심화 런 오퍼 6종. 전부 같은
+                // `RunController.Do(new PickOffer(idx))` 액션 하나로 커밋된다(RunController.
+                // DispatchPickOffer가 run.Phase로 라우팅 — Engine/Run/RunController.cs 참조).
+                case RunPhase.EventPouch:
+                case RunPhase.EventPouchCost:
+                case RunPhase.EventPouchRemove:
+                case RunPhase.EventRestDeep:
+                case RunPhase.EventGambleDeep:
+                case RunPhase.EventSynAugBonus:
+                    ShowDeepOffer(run);
+                    break;
                 default:
                     break; // Spin: 오버레이 없음 — 하단 조작부 그대로 노출.
             }
+        }
+
+        // 웹 파리티 P7-4b — 심화 오퍼 6종 phase 판별(HidePanels/RefreshPhasePanel 공용 가드).
+        private static bool IsDeepOfferPhase(RunPhase phase) =>
+            phase == RunPhase.EventPouch || phase == RunPhase.EventPouchCost || phase == RunPhase.EventPouchRemove
+            || phase == RunPhase.EventRestDeep || phase == RunPhase.EventGambleDeep || phase == RunPhase.EventSynAugBonus;
+
+        // ── 웹 파리티 P7-4b: 심화 오퍼 6종 카드 리스트 구성 ──────────────────────────────────
+        // 웹 renderPouchReward(ui.js:1188-1255) 전 분기를 하나로 통합 — RunState 필드를 직접 읽어
+        // ListPickerPanel.Item 리스트를 만든다(NodePanel.BuildCards와 동일 설계 — 이벤트 페이로드가
+        // 아니라 RunState 자체가 단일 진실 공급원).
+        private void ShowDeepOffer(RunState run)
+        {
+            string title;
+            string subtitle;
+            var items = new List<ListPickerPanel.Item>();
+
+            switch (run.Phase)
+            {
+                case RunPhase.EventPouch:
+                {
+                    // EventPouch는 POUCH/JACKPOT 두 노드가 공유하는 phase다(NodeEvents.EnterPouchOffer/
+                    // EnterJackpotNode 둘 다 이 phase로 진입 — Engine/Run/PouchOffer.cs 참조). 3스테이지
+                    // 연계 보너스는 별도 phase(EventSynAugBonus, 아래 case)라 여기 섞이지 않는다.
+                    bool jackpot = _lastPouchNode == NodeKind.Jackpot;
+                    title = jackpot ? "잭팟 노드" : "심볼 주머니";
+                    subtitle = $"현재 총량 {Pouch.Total(run.Pouch)} — 특수 심볼 카드 1개를 덱에 추가하세요(기본 심볼 제거 비용).";
+                    AddPouchOptionItems(run, items);
+                    break;
+                }
+                case RunPhase.EventSynAugBonus:
+                    title = "연계 보너스";
+                    subtitle = "3스테이지 증강 연계 — 태그 일치 특수 심볼을 무료로 덱에 추가하거나 건너뛰세요.";
+                    AddPouchOptionItems(run, items);
+                    break;
+                case RunPhase.EventPouchCost:
+                {
+                    var ps = run.PendingSpecial;
+                    string label = ps != null ? SymLabel(ps.Id) : "";
+                    title = "비용 방식 선택";
+                    subtitle = $"{label} 획득 — 프리즘 심볼의 비용 방식을 고르세요.";
+                    items.Add(new ListPickerPanel.Item
+                    {
+                        Head = "기본 심볼 2개 제거", Body = "기본 이득 심볼 2개를 제거하고 획득합니다.",
+                        Badge = "기본 경로", TierColor = UiKit.TierColor("SILVER"),
+                        OnPick = () => Send(new PickOffer(0)),
+                    });
+                    items.Add(new ListPickerPanel.Item
+                    {
+                        Head = "☠ 해골 +1 (저주 경로)", Body = "기본 심볼을 잃지 않는 대신 해골이 1개 늘어납니다.",
+                        Badge = "저주 경로", TierColor = UiKit.Purple,
+                        OnPick = () => Send(new PickOffer(1)),
+                    });
+                    break;
+                }
+                case RunPhase.EventPouchRemove:
+                {
+                    var ps = run.PendingSpecial;
+                    string label = ps != null ? SymLabel(ps.Id) : "";
+                    int removeN = ps?.RemoveN ?? 1;
+                    title = "제거할 심볼 선택";
+                    subtitle = $"{label} 획득 — 기본 이득 심볼 {removeN}개를 제거하세요.";
+                    for (int i = 0; i < run.RemoveCandidateIds.Count; i++)
+                    {
+                        int idx = i;
+                        string id = run.RemoveCandidateIds[i];
+                        int have = run.Pouch.TryGetValue(id, out var n) ? n : 0;
+                        items.Add(new ListPickerPanel.Item
+                        {
+                            Head = SymLabel(id),
+                            Body = $"보유 ×{have} — 최대 {removeN}개 제거됩니다.",
+                            OnPick = () => Send(new PickOffer(idx)),
+                        });
+                    }
+                    break;
+                }
+                case RunPhase.EventRestDeep:
+                    title = "휴식";
+                    subtitle = "심화 규칙 — 코인을 받거나 해골을 정화하세요.";
+                    // Opus 2차검수(P7-4b) [경미①] — PouchOffer.PickRestDeep의 실제 동작은 skull -1(빈칸
+                    // 대체가 아니라 그냥 제거, Engine/Run/PouchOffer.cs 참조 — RepairShop의 "정화"
+                    // 서비스(skull→empty swap, 총량 유지)와는 다르다) — 문구를 실동작에 맞게 정정.
+                    AddDeepChoiceItems(run, items, id => id switch
+                    {
+                        "rest_coin" => ("코인 +12", "즉시 코인을 받습니다."),
+                        "rest_purify" => ("해골 제거", "보유한 해골 1개를 제거합니다(총량 -1)."),
+                        _ => (id, ""),
+                    });
+                    break;
+                case RunPhase.EventGambleDeep:
+                    title = "도박";
+                    subtitle = "심화 규칙 — 코인을 걸거나 심볼로 도박하세요.";
+                    AddDeepChoiceItems(run, items, id => id switch
+                    {
+                        "gamble_coin" => ("코인 도박", "50% 확률로 코인 2배. 실패해도 코인은 유지됩니다."),
+                        "gamble_sym" => ("심볼 도박", "50% 확률로 보유 기본 심볼 +1, 실패 시 해골 +1."),
+                        _ => (id, ""),
+                    });
+                    break;
+                default:
+                    title = "";
+                    subtitle = "";
+                    break;
+            }
+
+            deepOfferPanel?.Show(title, subtitle, items);
+        }
+
+        private void AddPouchOptionItems(RunState run, List<ListPickerPanel.Item> items)
+        {
+            for (int i = 0; i < run.PouchOptions.Count; i++)
+            {
+                int idx = i;
+                var card = run.PouchOptions[i];
+                if (card.Type == PouchCardType.Skip)
+                {
+                    items.Add(new ListPickerPanel.Item
+                    {
+                        Head = "건너뛰기", Body = "", Badge = $"코인 +{card.CoinBonus}",
+                        OnPick = () => Send(new PickOffer(idx)),
+                    });
+                    continue;
+                }
+                items.Add(new ListPickerPanel.Item
+                {
+                    Head = SymLabel(card.Id),
+                    Body = "",
+                    Badge = DeepCardBadge(card),
+                    TierColor = DeepTierColor(card),
+                    OnPick = () => Send(new PickOffer(idx)),
+                });
+            }
+        }
+
+        private void AddDeepChoiceItems(RunState run, List<ListPickerPanel.Item> items, Func<string, (string head, string body)> label)
+        {
+            for (int i = 0; i < run.DeepChoiceIds.Count; i++)
+            {
+                int idx = i;
+                var (head, body) = label(run.DeepChoiceIds[i]);
+                items.Add(new ListPickerPanel.Item { Head = head, Body = body, OnPick = () => Send(new PickOffer(idx)) });
+            }
+        }
+
+        private static string DeepCardBadge(PouchOfferCard card)
+        {
+            if (card.Free) return "무료 획득";
+            switch (card.Tier)
+            {
+                case "PRISM": return card.OrCurse ? "비용 방식 선택(2택)" : $"기본 심볼 {card.RemoveN}개 제거";
+                case "GOLD": return $"기본 심볼 {card.RemoveN}개 제거(부족 시 {card.LowRemoveN}개)";
+                case "CURSE": return "무료 · 저주 카드";
+                default: return $"기본 심볼 {card.RemoveN}개 제거"; // SILVER
+            }
+        }
+
+        private static Color DeepTierColor(PouchOfferCard card) =>
+            card.Tier == "CURSE" ? UiKit.Purple : UiKit.TierColor(card.Tier);
+
+        // 심볼 id → "{emoji} {이름}" — empty/random은 카탈로그(Symbols.All)에 없는 센티널이라 고정
+        // 라벨로 대체(astral 🎲 대신 BMP "◎", ShopPanel.SymLabel과 동일 관례).
+        // Opus 2차검수(P7-4b) [중대③] — Symbols.cs 신규 58종 emoji는 web 원문 그대로라 다수가 astral
+        // (레거시 uGUI Text 미표시). "이모지+이름" 조합 라벨은 이름이 항상 뒤따르므로 TextSanitize.
+        // StripAstral로 이모지만 지워도 정보 손실이 없다(S8 항목⑤ 기존 관례 확장).
+        private static string SymLabel(string id)
+        {
+            if (id == "empty") return "▫ 빈칸";
+            if (id == "random") return "◎ 랜덤칸";
+            var s = Symbols.ById(id);
+            return s != null ? TextSanitize.StripAstral($"{s.emoji} {s.name}") : (id ?? "");
         }
 
         private void ShowDeviceOffer(RunState run)
@@ -494,6 +701,92 @@ namespace JackpotRun.UI2
         {
             manipPickPopup?.Show(_session.State, dev, (devId, arg) => Send(new DeviceCmd(devId, arg)));
         }
+
+        // ── 웹 파리티 P7-4b: 주머니 덱 보드 ──────────────────────────────────────────────
+        private void RefreshPouchButton()
+        {
+            if (pouchButton != null) pouchButton.gameObject.SetActive(_session.State.DeepMode);
+        }
+
+        private void OnPouchButtonClicked()
+        {
+            if (_busy || _session == null) return;
+            var run = _session.State;
+            if (!run.DeepMode) return;
+            ShowPouchBoard(run);
+        }
+
+        // 웹 renderPouchSheet(ui.js:1257-1420) 축약 — 카드 그리드 대신 부제 요약(총량/압축/전공/잭팟태그
+        // 밀도) + 심볼별 카드 목록(개수·분류·희귀도·소모속성·잭팟태그 뱃지) 1열. 정보 완전성 우선(작업
+        // 지시 그대로) — 탭해도 별도 상세는 열지 않는다(ListPickerPanel.Item.OnPick 미설정 = 순수 표시).
+        private void ShowPouchBoard(RunState run)
+        {
+            int total = Pouch.Total(run.Pouch);
+            var bounds = RepairShop.Bounds(run);
+            double penalty = DeepRunHooks.DeepPenalty(run);
+            var arch = Archetypes.PouchArchetype(run.Pouch);
+
+            var jtagCounts = new Dictionary<string, int>();
+            int kinds = 0;
+            foreach (var kv in run.Pouch)
+            {
+                if (kv.Value <= 0) continue;
+                kinds++;
+                var jt = Pouch.JackpotTagOf(kv.Key);
+                if (jt != null) jtagCounts[jt] = (jtagCounts.TryGetValue(jt, out var c) ? c : 0) + kv.Value;
+            }
+
+            var subtitleLines = new List<string>
+            {
+                $"총량 {total} / {bounds.totalMin}~{bounds.totalMax} · 종류 {kinds}",
+                penalty > 1.0 + 1e-9
+                    ? $"압축 패널티: 요구 EXP +{Mathf.RoundToInt((float)((penalty - 1.0) * 100.0))}%"
+                    : "압축 패널티 없음",
+                arch.Tier > 0
+                    // Opus 2차검수(P7-4b) [중대③] — arch.Emoji(Archetypes.cs)도 web 원문 그대로라
+                    // astral일 수 있다(🍒📘💎🪙🔥 대부분) — StripAstral로 이모지만 지운다.
+                    ? $"전공: {TextSanitize.StripAstral(arch.Emoji)}{arch.Name} Tier{arch.Tier} (비중 {Mathf.RoundToInt((float)(arch.Share * 100.0))}%)"
+                    : "전공: 없음(계열 비중 25% 미만)",
+            };
+            if (jtagCounts.Count > 0)
+            {
+                var tagParts = new List<string>();
+                foreach (var kv in jtagCounts) tagParts.Add($"#{kv.Key} {kv.Value}");
+                subtitleLines.Add("잭팟 태그 밀도: " + string.Join(" · ", tagParts));
+            }
+
+            var entries = new List<KeyValuePair<string, int>>();
+            foreach (var kv in run.Pouch) if (kv.Value > 0) entries.Add(kv);
+            entries.Sort((a, b) =>
+            {
+                int ca = PouchCatRank(Pouch.CatOf(a.Key)), cb = PouchCatRank(Pouch.CatOf(b.Key));
+                return ca != cb ? ca - cb : b.Value - a.Value;
+            });
+
+            var items = new List<ListPickerPanel.Item>();
+            foreach (var kv in entries)
+            {
+                string id = kv.Key;
+                string cat = Pouch.CatOf(id);
+                string tier = Pouch.TierOf(id);
+                var badgeParts = new List<string> { PouchCatLabel(cat), Pouch.RarityOf(id) };
+                if (Pouch.Use.TryGetValue(id, out var use)) badgeParts.Add(use == "instant" ? "일회용" : "소모형");
+                var jtag = Pouch.JackpotTagOf(id);
+                if (jtag != null) badgeParts.Add("#" + jtag);
+
+                items.Add(new ListPickerPanel.Item
+                {
+                    Head = $"{SymLabel(id)} ×{kv.Value}",
+                    Badge = string.Join(" · ", badgeParts),
+                    TierColor = tier == "CURSE" ? UiKit.Purple : UiKit.TierColor(tier),
+                });
+            }
+
+            pouchBoardPanel?.Show("심볼 주머니", string.Join("\n", subtitleLines), items, onClose: () => { });
+        }
+
+        private static int PouchCatRank(string cat) => cat == "special" ? 0 : cat == "base" ? 1 : 2;
+        private static string PouchCatLabel(string cat) => cat switch { "base" => "기본·소멸대상", "harmful" => "해로운", _ => "특수" };
 
         // ── 가방 라벨 / 장치열 ───────────────────────────────────────────────────────
         private void RefreshBagLabel()
@@ -671,6 +964,19 @@ namespace JackpotRun.UI2
                         _lastOfferEvent = e;
                         break;
 
+                    // 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심화 오퍼 6종 진입 이벤트.
+                    // 카드 데이터 자체는 RunState(PouchOptions/RemoveCandidateIds/DeepChoiceIds)를
+                    // ShowDeepOffer가 직접 읽으므로(NodePanel과 동일 설계) 여기서는 헤더 문구 분기에
+                    // 필요한 node만 캐시한다. POUCH_COST_OFFER/POUCH_REMOVE_OFFER/DEEP_CHOICE_OFFER는
+                    // node를 안 채우는 중간 단계 이벤트라(§RunEvent.cs 각주) 별도 처리 불필요.
+                    case "POUCH_OFFER":
+                        _lastPouchNode = e.node;
+                        break;
+                    case "POUCH_COST_OFFER":
+                    case "POUCH_REMOVE_OFFER":
+                    case "DEEP_CHOICE_OFFER":
+                        break;
+
                     case "RETAKE_EMPTY":
                         // _lastOfferEvent는 갱신하지 않는다 — 기존 오퍼(run.PerkOfferIds)가 그대로 유지되고
                         // 이 이벤트엔 배지 필드(offerTier 등)가 없어 덮어쓰면 정보가 유실된다.
@@ -687,6 +993,20 @@ namespace JackpotRun.UI2
 
                     case "SHOP_REROLLED":
                         notesFeed?.Append("상점 리롤");
+                        break;
+
+                    // 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심볼 정비 구매 성공(웹
+                    // repairDoBuy 완료). curseCleanse는 curseRemovedId(기존 필드 재사용)에 제거된
+                    // 저주 id가 담긴다.
+                    case "REPAIR_DONE":
+                        notesFeed?.Append(string.IsNullOrEmpty(e.curseRemovedId)
+                            ? $"정비: {RepairServiceLabel(e.repairServiceId)} · 코인-{NumberFormat.Comma(e.repairPrice)}"
+                            : $"정비: {RepairServiceLabel(e.repairServiceId)} — 저주 정화: {PerkLabel(e.curseRemovedId)}");
+                        break;
+
+                    // 웹 파리티 P7-4b(웹 game.js:554 "발동"/"승급") — 전공(계열 아키타입) 변화 알림.
+                    case "ARCHETYPE_CHANGED":
+                        notesFeed?.Append($"전공 {(e.archUpgraded ? "승급" : "발동")}: {ArchetypeLabel(e.archFamily)} (Tier {e.archTier})");
                         break;
 
                     case "SHOP_LEFT":
@@ -749,6 +1069,20 @@ namespace JackpotRun.UI2
         {
             var d = Devices.ById(deviceId);
             return d != null ? $"{d.emoji}{d.name}" : (deviceId ?? "");
+        }
+
+        // 웹 파리티 P7-4b — 정비 서비스/전공 계열 id → 라벨(RunView 노트 피드용, ShopPanel/HudView와
+        // 별개의 표시 지점이라 각자 조회).
+        private static string RepairServiceLabel(string serviceId)
+        {
+            var sv = RepairServices.ById(serviceId);
+            return sv != null ? TextSanitize.StripAstral($"{sv.emoji}{sv.name}") : (serviceId ?? "");
+        }
+
+        private static string ArchetypeLabel(string family)
+        {
+            if (string.IsNullOrEmpty(family)) return family ?? "";
+            return Archetypes.ByFamily.TryGetValue(family, out var def) ? TextSanitize.StripAstral($"{def.Emoji}{def.Name}") : family;
         }
 
         private static string ClearSummaryText(ClearOutcome c)

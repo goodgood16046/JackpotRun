@@ -65,6 +65,14 @@ namespace JackpotRun.UI2
         // 것을 알려진 한계로 남겨둔다, 보고 대상).
         [SerializeField] private RectTransform runScreenRoot;
 
+        // ── 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 archHudChip/feverHudHtml ui.js:38-56) ──
+        [SerializeField] private Text archChipText;   // "{emoji}{이름}★"(2차 전공만 별) — 비활성 시 빈 문자열.
+        [SerializeField] private Text feverText;      // 대기 중 "피버 N%" / 발동 중 "피버 N스핀 남음"(적색).
+        [SerializeField] private RectTransform feverBarBg;   // Opus 2차검수(P7-4b) [경미②] — 일반 런은
+        // 통째로 숨긴다(빈 진행바 트랙만 남는 시각적 잔여물 방지 — archChipText/feverText는 "행 유지,
+        // 텍스트만 비움" 관례를 쓰지만 이 바는 트랙 자체가 배경색 있는 그래픽이라 빈 칸이 더 도드라짐).
+        [SerializeField] private RectTransform feverBarFill; // anchorMax.x = 게이지 비율(0~1). 발동 중엔 100% 고정.
+
         private string _shownBossId; // 마지막으로 배너를 띄운 보스 id(null=아직 없음/보스 아님) — 재진입 배너 중복 방지
         private int _lastCurseCount = -1; // -1=미초기화(첫 표시에는 플래시하지 않는다)
         private Coroutine _expRoutine;
@@ -107,6 +115,7 @@ namespace JackpotRun.UI2
             SetExpBarImmediate(run.StageExp, preview.quota);
             RefreshUnluckyGauge(run.UnluckyGauge, false);
             RefreshBossState(run);
+            RefreshDeepStatus(run);
         }
 
         /// <summary>스핀 등으로 EXP/코인/점수/저주/스핀수가 바뀌었을 때 — EXP 바만 0.3s 트윈, 나머지는 즉시.</summary>
@@ -116,6 +125,7 @@ namespace JackpotRun.UI2
             RefreshSpinsCoinsScore(run, preview);
             RefreshUnluckyGauge(run.UnluckyGauge, true);
             RefreshBossState(run);
+            RefreshDeepStatus(run);
 
             if (_expRoutine != null) StopCoroutine(_expRoutine);
             _expRoutine = StartCoroutine(AnimateExpRoutine(expBefore, run.StageExp, preview.quota));
@@ -137,11 +147,82 @@ namespace JackpotRun.UI2
             // 빈 문자열 대입 대신 SetActive(false)로 완전히 비활성화한다(HorizontalLayoutGroup은 비활성
             // 자식을 레이아웃에서 제외하므로, 일반 런은 이 칸이 차지하던 폭을 stageText/cursesText가
             // 되돌려 받는다 — 텍스트만 지우면 빈 칸이 자리를 계속 차지했다). astral 🎓 금지, 한글만.
+            //
+            // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 ui.js:705 deep-hud "🎒{total}/
+            // {totalMax} +{penalty}%") — 승천(asc)과 심화(deepMode)는 RunController가 항상 상호배제
+            // 시키므로(deep이면 asc가 무조건 0으로 강제) 이 배지 슬롯 하나를 두 모드가 절대 겹치지
+            // 않고 공유할 수 있다 — 새 UI 요소를 추가하는 대신(신규 위젯 최소화 원칙) 기존
+            // ascBadgeText를 심화 배지로도 재사용한다. astral 🎒 금지 — NodePanel.Pouch와 동일하게
+            // BMP 기호 "◈"로 대체.
             if (ascBadgeText != null)
             {
-                bool showAsc = run.Asc > 0;
-                ascBadgeText.gameObject.SetActive(showAsc);
-                if (showAsc) ascBadgeText.text = $"심화 {run.Asc} ×{NumberFormat.Fmt(AscMods.Get(run.Asc).ScoreMul)}";
+                if (run.DeepMode)
+                {
+                    ascBadgeText.gameObject.SetActive(true);
+                    int total = Pouch.Total(run.Pouch);
+                    var bounds = RepairShop.Bounds(run);
+                    double penalty = DeepRunHooks.DeepPenalty(run);
+                    string penSuffix = penalty > 1.0 + 1e-9 ? $" +{Mathf.RoundToInt((float)((penalty - 1.0) * 100.0))}%" : "";
+                    ascBadgeText.text = $"◈ {total}/{bounds.totalMax}{penSuffix}";
+                }
+                else
+                {
+                    bool showAsc = run.Asc > 0;
+                    ascBadgeText.gameObject.SetActive(showAsc);
+                    if (showAsc) ascBadgeText.text = $"심화 {run.Asc} ×{NumberFormat.Fmt(AscMods.Get(run.Asc).ScoreMul)}";
+                }
+            }
+        }
+
+        // ── 웹 파리티 P7-4b(웹 archHudChip/feverHudHtml, ui.js:38-56) — 전공 칩 + 피버 게이지/발동중 ──
+        // 일반 런은 전부 빈 문자열/게이지 0으로 되돌린다(행 자체는 항상 존재 — 빌더 각주 참조).
+        private void RefreshDeepStatus(RunState run)
+        {
+            bool deep = run.DeepMode;
+
+            if (archChipText != null)
+            {
+                if (deep)
+                {
+                    var arch = Archetypes.PouchArchetype(run.Pouch);
+                    // Opus 2차검수(P7-4b) [중대③] — arch.Emoji가 astral일 수 있다(RunView.ShowPouchBoard와
+                    // 동일 근거) — StripAstral로 이모지만 지운다.
+                    archChipText.text = arch.Tier > 0
+                        ? $"{TextSanitize.StripAstral(arch.Emoji)}{arch.Name}{(arch.Tier >= 2 ? "★" : "")}"
+                        : "";
+                }
+                else archChipText.text = "";
+            }
+
+            if (feverText != null)
+            {
+                if (!deep) { feverText.text = ""; }
+                else if (run.FeverSpins > 0)
+                {
+                    feverText.text = $"피버 {run.FeverSpins}스핀 남음";
+                    feverText.color = UiKit.Bad;
+                }
+                else
+                {
+                    double pct = Pouch.FeverMax > 0 ? System.Math.Min(100.0, run.FeverGauge / Pouch.FeverMax * 100.0) : 0.0;
+                    feverText.text = $"피버 {Mathf.RoundToInt((float)pct)}%";
+                    feverText.color = UiKit.TextSecondary;
+                }
+            }
+
+            if (feverBarBg != null) feverBarBg.gameObject.SetActive(deep);
+
+            if (feverBarFill != null)
+            {
+                float pct = 0f;
+                if (deep)
+                {
+                    pct = run.FeverSpins > 0 ? 1f
+                        : (Pouch.FeverMax > 0 ? Mathf.Clamp01((float)(run.FeverGauge / Pouch.FeverMax)) : 0f);
+                }
+                feverBarFill.anchorMax = new Vector2(pct, 1f);
+                var img = feverBarFill.GetComponent<Image>();
+                if (img != null) img.color = run.FeverSpins > 0 ? UiKit.Bad : UiKit.Accent;
             }
         }
 

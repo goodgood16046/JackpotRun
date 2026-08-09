@@ -387,6 +387,16 @@ namespace JackpotRun.UI2
                 // 웹 파리티 P3-3(WEB_PARITY_DESIGN.md §1-A #12) — AUGMENT 노드가 확률(기본10%+pity)로
                 // 교체된 결과(웹 ui.js:1023 AUGLEVEL 헤더 "⬆️ 증강 강화").
                 case NodeKind.AugLevel: return ("⬆", "증강 강화", "보유 증강 1개를 레벨업합니다 (Lv3 상한).");
+                // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심화 런 전용 노드 4종(StageFlow.
+                // RollDeepNodes만 생성, 일반 런엔 절대 등장하지 않음). 웹 ui.js POUCH 오퍼 헤더/§9.2 J3
+                // JACKPOT 헤더 문구를 그대로 옮겼다(선택 시 EventPouch/EventAugment/EventRelic 오퍼
+                // 패널로 이어진다 — 카드 확정은 그 패널이 담당, 여기는 3택 카드 라벨만). S8 항목⑤:
+                // 웹 원문 이모지(🎒🎰)는 astral(U+1F300+)이라 레거시 Text가 렌더링 못 한다 — 기존
+                // NodeKindInfo 관례(★◆▲☕♠ 등 전부 BMP)와 동일하게 BMP 기호로 대체.
+                case NodeKind.Pouch: return ("◈", "심볼 주머니", "특수 심볼 카드를 덱에 추가합니다(기본 심볼 제거 비용).");
+                case NodeKind.Jackpot: return ("✪", "잭팟 노드", "최다 잭팟 태그 기준 특수 심볼을 오퍼합니다.");
+                case NodeKind.SymAug: return ("✨", "심볼 증강", "심볼증강 · 관련 증강 중 1개를 선택합니다.");
+                case NodeKind.SymRel: return ("◆", "심볼 유물", "심볼유물 · 관련 유물 중 1개를 선택합니다.");
                 default: return ("❔", k.ToString(), "");
             }
         }

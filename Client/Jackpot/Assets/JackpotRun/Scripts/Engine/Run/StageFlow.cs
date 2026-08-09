@@ -277,6 +277,12 @@ namespace JackpotRun.Engine
                 };
             }
 
+            // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 game.js:1421-1430 클리어 시점 호출부)
+            // — 심화 업적 13종 카운터 배선. gainedScore는 이미 이번 클리어분이 확정된 로컬 변수라
+            // (run.Score 대입은 아래 "상태 반영" 블록에서 일어남) `run.Score + gainedScore`로 웹의
+            // "이미 gain이 더해진 r.score" 시점값을 재현한다.
+            DeepRunHooks.TrackDeepStatsAndBossAch(run, boss, run.Score + gainedScore);
+
             int nextStage = clearedStage + 1;
 
             // 웹 파리티 P7-3(WEB_PARITY_DESIGN.md §1-A #19 3/4 슬라이스, 웹 game.js:1439-1494) — 심화

@@ -6,9 +6,10 @@ using UnityEngine.UI;
 
 namespace JackpotRun.UI2
 {
-    // 메인 메뉴 화면 = 웹 단독판 renderHome 이식 — ENGINE_PORT_DESIGN.md S12 §4 + 웹 파리티 P4
+    // 메인 메뉴 화면 = 웹 단독판 renderHome 이식 — ENGINE_PORT_DESIGN.md S12 §4 + 웹 파리티 P4/P7-4
     // (WEB_PARITY_DESIGN.md §1-A #15 A). scr-title(타이틀+부제) → **레벨 카드**(클릭형, 레벨 보상
-    // 화면으로) → **게임 모드 선택기**(일반/심화, 심화는 P7 미구현이라 "준비 중" 잠금) → **승천(심화
+    // 화면으로) → **게임 모드 선택기**(일반/심화 실토글, 웹 파리티 P7-4부터 해금 없이 항상 노출 —
+    // 심화 선택 시 아래 승천 선택기는 숨김, 상호배제) → **승천(심화
     // 학기) 선택기**(웹 파리티 P6, WEB_PARITY_DESIGN.md §1-A #18 — profile.AscUnlocked()==false(한 번도
     // 졸업 못함)면 섹션 비활성화) → hud 카드(칭호 +
     // 최고점수/최고스테이지/플레이 3칸) → "업적 n/34 · 장치 n/16 해금" 요약줄 → 게임 시작(골드) +
@@ -49,13 +50,19 @@ namespace JackpotRun.UI2
         [SerializeField] private RectTransform levelBarFill; // anchorMax.x = ratio
         [SerializeField] private Image levelBarFillImage;
 
-        // ── P4 A.2 — 게임 모드 선택기(웹 deepSelector(), ui.js:559-570) — 심화는 P7 미구현이라 잠금 ──
+        // ── P7-4 — 게임 모드 선택기(웹 deepSelector(), ui.js:559-570) — 실토글(해금 없음, 항상 노출) ──
+        [SerializeField] private Button modeNormalButton;
+        [SerializeField] private Outline modeNormalOutline;
+        [SerializeField] private Text modeNormalNameText;
         [SerializeField] private Button modeDeepButton;
+        [SerializeField] private Outline modeDeepOutline;
+        [SerializeField] private Text modeDeepNameText;
+        [SerializeField] private Text deepHintText;
 
         // ── P6 — 승천(심화 학기) 선택기(웹 ascSelector(), ui.js:572-590) ───────────────────────
         // profile.AscUnlocked()==false(한 번도 졸업 못함)면 전체 섹션을 비활성화한다(웹은 아예 렌더
-        // 자체를 생략 — Unity는 씬 구조를 유지한 채 SetActive(false)로 동등하게 구현). 심화모드(deep)
-        // 상호배제는 P7에서(주석만 — 지금은 deep 자체가 없어 선택기가 항상 노출 가능 상태).
+        // 자체를 생략 — Unity는 씬 구조를 유지한 채 SetActive(false)로 동등하게 구현). 웹 파리티 P7-4부터
+        // 심화모드(deep) 선택 중에도 이 섹션을 숨긴다(상호배제, RefreshAscSelector 참조).
         [SerializeField] private RectTransform ascSectionRoot;
         [SerializeField] private Text ascBadgeText;  // "일반" / "심화 N"
         [SerializeField] private Text ascLevelText;  // "일반 난이도" / "점수 보정 ×N"
@@ -82,6 +89,7 @@ namespace JackpotRun.UI2
         {
             if (rankButton != null) rankButton.onClick.AddListener(OnRankClicked);
             if (levelCardButton != null) levelCardButton.onClick.AddListener(OnLevelCardClicked);
+            if (modeNormalButton != null) modeNormalButton.onClick.AddListener(OnNormalModeClicked);
             if (modeDeepButton != null) modeDeepButton.onClick.AddListener(OnDeepModeClicked);
             if (resetButton != null) resetButton.onClick.AddListener(OnResetClicked);
             if (settingsButton != null) settingsButton.onClick.AddListener(OnSettingsClicked);
@@ -118,12 +126,36 @@ namespace JackpotRun.UI2
             appRoot?.ShowLevelRewards();
         }
 
-        // 웹 deepSelector()의 두 번째 카드(심화·심볼 덱)는 P7(심화모드 전체, WEB_PARITY_DESIGN.md
-        // §1-A #19) 없이는 실제로 전환할 상태가 없다 — 탭하면 "준비 중" 토스트만 안내한다(작업 지시
-        // "탭 시 토스트" 그대로). 일반 카드는 항상 선택된 상태로만 표시되므로 별도 클릭 핸들러가 없다.
+        // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 deepToggle — ui.js "case deepToggle:
+        // selDeep = !selDeep; if (selDeep) selAsc = 0;") — 심화모드 선택은 해금이 없다(항상 노출·항상
+        // 선택 가능). 심화를 켜면 승천 선택값을 0으로 되돌려 상호배제(§0 결정 원칙 — 두 난이도 축은
+        // 동시에 켤 수 없다, RunController 생성자가 deep이면 asc를 어차피 0으로 강제하지만 홈 화면
+        // 표시값도 미리 맞춰 둔다).
         private void OnDeepModeClicked()
         {
-            appRoot?.Toast?.Show("심화 모드(심볼 덱)는 아직 준비 중이에요.");
+            if (appRoot == null) return;
+            appRoot.SelectedDeep = true;
+            appRoot.SelectedAsc = 0;
+            Refresh();
+        }
+
+        private void OnNormalModeClicked()
+        {
+            if (appRoot == null) return;
+            appRoot.SelectedDeep = false;
+            Refresh();
+        }
+
+        // 웹 ui.js:560-568 deepSelector() 두 카드의 선택 상태 배색(.deep-mode.sel = Accent 테두리·이름,
+        // 그 외 = 기본 테두리·TextPrimary) + 심화 선택 시에만 노출되는 힌트 2줄.
+        private void RefreshGameModeSelector()
+        {
+            bool deep = appRoot != null && appRoot.SelectedDeep;
+            if (modeNormalOutline != null) modeNormalOutline.effectColor = deep ? UiKit.Bd : UiKit.Accent;
+            if (modeNormalNameText != null) modeNormalNameText.color = deep ? UiKit.TextPrimary : UiKit.Accent;
+            if (modeDeepOutline != null) modeDeepOutline.effectColor = deep ? UiKit.Accent : UiKit.Bd;
+            if (modeDeepNameText != null) modeDeepNameText.color = deep ? UiKit.Accent : UiKit.TextPrimary;
+            if (deepHintText != null) deepHintText.gameObject.SetActive(deep);
         }
 
         private void OnResetClicked()
@@ -180,14 +212,19 @@ namespace JackpotRun.UI2
             }
 
             RefreshLevelCard(profile);
+            RefreshGameModeSelector();
             RefreshAscSelector(profile);
             RefreshSoundToggle();
         }
 
         // ── P6 — 승천(심화 학기) 선택기(웹 ascSelector(), ui.js:572-590) ───────────────────────
+        // 웹 ui.js:573 `if (selDeep) return "";` — 심화모드(심볼 덱) 선택 중이면 승천 선택기 자체를
+        // 숨긴다(요구치 이중 가중 방지, §0 결정 원칙 "두 난이도 축 상호배제" — P7-1부터 엔진은 이미
+        // deep이면 asc를 0으로 강제하지만, 홈 화면 표시도 함께 숨겨야 사용자가 승천을 고르고 있다고
+        // 착각하지 않는다).
         private void RefreshAscSelector(PlayerProfile profile)
         {
-            bool unlocked = profile.AscUnlocked();
+            bool unlocked = profile.AscUnlocked() && !(appRoot != null && appRoot.SelectedDeep);
             if (ascSectionRoot != null) ascSectionRoot.gameObject.SetActive(unlocked);
             if (!unlocked) return;
 

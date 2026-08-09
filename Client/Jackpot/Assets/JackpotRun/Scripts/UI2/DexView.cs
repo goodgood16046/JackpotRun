@@ -101,7 +101,11 @@ namespace JackpotRun.UI2
 
         private void BuildCard(CatalogEntry e)
         {
-            bool lockable = _cat == JackpotCatalog.CatChar || _cat == JackpotCatalog.CatMac || _cat == JackpotCatalog.CatDev;
+            // 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심볼 탭도 "미발견 ???" 마스킹 대상에
+            // 추가(IsUnlocked가 이미 실해금 값을 계산하지만, 이 플래그가 없으면 잠금 오버레이 자체가
+            // 안 그려져 항상 해금된 것처럼 보인다).
+            bool lockable = _cat == JackpotCatalog.CatChar || _cat == JackpotCatalog.CatMac || _cat == JackpotCatalog.CatDev
+                || _cat == JackpotCatalog.CatSym;
             bool unlocked = !lockable || IsUnlocked(e);
 
             var card = Instantiate(cardTemplate, gridContent);
@@ -159,6 +163,10 @@ namespace JackpotRun.UI2
                 var dev = Devices.ById(e.id);
                 if (dev != null && string.IsNullOrEmpty(dev.unlockAch)) return "런 중 장치 드랍으로 획득";
             }
+            // Opus 2차검수(P7-4b) [중대④ 정정] — 심볼 72종 중 기본 58종 밖(13종, Pouch.Symbols71 기준
+            // 71개 중 DefaultUnlocked 58개를 뺀 나머지)은 JackpotCatalog.BuildSyntheticEntries가 이미
+            // Content/DeepSymbolUnlock.cs 역매핑으로 실제 해금 업적의 이름·설명을 pick.unlock에 심어
+            // 뒀다 — 카테고리 공용 고정 문구 대신 아래 공용 경로(e.pick.unlock)를 그대로 탄다.
             return (e.hasPick && e.pick != null && !string.IsNullOrEmpty(e.pick.unlock)) ? e.pick.unlock : "조건 미정";
         }
 
@@ -169,6 +177,11 @@ namespace JackpotRun.UI2
             if (_cat == JackpotCatalog.CatChar) return profile.IsCharUnlocked(Characters.ById(e.key));
             if (_cat == JackpotCatalog.CatMac) return profile.IsMachineUnlocked(Machines.ById(e.key));
             if (_cat == JackpotCatalog.CatDev) return profile.IsDeviceUnlocked(Devices.ById(e.id));
+            // 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심볼 도감 해금 = 기본 58종 ∪ 심화
+            // 업적으로 해금된 추가분(PlayerProfile.EffectiveSymUnlocked, PouchOffer/NodeEvents가 이미
+            // 쓰는 실해금 값과 동일 소스). 심볼증강/심볼유물은 레벨/업적 게이트가 없어(§JackpotCatalog
+            // 헤더 각주) 아래 기본 true로 자연히 항상 해금 처리된다.
+            if (_cat == JackpotCatalog.CatSym) return profile.EffectiveSymUnlocked().Contains(e.key);
             return true;
         }
 
@@ -203,7 +216,24 @@ namespace JackpotRun.UI2
                 bool achieved = profile != null && profile.AchievedIds.Contains(e.key);
                 return achieved ? "✅ 달성" : "미달성";
             }
+            // 웹 파리티 P7-4b — 심볼 도감 3탭 서브라인(정보 완전성 — 티어/희귀도 요약). DexDetailPopup.
+            // TierLabel은 private(다른 클래스라 접근 불가)이라 동일 매핑을 이 클래스에도 따로 둔다.
+            if (_cat == JackpotCatalog.CatSym) return $"등급 {Pouch.RarityOf(e.key)} · {SymTierLabel(e.tier)}";
+            if (_cat == JackpotCatalog.CatSymAug || _cat == JackpotCatalog.CatSymRel) return SymTierLabel(e.tier);
             return "";
+        }
+
+        // 웹 파리티 P7-4b — 심볼증강/심볼유물 티어 라벨(DexDetailPopup.TierLabel과 동일 매핑, private라
+        // 공유 못 해 이 클래스에 별도로 둔다).
+        private static string SymTierLabel(string tier)
+        {
+            switch (tier)
+            {
+                case "SILVER": return "실버";
+                case "GOLD": return "골드";
+                case "PRISM": return "프리즘";
+                default: return tier ?? "";
+            }
         }
 
         // 웹 파리티 P3-3 — 숙련도 별 표기(웹 ui.js:1886 그대로: ★채움/☆빈칸 5개 중 충족수). Total<=0

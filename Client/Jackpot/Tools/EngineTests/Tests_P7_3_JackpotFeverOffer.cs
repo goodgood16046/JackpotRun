@@ -111,6 +111,9 @@ namespace JackpotRun.EngineTests
             var run = S4TestHelpers.NewRun(seed);
             run.DeepMode = true;
             foreach (var kv in Pouch.NewStartPouch()) run.Pouch[kv.Key] = kv.Value;
+            // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20) — Tests_P7_1_Pouch.MakeDeepRun과 동일
+            // 근거(RunController 기본 폴백을 직접 재현).
+            run.SymUnlocked.UnionWith(Pouch.DefaultUnlocked);
             return run;
         }
 

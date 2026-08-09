@@ -199,6 +199,68 @@ namespace JackpotRun.Engine
             return ev;
         }
 
+        // ── 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 game.js:573-608 `_trackDeepStats`/
+        // `_markDeepBossAchievements` + 1422-1430 클리어 시점 호출부) — 심화 업적 13종 카운터의
+        // 실제 발생원. P7-1이 "골격만"으로 남겨 뒀던 DeepStats.MaxTotal/BossClears/Compress95Clear
+        // 등 8개 불리언 플래그 + RaresSeen/LegendsSeen 집합을 여기서 채운다. StageFlow.ClearStage가
+        // 매 클리어(스코어 확정 직후, 노드/자동소멸 계산 이전 — 웹 순서와 동일 위치)마다 호출한다.
+        // scoreAtClear는 웹 `r.score`(이미 이번 클리어의 gain이 더해진 값, gem 전공 3만 점 판정용)에
+        // 대응 — Unity StageFlow는 이 시점에 run.Score를 아직 대입하지 않은 구조라 호출측이 로컬
+        // (run.Score + gainedScore)를 명시적으로 넘긴다(대입 순서에 의존하지 않는 안전한 설계).
+        public static void TrackDeepStatsAndBossAch(RunState run, bool boss, long scoreAtClear)
+        {
+            if (run == null || !run.DeepMode || run.DeepStats == null || run.Pouch == null) return;
+            var ds = run.DeepStats;
+            int total = Pouch.Total(run.Pouch);
+
+            // 웹 game.js:1425 — 임의 클리어 시점(보스 무관) 총량<=27이면 "첫 압축" 달성(1회성 플래그,
+            // 이후 클리어에서 총량이 다시 늘어도 되돌리지 않음).
+            if (total > 0 && total <= 27) ds.Compress95Clear = true;
+
+            if (boss)
+            {
+                ds.BossClears += 1; // 심볼마스터(통산 10) — 웹 game.js:1427.
+                // ── _markDeepBossAchievements(game.js:589-608) ──
+                if (total > 0 && total <= 85) ds.Compress85BossClear = true;
+
+                int cherries = (run.Pouch.TryGetValue("cherry", out var c1) ? c1 : 0)
+                    + (run.Pouch.TryGetValue("cherry_ripe", out var c2) ? c2 : 0);
+                if (total > 0 && (double)cherries / total >= 0.50) ds.Cherry50BossClear = true;
+
+                int gems = (run.Pouch.TryGetValue("gem", out var g1) ? g1 : 0)
+                    + (run.Pouch.TryGetValue("gem_cut", out var g2) ? g2 : 0);
+                if (total > 0 && (double)gems / total >= 0.50 && scoreAtClear >= 30000) ds.Gem50Score30kBoss = true;
+
+                int skulls = (run.Pouch.TryGetValue("skull", out var s1) ? s1 : 0)
+                    + (run.Pouch.TryGetValue("skull_black", out var s2) ? s2 : 0);
+                if (total > 0 && (double)skulls / total >= 0.40) ds.Skull40BossClear = true;
+                if (skulls == 0) ds.Skull0BossClear = true;
+
+                if ((run.Pouch.TryGetValue("crown", out var crownN) ? crownN : 0) >= 2) ds.Crown2BossClear = true;
+
+                // 완벽한 균형 — 태그가 하나라도 존재하고, 그 전부의 비중이 20% 이하일 때만(웹
+                // `tvals.length && tvals.every(...)` — 태그 자체가 없으면(예: 순수 base 심볼만) 미달성).
+                var tags = Pouch.TagCounts(run.Pouch);
+                bool anyTag = false, allUnder20 = true;
+                foreach (var kv in tags)
+                {
+                    anyTag = true;
+                    if (total <= 0 || (double)kv.Value / total > 0.20) { allUnder20 = false; break; }
+                }
+                if (total > 0 && anyTag && allUnder20) ds.BalanceBossClear = true;
+            }
+
+            // ── _trackDeepStats(game.js:576-586) ──
+            ds.MaxTotal = System.Math.Max(ds.MaxTotal, total);
+            foreach (var kv in run.Pouch)
+            {
+                if (kv.Value <= 0) continue;
+                var rarity = Pouch.RarityOf(kv.Key);
+                if (rarity == "희귀") ds.RaresSeen.Add(kv.Key);
+                else if (rarity == "전설") ds.LegendsSeen.Add(kv.Key);
+            }
+        }
+
         // ── Phase 4 V3P4(웹 POUCH_USE) "instant" 소모 — 이 슬라이스의 단순화 버전(작업 지시 6번) ──
         // 웹은 붕대/매듭/에너지팩/가짜왕관/진화핵 5종 각각의 실제 효과(evaluate 내부 특수분기, P7-2/3
         // 범위)가 발동하는 순간 자기 자신을 덱에서 -1 한다. 이 슬라이스는 그 실제 효과를 아직 구현하지
@@ -305,6 +367,25 @@ namespace JackpotRun.Engine
                     long bonus = (long)sp.RareFirstScore;
                     res.score += bonus;
                     notes.Add($"🧰 희귀표본 첫 발견 점수 +{bonus}");
+                }
+            }
+
+            // Opus 2차검수(P7-4b) [중대] — 웹 game.js:975 `if (r.deepMode && r.deepStats) { for (const c
+            // of res.cells) { const rar = POUCH_RARITY[c.sym.id]; if (rar==="희귀") r.deepStats.raresSeen
+            // .add(c.sym.id); else if (rar==="전설") r.deepStats.legendsSeen.add(c.sym.id); } }` 그대로
+            // — 스핀 시점 발견 집계. §2-(FF)까지는 StageFlow.ClearStage 시점의 "그 순간 주머니 스냅샷"
+            // (DeepRunHooks.TrackDeepStatsAndBossAch)만 RaresSeen/LegendsSeen을 채웠는데, 이러면 뽑힌
+            // 뒤 클리어 전에 소모/제거되는 심볼(instant 소모형 희귀·전설 등)이 발견 기록에서 누락된다 —
+            // 이 스핀 즉시 집계로 그 간극을 메운다(클리어 시점 스캔과 함께 이중 커버, 둘 다 안전하게
+            // 중복 추가 가능 — HashSet.Add는 멱등).
+            if (run.DeepStats != null)
+            {
+                for (int i = 0; i < res.cells.Count; i++)
+                {
+                    var id = res.cells[i].sym.id;
+                    var rarity = Pouch.RarityOf(id);
+                    if (rarity == "희귀") run.DeepStats.RaresSeen.Add(id);
+                    else if (rarity == "전설") run.DeepStats.LegendsSeen.Add(id);
                 }
             }
 

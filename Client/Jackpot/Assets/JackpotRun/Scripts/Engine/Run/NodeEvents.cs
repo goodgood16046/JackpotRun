@@ -545,9 +545,9 @@ namespace JackpotRun.Engine
                     var sid = Pouch.Symbols71[i];
                     if (Pouch.CatOf(sid) != "special") continue;
                     if (run.Pouch.TryGetValue(sid, out var cnt) && cnt > 0) continue;
-                    // 웹 파리티 이전 단계(profile.symUnlocked, P7-4 범위) — Pouch.DefaultUnlocked로 근사
-                    // (Run/PouchOffer.cs EnterPouchOffer와 동일 근거, 최종 보고에 명시).
-                    if (!Pouch.DefaultUnlocked.Contains(sid)) continue;
+                    // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20) — profile.symUnlocked 실해금
+                    // 배선(Run/PouchOffer.cs EnterPouchOffer와 동일 근거).
+                    if (!run.SymUnlocked.Contains(sid)) continue;
                     if (augFamilyTag == null) { bonusCandidates.Add(sid); continue; }
                     var symInfo = Symbols.ById(sid);
                     if (symInfo?.tags != null && Array.IndexOf(symInfo.tags, augFamilyTag) >= 0) bonusCandidates.Add(sid);

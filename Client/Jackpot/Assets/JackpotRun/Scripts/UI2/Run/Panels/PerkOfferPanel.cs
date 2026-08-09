@@ -63,11 +63,18 @@ namespace JackpotRun.UI2
             bool isAugLevel = run.Phase == RunPhase.EventAugLevel;
             if (titleText != null) titleText.text = isAugLevel ? "증강 강화" : (isAugment ? "증강 선택" : "유물 선택");
 
+            // Opus 2차검수(P7-4b) [치명] — SYMAUG/SYMREL 노드(웹 game.js:1764-1791, Run/PouchOffer.cs
+            // EnterSymAugOrRel)는 EventAugment/EventRelic phase를 공유하지만 PerkOfferIds에 sa_/sp_/
+            // sr_ 접두 심볼퍽 id가 섞여 들어올 수 있다 — Perks.ById가 이를 모르므로(카탈로그가 다름)
+            // 이전엔 이 루프가 그 카드들을 통째로 건너뛰어 오퍼가 빈 채로 뜨는 소프트락이었다(3장 다
+            // 심볼퍽이면 카드 0장). NodeEvents.PickOffer의 그랜트 경로(§PickOffer:511-516 grantedSymPerk)와
+            // 동일한 "Perks.ById 우선, 없으면 SymPerks.Get" 원칙을 표시 경로에도 적용한다.
             var ids = run.PerkOfferIds;
             Tier maxTier = Tier.SILVER;
+            PCat fallbackCat = (isAugment || isAugLevel) ? PCat.AUGMENT : PCat.RELIC;
             for (int i = 0; i < ids.Count; i++)
             {
-                var p = Perks.ById(ids[i]);
+                var p = ResolvePerk(ids[i], fallbackCat);
                 if (p != null && p.tier > maxTier) maxTier = p.tier;
             }
             var maxTierColor = UiKit.TierColor(maxTier.ToString());
@@ -232,11 +239,14 @@ namespace JackpotRun.UI2
                 Destroy(child.gameObject);
             }
 
+            // Opus 2차검수(P7-4b) [치명] — 위 Show()의 maxTier 루프와 동일한 심볼퍽 폴백(fallbackCat은
+            // run.Phase로 다시 계산 — BuildCards가 isAugment를 직접 받지 않아 여기서 한 번 더 구한다).
+            PCat fallbackCat = (run.Phase == RunPhase.EventAugment || isAugLevel) ? PCat.AUGMENT : PCat.RELIC;
             var ids = run.PerkOfferIds;
             for (int i = 0; i < ids.Count; i++)
             {
                 int idx = i;
-                var perk = Perks.ById(ids[i]);
+                var perk = ResolvePerk(ids[i], fallbackCat);
                 if (perk == null) continue;
                 bool heldBadge = offerEvent != null && offerEvent.offerHeldIncluded && idx == 0;
                 bool synergyBadge = offerEvent != null && offerEvent.offerSynergyPerkId == perk.id;
@@ -377,6 +387,18 @@ namespace JackpotRun.UI2
                     _artGlow.effectDistance = hover ? new Vector2(5f, -5f) : new Vector2(3f, -3f);
                 }
             }
+        }
+
+        // Opus 2차검수(P7-4b) [치명] — Perks.ById(순정 증강/유물)가 모르는 심볼퍽(sa_/sp_/sr_ 접두)을
+        // PouchOffer.WrapSymPerk(internal로 승격)로 카드 표시 가능한 Perk 형태로 합성한다. 스프라이트는
+        // 없어도 안전(JackpotCatalog.CatalogIdOf가 "aug_sa_..."/"rel_sr_..."로 조회하지만 실제 저장
+        // 키는 "symaug_"/"symrel_"라 미스 → sprite=null → emoji 폴백으로 자연 강등, 크래시 없음).
+        private static Perk ResolvePerk(string id, PCat fallbackCat)
+        {
+            var p = Perks.ById(id);
+            if (p != null) return p;
+            var sp = SymPerks.Get(id);
+            return sp != null ? PouchOffer.WrapSymPerk(sp, fallbackCat) : null;
         }
 
         private static string CatalogIdOf(PCat cat, string id)

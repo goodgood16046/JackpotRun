@@ -151,10 +151,11 @@ namespace JackpotRun.UI2
             // 첫 화면 표시는 IntroSceneRoot.Start가 담당한다 — 여기(Awake 경로)서 부르면
             // 같은 GameObject의 ScreenRouter.Awake가 뒤늦게 전 화면을 비활성화해 검은 화면이 된다.
 
-            // S15: Intro 씬 진입마다(최초 실행 + EndRun 복귀 모두) 최신 BestScore를 랭킹 보드에
-            // 올려본다 — host는 AppRoot 자신(DontDestroyOnLoad)이라 Play↔Intro 씬 전환에도 코루틴이
-            // 끊기지 않는다. 실제 PUT 여부는 TrySubmitBest 내부의 "이전에 올린 값보다 큰가" 판정이 결정.
-            RankingService.TrySubmitBest(this);
+            // S15/P7-4: Intro 씬 진입마다(최초 실행 + EndRun 복귀 모두) 최신 3보드(일반/승천/심화)
+            // 최고기록을 각 랭킹 노드에 올려본다 — host는 AppRoot 자신(DontDestroyOnLoad)이라
+            // Play↔Intro 씬 전환에도 코루틴이 끊기지 않는다. 실제 PUT 여부는 TrySubmitAll 내부의
+            // "그 보드에 이전에 올린 값보다 큰가" 판정이 보드별로 결정.
+            RankingService.TrySubmitAll(this);
         }
 
         public void RegisterPlay(PlaySceneRoot root)
@@ -204,11 +205,11 @@ namespace JackpotRun.UI2
 
         /// <summary>LoginView "시작하기"/"게스트로 시작" → 메뉴로. 닉네임 저장은 LoginView 자신이
         /// PlayerPrefs에 직접 한다(엔진 PlayerProfile은 건드리지 않는다 — 설계 S8 LoginView 절).
-        /// S15: 닉네임이 방금 바뀌었을 수 있으므로 랭킹 보드 갱신을 시도한다(TrySubmitBest 내부의
-        /// "닉이 달라졌나" 판정이 실제 PUT 여부를 결정 — Opus S15 검수 경미-7 반영).</summary>
+        /// S15/P7-4: 닉네임이 방금 바뀌었을 수 있으므로 3보드 랭킹 갱신을 시도한다(TrySubmitAll 내부의
+        /// "닉이 달라졌나" 판정이 보드별 실제 PUT 여부를 결정 — Opus S15 검수 경미-7 반영).</summary>
         public void CompleteLogin()
         {
-            RankingService.TrySubmitBest(this);
+            RankingService.TrySubmitAll(this);
             ShowMenu();
         }
 

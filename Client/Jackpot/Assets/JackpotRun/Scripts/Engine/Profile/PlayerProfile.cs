@@ -127,6 +127,12 @@ namespace JackpotRun.Engine
         public int AscMax = -1;
         public long BestAscScore;
         public int BestAscLevel;
+        // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #20 "랭킹 3노드") — 승천 랭킹 보드(slotrank_asc)
+        // 행 스키마가 {nick,score,stage,asc,ts}라 stage도 필요하다. 웹 rank.js submitAscScore(entry)의
+        // entry.stage는 호출측(game.js)이 그때그때 넘기는데, Unity는 "그 최고기록 런이 도달한 스테이지"를
+        // 영속 필드로 보관해 둔다(BestDeepStage와 동일 관례) — StatTracker.ApplyGameOverTracking이
+        // BestAscScore 갱신과 함께 이 필드도 갱신한다.
+        public int BestAscStage;
 
         // ── 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19, 웹 defaultProfile bestDeepScore:0/
         // bestDeepStage:0, game.js:2557 `if (finalScore > (p.bestDeepScore||0)) { p.bestDeepScore =
@@ -135,6 +141,29 @@ namespace JackpotRun.Engine
         // StatTracker.ApplyGameOverTracking이 run.DeepMode 분기에서 갱신한다.
         public long BestDeepScore;
         public int BestDeepStage;
+
+        // ── 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 defaultProfile symUnlocked:[]/
+        // deepRaresSeenIds:[]/deepLegendsSeenIds:[]) — 심화 업적 13종 활성화. ──────────────────────
+        // profile.symUnlocked(웹 game.js:2609-2611 — 심화 업적 달성 시 ACH_SYMBOL_UNLOCK[id]를 push).
+        // "기본 해금 58종" 위에 추가로 열리는 것만 담는다 — 전체 유효 해금 집합은 EffectiveSymUnlocked()
+        // (Pouch.DefaultUnlocked ∪ 이 집합)로 계산한다(웹 `_symUnlockedSet()`와 동일 합집합 규약).
+        public readonly HashSet<string> SymUnlocked = new HashSet<string>();
+
+        // 웹 game.js:2598-2599 `deepRaresSeenIds`/`deepLegendsSeenIds` — 통산(모든 심화 런 누적) 희귀/
+        // 전설 등급 심볼 발견 집합(수집가 d_ach_rare10/연구자 d_ach_legend5 업적 카운터의 원천). 매
+        // 심화 런 종료마다 그 런의 DeepStats.RaresSeen/LegendsSeen을 합집합으로 병합한다
+        // (StatTracker.ApplyGameOverTracking) — 개수(Count)가 곧 deepRaresSeen/deepLegendsSeen 스탯.
+        public readonly HashSet<string> DeepRaresSeenIds = new HashSet<string>();
+        public readonly HashSet<string> DeepLegendsSeenIds = new HashSet<string>();
+
+        // 웹 `_symUnlockedSet()`(game.js:562-568) — 기본 58종 + 업적 해금분. Engine/Content/Pouch.cs의
+        // DefaultUnlocked를 그대로 참조한다(엔진↔프로필이 같은 어셈블리라 순환참조 없음).
+        public HashSet<string> EffectiveSymUnlocked()
+        {
+            var s = new HashSet<string>(Pouch.DefaultUnlocked);
+            s.UnionWith(SymUnlocked);
+            return s;
+        }
 
         // 웹 game.js:213 `ascUnlocked() { return (this.profile.ascMax ?? -1) >= 0; }` — 승천 1회 이상
         // 졸업(일반 런 asc=0의 스테이지15 클리어도 포함 — AscMax가 -1에서 0으로 오른 시점부터 true).

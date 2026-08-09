@@ -62,6 +62,74 @@ namespace JackpotRun.Engine
         public static bool IsAvailable(RunState run, RepairServiceDef sv) =>
             sv.kind != "curseCleanse" || (run.Curses != null && run.Curses.Count > 0);
 
+        // ── 웹 파리티 P7-4b(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 game.js:2404-2433 `repairTargets`) ──
+        // UI 목록 표시용 후보 산출(대상선택이 필요한 7종: addBasic/addHigh/addRare/remove/upgrade/
+        // swap/tagbuff). `Execute`는 이 후보 목록을 검증하지 않는다(§헤더 각주 "rarity 게이팅은 UI
+        // 몫" — 여기서 좁혀 주는 것 자체가 그 분담의 실체다).
+        public readonly struct RepairTargetSym
+        {
+            public readonly string Id;
+            public readonly int N;
+            public readonly string Rarity;
+            public RepairTargetSym(string id, int n, string rarity) { Id = id; N = n; Rarity = rarity; }
+        }
+
+        public readonly struct RepairTargetTag
+        {
+            public readonly string Tag;
+            public readonly int Cnt;
+            public readonly double Buff;
+            public RepairTargetTag(string tag, int cnt, double buff) { Tag = tag; Cnt = cnt; Buff = buff; }
+        }
+
+        // which: "id"(기본 — addBasic/High/Rare/remove/upgrade 공용) | "from"|"to"(swap 전용, 웹과 동일
+        // 매개변수 계약). "to"/add* 계열만 심볼 해금(run.SymUnlocked) 필터를 탄다 — remove/from은
+        // "이미 보유분"이라 해금 필터가 필요 없다(웹 `isOpen` 호출 지점과 1:1 대응).
+        public static List<RepairTargetSym> TargetsSym(RunState run, RepairServiceDef sv, string which = "id")
+        {
+            var result = new List<RepairTargetSym>();
+            if (run == null || !run.DeepMode || sv == null) return result;
+
+            var held = new List<string>();
+            foreach (var kv in run.Pouch) if (kv.Value > 0) held.Add(kv.Key);
+
+            bool IsOpen(string id) => run.SymUnlocked.Contains(id) || id == "empty" || id == "random";
+            RepairTargetSym Info(string id) =>
+                new RepairTargetSym(id, run.Pouch.TryGetValue(id, out var n) ? n : 0, Pouch.RarityOf(id));
+
+            switch (sv.kind)
+            {
+                case "addBasic": case "addHigh": case "addRare":
+                    foreach (var id in Pouch.Symbols71)
+                        if (Pouch.RarityOf(id) == sv.rarity && IsOpen(id)) result.Add(Info(id));
+                    break;
+                case "remove":
+                    foreach (var id in held) result.Add(Info(id));
+                    break;
+                case "upgrade":
+                    foreach (var id in held) if (Pouch.Upgrade.ContainsKey(id)) result.Add(Info(id));
+                    break;
+                case "swap":
+                    if (which == "to") { foreach (var id in Pouch.Symbols71) if (IsOpen(id)) result.Add(Info(id)); }
+                    else { foreach (var id in held) result.Add(Info(id)); }
+                    break;
+            }
+            return result;
+        }
+
+        // 태그강화(tagbuff) 후보 — 주머니 태그별 개수 내림차순(웹 `Object.entries(byTag).sort(...)`).
+        public static List<RepairTargetTag> TargetsTag(RunState run)
+        {
+            var result = new List<RepairTargetTag>();
+            if (run == null || !run.DeepMode) return result;
+            var byTag = Pouch.TagCounts(run.Pouch);
+            var keys = new List<string>(byTag.Keys);
+            keys.Sort((a, b) => byTag[b].CompareTo(byTag[a]));
+            foreach (var t in keys)
+                result.Add(new RepairTargetTag(t, byTag[t], run.DeepTagBuff.TryGetValue(t, out var b) ? b : 0));
+            return result;
+        }
+
         // service.kind → Pouch.PouchReward 변환 — 웹 `serviceToReward`. null=심볼 카운트형 아님(expand/
         // compress/tagbuff/curseCleanse).
         private static Pouch.PouchReward ServiceToReward(RepairServiceDef sv, RepairArgs args)

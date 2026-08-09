@@ -54,6 +54,11 @@ namespace JackpotRun.Engine
         public int ascMax = -1;
         public long bestAscScore;
         public int bestAscLevel;
+        // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #20) — PlayerProfile.BestAscStage 대응(승천 랭킹
+        // 보드 slotrank_asc의 stage 필드용). 기본값 0은 BestDeepStage와 동일하게 마이그레이션 가드가
+        // 불필요하다(BestAscScore가 0이면 이 필드도 항상 0인 채로 의미 없음 — AscMax의 -1/0 구분과는
+        // 다른 문제).
+        public int bestAscStage;
 
         // 웹 파리티 P7-1(WEB_PARITY_DESIGN.md §1-A #19) — PlayerProfile.BestDeepScore/BestDeepStage
         // 대응(웹 defaultProfile bestDeepScore:0/bestDeepStage:0). 기본값 0은 "심화 런 미완주"와
@@ -61,6 +66,12 @@ namespace JackpotRun.Engine
         // 가드가 필요 없다(AscMax의 "0인지 -1인지" 구분과 다른 문제 — §ProfileDto.FromDto 참조).
         public long bestDeepScore;
         public int bestDeepStage;
+
+        // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20) — PlayerProfile.SymUnlocked/DeepRaresSeenIds/
+        // DeepLegendsSeenIds 대응(웹 defaultProfile symUnlocked:[]/deepRaresSeenIds:[]/deepLegendsSeenIds:[]).
+        public string[] symUnlocked = Array.Empty<string>();
+        public string[] deepRaresSeenIds = Array.Empty<string>();
+        public string[] deepLegendsSeenIds = Array.Empty<string>();
 
         // ── 숙련도(mastery, P3, WEB_PARITY_DESIGN.md §1-A #11) — PlayerProfile.Mastery(kind->id->
         // MasteryStats) 대응. JsonUtility가 중첩 Dictionary를 직렬화하지 못해(헤더 각주 참조) (kind,id)
@@ -77,6 +88,16 @@ namespace JackpotRun.Engine
 
     public static class ProfileDto
     {
+        // 웹 파리티 P7-4 — HashSet<string> ↔ string[] 왕복 공용 헬퍼(achievedIds/ownedDevices가 이미
+        // 쓰던 "new 배열 + CopyTo" 패턴을 symUnlocked/deepRaresSeenIds/deepLegendsSeenIds 3종에도
+        // 재사용, 중복 방지).
+        private static string[] ToArray(HashSet<string> set)
+        {
+            var arr = new string[set.Count];
+            set.CopyTo(arr);
+            return arr;
+        }
+
         public static PlayerProfileDto ToDto(PlayerProfile p)
         {
             if (p == null) return new PlayerProfileDto();
@@ -140,8 +161,12 @@ namespace JackpotRun.Engine
                 ascMax = p.AscMax,
                 bestAscScore = p.BestAscScore,
                 bestAscLevel = p.BestAscLevel,
+                bestAscStage = p.BestAscStage,
                 bestDeepScore = p.BestDeepScore,
                 bestDeepStage = p.BestDeepStage,
+                symUnlocked = ToArray(p.SymUnlocked),
+                deepRaresSeenIds = ToArray(p.DeepRaresSeenIds),
+                deepLegendsSeenIds = ToArray(p.DeepLegendsSeenIds),
                 masteryKind = mKind.ToArray(),
                 masteryId = mId.ToArray(),
                 masteryRuns = mRuns.ToArray(),
@@ -251,6 +276,7 @@ namespace JackpotRun.Engine
             p.AscMax = dto.ascMax;
             p.BestAscScore = dto.bestAscScore;
             p.BestAscLevel = dto.bestAscLevel;
+            p.BestAscStage = dto.bestAscStage;
 
             // Opus 2차검수(P6) 마이그레이션 가드 — Unity `JsonUtility`는 구현에 따라 필드 부재를 항상
             // C# 필드 초기값(-1)으로 채운다고 보장할 수 없다(관측 근거: 0으로 채워지는 경로가 있음).
@@ -266,6 +292,15 @@ namespace JackpotRun.Engine
             // 각주 참조).
             p.BestDeepScore = dto.bestDeepScore;
             p.BestDeepStage = dto.bestDeepStage;
+
+            // 웹 파리티 P7-4 — 심볼 해금/희귀·전설 발견 집합 왕복(기본값 빈 배열, 마이그레이션 가드
+            // 불필요 — 이 필드 도입 이전 세이브도 자연히 "해금 없음/발견 없음"으로 떨어진다).
+            if (dto.symUnlocked != null)
+                foreach (var id in dto.symUnlocked) if (!string.IsNullOrEmpty(id)) p.SymUnlocked.Add(id);
+            if (dto.deepRaresSeenIds != null)
+                foreach (var id in dto.deepRaresSeenIds) if (!string.IsNullOrEmpty(id)) p.DeepRaresSeenIds.Add(id);
+            if (dto.deepLegendsSeenIds != null)
+                foreach (var id in dto.deepLegendsSeenIds) if (!string.IsNullOrEmpty(id)) p.DeepLegendsSeenIds.Add(id);
 
             return p;
         }

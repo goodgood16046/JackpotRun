@@ -602,7 +602,7 @@ namespace JackpotRun.Engine
             // 먼저 검사해야 한다(그렇지 않으면 asc<=0 분기로 먼저 빠져 deep 런이 bestScore를 오염시킴).
             if (run.DeepMode) { if (finalScore > p.BestDeepScore) { p.BestDeepScore = finalScore; p.BestDeepStage = run.Stage; } }
             else if (run.Asc <= 0) p.SetMax("bestScore", finalScore);
-            else if (finalScore > p.BestAscScore) { p.BestAscScore = finalScore; p.BestAscLevel = run.Asc; }
+            else if (finalScore > p.BestAscScore) { p.BestAscScore = finalScore; p.BestAscLevel = run.Asc; p.BestAscStage = run.Stage; }
             if (scratch.PrayUsedThisStage) p.Inc("prayFails");
 
             int relicN = run.Perks.Count(id => Perks.ById(id)?.cat == PCat.RELIC);
@@ -644,6 +644,33 @@ namespace JackpotRun.Engine
                 // Kotlin buildCtxGo와 동일하게 전부 기본값(false/0) — BuildCtx 기본 이니셜라이저 그대로 둔다.
             };
             foreach (var id in EvalThemeBuilds(ctx)) p.SetMax(id, 1);
+
+            // ── 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20, 웹 game.js:2581-2599) — 심화 업적
+            // 13종 카운터. r.deepMode 게이팅으로 일반 런은 이 블록 전부 스킵(일반 카운터와 완전 격리).
+            // DeepStats는 RunController가 심화 런 시작 시 항상 만들어 두므로(§P7-1) run.DeepMode만
+            // 봐도 null이 아니지만, 방어적으로 둘 다 확인한다(웹 `if (r.deepMode && r.deepStats)`).
+            if (run.DeepMode && run.DeepStats != null)
+            {
+                var ds = run.DeepStats;
+                p.Inc("deepRuns");                              // 심볼연구 시작
+                p.Inc("deepBossClears", ds.BossClears);          // 심볼마스터(통산)
+                p.SetMax("deepMaxTotal", ds.MaxTotal);           // 대형주머니(런 최대 총량의 통산 최고)
+                // 1회성 달성 플래그 → 통산 카운터로 승격(한 번이라도 달성하면 +1, 임계값 1 업적이라
+                // 이후 여러 런에서 다시 달성해도 threshold를 넘긴 시점부터는 영향 없음 — 웹과 동치).
+                if (ds.Compress95Clear) p.Inc("deepCompress95");
+                if (ds.Compress85BossClear) p.Inc("deepCompress85Boss");
+                if (ds.Cherry50BossClear) p.Inc("deepCherry50Boss");
+                if (ds.Skull40BossClear) p.Inc("deepSkull40Boss");
+                if (ds.Gem50Score30kBoss) p.Inc("deepGem50Score30k");
+                if (ds.Crown2BossClear) p.Inc("deepCrown2Boss");
+                if (ds.BalanceBossClear) p.Inc("deepBalanceBoss");
+                if (ds.Skull0BossClear) p.Inc("deepSkull0Boss");
+                // 희귀/전설 발견 종류 = 통산 누적 집합의 크기. 런별 집합을 프로필 집합에 합집합.
+                p.DeepRaresSeenIds.UnionWith(ds.RaresSeen);
+                p.DeepLegendsSeenIds.UnionWith(ds.LegendsSeen);
+                p.SetStat("deepRaresSeen", p.DeepRaresSeenIds.Count);
+                p.SetStat("deepLegendsSeen", p.DeepLegendsSeenIds.Count);
+            }
 
             // ── SlotV2ScoreRow 갱신(recordRun 상당) — achievement 판정과 무관한 표시/기록 필드 ──
             p.TotalScore += finalScore; // 웹 game.js:2554 `p.totalScore += finalScore` — asc 무관 항상 누적.

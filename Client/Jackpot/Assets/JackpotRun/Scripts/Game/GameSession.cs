@@ -63,8 +63,13 @@ namespace JackpotRun.Game
             // Math.min(maxAsc, Math.floor(asc||0)))`.
             int maxAsc = Profile.MaxPlayableAsc();
             int useAsc = deep ? 0 : Math.Max(0, Math.Min(maxAsc, asc));
+            // 웹 파리티 P7-4(WEB_PARITY_DESIGN.md §1-A #19/#20) — profile.symUnlocked 실해금 배선.
+            // Profile.EffectiveSymUnlocked()(=Pouch.DefaultUnlocked 58종 ∪ 업적으로 해금된 추가분)을
+            // RunState.SymUnlocked 미러로 넘긴다 — 일반 런에서도 항상 채워 두지만(가벼운 계산) 실제로
+            // 읽는 곳은 심화 런의 POUCH 오퍼/3스테이지 연계 보너스뿐이다.
             Controller = new RunController(charId, machineId, deviceId, seed, Profile.Stats, deviceId2: "",
-                ownedDeviceIds: Profile.UnlockedDevices().Select(d => d.id).ToList(), asc: useAsc, deep: deep);
+                ownedDeviceIds: Profile.UnlockedDevices().Select(d => d.id).ToList(), asc: useAsc, deep: deep,
+                symUnlocked: Profile.EffectiveSymUnlocked());
             StatTracker.Apply(Profile, Controller.State, Controller.LaunchEvents, _scratch);
         }
 
