@@ -15,6 +15,12 @@
 - **폐기된 항목 제거**: "업적 482종"→34종, "전공 연구(계정 성장)"·"장치 면허" 삭제.
   웹 파리티 P3에서 폐기된 체계였다(`Docs/WEB_PARITY_DESIGN.md` §2-D, `Achievements.cs` 실측 34).
   대신 심화 모드(주머니)·승천을 웹판 전용 항목으로 명시.
+- **모카봇 언급 제거(README 한정)**: 공개 저장소 설명란에서 이관 이력·구 주소
+  `mokabot-8ed4d.web.app/slot/`·로컬 경로 2개(`C:\dev\KakaoOpenChatBot\...`)·모카봇 배포 순서
+  경고를 삭제. "카톡 봇"은 "외부 봇"으로 일반화(3곳). 대신 `play/` 절을 "자체 JS 엔진을 가진
+  게임 본체, localStorage 저장" 설명으로 대체해 맥락 공백을 메웠다.
+  ⚠️ CLAUDE.md·WORKLOG·Docs 의 모카봇 기술은 **의도적으로 유지** — 배포 순서 경고
+  (jackpotrun-web 먼저 → 모카봇 나중)와 `slotdev_rules.md` 단일 소스 포인터는 실무에 필요하다.
 - **작업 트리 정리**: `fx_add_spin_stop_spark.mat` 이 유니티 인스펙터의 `_Mode:0`(Opaque) 프리셋
   재적용으로 가법 블렌드(SrcAlpha/One/ZWrite=0)를 잃고 불투명(One/Zero/ZWrite=1)으로 되돌아가
   있었다. `FxPrefabGen.ConfigureBlend` 가 생성하는 값이 정본이므로 checkout 으로 원복.

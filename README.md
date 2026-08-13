@@ -43,7 +43,7 @@ JackpotRun/
 │  └─ Tools/EngineTests/                  # dotnet 헤드리스 테스트 (17,000+ 어서션)
 ├─ public/            # 웹 클라이언트 (Firebase Hosting)
 │  ├─ play/                               # 브라우저 단독 웹게임 (JS 엔진 내장)
-│  ├─ jackpotpick/ · jackpotdex/          # 카톡 봇 연동 뷰어 (시작 조합 선택 + 도감)
+│  ├─ jackpotpick/ · jackpotdex/          # 외부 봇 연동 뷰어 (시작 조합 선택 + 도감)
 │  └─ ranking/                            # 글로벌 랭킹 보드 (앱 점수 표시)
 ├─ Docs/              # 설계 문서 (엔진 이식 설계, 사양 추출)
 ├─ kotlin-reference/  # 구버전(v2) 엔진 스냅샷 — 밸런스 사양 정답지 (읽기 전용)
@@ -67,7 +67,7 @@ Firebase Hosting 프로젝트 `jackpotrun-web` 에 배포되며, `public/` 아�
 | | 정체 | 백엔드 필요? |
 |---|---|---|
 | `play/` | **게임 본체** — JS 엔진 내장, 브라우저 단독 | 불필요 (랭킹·로그인만 선택적) |
-| `jackpotpick/` · `jackpotdex/` | 카톡 봇 연동 **뷰어** | 봇이 RTDB 로 push 해야 함 |
+| `jackpotpick/` · `jackpotdex/` | 외부 봇 연동 **뷰어** | 봇이 RTDB 로 push 해야 함 |
 | `ranking/` | 글로벌 랭킹 보드 | RTDB `jackpotrank` 읽기 |
 
 - 배포: `firebase deploy --only hosting,database --project jackpotrun-web`
@@ -76,9 +76,8 @@ Firebase Hosting 프로젝트 `jackpotrun-web` 에 배포되며, `public/` 아�
 
 ### `play/` — 브라우저 단독 웹게임
 
-2026-08-07 에 모카봇(`C:\dev\KakaoOpenChatBot\web\slot`)에서 이관. 구 주소
-`mokabot-8ed4d.web.app/slot/` 은 여기로 보내는 리다이렉트만 남으며, localStorage 는 도메인 단위라
-저장키 7개를 URL fragment 로 넘겨 새 페이지가 1회만 흡수한다.
+여기만 예외다. `play/` 는 뷰어가 아니라 **자체 JS 엔진을 가진 게임 본체**로, 백엔드 없이 완결된다.
+진행 상황은 브라우저 localStorage(`slotweb_profile`)에 저장된다.
 
 - `engine.js` 가 `SlotV2Engine.kt` 의 확률·점수·요구치 공식을 JS 로 포팅한 자체 엔진.
 - Firebase 는 랭킹(`slotrank`/`slotrank_asc`/`slotrank_deep`)과 구글 로그인에만 사용. 둘 다 실패해도 게임은 동작.
@@ -86,16 +85,12 @@ Firebase Hosting 프로젝트 `jackpotrun-web` 에 배포되며, `public/` 아�
   **배포 대상 아님**(`firebase.json` 의 `**/_harness*.mjs` ignore).
 - ⚠️ Unity 앱/Kotlin 판과 **콘텐츠가 갈라져 있다** — 캐릭터 19 · 머신 19 · 장치 24 · 증강 89 · 유물 73 ·
   아이템 78 이고, 테마빌드 25 · 심화모드(주머니) · 승천은 이 판 전용이다.
-  불변식·검증 절차는 `C:\dev\KakaoOpenChatBot\workflow\slotdev_rules.md` 가 단일 소스.
-
-> ⚠️ **배포 순서**: 이 프로젝트를 먼저 배포한 뒤 모카봇을 배포할 것. 뒤집으면 리다이렉트가
-> 아직 없는 주소를 가리킨다.
 
 ### RTDB 노드
 
 | 노드 | 쓰는 쪽 |
 |---|---|
-| `jackpotdex` · `jackpotcmd` · `jackpotcatalog` · `jackpothall` | 카톡 봇 ↔ 뷰어 |
+| `jackpotdex` · `jackpotcmd` · `jackpotcatalog` · `jackpothall` | 외부 봇 ↔ 뷰어 |
 | `jackpotrank` | **Unity 앱** 점수 제출 → `ranking/` 표시 |
 | `slotrank` · `slotrank_asc` · `slotrank_deep` | `play/` 랭킹 (일반·승천·심화) |
 
