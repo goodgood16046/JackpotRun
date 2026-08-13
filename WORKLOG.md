@@ -4,6 +4,21 @@
 
 ---
 
+## 2026-08-13 - README 설명란 정리 — 실제 구동 웹페이지 명시 + 낡은 콘텐츠 수치 정정
+
+- **실플레이 주소를 최상단에 명시**: `https://jackpotrun-web.web.app/play/`. 배포된 4개 경로
+  (`/play/` · `/ranking/` · `/jackpotdex/` · `/jackpotpick/`)를 표로 정리하고, 루트 `/` 는
+  index 가 없어 404 라는 사실을 적었다(HTTP 실측 확인: 루트 404, 나머지 4개 200).
+- **게임 소개 수치 정정** — `public/play/data.js` 실측으로 교체:
+  캐릭터 16→19 · 머신 16→19 · 장치 16→24 · 증강 80→89 · 유물 61→73 · 아이템 73→78
+  (저주 16 · 세트 33 은 동일). 심볼 72 · 보스 4 추가.
+- **폐기된 항목 제거**: "업적 482종"→34종, "전공 연구(계정 성장)"·"장치 면허" 삭제.
+  웹 파리티 P3에서 폐기된 체계였다(`Docs/WEB_PARITY_DESIGN.md` §2-D, `Achievements.cs` 실측 34).
+  대신 심화 모드(주머니)·승천을 웹판 전용 항목으로 명시.
+- **작업 트리 정리**: `fx_add_spin_stop_spark.mat` 이 유니티 인스펙터의 `_Mode:0`(Opaque) 프리셋
+  재적용으로 가법 블렌드(SrcAlpha/One/ZWrite=0)를 잃고 불투명(One/Zero/ZWrite=1)으로 되돌아가
+  있었다. `FxPrefabGen.ConfigureBlend` 가 생성하는 값이 정본이므로 checkout 으로 원복.
+
 ## 2026-08-09 - 웹 파리티 P8(최종 정리 슬라이스) — 세트 보너스 전 그룹 지급·deepFamilyBridge·§2 스윕
 
 상세는 `Docs/WEB_PARITY_DESIGN.md` §2-(HH)·§3(P8 행)·신설 §4 참조. Sonnet 구현.
