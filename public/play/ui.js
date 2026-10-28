@@ -126,7 +126,7 @@ function showToast(msg) {
 // ── 클릭 위임 (document 전역 — #app 과 바텀시트 모두 포함) ──
 document.addEventListener("click", (e) => {
   const t = e.target.closest("[data-act]"); if (!t) return;
-  if (t.dataset.act === "reelTap" && lpFired) { lpFired = false; return; }   // 롱프레스(셀 정보)가 이미 열렸다면 뒤따르는 클릭은 무시
+  if (lpFired) { lpFired = false; return; }   // 롱프레스(셀 정보)가 이미 열렸다면 손을 뗄 때 뒤따르는 클릭 1회는 대상과 무관하게 무시(시트 배경에 맞아 즉시 닫히는 것 방지)
   snd.resume();
   if (t.dataset.act !== "spin" && t.dataset.act !== "noop" && t.dataset.act !== "reelTap") snd.sfx("tap");
   tapFx(e.clientX, e.clientY, t);
@@ -147,7 +147,7 @@ document.addEventListener("pointerdown", (e) => {
   lpTimer = setTimeout(() => {
     lpTimer = null;
     if (busy || !st || (st.phase !== PHASE.SPIN && st.phase !== PHASE.POST_SPIN)) return;
-    lpFired = true; vibrate(14); openCellSheet(idx);
+    lpFired = true; setTimeout(() => { lpFired = false; }, 700); vibrate(14); openCellSheet(idx);
   }, LONGPRESS_MS);
 }, { passive: true });
 document.addEventListener("pointermove", (e) => { if (lpTimer && Math.hypot(e.clientX - lpX, e.clientY - lpY) > 8) lpCancel(); }, { passive: true });
@@ -347,7 +347,7 @@ const reducedMotion = () => !!(window.matchMedia && window.matchMedia("(prefers-
 
 // ── F7 기대감(anticipation)·니어미스 — Unity ReelView.cs DetectAnticipation/DetectNearMiss 와 같은 조건(마지막 릴에만 적용) ──
 //  기대감: 마지막 릴을 제외한 칸에서 "세트 가능(값심볼)" 같은 심볼이 ANTIC_MIN(3)개 이상 → 마지막 릴 유지 구간 +0.6s · 감속 3→5노치 · 골드 펄스 · 살짝 줌인.
-//  니어미스: 기대감 조건 + 결과가 세트(3매치)를 못 이룸 + 마지막 릴 결과가 그 심볼이 아님 → 마지막 감속 노치에서 그 심볼이 한 칸 중앙을 0.35s 스치고 지나감.
+//  니어미스: 기대감 조건 + 결과가 4매치를 못 이룸 + 마지막 릴 결과가 그 심볼이 아님(2026-10-28: ANTIC_MIN 3 상향에 맞춰 "3매치 실패"→"4매치 실패") → 마지막 감속 노치에서 그 심볼이 한 칸 중앙을 0.35s 스치고 지나감.
 const R_DECEL_ANT = [0.10, 0.14, 0.18, 0.22, 0.32];   // 기대감 감속 5노치(Unity AntDecel1~5) — 타깃은 idx(D-3)=2 에 주입
 const R_ANTIC_EXTRA = 0.6;                            // 유지 구간 연장(초)
 const R_NEARMISS_PAUSE = 0.35;                        // 니어미스 심볼이 중앙을 스치는 노치 길이(초)
@@ -361,7 +361,7 @@ function planReelFx(cells, bestCount, heldIdx) {
   for (const id of Object.keys(cnt)) if (cnt[id] > best) { best = cnt[id]; bestId = id; }
   plan.antic = best >= ANTIC_MIN;
   const lastSym = cells[last] && cells[last].sym;
-  if (plan.antic && (bestCount || 0) < 3 && bestId && lastSym && lastSym.id !== bestId) { plan.nearMiss = true; plan.nearSym = D.SYM_BY_ID[bestId] || null; if (!plan.nearSym) plan.nearMiss = false; }
+  if (plan.antic && (bestCount || 0) < ANTIC_MIN + 1 && bestId && lastSym && lastSym.id !== bestId) { plan.nearMiss = true; plan.nearSym = D.SYM_BY_ID[bestId] || null; if (!plan.nearSym) plan.nearMiss = false; }
   return plan;
 }
 const symOfSlot = (slot) => { const el = slot && slot.querySelector(".sym"); return { id: el ? (el.dataset.sid || "") : "", e: el ? (el.dataset.e || "") : "" }; };
@@ -546,7 +546,7 @@ function burstParticles(n, set, o = {}) {
   root.innerHTML = h; document.body.appendChild(root); setTimeout(() => root.remove(), o.life || 1500);
 }
 
-// ── F1 빅윈 티어(스핀 EXP ÷ 페이스 ≥1.5 NICE · ≥2.5 BIG · ≥4 MEGA) — 배너·셰이크·파티클·사운드·진동 강도 차등 ──
+// ── F1 빅윈 티어(스핀 EXP ÷ 페이스 ≥2 NICE · ≥3 BIG · ≥5 MEGA) — 배너·셰이크·파티클·사운드·진동 강도 차등 ──
 const BIGWIN = [null,
   { txt: "NICE!",     cls: "bw1", dur: 850,  n: 10, set: ["✨", "⭐"],                                shake: "sm", vib: 18 },
   { txt: "BIG WIN!",  cls: "bw2", dur: 1100, n: 24, set: ["✨", "⭐", "🪙", "💫"],                    shake: "bg", vib: [30, 40, 50] },

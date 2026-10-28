@@ -4899,7 +4899,7 @@ try {
   // 클리어 스핀 out 에도 필드 존재
   const g4 = funGame(76004); g4.run.quota = 1; funRoll(g4, ["cherry", "cherry", "cherry", "book", "star"]); const o4 = g4.spin("N");
   funOk("F1 클리어 스핀 out.cleared + tier 필드", o4.cleared === true && typeof o4.bigWinTier === "number");
-  notes.push("FUN-F1 bigWinTier ok: 경계 1.5/2.5/4(정확값)·최종 EXP 기준·state 계약 키");
+  notes.push("FUN-F1 bigWinTier ok: 경계 2/3/5(정확값)·최종 EXP 기준·state 계약 키");
 } catch (e) { fail("FUN-F1 threw: " + e.stack); }
 
 // ── 스트레스: 일반 150런 — 홀드·특수스핀(누진)·앵콜을 무작위로 섞어 NaN/예외/종료 확인 ──

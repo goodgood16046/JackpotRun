@@ -18,7 +18,7 @@ export function setEnabled(on) { enabled = !!on; if (!on) bgmStop(); }
 export function isEnabled() { return enabled; }
 export function setVolume(v) { vol = Math.max(0, Math.min(1, +v || 0)); if (master) master.gain.value = vol; try { localStorage.setItem("slotweb_vol", String(vol)); } catch (e) {} }
 export function getVolume() { return vol; }
-// F5 피버 모드 on/off — 켜면 BGM 템포(230→175ms)·피치(×1.12)와 효과음 피치(×1.05)가 올라간다.
+// F5 피버 모드 on/off — 켜면 BGM 템포(230→170ms)·피치(×1.12)와 효과음 피치(×1.05)가 올라간다.
 export function setFever(on) { feverMode = !!on; }
 const sfxPitch = () => (feverMode ? 1.05 : 1);
 

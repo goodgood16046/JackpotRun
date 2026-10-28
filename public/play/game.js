@@ -909,7 +909,7 @@ export class Game {
     if (used.length) r.holdCharges -= 1;
     return used;
   }
-  // F1 빅윈 티어: 스핀 최종 EXP ÷ 페이스(quota/spins) ≥ 1.5 NICE(1) · 2.5 BIG(2) · 4 MEGA(3).
+  // F1 빅윈 티어: 스핀 최종 EXP ÷ 페이스(quota/spins) ≥ 2 NICE(1) · 3 BIG(2) · 5 MEGA(3) (C.BIGWIN_TIERS).
   _bigWinTier(exp) {
     const r = this.run; const pace = r.spins > 0 ? r.quota / r.spins : 0;
     if (!(pace > 0)) return 0;
