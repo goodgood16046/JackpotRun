@@ -26,7 +26,7 @@ export const C = {
   //  R6 보조릴(dev_subreel) 최종 EXP 배율.
   SUBREEL_EXP_MUL: 0.85,
   //  F1 빅윈 티어 임계(스핀 EXP ÷ 페이스): NICE / BIG / MEGA.
-  BIGWIN_TIERS: [1.5, 2.5, 4],
+  BIGWIN_TIERS: [2, 3, 5],
 };
 
 // 스테이지별 요구 EXP. 일반 모드(R2 개편): 15 이후 ×C.QUOTA_GROWTH(1.25).

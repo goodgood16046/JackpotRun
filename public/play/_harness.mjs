@@ -4879,7 +4879,7 @@ try {
 // ── F1 빅윈 티어 · 상태 API 계약 ──
 try {
   const g = funGame(76001); g.run.quota = 100; g.run.spins = 5;   // 페이스 20
-  funDeep("F1 tier 경계", [29, 30, 49, 50, 79, 80, 1000].map((x) => g._bigWinTier(x)), [0, 1, 1, 2, 2, 3, 3]);
+  funDeep("F1 tier 경계", [39, 40, 59, 60, 99, 100, 1000].map((x) => g._bigWinTier(x)), [0, 1, 1, 2, 2, 3, 3]);
   funEq("F1 tier(0)", g._bigWinTier(0), 0);
   // 스핀 결과 필드: 타입 계약
   const g2 = funGame(76002); g2.run.quota = 100; g2.run.spins = 5; funRoll(g2, ["cherry", "cherry", "cherry", "cherry", "cherry"]);
