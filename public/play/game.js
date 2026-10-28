@@ -345,6 +345,12 @@ export class Game {
       flameNext: false, seedNext: false, lockedNext: null,
       survive: false, debtStages: 0, usedCmds: [], pendingNextExpMul: 1,
       cmdFreeUsed: { FOCUS: false, ALLIN: false, PRAY: false, LAST: false },   // 런 단위: 종류별 첫 1회 무료권(소진 시 true) — _beginStage 리셋 금지
+      cmdUses: { FOCUS: 0, ALLIN: 0, PRAY: 0, LAST: 0 },   // R6 누진: 이번 스테이지에서 종류별 사용 횟수(_beginStage 리셋) — n번째 비용 = 기본×(1+STEP×(n-1))
+      // ── 재미 개편(R3~R5) 일반 모드 전용 상태 — 전부 r.deepMode 게이팅(심화는 미사용·격리). 심화 피버(feverGauge/feverSpins)와 별개 필드. ──
+      holdCharges: 0, held: [], lastRaw: null,   // R3 홀드: 충전·잡은 칸 인덱스·직전 스핀 원시 착지 칸(raw)
+      nFeverGauge: 0, nFeverSpins: 0, lastFeverApplied: false,   // R4 피버(일반): 게이지 0~100·남은 피버 스핀(런 단위 이월)·직전 스핀 피버 적용 여부
+      encoreK: 0, encorePot: 0, encoreStake: 0, encoreActive: false, encoreDone: false, encoreLastBust: false,   // R5 앵콜(클리어 후 더블업): 성공 횟수·팟·판돈(=이번 클리어 점수)
+      lastSpinInfo: null,   // state().lastSpin 용 — 마지막 스핀/앵콜 스핀 결과 요약
       growthStack: 0, snowStack: 0, fateBellUsed: 0,   // JS-4 조건부 증강 누적스택/운명의종 게이트(값 변경은 JS-4)
       unluckyGauge: 0, boss: null, nodes: [], options: [], shopItems: [],
       stats: { cherry: 0, crown: 0, jackpots: 0, bossClears: 0, lastClears: 0, exactClears: 0, prismPicks: 0, bestSpin: 0 },
@@ -407,6 +413,11 @@ export class Game {
   _beginStage() {
     const r = this.run;
     r.spinIndex = 0; r.stageExp = 0; r.usedCmds = []; r.armItems = []; r.phaseItems = [];
+    r.cmdUses = { FOCUS: 0, ALLIN: 0, PRAY: 0, LAST: 0 };
+    // R3 홀드: 매 스테이지 충전 1(누적 없음)·잡은 칸/직전 raw 초기화(첫 스핀 전엔 홀드 불가). 심화는 0(미사용).
+    r.holdCharges = r.deepMode ? 0 : C.HOLD_START_CHARGES; r.held = []; r.lastRaw = null;
+    // R5 앵콜 상태 초기화(앵콜은 STAGE_CLEAR 에서만 쓰이며 _clearStage 가 다시 초기화) — 피버(nFever*)는 런 단위 이월이라 건드리지 않는다.
+    r.encoreK = 0; r.encorePot = 0; r.encoreStake = 0; r.encoreActive = false; r.encoreDone = false; r.encoreLastBust = false;
     r.flameNext = false; r.seedNext = false; r.lockedNext = null; r.lastCells = null; r.lastResult = null; r.lastExpApplied = 0;
     // 테마빌드: 스테이지 단위 플래그/직전스핀 이벤트 리셋(고정핀=이번스테이지, 막스핀 성사정보=이번스핀)
     if (r.tb) { r.tb.pinUsedStage = false; r.tb.lastSpinClear = false; r.tb.lastSpinRare = 0; r.tb.lastSpinSkull = 0; r.tb.bellUsed = false; r.tb.copySet4 = false; }
@@ -420,7 +431,7 @@ export class Game {
     r.spins = E.spinsPerStage(mods) + E.bossSpins(r.stage);
     // V3P4: ⛓족쇄(shackleActive) — 보스 스테이지에서 스핀 -1(최소 1 보장).
     if (r.deepMode && mods.shackleActive && r.boss && r.spins > 1) r.spins -= 1;
-    r.quota = Math.max(1, Math.floor(E.quota(r.stage) * mods.quotaMul * E.bossQuotaMul(r.stage) * am.quotaMul * (r.boss ? am.bossQuotaMul : 1) * (r._bossPhase2 ? 1.3 : 1) * this._deepPenalty()));
+    r.quota = Math.max(1, Math.floor(E.quota(r.stage, r.deepMode) * mods.quotaMul * E.bossQuotaMul(r.stage) * am.quotaMul * (r.boss ? am.bossQuotaMul : 1) * (r._bossPhase2 ? 1.3 : 1) * this._deepPenalty()));
     // 심화 8+ : 이번 스테이지 랜덤 금지 심볼 1개(등장 안 함)
     if ((r.asc || 0) >= 8) { r._bannedSym = this.rng.pick(["cherry", "book", "star", "gem"]); const bs = SYM_BY_ID[r._bannedSym]; this.toast(`🚫 심화 규칙 — 이번 스테이지 금지 심볼: ${bs ? bs.e : r._bannedSym}`); } else r._bannedSym = null;
     r.phase = PHASE.SPIN; r.options = [];
@@ -870,21 +881,62 @@ export class Game {
     return null;
   }
 
-  // 특수명령 코인 비용(현재 보스 상태 기준) — UI 버튼/도움말 라벨용. mode="N"=0.
-  cmdCost(mode) { return mode && mode !== "N" ? E.cmdCoinCost(mode, !!this.run?.boss) : 0; }
+  // ── R3 홀드(일반 모드 전용) ──
+  //  직전 스핀의 원시 착지 칸(lastRaw: evaluate·cellOps 이전)을 최대 HOLD_MAX 칸 잡아 다음 스핀에 그대로 유지한다.
+  //  스핀 후 홀드 표시는 해제되고 충전이 1 소모된다(스테이지당 충전 1, 집중 특수스핀이 +1). 예언 확정 중·심화·첫 스핀 전엔 불가.
+  toggleHold(i) {
+    const r = this.run; if (!r) return null;
+    if (r.deepMode) { this.toast("🔒 홀드는 일반 모드에서만 쓸 수 있어요"); return this.state(); }
+    if (r.phase !== PHASE.SPIN) return this.state();
+    if (r.lockedNext) { this.toast("🔮 예언이 확정된 스핀에는 홀드를 쓸 수 없어요"); return this.state(); }
+    if (!r.lastRaw) { this.toast("🔒 첫 스핀 전에는 홀드할 수 없어요 (직전 결과가 있어야 해요)"); return this.state(); }
+    const idx = Math.floor(Number(i));
+    if (!(idx >= 0 && idx < r.lastRaw.length)) return this.state();
+    const pos = r.held.indexOf(idx);
+    if (pos >= 0) { r.held.splice(pos, 1); return this.state(); }   // 이미 잡은 칸 → 해제(충전 소모는 스핀 시점)
+    if (r.holdCharges < 1) { this.toast("🔒 홀드 충전이 없어요 (스테이지마다 1회 · 🎯집중 사용 시 +1)"); return this.state(); }
+    if (r.held.length >= C.HOLD_MAX) { this.toast(`🔒 홀드는 최대 ${C.HOLD_MAX}칸까지만 잡을 수 있어요`); return this.state(); }
+    r.held.push(idx); r.held.sort((a, b) => a - b);
+    return this.state();
+  }
+  // raw(새로 굴린 칸 배열)의 홀드 칸을 직전 raw 로 덮어쓴다. 범위 밖/직전 칸 없음은 무시. 1칸 이상 적용되면 충전 -1. 적용된 인덱스 배열 반환.
+  _applyHold(raw) {
+    const r = this.run; const used = [];
+    if (r.deepMode || !r.lastRaw || !r.held.length || r.holdCharges < 1) return used;
+    for (const i of r.held) {
+      if (i >= 0 && i < raw.length && r.lastRaw[i]) { raw[i] = { sym: r.lastRaw[i].sym, tag: "" }; used.push(i); }
+    }
+    if (used.length) r.holdCharges -= 1;
+    return used;
+  }
+  // F1 빅윈 티어: 스핀 최종 EXP ÷ 페이스(quota/spins) ≥ 1.5 NICE(1) · 2.5 BIG(2) · 4 MEGA(3).
+  _bigWinTier(exp) {
+    const r = this.run; const pace = r.spins > 0 ? r.quota / r.spins : 0;
+    if (!(pace > 0)) return 0;
+    const ratio = exp / pace; const T = C.BIGWIN_TIERS;
+    return ratio >= T[2] ? 3 : ratio >= T[1] ? 2 : ratio >= T[0] ? 1 : 0;
+  }
+
+  // 특수명령 코인 비용 — "지금 누르면 낼 비용"(UI 버튼/도움말 라벨용). mode="N"=0.
+  //  R6: 런 단위 종류별 첫 1회 무료(→0) · 같은 스테이지 n번째 사용은 기본(보스 +1·상한 5)×(1+STEP×(n-1)) 누진.
+  cmdCost(mode) {
+    if (!mode || mode === "N") return 0;
+    const r = this.run;
+    if (!r) return E.cmdCoinCost(mode, false);
+    if (r.cmdFreeUsed && !r.cmdFreeUsed[mode]) return 0;
+    return E.cmdCoinCost(mode, !!r.boss, ((r.cmdUses && r.cmdUses[mode]) || 0) + 1);
+  }
 
   // ── 스핀 (mode: N | FOCUS | ALLIN | PRAY | LAST) ──
   spin(mode = "N") {
     const r = this.run; if (r.phase !== PHASE.SPIN) return this.state();
     const special = mode !== "N";
     const boss = !!r.boss;
-    const baseCost = special ? E.cmdCoinCost(mode, boss) : 0;
-    // 런 단위 종류별 첫 1회 무료(코인 0이어도 발동, 실제 발동 성공 시에만 소진)
+    // 런 단위 종류별 첫 1회 무료(코인 0이어도 발동, 실제 발동 성공 시에만 소진). R6: 반복 사용 허용 — 같은 스테이지 n번째는 기본×(1+STEP×(n-1)) 누진.
     const isFree = special && !(r.cmdFreeUsed && r.cmdFreeUsed[mode]);
-    const cmdCost = isFree ? 0 : baseCost;
+    const cmdCost = special ? this.cmdCost(mode) : 0;
     if (special) {
       if (mode === "LAST" && r.spinIndex !== r.spins - 1) { this.toast("⏰ 최후는 마지막 스핀에서만 쓸 수 있어요"); return this.state(); }
-      if (r.usedCmds.includes(mode)) { this.toast(`${SPECIAL_LABEL[mode] || "특수스핀"} 은(는) 이번 스테이지에 이미 썼어요 (종류별 스테이지당 1회)`); return this.state(); }
       if (cmdCost > 0 && r.coins < cmdCost) { this.toast(`${SPECIAL_LABEL[mode] || "특수스핀"} 발동에 코인 ${cmdCost}🪙 필요 (보유 ${r.coins}🪙)`); return this.state(); }
     }
     // V3P4: 🧲임시와일드(temp_wild·fuse) — 덱에 있으면 이번 스핀에 wild_temp cellOp 자동 주입.
@@ -893,15 +945,19 @@ export class Game {
     const cellOps = r.armItems.filter((id) => ["eraser_old", "eraser_fine", "eraser_god", "wild_temp", "fake_crown"].includes(id));
     const lever = r.armItems.filter((id) => !cellOps.includes(id));
     let mods = this._mods(lever);
-    if (mode === "FOCUS") mods = { ...mods, rareWeightMul: mods.rareWeightMul * 0.5 };
+    // R6: 집중(FOCUS)의 rareWeightMul ×0.5 패널티는 삭제(하한 보장 + 홀드 +1 만 남음).
     if (r.pendingNextExpMul !== 1) { mods = { ...mods, expMul: mods.expMul * r.pendingNextExpMul }; r.pendingNextExpMul = 1; }
 
     // 굴림 (예언 확정 시 lockedNext 재사용). 심화모드 씨앗/새싹 성장은 예언에서 이미 반영됐으므로
     //  fresh 굴림 경로에서만 _growNextRoll 로 소비(lockedNext 재사용은 중복 성장 방지).
-    let raw;
+    let raw; let holdUsed = [];
     if (r.lockedNext) { raw = r.lockedNext.map((c) => ({ ...c })); }
-    else { raw = this._roll(mods, r.seedNext); raw = this._growNextRoll(raw); raw = this._pityRoll(raw); }   // 배치F P2: pity 는 growNext 뒤 체이닝(fresh 굴림만)
+    else {
+      raw = this._roll(mods, r.seedNext); raw = this._growNextRoll(raw); raw = this._pityRoll(raw);   // 배치F P2: pity 는 growNext 뒤 체이닝(fresh 굴림만)
+      holdUsed = this._applyHold(raw);   // R3: 홀드 칸은 직전 스핀 raw 유지(일반 모드·fresh 굴림만, 홀드 적용 → cellOps 순서)
+    }
     r.lockedNext = null;
+    if (!r.deepMode) { r.lastRaw = raw.map((c) => ({ sym: c.sym, tag: "" })); r.held = []; }   // R3: 다음 스핀 홀드용 원시 착지 칸 스냅샷(홀드 적용 후·cellOps/evaluate 이전). 홀드 표시는 스핀마다 해제.
     if (cellOps.length) E.applyCellOps(raw, cellOps, this.rng);
     let res = E.evaluate(this.rng, raw, mods, r.spinIndex, r.spins, r.flameNext);
     // V3P4: 🌀운명의소용돌이(fate_vortex·fuse) — 스테이지당 1회. 덱에 있고 미사용 스테이지면
@@ -930,17 +986,34 @@ export class Game {
     if (special) {
       const sp = E.applySpecialSpin(mode, exp, { quotaVal: r.quota, spins: r.spins, skulls: res.skulls, rng: this.rng });
       exp = Math.floor(sp.exp); if (sp.note) res.notes.push(sp.note);
-      r.usedCmds.push(mode);
+      r.cmdUses[mode] = (r.cmdUses[mode] || 0) + 1;   // R6: 스테이지당 1회 제한 폐지 → 사용 횟수만 기록(usedCmds 에는 넣지 않음)
+      if (mode === "FOCUS" && !r.deepMode) { r.holdCharges += 1; res.notes.push("🎯 집중 — 홀드 +1"); }   // R6: 집중 발동 시 홀드 충전 +1
       if (isFree && r.cmdFreeUsed) r.cmdFreeUsed[mode] = true;   // 무료로 실제 발동 성공 시에만 무료권 소진(코인부족 차단은 위에서 이미 return → 미소진)
     }
     if (r.device === "dev_safe") { const floor = Math.floor(r.quota / r.spins * 0.35); if (exp < floor) { exp = floor; res.notes.push("🦺 안전벨트 하한"); } }
+    // R4 피버(일반 모드 전용·심화는 건너뜀): 최종 EXP 확정 직전 마지막 곱(보스·특수스핀·하한 적용 후). 피버 중에는 게이지가 차지 않는다.
+    let feverApplied = false, feverTriggered = false;
+    if (!r.deepMode && r.nFeverSpins > 0) {
+      exp = E.mulFloor(exp, C.FEVER_EXP_MUL); r.nFeverSpins -= 1; feverApplied = true;
+      res.notes.push(`🔥 피버 ×${fmt2(C.FEVER_EXP_MUL)} (남은 ${r.nFeverSpins})`);
+    }
+    // F1 빅윈 티어: 스핀 최종 EXP ÷ 페이스(quota/spins) — 1 NICE · 2 BIG · 3 MEGA
+    const bigWinTier = this._bigWinTier(exp);
 
     // 반영
     r.armItems = []; r.flameNext = res.hasFlame; r.seedNext = res.seedNext;
     r.lastCells = res.cells.map((c) => ({ ...c })); r.lastResult = res; r.lastExpApplied = exp;
-    r.lastMods = mods; r.lastSpinIndex = r.spinIndex;
+    r.lastMods = mods; r.lastSpinIndex = r.spinIndex; r.lastFeverApplied = feverApplied;
     r.spinIndex += 1;
     r.stageExp += exp; r.score += res.score; r.coins += res.coins - cmdCost;   // 특수명령 코인 즉시차감(무환불)
+    // R4 피버 게이지 충전(일반 모드 전용): 그 스핀 bestSetCount 기준. 피버 스핀에는 충전 없음. 100 도달 → 다음 스핀부터 FEVER_SPINS 스핀 ×FEVER_EXP_MUL(넘친 양 버림·게이지 0).
+    if (!r.deepMode && !feverApplied) {
+      r.nFeverGauge += C.FEVER_CHARGE[Math.max(0, Math.min(C.FEVER_CHARGE.length - 1, res.bestSetCount || 0))] || 0;
+      if (r.nFeverGauge >= C.FEVER_MAX) {
+        r.nFeverGauge = 0; r.nFeverSpins = C.FEVER_SPINS; feverTriggered = true;
+        res.notes.push(`🔥 피버 발동! 다음 ${C.FEVER_SPINS}스핀 EXP ×${fmt2(C.FEVER_EXP_MUL)}`);
+      }
+    }
     // ── Phase 5 심볼유물 per-spin 점수 보너스(심화 전용·additive) — 압축계약서/균형저울/희귀표본상자 ──
     //  ★일반모드 격리: r.deepMode 게이팅 + symPerkMods 는 심볼퍽만 읽어 일반 런은 sp 전부 0(무영향).
     //   이 블록은 res.score(이미 r.score 에 가산됨)를 기준으로 추가 점수만 더한다(evaluate/일반경로 무접촉).
@@ -1137,8 +1210,11 @@ export class Game {
       }
     }
 
-    const out = { kind: "spin", mode, cells: res.cells, preCells: res.preCells, bomb: res.bomb, bestSetId: res.bestSetId, bestCount: res.bestSetCount, setIds: res.setIds, gained: exp, score: res.score, coins: res.coins, notes: res.notes, jackpot: res.jackpotSym };
+    const out = { kind: "spin", mode, cells: res.cells, preCells: res.preCells, bomb: res.bomb, bestSetId: res.bestSetId, bestCount: res.bestSetCount, setIds: res.setIds, gained: exp, score: res.score, coins: res.coins, notes: res.notes, jackpot: res.jackpotSym,
+      feverApplied, feverTriggered, holdUsed, encoreResult: null, bigWinTier };   // 재미 개편 필드(UI 연출용)
+    r.lastSpinInfo = { kind: "spin", mode, cells: res.cells, gained: exp, score: res.score, coins: res.coins, feverApplied, feverTriggered, holdUsed: holdUsed.slice(), encoreResult: null, bigWinTier };
     if (special) out.banner = `${SPECIAL_LABEL[mode] || "특수스핀"} 발동! — ${E.cmdEffectDesc(mode)}${isFree ? " · 🆓첫 사용 무료" : (cmdCost > 0 ? ` · -${cmdCost}🪙` : "")}`;
+    if (feverTriggered) out.banner = (out.banner ? out.banner + " · " : "") + `🔥 피버 발동! 다음 ${C.FEVER_SPINS}스핀 EXP ×${fmt2(C.FEVER_EXP_MUL)}`;   // R4: 일반 모드 피버(심화 피버 배너와 별개 — 심화에선 feverTriggered 항상 false)
     if (pdBanner) out.banner = (out.banner ? out.banner + " · " : "") + pdBanner;   // 배치F P6: special 배너와 병합(덮어쓰기 금지)
     if (jtBanner) out.banner = (out.banner ? out.banner + " · " : "") + jtBanner;  // §9.0 J1: 잭팟 태그 배너 병합
     if (feverBanner) out.banner = (out.banner ? out.banner + " · " : "") + feverBanner; // §9.1 J2: 피버 배너 병합
@@ -1215,8 +1291,10 @@ export class Game {
     const r = this.run; if (!r.lastCells) return;
     const mods = this._mods();
     const cells = this._roll(mods, false);
+    if (!r.deepMode) { r.lastRaw = cells.map((c) => ({ sym: c.sym, tag: "" })); }   // R3: 재굴림 결과가 새 '직전 raw'(잡아둔 홀드 칸 표시는 유지)
     const res = E.evaluate(this.rng, cells, mods, Math.max(0, r.spinIndex - 1), r.spins, r.flameNext);
     let exp = res.exp; if (r.boss) exp = E.applyBossExp(exp, r.boss, r.spinIndex - 1, r.spins, res).exp;
+    if (r.lastFeverApplied) exp = E.mulFloor(exp, C.FEVER_EXP_MUL);   // R4: 피버가 적용된 스핀의 재굴림은 피버 배율 유지
     r.stageExp = r.stageExp - r.lastExpApplied + exp;
     r.score = r.score - Math.floor(r.lastResult?.score || 0) + res.score;
     r.lastExpApplied = exp; r.lastCells = res.cells.map((c) => ({ ...c })); r.lastResult = res; r.flameNext = res.hasFlame;
@@ -1276,10 +1354,12 @@ export class Game {
       cells = this._roll(mods, false); r.usedCmds.push("셔플");
     } else { return this.state(); }
 
+    if (!r.deepMode) { r.lastRaw = cells.map((c) => ({ sym: c.sym, tag: "" })); }   // R3: 조작 결과가 새 '직전 raw'(잡아둔 홀드 칸 표시는 유지)
     const res = E.evaluate(this.rng, cells, mods, r.spinIndex - 1, r.spins, r.flameNext);
     let exp = res.exp;
     if (r.boss) exp = E.applyBossExp(exp, r.boss, r.spinIndex - 1, r.spins, res).exp;
     if (r.device === "dev_safe") exp = Math.max(exp, Math.floor(r.quota / r.spins * 0.35));
+    if (r.lastFeverApplied) exp = E.mulFloor(exp, C.FEVER_EXP_MUL);   // R4: 피버가 적용된 스핀의 조작은 피버 배율 유지
     // 직전 스핀 기여 치환
     r.stageExp = r.stageExp - r.lastExpApplied + exp;
     r.score = r.score - Math.floor((r.lastResult?.score || 0)) + Math.floor(res.score * scorePenalty);
@@ -1317,6 +1397,7 @@ export class Game {
     if ((r.asc || 0) >= 9) r._devCdUntil = r.stage + 2;   // A9 쿨다운 +1
     const mods = this._mods(r.armItems.filter((id) => !["eraser_old", "eraser_fine", "eraser_god", "wild_temp", "fake_crown"].includes(id)));
     // 심화모드 씨앗/새싹 성장은 예언이 확정하는 이 굴림에서 소비(preview 와 실제 스핀이 일치·중복 성장 방지).
+    if (r.held && r.held.length) { r.held = []; this.toast("🔒 예언이 확정되어 홀드가 해제됐어요"); }   // R3: 예언 확정 스핀엔 홀드 불가
     r.lockedNext = this._pityRoll(this._growNextRoll(this._roll(mods, r.seedNext))); r.usedCmds.push("예언"); if (r.tb) r.tb.oracleUsed = true;   // 배치F P2: 예언이 확정하는 굴림에서 pity 소비(preview=실스핀 일치)
     const preview = E.evaluate(this.rng, r.lockedNext.map((c) => ({ ...c })), mods, r.spinIndex, r.spins, r.flameNext);
     this.toast(`🔮 예언: ${r.lockedNext.map((c) => c.sym.e).join("")} (확정)`);
@@ -1560,6 +1641,8 @@ export class Game {
       decayBanner,   // §3 V3P3: 자동 소멸 연출(빈 문자열=소멸 없음, 문자열=배너 표기)
     };
     r._clearVia = null;
+    // R5 앵콜: 이번 클리어의 앵콜 상태 초기화. 판돈(stake) = 이번 스테이지 클리어 점수 합계(clearSummary.gain, 빚문서면 0 → 앵콜 불가).
+    r.encoreK = 0; r.encorePot = 0; r.encoreStake = Math.max(0, Math.floor(gain)); r.encoreActive = false; r.encoreDone = false; r.encoreLastBust = false;
     r.stage = stage + 1;
     r.phase = PHASE.STAGE_CLEAR;
     // 테마빌드 완성판정(방금 클리어한 stage 도달, 보스/막스핀 여부). 이후 막스핀 플래그 리셋.
@@ -1567,7 +1650,78 @@ export class Game {
     if (r.tb) r.tb.lastSpinClear = false;
     this._syncDex();
   }
-  proceedToNodes() { if (this.run.phase === PHASE.STAGE_CLEAR) { this.run.phase = PHASE.NODE_SELECT; this.run.options = this.run.nodes; } return this.state(); }
+  proceedToNodes() {
+    const r = this.run;
+    if (r.phase === PHASE.STAGE_CLEAR) {
+      if (r.encoreActive) this._encoreSettle();   // R5: 앵콜 진행 중이면 팟을 먼저 정산하고 노드로
+      r.phase = PHASE.NODE_SELECT; r.options = r.nodes;
+    }
+    return this.state();
+  }
+
+  // ── R5 앵콜(일반 모드 전용·STAGE_CLEAR 페이즈) — "클리어 점수 더블업" ──
+  //  남은 스핀이 있고 이번 클리어 점수(stake)가 0 보다 크면, 노드로 가기 전에 [정산] 또는 [앵콜 스핀].
+  //  첫 앵콜 스핀 시작 때 stake 를 run 점수에서 빼 팟(pot)으로 건다. 앵콜 스핀 1회 = 남은 스핀 1개 소모 + 일반 굴림.
+  //  성공(페어 이상 AND 해골 N개 미만) → k+=1, pot = floor(stake × (1 + ENCORE_STEP×k)). 스핀의 EXP·점수는 버리고 코인 수입만 지급.
+  //  BUST(페어 없음 또는 해골 N개↑) → pot=0(판돈 포함 소멸)·앵콜 종료. 정산(encoreCashOut/proceedToNodes) 또는 남은 스핀 0 → 점수 += pot.
+  //  업적/해골/심볼 통계(_trackSpin 등)는 일절 건드리지 않는다(업적 인플레이션 방지).
+  _encoreMul(k) { return Math.round((1 + C.ENCORE_STEP * k) * 100) / 100; }
+  _encoreLeft() { const r = this.run; return Math.max(0, r.spins - r.spinIndex); }
+  _encoreAvailable() {
+    const r = this.run;
+    return !!r && !r.deepMode && r.phase === PHASE.STAGE_CLEAR && !r.encoreDone && this._encoreLeft() >= 1
+      && r.encoreStake > 0 && (r.encoreActive || r.score >= r.encoreStake);
+  }
+  _encoreSyncSummary() { const r = this.run; if (r.clearSummary) { r.clearSummary.total = r.score; r.clearSummary.coinsNow = r.coins; } }
+  // 팟을 점수에 더하고 앵콜 종료. 가산한 점수 반환.
+  _encoreSettle() {
+    const r = this.run; const pot = r.encorePot;
+    r.score += pot; r.encorePot = 0; r.encoreActive = false; r.encoreDone = true;
+    if (pot > 0) this.toast(`🎤 앵콜 정산 — 팟 ${pot}점 획득 (판돈 ${r.encoreStake}점 대비 ×${fmt2(pot / r.encoreStake)})`);
+    this._encoreSyncSummary();
+    return pot;
+  }
+  encoreSpin() {
+    const r = this.run; if (!r) return null;
+    if (r.deepMode || r.phase !== PHASE.STAGE_CLEAR) return this.state();
+    if (r.encoreDone) { this.toast("🎤 이번 클리어의 앵콜은 이미 끝났어요"); return this.state(); }
+    if (this._encoreLeft() < 1) { this.toast("🎤 남은 스핀이 없어 앵콜을 할 수 없어요"); return this.state(); }
+    if (!(r.encoreStake > 0)) { this.toast("🎤 이번 클리어 점수가 없어 앵콜을 할 수 없어요"); return this.state(); }
+    if (!r.encoreActive && r.score < r.encoreStake) { this.toast(`🎤 판돈 ${r.encoreStake}점이 부족해요 (보유 ${r.score}점)`); return this.state(); }
+    // 첫 앵콜 스핀: 클리어 점수(stake)를 run 점수에서 빼 팟으로 건다.
+    if (!r.encoreActive) { r.score -= r.encoreStake; r.encorePot = r.encoreStake; r.encoreActive = true; }
+    const potBefore = r.encorePot;
+    const kNew = r.encoreK + 1; const mulApplied = this._encoreMul(kNew);
+    // 남은 스핀 1개 소모. mods 는 방금 클리어한 스테이지 기준(r.stage 는 _clearStage 에서 이미 +1 된 상태라 잠시 되돌림).
+    const stageNext = r.stage; r.stage = stageNext - 1;
+    let mods; try { mods = this._mods(); } finally { r.stage = stageNext; }
+    const idx = r.spinIndex; r.spinIndex += 1;
+    const raw = this._roll(mods, false);
+    const res = E.evaluate(this.rng, raw, mods, idx, r.spins, false);
+    r.coins += res.coins;   // 코인 심볼 수입은 정상 지급(EXP·점수는 버림)
+    const bust = (res.bestSetCount || 0) < C.ENCORE_MIN_SET || (res.skulls || 0) >= C.ENCORE_BUST_SKULLS;
+    let gained = 0, lostPot = 0, settled = false, settledPot = 0;
+    if (bust) {
+      lostPot = potBefore; r.encorePot = 0; r.encoreActive = false; r.encoreDone = true; r.encoreLastBust = true;
+      this.toast(`💥 앵콜 BUST! — 팟 ${lostPot}점 소멸`);
+    } else {
+      r.encoreK = kNew; r.encoreLastBust = false;
+      r.encorePot = E.mulFloor(r.encoreStake, mulApplied); gained = r.encorePot - potBefore;
+      if (this._encoreLeft() <= 0) { settledPot = this._encoreSettle(); settled = true; }   // 남은 스핀 0 → 자동 정산
+    }
+    this._encoreSyncSummary();
+    const encoreResult = { mulApplied, gained, bust, settled, settledPot, lostPot };
+    r.lastSpinInfo = { kind: "encore", mode: "ENCORE", cells: res.cells, gained: 0, score: res.score, coins: res.coins,
+      feverApplied: false, feverTriggered: false, holdUsed: [], encoreResult, bigWinTier: 0 };
+    return this.state();
+  }
+  // 앵콜 정산: 팟을 점수에 더하고 앵콜 종료(이후 proceedToNodes 로 노드 선택). 진행 중인 앵콜이 없으면 아무 일도 하지 않는다.
+  encoreCashOut() {
+    const r = this.run; if (!r) return null;
+    if (r.deepMode || r.phase !== PHASE.STAGE_CLEAR || !r.encoreActive) return this.state();
+    this._encoreSettle();
+    return this.state();
+  }
 
   // 증강/보상 적용 후 → 다음 스테이지 인트로(클릭해야 시작). 다음 스테이지 미리보기 포함.
   _enterRewardDone(msg) {
@@ -1575,7 +1729,7 @@ export class Game {
     const mods = this._mods();
     const stage = r.stage;   // _clearStage 에서 이미 다음 스테이지로 +1 됨
     r.nextPreview = {
-      stage, quota: Math.max(1, Math.floor(E.quota(stage) * mods.quotaMul * E.bossQuotaMul(stage) * this._deepPenalty())),
+      stage, quota: Math.max(1, Math.floor(E.quota(stage, r.deepMode) * mods.quotaMul * E.bossQuotaMul(stage) * this._deepPenalty())),
       spins: E.spinsPerStage(mods) + E.bossSpins(stage), boss: E.bossFor(stage),
     };
     r.statsView = this.currentStats();
@@ -2797,6 +2951,15 @@ export class Game {
       armItems: r.armItems.slice(), phaseItems: r.phaseItems.slice(),
       boss: r.boss, nodes: r.nodes.slice(), options: r.options, shopItems: r.shopItems.slice(),
       unluckyGauge: r.unluckyGauge, usedCmds: r.usedCmds.slice(), cmdFreeUsed: { ...r.cmdFreeUsed }, lastCells: r.lastCells,
+      cmdUses: { ...r.cmdUses },   // R6: 이번 스테이지 특수스핀 종류별 사용 횟수(비용 누진 근거)
+      // ── 재미 개편 R3~R5 (일반 모드 전용 — 심화 모드는 null). 심화 피버(feverGauge/feverSpins)와 별개 필드. ──
+      hold: r.deepMode ? null : { charges: r.holdCharges, held: r.held.slice(), max: C.HOLD_MAX },
+      fever: r.deepMode ? null : { gauge: r.nFeverGauge, spins: r.nFeverSpins },
+      encore: r.deepMode ? null : {
+        available: this._encoreAvailable(), active: !!r.encoreActive, k: r.encoreK, pot: r.encorePot, stake: r.encoreStake, lastBust: !!r.encoreLastBust,
+        nextMul: this._encoreAvailable() ? this._encoreMul(r.encoreK + 1) : null,
+      },
+      lastSpin: r.lastSpinInfo,   // 마지막 스핀(또는 앵콜 스핀) 결과 요약: {kind,cells,gained,feverApplied,feverTriggered,holdUsed,encoreResult,bigWinTier,...}
       clearSummary: r.clearSummary, rewardMsg: r.rewardMsg, nextPreview: r.nextPreview, statsView: r.statsView, failInfo: r.failInfo,
       finalScore: r.finalScore, newAch: r.newAch, newSyms: r.newSyms, drop: r._drop, pickKind: r._pickKind,
       xpGain: r.xpGain, levelBefore: r.levelBefore, levelAfter: r.levelAfter,

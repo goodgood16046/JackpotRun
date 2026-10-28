@@ -3,7 +3,8 @@ import * as E from "./engine.js";
 import { Game, PHASE } from "./game.js";
 import { C, SYM_BY_ID, DEEP, SYM_AUGMENTS, SYM_RELICS, SYM_PERK_BY_ID, AUGMENTS, RELICS, POUCH_SYMBOLS, POUCH_RARITY,
   DEVICES, ACHIEVEMENTS, ACH_DEVICE_REWARD, ACH_SYMBOL_UNLOCK, DEFAULT_UNLOCKED_SYMS, DEV_BY_ID,
-  AUG_BY_ID, REL_BY_ID, POUCH_UPGRADE, EMPTY_SYM, POUCH_CAT, TIER_BY_RARITY, POUCH_USE } from "./data.js";
+  AUG_BY_ID, REL_BY_ID, POUCH_UPGRADE, EMPTY_SYM, POUCH_CAT, TIER_BY_RARITY, POUCH_USE,
+  BOSSES, QUOTAS, QUOTAS_DEEP } from "./data.js";
 
 const errors = [];
 const notes = [];
@@ -4399,6 +4400,584 @@ function simDeepStageStats(nRuns, seedBase) {
   notes.push(`EARLYBAL-5 deathDist BEFORE={1:147,2:101,3:39,4:8,5:2,6:3} AFTER=${JSON.stringify(s.deathDist)}`);
   notes.push(`EARLYBAL-BASELINE avgStage=${s.avgStage.toFixed(3)}`);
 }
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// FUN-W1 — 재미 개편 R1~R6 (FUN_OVERHAUL_DESIGN §1, 2026-10-28). 각 규칙마다 정확값 단언.
+//  일반 모드 전용 신규 시스템(홀드·피버·앵콜)은 심화 모드 무영향(격리) — 마지막 FUN-ISO 에서 확인.
+// ════════════════════════════════════════════════════════════════════════════════════════════
+let funAsserts = 0;
+const funEq = (label, got, want) => { funAsserts++; if (got !== want) fail(`${label}: got ${JSON.stringify(got)} != want ${JSON.stringify(want)}`); };
+const funOk = (label, cond, extra = "") => { funAsserts++; if (!cond) fail(`${label}${extra ? " — " + extra : ""}`); };
+const funDeep = (label, a, b) => { funAsserts++; if (JSON.stringify(a) !== JSON.stringify(b)) fail(`${label}: got ${JSON.stringify(a)} != want ${JSON.stringify(b)}`); };
+
+// 일반(또는 심화) 런을 SPIN 첫 화면까지 구동 — 초보학생 + 기본 슬롯 고정.
+function funGame(seed, { deep = false } = {}) {
+  const g = new Game({ seed, storage: memStore() });
+  g.profile.runs = 1; g.profile.playerLevel = 30; g.profile.playerXp = 999999;
+  g.startRun(0, deep);
+  let st = g.state(); let guard = 0;
+  while (st && st.phase !== PHASE.SPIN && guard++ < 10) {
+    if (st.phase === PHASE.SELECT_CHAR) st = g.selectChar("novice");
+    else if (st.phase === PHASE.SELECT_MACHINE) st = g.selectMachine("basic");
+    else if (st.phase === PHASE.SELECT_DEVICE) st = g.selectDevice("");
+    else break;
+  }
+  return g;
+}
+// _roll 을 지정 심볼열로 고정(실제 굴림 경로 = 홀드 적용·cellOps·evaluate 는 그대로 탄다). seqs 가 2차원이면 호출마다 순서대로.
+function funRoll(g, seqs) {
+  let i = 0; g._rollMods = [];
+  g._roll = (mods) => { g._rollMods.push(mods); const ids = Array.isArray(seqs[0]) ? seqs[Math.min(i++, seqs.length - 1)] : seqs; return rawFromIds(ids); };
+}
+// 스테이지를 충분히 길게(클리어 방지) 만든다 — quota 거대, spins 많음.
+function funRoomy(g, quota = 1e6, spins = 50) { g.run.quota = quota; g.run.spins = spins; }
+const lastToast = (g) => g.log[g.log.length - 1] || "";
+const ids5 = (cells) => cells.map((c) => c.sym.id);
+
+// ── R1 보스 곡선 ──
+try {
+  const fin = BOSSES.find((b) => b.id === "finals"), str = BOSSES.find((b) => b.id === "strict");
+  funEq("R1 finals.quotaMul", fin.quotaMul, 1.15);
+  funEq("R1 finals.bonusSpins", fin.bonusSpins, 1);
+  funEq("R1 finals.desc", fin.desc, "스핀+1 · 요구치 ×1.15 · 막스핀 EXP ×2 · 첫스핀 -10%");
+  funEq("R1 strict.quotaMul", str.quotaMul, 1.0);
+  funEq("R1 strict.desc", str.desc, "스핀+1 · 같은심볼 3개↑ ×1.15 / 없으면 ×0.75");
+  funEq("R1 bossQuotaMul(S5=기말고사)", E.bossQuotaMul(5), 1.15);
+  funEq("R1 bossQuotaMul(S10=꼰대교수)", E.bossQuotaMul(10), 1.0);
+  const b3 = E.applyBossExp(100, str, 2, 6, { bestSetCount: 3 });
+  funEq("R1 strict 3매치 exp(100→115)", b3.exp, 115); funEq("R1 strict 3매치 note", b3.note, "👨‍🏫 3매치 ×1.15");
+  const b5 = E.applyBossExp(100, str, 2, 6, { bestSetCount: 5 });
+  funEq("R1 strict 5매치 exp", b5.exp, 115);
+  const b2 = E.applyBossExp(100, str, 2, 6, { bestSetCount: 2 });
+  funEq("R1 strict 페어 exp(100→75)", b2.exp, 75); funEq("R1 strict 페어 note", b2.note, "👨‍🏫 3매치 없음 ×0.75");
+  funEq("R1 strict 3매치 floor(33×1.15=37.95)", E.applyBossExp(33, str, 1, 6, { bestSetCount: 4 }).exp, 37);
+  funEq("R1 strict 페어 floor(33×0.75=24.75)", E.applyBossExp(33, str, 1, 6, { bestSetCount: 0 }).exp, 24);
+  funEq("R1 finals 첫스핀 ×0.9", E.applyBossExp(100, fin, 0, 6, { bestSetCount: 0 }).exp, 90);
+  funEq("R1 finals 막스핀 ×2", E.applyBossExp(100, fin, 5, 6, { bestSetCount: 0 }).exp, 200);
+  funEq("R1 finals 중간스핀 ×1", E.applyBossExp(100, fin, 3, 6, { bestSetCount: 0 }).exp, 100);
+  // 게임 경유: 보스(S5) 스테이지 quota = floor(quota(5) × mods.quotaMul × 1.15)
+  const g = funGame(71001); g.run.stage = 5; g._beginStage();
+  funEq("R1 S5 보스 스테이지 boss.id", g.run.boss && g.run.boss.id, "finals");
+  funEq("R1 S5 보스 quota 정확", g.run.quota, Math.max(1, Math.floor(E.quota(5) * g._mods().quotaMul * 1.15)));
+  notes.push("FUN-R1 보스 곡선 ok: finals quotaMul 1.15 · strict 3매치 ×1.15 / 없으면 ×0.75 (정확값)");
+} catch (e) { fail("FUN-R1 threw: " + e.stack); }
+
+// ── R2 요구치 곡선 ──
+try {
+  //  R8 튜닝 반영: 설계표(S5=165, S15=920) 대비 S5=190(입문용 첫 보스·곡선 단조 유지)·S15=1050 만 변경(FUN_OVERHAUL_DESIGN §5). 나머지는 설계표 그대로.
+  funDeep("R2 QUOTAS(일반·R8 튜닝 후)", QUOTAS, [90, 105, 125, 145, 190, 200, 240, 285, 340, 400, 475, 560, 660, 780, 1050]);
+  funDeep("R2 QUOTAS 설계표와 동일한 13개 값(S5·S15 외)", QUOTAS.filter((_, i) => i !== 4 && i !== 14), [90, 105, 125, 145, 200, 240, 285, 340, 400, 475, 560, 660, 780]);
+  funDeep("R2 QUOTAS_DEEP(보존)", QUOTAS_DEEP, [110, 120, 130, 140, 150, 170, 200, 235, 280, 330, 390, 460, 540, 640, 755]);
+  funEq("R2 quota(1)", E.quota(1), 90); funEq("R2 quota(5)", E.quota(5), 190); funEq("R2 quota(15)", E.quota(15), 1050);
+  funEq("R2 quota(16)=floor(1050×1.25)", E.quota(16), 1312); funEq("R2 quota(17)", E.quota(17), Math.floor(1050 * 1.25 * 1.25));
+  funEq("R2 quota(20)", E.quota(20), Math.floor(((((1050 * 1.25) * 1.25) * 1.25) * 1.25) * 1.25));
+  funEq("R2 설계표 값으로 계산해도 S16+ 는 ×1.25 (920→1150 공식)", Math.floor(920 * C.QUOTA_GROWTH), 1150);
+  funEq("R2 deep quota(1)", E.quota(1, true), 110); funEq("R2 deep quota(15)", E.quota(15, true), 755);
+  funEq("R2 deep quota(16)=floor(755×1.2)", E.quota(16, true), Math.floor(755 * 1.2));
+  funEq("R2 quota(0) 방어", E.quota(0), 90);
+  //  R8 리드 결정: S5=190 으로 곡선 단조 유지(S5 340 스파이크 기각) → 일반 표·심화 표 모두 전체 단조 증가.
+  funOk("R2 일반 표 전체 단조증가(S5=190 < S6=200)", QUOTAS.every((q, i) => i === 0 || q > QUOTAS[i - 1]));
+  funOk("R2 심화 표 단조증가", QUOTAS_DEEP.every((q, i) => i === 0 || q > QUOTAS_DEEP[i - 1]));
+  // 게임 경유: 일반 S1 / 심화 S1
+  const gn = funGame(71002);
+  funEq("R2 일반 런 S1 quota", gn.run.quota, Math.max(1, Math.floor(90 * gn._mods().quotaMul)));
+  const gd = funGame(71003, { deep: true });
+  funEq("R2 심화 런 S1 quota(표 110 기준)", gd.run.quota, Math.max(1, Math.floor(110 * gd._mods().quotaMul * gd._deepPenalty())));
+  // 다음 스테이지 미리보기(nextPreview)도 모드 분기
+  const gp = funGame(71004); gp.run.stage = 6; gp._enterRewardDone("t");
+  funEq("R2 일반 nextPreview S6 quota", gp.run.nextPreview.quota, Math.max(1, Math.floor(200 * gp._mods().quotaMul)));
+  const gq = funGame(71005, { deep: true }); gq.run.stage = 6; gq._enterRewardDone("t");
+  funEq("R2 심화 nextPreview S6 quota(표 170)", gq.run.nextPreview.quota, Math.max(1, Math.floor(170 * gq._mods().quotaMul * gq._deepPenalty())));
+  notes.push("FUN-R2 요구치 ok: 일반 quota(1)=90·quota(5)=190·quota(15)=1050(R8 튜닝; 설계표 165/920)·quota(16)=1312 · 심화 quota(1)=110·quota(15)=755 보존");
+} catch (e) { fail("FUN-R2 threw: " + e.stack); }
+
+// ── R3 홀드 ──
+try {
+  // (a) 기본 흐름: 직전 raw 유지 · 충전 소모 · 2칸 상한
+  const g = funGame(72001); funRoomy(g);
+  let st = g.state();
+  funDeep("R3 초기 hold", st.hold, { charges: 1, held: [], max: 2 });
+  g.toggleHold(0);
+  funDeep("R3 첫 스핀 전 홀드 불가(held 비어 있음)", g.state().hold.held, []);
+  funOk("R3 첫 스핀 전 홀드 토스트", /첫 스핀/.test(lastToast(g)), lastToast(g));
+  funRoll(g, [["crown", "book", "star", "gem", "cherry"]]);
+  const o1 = g.spin("N");
+  funDeep("R3 lastRaw 보관(1스핀)", g.run.lastRaw.map((c) => c.sym.id), ["crown", "book", "star", "gem", "cherry"]);
+  funDeep("R3 holdUsed(홀드 없이)", o1.holdUsed, []);
+  funDeep("R3 홀드 없는 스핀은 충전 유지", g.state().hold, { charges: 1, held: [], max: 2 });
+  g.toggleHold(0); g.toggleHold(2);
+  funDeep("R3 2칸 홀드", g.state().hold.held, [0, 2]);
+  g.toggleHold(1);
+  funDeep("R3 3번째 칸은 2칸 상한으로 거부", g.state().hold.held, [0, 2]);
+  funOk("R3 상한 토스트", /최대 2칸/.test(lastToast(g)), lastToast(g));
+  g.toggleHold(2);
+  funDeep("R3 홀드 해제 토글", g.state().hold.held, [0]);
+  g.toggleHold(2);
+  funDeep("R3 재홀드", g.state().hold.held, [0, 2]);
+  g.toggleHold(9); funDeep("R3 범위 밖 인덱스 무시", g.state().hold.held, [0, 2]);
+  funRoll(g, [["cherry", "cherry", "cherry", "cherry", "cherry"]]);
+  const o2 = g.spin("N");
+  funDeep("R3 홀드 칸은 직전 raw 유지·나머지만 새로", ids5(o2.cells), ["crown", "cherry", "star", "cherry", "cherry"]);
+  funDeep("R3 holdUsed", o2.holdUsed, [0, 2]);
+  funDeep("R3 스핀 후 충전 소모·표시 해제", g.state().hold, { charges: 0, held: [], max: 2 });
+  funDeep("R3 lastRaw 갱신(홀드 반영본)", g.run.lastRaw.map((c) => c.sym.id), ["crown", "cherry", "star", "cherry", "cherry"]);
+  funDeep("R3 state.lastSpin.holdUsed", g.state().lastSpin.holdUsed, [0, 2]);
+  g.toggleHold(0);
+  funDeep("R3 충전 0이면 홀드 불가", g.state().hold.held, []);
+  funOk("R3 충전 없음 토스트", /충전이 없어요/.test(lastToast(g)), lastToast(g));
+  // (b) 스테이지 시작 리셋(누적 없음)
+  g.run.holdCharges = 3; g.run.held = [1]; g._beginStage();
+  funDeep("R3 _beginStage 리셋(charges=1·held=[]·lastRaw=null)", [g.run.holdCharges, g.run.held, g.run.lastRaw], [1, [], null]);
+  // (c) 예언 확정 중 홀드 불가
+  const g2 = funGame(72002); funRoomy(g2); funRoll(g2, ["cherry", "cherry", "cherry", "cherry", "cherry"]); g2.spin("N");
+  g2.run.lockedNext = rawFromIds(["star", "star", "star", "star", "star"]);
+  g2.toggleHold(1);
+  funDeep("R3 예언 중 홀드 불가", g2.state().hold.held, []);
+  funOk("R3 예언 토스트", /예언/.test(lastToast(g2)), lastToast(g2));
+  // (c2) 예언 장치 oracle(): 이미 잡은 홀드는 해제된다
+  const g2b = funGame(72012); funRoomy(g2b); g2b.run.device = "dev_oracle"; funRoll(g2b, ["cherry", "book", "star", "gem", "crown"]); g2b.spin("N");
+  g2b.toggleHold(1); g2b.oracle();
+  funDeep("R3 oracle 시 홀드 해제", g2b.state().hold.held, []); funEq("R3 oracle 시 충전 보존", g2b.state().hold.charges, 1);
+  // (d) 홀드 → cellOps 순서 (낮은 가치 칸을 홀드해 지우개가 그 칸을 지움)
+  const g3 = funGame(72003); funRoomy(g3);
+  funRoll(g3, [["cherry", "crown", "crown", "crown", "crown"], ["crown", "crown", "crown", "crown", "crown"]]);
+  g3.spin("N"); g3.toggleHold(0);
+  g3.run.armItems = ["eraser_old"];
+  const o3 = g3.spin("N");
+  funDeep("R3 홀드 적용 후 cellOps(지우개가 홀드된 체리를 지움)", ids5(o3.cells), ["empty", "crown", "crown", "crown", "crown"]);
+  // (e) 집중 특수스핀: 홀드 충전 +1 (+ 첫 스핀 무료)
+  const g4 = funGame(72004); funRoomy(g4); funRoll(g4, ["cherry", "book", "star", "gem", "crown"]);
+  const c0 = g4.state().coins; const o4 = g4.spin("FOCUS");
+  funEq("R3 집중 발동 홀드 충전 +1", g4.state().hold.charges, 2);
+  funOk("R3 집중 노트", o4.notes.some((n) => /홀드 \+1/.test(n)));
+  funEq("R3 집중 첫 사용 무료(코인 불변)", g4.state().coins, c0 + o4.coins);
+  // (e2) 집중 스핀이 홀드도 같이 쓰면: 소모 -1 후 +1 = 유지
+  const g4b = funGame(72014); funRoomy(g4b); funRoll(g4b, ["cherry", "book", "star", "gem", "crown"]); g4b.spin("N");
+  g4b.toggleHold(0); g4b.spin("FOCUS");
+  funEq("R3 홀드+집중 동시: 충전 1-1+1", g4b.state().hold.charges, 1);
+  // (f) 심화: hold null, 토글 거부
+  const gd = funGame(72005, { deep: true });
+  funEq("R3 심화 state.hold === null", gd.state().hold, null);
+  funEq("R3 심화 state.fever === null", gd.state().fever, null);
+  funEq("R3 심화 state.encore === null", gd.state().encore, null);
+  gd.toggleHold(0); funEq("R3 심화 toggleHold 무시(held 없음)", gd.run.held.length, 0);
+  funOk("R3 심화 토글 토스트", /일반 모드/.test(lastToast(gd)), lastToast(gd));
+  funEq("R3 심화 holdCharges 0", gd.run.holdCharges, 0);
+  // (g) 보조릴 6칸: 직전이 6칸이었다가 5칸으로 줄 때 범위 밖 홀드는 무시 (단위: _applyHold)
+  const g5 = funGame(72006); funRoomy(g5);
+  g5.run.lastRaw = rawFromIds(["crown", "book", "star", "gem", "cherry", "coin"]).map((c) => ({ sym: c.sym, tag: "" }));
+  g5.run.held = [5, 1]; g5.run.holdCharges = 1;
+  const rawX = rawFromIds(["cherry", "cherry", "cherry", "cherry", "cherry"]);
+  const used = g5._applyHold(rawX);
+  funDeep("R3 범위 밖(5) 무시·나머지(1)만 적용", used, [1]); funEq("R3 적용 칸 값", rawX[1].sym.id, "book"); funEq("R3 충전 소모", g5.run.holdCharges, 0);
+  const g6 = funGame(72007); g6.run.lastRaw = rawFromIds(["crown", "book", "star", "gem", "cherry", "coin"]); g6.run.held = [5]; g6.run.holdCharges = 1;
+  funDeep("R3 전부 범위 밖이면 충전 소모 없음", [g6._applyHold(rawFromIds(["cherry", "cherry", "cherry", "cherry", "cherry"])), g6.run.holdCharges], [[], 1]);
+  // (h) 클리어/페이즈 가드: SPIN 이 아니면 토글 무시
+  const g7 = funGame(72008); g7.run.phase = PHASE.NODE_SELECT; g7.run.lastRaw = rawFromIds(["cherry", "cherry", "cherry", "cherry", "cherry"]);
+  g7.toggleHold(0); funEq("R3 비 SPIN 페이즈 토글 무시", g7.run.held.length, 0);
+  notes.push("FUN-R3 홀드 ok: raw 유지·충전 소모·2칸 상한·예언 중 불가·심화 null·집중 +1·cellOps 순서·범위 밖 무시");
+} catch (e) { fail("FUN-R3 threw: " + e.stack); }
+
+// ── R4 피버 게이지 ──
+try {
+  funDeep("R4 FEVER_CHARGE 상수", C.FEVER_CHARGE, [0, 0, 5, 15, 35, 60]);
+  const sets = {
+    0: ["cherry", "book", "star", "gem", "crown"], 2: ["cherry", "cherry", "book", "star", "gem"], 3: ["cherry", "cherry", "cherry", "book", "star"],
+    4: ["cherry", "cherry", "cherry", "cherry", "book"], 5: ["cherry", "cherry", "cherry", "cherry", "cherry"],
+  };
+  // (a) 충전표: 2→+5 3→+15 4→+35 5→+60, 무세트→0 (스테이지를 넘기지 않도록 quota 거대)
+  for (const [n, ids] of Object.entries(sets)) {
+    const g = funGame(73000 + Number(n)); funRoomy(g); funRoll(g, ids);
+    const o = g.spin("N");
+    const want = [0, 0, 5, 15, 35, 60][Math.min(5, o.bestCount)];
+    funEq(`R4 충전 best=${o.bestCount}(롤 ${n}): gauge`, g.state().fever.gauge, want);
+    funEq(`R4 충전 best=${o.bestCount}: 피버 미발동`, o.feverTriggered, false);
+    if (Number(n) >= 2) funEq(`R4 롤 ${n}종 bestCount`, o.bestCount, Number(n));
+  }
+  // (b) 100 도달: 즉시 3스핀 세팅·게이지 0(넘침 버림)·이번 스핀엔 미적용
+  const g = funGame(73010); funRoomy(g); funRoll(g, sets[5]);
+  g.run.nFeverGauge = 90;   // +60 → 150 ≥ 100 → 넘친 50 버림
+  const oT = g.spin("N");
+  funEq("R4 트리거 feverTriggered", oT.feverTriggered, true); funEq("R4 트리거 스핀엔 feverApplied=false", oT.feverApplied, false);
+  funDeep("R4 트리거 후 fever {gauge:0, spins:3}", g.state().fever, { gauge: 0, spins: 3 });
+  funOk("R4 트리거 배너", /피버 발동/.test(oT.banner || ""), oT.banner);
+  // (c) 피버 중: 최종 EXP ×1.5(floor) · 게이지 불충전 · 스핀 차감 · 3스핀 후 종료 후 재충전
+  const ref = funGame(73010); funRoomy(ref); funRoll(ref, sets[3]);   // 동일 seed/롤 → 비피버 기준값
+  const refOut = ref.spin("N");
+  const fv = funGame(73010); funRoomy(fv); funRoll(fv, sets[3]); fv.run.nFeverSpins = 3; fv.run.nFeverGauge = 40;
+  const fOut = fv.spin("N");
+  funEq("R4 피버 스핀 gained = floor(기준×1.5)", fOut.gained, Math.floor(refOut.gained * 1.5));
+  funEq("R4 feverApplied", fOut.feverApplied, true); funEq("R4 feverTriggered(피버 중엔 false)", fOut.feverTriggered, false);
+  funDeep("R4 피버 스핀: 게이지 불변(40)·잔여 2", fv.state().fever, { gauge: 40, spins: 2 });
+  funOk("R4 노트 포맷(fmt2: ×1.5)", fOut.notes.some((n) => n === "🔥 피버 ×1.5 (남은 2)"), JSON.stringify(fOut.notes));
+  funOk("R4 노트 fmt2 위반(×1.50) 없음", !fOut.notes.some((n) => /×1\.50/.test(n)));
+  fv.spin("N"); fv.spin("N");
+  funDeep("R4 3피버 스핀 후 fever {40,0}", fv.state().fever, { gauge: 40, spins: 0 });
+  fv.spin("N");   // 4번째 = 비피버 → 3매치 +15 충전
+  funEq("R4 피버 종료 후 재충전", fv.state().fever.gauge, 55);
+  // (d) 최종 순서: dev_safe 하한 → 피버(floor(70×1.5)=105)
+  const gs = funGame(73011); funRoomy(gs, 1000, 5); gs.run.device = "dev_safe"; gs.run.nFeverSpins = 1; funRoll(gs, ["skull", "skull", "skull", "skull", "skull"]);
+  const oS = gs.spin("N");
+  funEq("R4 dev_safe 하한(70) 뒤 피버 ×1.5 = 105", oS.gained, 105);
+  // (e) 보스 규칙 뒤 피버: 기말고사 막스핀 ×2 → 피버 ×1.5
+  const mkBoss = (fever) => { const x = funGame(73012); funRoomy(x, 1e6, 6); x.run.boss = BOSSES.find((b) => b.id === "finals"); x.run.spinIndex = 5; x.run.nFeverSpins = fever ? 1 : 0; funRoll(x, sets[3]); return x.spin("N"); };
+  const bA = mkBoss(false), bB = mkBoss(true);
+  funEq("R4 보스 막스핀×2 적용 뒤 피버: floor(A×1.5)", bB.gained, Math.floor(bA.gained * 1.5));
+  // (f) 특수스핀(올인) 뒤 피버
+  const mkAll = (fever) => { const x = funGame(73013); funRoomy(x); x.run.nFeverSpins = fever ? 1 : 0; funRoll(x, sets[3]); return x.spin("ALLIN"); };
+  const aA = mkAll(false), aB = mkAll(true);
+  funEq("R4 올인(×2.5) 뒤 피버 ×1.5", aB.gained, Math.floor(aA.gained * 1.5));
+  // (g) 스테이지 이월: _beginStage 가 피버를 건드리지 않음
+  const gc = funGame(73014); gc.run.nFeverGauge = 70; gc.run.nFeverSpins = 2; gc._beginStage();
+  funDeep("R4 스테이지 이월", gc.state().fever, { gauge: 70, spins: 2 });
+  // (h) 실제 스테이지 클리어 경유 이월
+  const gx = funGame(73015); gx.run.quota = 1; gx.run.nFeverSpins = 3; funRoll(gx, sets[2]);
+  const oc = gx.spin("N");
+  funEq("R4 클리어 스핀 자체도 피버 적용", oc.feverApplied, true);
+  funEq("R4 클리어 후 STAGE_CLEAR", gx.state().phase, PHASE.STAGE_CLEAR);
+  funEq("R4 클리어 후에도 잔여 피버 이월(2)", gx.state().fever.spins, 2);
+  // (i) 심화 무영향: 심화 런은 nFever* 불변·feverApplied false·기존 심화 피버 필드(feverGauge) 별개
+  const gd = funGame(73016, { deep: true }); funRoomy(gd); gd.run.pouch = { cherry: 30 };
+  gd.run.nFeverSpins = 3; gd.run.nFeverGauge = 99;   // (심화에선 쓰이지 않는 필드 — 설사 값이 있어도 무시돼야 함)
+  const dBase = funGame(73016, { deep: true }); funRoomy(dBase); dBase.run.pouch = { cherry: 30 };
+  const dOut = gd.spin("N"), dRef = dBase.spin("N");
+  funEq("R4 심화 feverApplied=false", dOut.feverApplied, false); funEq("R4 심화 feverTriggered=false", dOut.feverTriggered, false);
+  funEq("R4 심화 EXP 일반 피버 무영향", dOut.gained, dRef.gained);
+  funEq("R4 심화 nFeverSpins 불변", gd.run.nFeverSpins, 3); funEq("R4 심화 nFeverGauge 불변", gd.run.nFeverGauge, 99);
+  funEq("R4 심화 state.fever null", gd.state().fever, null);
+  notes.push("FUN-R4 피버 ok: 충전표 5/15/35/60·100 도달 3스핀 ×1.5·불충전·dev_safe/보스/올인 뒤 마지막 곱·스테이지 이월·심화 무영향");
+} catch (e) { fail("FUN-R4 threw: " + e.stack); }
+
+// ── R5 앵콜 (클리어 점수 더블업) ──
+try {
+  // 클리어 직후 상태 만들기: quota=1 로 첫 스핀에 클리어 → STAGE_CLEAR (남은 스핀 = spins-1). 판돈(stake) = 이번 스테이지 클리어 점수(clearSummary.gain).
+  const mkClear = (seed, { lastSpin = false, debt = false, stage = 0 } = {}) => {
+    const g = funGame(seed);
+    if (stage) { g.run.stage = stage; g._beginStage(); }
+    g.run.quota = 1; if (lastSpin) g.run.spinIndex = g.run.spins - 1; if (debt) g.run.debtStages = 1;
+    funRoll(g, ["cherry", "cherry", "book", "star", "gem"]);
+    g.spin("N"); return g;
+  };
+  const stakeOf = (g) => { const c = g.state().clearSummary; return c.sBase + c.sLeft + c.sSpins + c.sBoss + c.streak; };
+  const g = mkClear(74001);
+  const stake = stakeOf(g), S0 = g.state().score, left0 = g.run.spins - g.run.spinIndex;
+  funEq("R5 클리어 → STAGE_CLEAR", g.state().phase, PHASE.STAGE_CLEAR);
+  funOk("R5 남은 스핀 ≥ 1", left0 >= 3, `left=${left0}`);
+  funOk("R5 stake > 0", stake > 0);
+  funEq("R5 stake = clearSummary.gain(클리어 점수 합계)", g.state().clearSummary.gain, stake);
+  funEq("R5 stake 구성: 50 + 초과EXP×2 + 남은스핀×100", stake, 50 + g.state().clearSummary.leftover * 2 + left0 * 100);
+  funOk("R5 C.ENCORE_STAKE 상수 삭제", !("ENCORE_STAKE" in C));
+  funDeep("R5 초기 encore", g.state().encore, { available: true, active: false, k: 0, pot: 0, stake, lastBust: false, nextMul: 1.5 });
+  funDeep("R5 encore 키 순서", Object.keys(g.state().encore), ["available", "active", "k", "pot", "stake", "lastBust", "nextMul"]);
+  // 앵콜 1: 성공 → 판돈을 점수에서 빼 pot 으로 걸고 pot = floor(stake×1.5)
+  funRoll(g, ["cherry", "cherry", "cherry", "cherry", "cherry"]);
+  const coinsB = g.state().coins, expB = g.state().stageExp, quotaB = g.state().quota;
+  const s1 = g.encoreSpin();
+  const ls1 = s1.lastSpin, er1 = ls1.encoreResult; const pot1 = Math.floor(stake * 1.5 + 1e-9);
+  funEq("R5 lastSpin.kind", ls1.kind, "encore");
+  funEq("R5 앵콜1 mulApplied", er1.mulApplied, 1.5);
+  funEq("R5 앵콜1 bust=false", er1.bust, false);
+  funEq("R5 판돈을 점수에서 차감(S0 - stake)", s1.score, S0 - stake);
+  funEq("R5 앵콜1 pot = floor(stake×1.5)", s1.encore.pot, pot1);
+  funEq("R5 앵콜1 gained = pot 증가분(pot-stake)", er1.gained, pot1 - stake);
+  funEq("R5 스핀 점수는 버림(run 점수는 판돈 차감만 반영)", s1.score, S0 - stake);
+  funEq("R5 남은 스핀 -1", g.run.spins - g.run.spinIndex, left0 - 1);
+  funEq("R5 EXP 버림(stageExp 불변)", s1.stageExp, expB); funEq("R5 quota 불변", s1.quota, quotaB);
+  funDeep("R5 앵콜1 후 encore", s1.encore, { available: true, active: true, k: 1, pot: pot1, stake, lastBust: false, nextMul: 2 });
+  funEq("R5 앵콜 스핀 bigWinTier=0", ls1.bigWinTier, 0);
+  funEq("R5 앵콜 스핀 phase 유지", s1.phase, PHASE.STAGE_CLEAR);
+  funEq("R5 앵콜 코인 정상 지급", s1.coins, coinsB + ls1.coins);
+  // 앵콜 2·3: 사다리 1.5 → 2 → 2.5 (stake 대비, 점수는 이미 차감된 상태 유지)
+  const s2 = g.encoreSpin(); const er2 = s2.lastSpin.encoreResult;
+  funEq("R5 앵콜2 mulApplied", er2.mulApplied, 2); funEq("R5 앵콜2 pot = stake×2", s2.encore.pot, stake * 2);
+  funEq("R5 앵콜2 gained", er2.gained, stake * 2 - pot1); funEq("R5 앵콜2 점수 불변", s2.score, S0 - stake);
+  funEq("R5 앵콜2 nextMul=2.5", s2.encore.nextMul, 2.5); funEq("R5 앵콜2 k=2", s2.encore.k, 2);
+  const s3 = g.encoreSpin(); const pot3 = Math.floor(stake * 2.5 + 1e-9);
+  funEq("R5 앵콜3 mulApplied=2.5", s3.lastSpin.encoreResult.mulApplied, 2.5); funEq("R5 앵콜3 pot = floor(stake×2.5)", s3.encore.pot, pot3);
+  // 정산: pot → 점수, 이후 앵콜 불가, phase 는 STAGE_CLEAR 유지 → proceedToNodes
+  const sCash = g.encoreCashOut();
+  funEq("R5 정산 가산: 점수 = S0 - stake + pot", sCash.score, S0 - stake + pot3);
+  funDeep("R5 정산 후 encore", sCash.encore, { available: false, active: false, k: 3, pot: 0, stake, lastBust: false, nextMul: null });
+  funEq("R5 정산 후 phase STAGE_CLEAR", sCash.phase, PHASE.STAGE_CLEAR);
+  const scoreAfter = sCash.score; g.encoreSpin(); funEq("R5 정산 후 encoreSpin 불가(점수 불변)", g.state().score, scoreAfter);
+  g.encoreCashOut(); funEq("R5 이중 정산 방지", g.state().score, scoreAfter);
+  const sN = g.proceedToNodes(); funEq("R5 정산 뒤 proceedToNodes → NODE_SELECT", sN.phase, PHASE.NODE_SELECT); funEq("R5 노드 이동 시 점수 불변", sN.score, scoreAfter);
+  funEq("R5 clearSummary.total 동기화", sN.clearSummary.total, scoreAfter);
+
+  // BUST ① 첫 스핀에서 페어 없음 → 판돈(=pot) 소멸·앵콜 종료
+  const gb1 = mkClear(74002); const Sb1 = gb1.state().score, stb1 = stakeOf(gb1);
+  funRoll(gb1, ["cherry", "book", "star", "gem", "crown"]);
+  const sb1 = gb1.encoreSpin(); const erb1 = sb1.lastSpin.encoreResult;
+  funEq("R5 BUST① bust", erb1.bust, true); funEq("R5 BUST① gained=0", erb1.gained, 0); funEq("R5 BUST① mulApplied(시도한 배율)=1.5", erb1.mulApplied, 1.5);
+  funEq("R5 BUST① 소멸 팟 = 판돈", erb1.lostPot, stb1); funEq("R5 BUST① pot=0", sb1.encore.pot, 0);
+  funEq("R5 BUST① 판돈 소멸(점수 = S0 - stake)", sb1.score, Sb1 - stb1);
+  funDeep("R5 BUST① 후 encore", sb1.encore, { available: false, active: false, k: 0, pot: 0, stake: stb1, lastBust: true, nextMul: null });
+  gb1.encoreSpin(); funEq("R5 BUST 후 앵콜 불가", gb1.state().score, Sb1 - stb1);
+  gb1.encoreCashOut(); funEq("R5 BUST 후 정산할 팟 없음", gb1.state().score, Sb1 - stb1);
+  funEq("R5 BUST 후 proceedToNodes 점수 불변", gb1.proceedToNodes().score, Sb1 - stb1);
+  // BUST ② 성공 1회 뒤 BUST → 쌓인 pot 전부 소멸 (k 는 성공 횟수라 1 유지)
+  const gb2 = mkClear(74012); const Sb2 = gb2.state().score, stb2 = stakeOf(gb2);
+  funRoll(gb2, ["cherry", "cherry", "cherry", "book", "star"]); gb2.encoreSpin();
+  const potB = gb2.state().encore.pot; funEq("R5 BUST② 전 pot = floor(stake×1.5)", potB, Math.floor(stb2 * 1.5 + 1e-9));
+  funRoll(gb2, ["cherry", "book", "star", "gem", "crown"]);
+  const sb2 = gb2.encoreSpin(); const erb2 = sb2.lastSpin.encoreResult;
+  funEq("R5 BUST② bust", erb2.bust, true); funEq("R5 BUST② 시도 배율 2", erb2.mulApplied, 2); funEq("R5 BUST② 소멸 팟 기록", erb2.lostPot, potB);
+  funEq("R5 BUST② 점수 = S0 - stake (정산 없음)", sb2.score, Sb2 - stb2);
+  funDeep("R5 BUST② 후 encore", sb2.encore, { available: false, active: false, k: 1, pot: 0, stake: stb2, lastBust: true, nextMul: null });
+  // BUST: 해골 2개↑ (3매치여도)
+  const gk = mkClear(74003); const Sk = gk.state().score, stk = stakeOf(gk);
+  funRoll(gk, ["skull", "skull", "cherry", "cherry", "cherry"]);
+  const skO = gk.encoreSpin();
+  funEq("R5 BUST(해골 2개, 3매치) bust", skO.lastSpin.encoreResult.bust, true); funEq("R5 BUST(해골2) 판돈 소멸", skO.score, Sk - stk);
+  // 해골 1개 + 3매치는 BUST 아님
+  const gk1 = mkClear(74004);
+  funRoll(gk1, ["skull", "cherry", "cherry", "cherry", "book"]);
+  funEq("R5 해골 1개 3매치는 성공", gk1.encoreSpin().lastSpin.encoreResult.bust, false);
+  // 페어(2매치)는 성공 경계
+  const gp2 = mkClear(74005); funRoll(gp2, ["cherry", "cherry", "book", "star", "gem"]);
+  funEq("R5 페어는 성공(경계)", gp2.encoreSpin().lastSpin.encoreResult.bust, false);
+
+  // 남은 스핀 0 자동 정산
+  const ga = mkClear(74006); ga.run.spinIndex = ga.run.spins - 1;   // 남은 1
+  const Sa = ga.state().score, sta = stakeOf(ga); funRoll(ga, ["cherry", "cherry", "cherry", "book", "star"]);
+  const sa = ga.encoreSpin(); const era = sa.lastSpin.encoreResult; const potA = Math.floor(sta * 1.5 + 1e-9);
+  funEq("R5 남은 0 → 자동 정산 settled", era.settled, true); funEq("R5 자동 정산 settledPot", era.settledPot, potA);
+  funEq("R5 자동 정산 점수 = S0 - stake + pot", sa.score, Sa - sta + potA);
+  funDeep("R5 자동 정산 후 encore", sa.encore, { available: false, active: false, k: 1, pot: 0, stake: sta, lastBust: false, nextMul: null });
+  // 진행 중(남은 스핀 1 이상) 성공 후 남은 스핀이 0 이 되는 시점에 자동 정산: 남은 2 → 성공 1(진행 중) → 성공 2(자동 정산)
+  const ga2 = mkClear(74016); ga2.run.spinIndex = ga2.run.spins - 2; const Sa2 = ga2.state().score, sta2 = stakeOf(ga2);
+  funRoll(ga2, ["cherry", "cherry", "cherry", "book", "star"]);
+  const sa2a = ga2.encoreSpin(); funEq("R5 남은 2: 1회 후 진행 중(active)", sa2a.encore.active, true);
+  const sa2b = ga2.encoreSpin(); funEq("R5 남은 2: 2회 후 자동 정산", sa2b.lastSpin.encoreResult.settled, true);
+  funEq("R5 남은 2: 정산 점수 = S0 - stake + stake×2", sa2b.score, Sa2 - sta2 + sta2 * 2);
+  // proceedToNodes 가 진행 중 앵콜을 먼저 정산
+  const gn = mkClear(74007); const Sn = gn.state().score, stn = stakeOf(gn); funRoll(gn, ["cherry", "cherry", "cherry", "book", "star"]); gn.encoreSpin();
+  const potN = gn.state().encore.pot; const nn = gn.proceedToNodes();
+  funEq("R5 proceedToNodes 가 진행 중 앵콜 정산", nn.score, Sn - stn + potN); funEq("R5 정산 후 NODE_SELECT", nn.phase, PHASE.NODE_SELECT);
+  // 앵콜 미사용 진행: 점수 불변
+  const gm = mkClear(74008); const Sm = gm.state().score; funEq("R5 앵콜 안 하고 진행: 점수 불변", gm.proceedToNodes().score, Sm);
+  // 조건 미충족 → available=false: ① 남은 스핀 0 ② 클리어 점수 0(빚문서) ③ 점수 < 판돈 ④ 심화
+  const g0 = mkClear(74009, { lastSpin: true });
+  funOk("R5 남은 스핀 0 인데 stake > 0", stakeOf(g0) > 0); funEq("R5 남은 스핀 0 → available=false", g0.state().encore.available, false);
+  const S00 = g0.state().score; g0.encoreSpin(); funEq("R5 남은 스핀 0: encoreSpin 무효", g0.state().score, S00);
+  const gdebt = mkClear(74017, { debt: true });
+  funEq("R5 빚문서(클리어 점수 0) → stake=0", gdebt.state().encore.stake, 0); funEq("R5 stake=0 → available=false", gdebt.state().encore.available, false);
+  const Sd = gdebt.state().score; gdebt.encoreSpin(); funEq("R5 stake=0: encoreSpin 무효(점수 불변)", gdebt.state().score, Sd);
+  funEq("R5 stake=0: 남은 스핀 소모 없음", gdebt.run.spins - gdebt.run.spinIndex, gdebt.run.spins - 1);
+  const gf = mkClear(74010); const stf = stakeOf(gf); gf.run.score = stf - 1;
+  funEq("R5 점수<판돈 → available=false", gf.state().encore.available, false);
+  gf.encoreSpin(); funEq("R5 점수<판돈: encoreSpin 무효(점수 불변)", gf.state().score, stf - 1);
+  funOk("R5 판돈 부족 토스트", /판돈/.test(lastToast(gf)), lastToast(gf));
+  // 진행 중에는 점수가 판돈보다 적어도(이미 차감됨) 계속 가능
+  const gz2 = mkClear(74018); const stz = stakeOf(gz2); gz2.run.score = stz; funRoll(gz2, ["cherry", "cherry", "cherry", "book", "star"]);
+  const z1 = gz2.encoreSpin(); funEq("R5 점수=판돈이면 시작 가능(차감 후 0)", z1.score, 0);
+  funEq("R5 진행 중엔 점수<판돈이어도 available", z1.encore.available, true);
+  const z2 = gz2.encoreSpin(); funEq("R5 진행 중 2번째 앵콜 성공", z2.encore.k, 2);
+  // 보스 클리어 점수(보스 +500·연승 보너스)도 판돈에 포함
+  const gbs = mkClear(74019, { stage: 5 });
+  funEq("R5 보스 클리어 sBoss=500 포함", gbs.state().clearSummary.sBoss, 500);
+  funEq("R5 보스 판돈 = 합계(기본 250+남은스핀+보스500+연승 100)", gbs.state().encore.stake, gbs.state().clearSummary.sBase + gbs.state().clearSummary.sLeft + gbs.state().clearSummary.sSpins + 500 + 100);
+  // 통계 비오염: 해골/심볼/테마빌드/불운게이지/도감 카운터 불변 (업적 인플레이션 방지)
+  const gs = mkClear(74011);
+  const snap = () => JSON.stringify({ cherry: gs.run.stats.cherry, crown: gs.run.stats.crown, jp: gs.run.stats.jackpots, best: gs.run.stats.bestSpin, unl: gs.run.unluckyGauge, seen: [...gs.run.seenSyms].sort(), tb: gs.run.tb, skullTotal: gs.profile.counters.skullTotal || 0 });
+  const before = snap();
+  funRoll(gs, ["crown", "crown", "crown", "crown", "crown"]); gs.encoreSpin();
+  funRoll(gs, ["skull", "skull", "skull", "crown", "crown"]); gs.encoreSpin();
+  funEq("R5 앵콜 스핀은 해골/심볼/빌드/도감 통계를 건드리지 않음", snap(), before);
+  // 앵콜 중 다른 행동 불가: spin/toggleHold 는 STAGE_CLEAR 에서 무효
+  const gz = mkClear(74013); const ixB = gz.run.spinIndex; gz.spin("N"); funEq("R5 STAGE_CLEAR 에서 spin 무효", gz.run.spinIndex, ixB);
+  gz.toggleHold(0); funEq("R5 STAGE_CLEAR 에서 홀드 무효", gz.run.held.length, 0);
+  // 피버 충전/소모 없음 + 피버 중 앵콜도 피버 스핀 소모 없음
+  { gz.run.nFeverSpins = 2; gz.run.nFeverGauge = 40; funRoll(gz, ["cherry", "cherry", "cherry", "cherry", "cherry"]); gz.encoreSpin(); funDeep("R5 앵콜은 피버 상태 불변", gz.state().fever, { gauge: 40, spins: 2 }); }
+  // 다음 스테이지로 가면 앵콜 상태 초기화
+  const gr = mkClear(74014); funRoll(gr, ["cherry", "cherry", "cherry", "book", "star"]); gr.encoreSpin(); gr.proceedToNodes(); gr._beginStage();
+  funDeep("R5 _beginStage 앵콜 초기화", [gr.run.encoreK, gr.run.encorePot, gr.run.encoreStake, gr.run.encoreActive, gr.run.encoreDone, gr.run.encoreLastBust], [0, 0, 0, false, false, false]);
+  // 심화: encore null, encoreSpin 무효
+  const gd = funGame(74015, { deep: true }); gd.run.phase = PHASE.STAGE_CLEAR; gd.run.spinIndex = 1; gd.run.spins = 5; gd.run.score = 5000; gd.run.encoreStake = 300;
+  gd.encoreSpin(); funEq("R5 심화 encoreSpin 무효(점수 불변)", gd.run.score, 5000); funEq("R5 심화 state.encore null", gd.state().encore, null);
+  notes.push("FUN-R5 앵콜(클리어 점수 더블업) ok: stake=클리어 점수 합계·시작 시 점수 차감·사다리 pot=floor(stake×(1+0.5k))·BUST 판돈 포함 소멸·정산 가산·남은 0 자동정산·proceedToNodes 선정산·조건 미충족(남은0/stake0/점수<stake) available=false·통계 비오염·심화 null");
+} catch (e) { fail("FUN-R5 threw: " + e.stack); }
+
+// ── R6 특수스핀 재설계 ──
+try {
+  funEq("R6 ALLIN_MUL", C.ALLIN_MUL, 2.5); funEq("R6 ALLIN_FAIL_SKULLS", C.ALLIN_FAIL_SKULLS, 1); funEq("R6 FOCUS_FLOOR", C.FOCUS_FLOOR, 0.8);
+  funEq("R6 SUBREEL_EXP_MUL", C.SUBREEL_EXP_MUL, 0.85);
+  // (a) 올인 엔진: ×2.5, 해골 1개↑ = 0
+  const ctxA = (skulls) => ({ quotaVal: 100, spins: 5, skulls, rng: E.makeRng(1) });
+  funEq("R6 applySpecialSpin 올인 해골0 ×2.5", E.applySpecialSpin("ALLIN", 40, ctxA(0)).exp, 100);
+  funEq("R6 applySpecialSpin 올인 해골1 = 0", E.applySpecialSpin("ALLIN", 40, ctxA(1)).exp, 0);
+  funEq("R6 applySpecialSpin 올인 해골2 = 0", E.applySpecialSpin("ALLIN", 40, ctxA(2)).exp, 0);
+  funEq("R6 올인 성공 노트", E.applySpecialSpin("ALLIN", 40, ctxA(0)).note, "🎰 올인 성공 ×2.5");
+  funEq("R6 올인 설명", E.cmdEffectDesc("ALLIN"), "EXP ×2.5 (☠ 1개라도 나오면 0)");
+  funEq("R6 집중 설명", E.cmdEffectDesc("FOCUS"), "최소 EXP 보장(페이스 80%) + 홀드 +1");
+  // (b) 집중 엔진: 하한 = floor(per×0.8)
+  funEq("R6 applySpecialSpin 집중 하한(per=20 → 16)", E.applySpecialSpin("FOCUS", 0, { quotaVal: 100, spins: 5, skulls: 0, rng: E.makeRng(1) }).exp, 16);
+  funEq("R6 집중 하한 초과분은 유지", E.applySpecialSpin("FOCUS", 50, { quotaVal: 100, spins: 5, skulls: 0, rng: E.makeRng(1) }).exp, 50);
+  // (c) 게임 경유 올인: 해골 0 → 기준 ×2.5, 해골 1 → 0 (기존 ×2 / 2개↑ 규칙과 구분)
+  const runAllin = (ids, mode) => { const x = funGame(75001); funRoomy(x); funRoll(x, ids); return x.spin(mode); };
+  const nBase = runAllin(["cherry", "cherry", "cherry", "cherry", "book"], "N"), nAll = runAllin(["cherry", "cherry", "cherry", "cherry", "book"], "ALLIN");
+  funEq("R6 올인 성공 gained = floor(기준×2.5)", nAll.gained, Math.floor(nBase.gained * 2.5));
+  funEq("R6 올인 해골1개 실패 gained=0", runAllin(["cherry", "cherry", "cherry", "cherry", "skull"], "ALLIN").gained, 0);
+  funOk("R6 올인 해골1개 실패 노트", runAllin(["cherry", "cherry", "cherry", "cherry", "skull"], "ALLIN").notes.some((n) => /해골 1개↑/.test(n)));
+  // (d) 집중 (게임 경유): 하한 0.8 + rareWeightMul ×0.5 패널티 삭제
+  const gf = funGame(75002); funRoomy(gf, 1000, 5); funRoll(gf, ["skull", "skull", "skull", "skull", "skull"]);
+  const baseRare = gf._mods().rareWeightMul;
+  const fo = gf.spin("FOCUS");
+  funEq("R6 집중 하한: floor(1000/5×0.8)=160", fo.gained, 160);
+  funEq("R6 집중: rareWeightMul 패널티 삭제(굴림 mods 동일)", gf._rollMods[0].rareWeightMul, baseRare);
+  const gn0 = funGame(75003); funRoomy(gn0); funRoll(gn0, ["cherry", "book", "star", "gem", "crown"]); gn0.spin("PRAY");
+  funEq("R6 기도도 rareWeightMul 기준 동일", gn0._rollMods[0].rareWeightMul, gn0._mods().rareWeightMul);
+  // (e) 누진 비용: 첫 사용 무료 → 같은 스테이지 2번째 ×2, 3번째 ×3 (반복 사용 허용, usedCmds 비오염)
+  const gc = funGame(75004); funRoomy(gc); gc.run.coins = 100; funRoll(gc, ["cherry", "book", "star", "gem", "crown"]);
+  funEq("R6 cmdCost(N)=0", gc.cmdCost("N"), 0);
+  funEq("R6 cmdCost(ALLIN) 첫 사용 = 0(무료권)", gc.cmdCost("ALLIN"), 0);
+  funEq("R6 cmdCost(FOCUS) 첫 사용 = 0", gc.cmdCost("FOCUS"), 0);
+  const c1 = gc.state().coins; gc.spin("ALLIN"); funEq("R6 ALLIN#1 무료(코인 불변)", gc.state().coins, c1 + 0);
+  funEq("R6 cmdCost(ALLIN) 2번째 = 4×2 = 8", gc.cmdCost("ALLIN"), 8);
+  const c2 = gc.state().coins; gc.spin("ALLIN"); funEq("R6 ALLIN#2 코인 -8", gc.state().coins, c2 - 8);
+  funEq("R6 cmdCost(ALLIN) 3번째 = 12", gc.cmdCost("ALLIN"), 12);
+  const c3 = gc.state().coins; gc.spin("ALLIN"); funEq("R6 ALLIN#3 코인 -12", gc.state().coins, c3 - 12);
+  funOk("R6 usedCmds 에 특수스핀 미기록(반복 허용)", !gc.state().usedCmds.includes("ALLIN"));
+  funEq("R6 cmdUses.ALLIN=3", gc.state().cmdUses.ALLIN, 3);
+  funEq("R6 다른 종류는 독립: FOCUS 첫 사용 무료 유지", gc.cmdCost("FOCUS"), 0);
+  funEq("R6 cmdFreeUsed.ALLIN 소진 유지", gc.state().cmdFreeUsed.ALLIN, true);
+  funEq("R6 cmdFreeUsed.FOCUS 미소진 유지", gc.state().cmdFreeUsed.FOCUS, false);
+  // 기도(3) 2번째 = 6, 집중(1) 2·3번째 = 2·3
+  gc.spin("PRAY"); funEq("R6 PRAY 2번째 = 3×2 = 6", gc.cmdCost("PRAY"), 6);
+  gc.spin("FOCUS"); funEq("R6 FOCUS 2번째 = 1×2 = 2", gc.cmdCost("FOCUS"), 2);
+  gc.spin("FOCUS"); funEq("R6 FOCUS 3번째 = 3", gc.cmdCost("FOCUS"), 3);
+  // 스테이지 리셋: 누진 카운터 초기화·무료권은 런 단위라 소진 유지 → 기본가
+  gc._beginStage();
+  funEq("R6 다음 스테이지 cmdUses 리셋", gc.state().cmdUses.ALLIN, 0);
+  funEq("R6 다음 스테이지 ALLIN = 기본 4 (무료권은 소진 유지)", gc.cmdCost("ALLIN"), 4);
+  funEq("R6 다음 스테이지 FOCUS = 기본 1", gc.cmdCost("FOCUS"), 1);
+  // 보스 스테이지: 보스 +1·상한 5 는 기본가에만 → ×n
+  gc.run.boss = BOSSES[1];
+  funEq("R6 보스 ALLIN 1번째 = min(4+1,5)=5", gc.cmdCost("ALLIN"), 5);
+  gc.run.cmdUses.ALLIN = 1; funEq("R6 보스 ALLIN 2번째 = 5×2 = 10 (상한 5는 기본가에만)", gc.cmdCost("ALLIN"), 10);
+  gc.run.cmdUses.ALLIN = 2; funEq("R6 보스 ALLIN 3번째 = 15", gc.cmdCost("ALLIN"), 15);
+  funEq("R6 E.cmdCoinCost(ALLIN,true,2)", E.cmdCoinCost("ALLIN", true, 2), 10); funEq("R6 E.cmdCoinCost(LAST,false,3)", E.cmdCoinCost("LAST", false, 3), 6);
+  funEq("R6 E.cmdCoinCost(N,*,5) 0 유지", E.cmdCoinCost("N", true, 5), 0);
+  gc.run.boss = null; gc.run.cmdUses.ALLIN = 0;
+  // 코인 부족 차단: 2번째 올인 비용 8 인데 코인 7
+  const gp = funGame(75005); funRoomy(gp); funRoll(gp, ["cherry", "book", "star", "gem", "crown"]); gp.spin("ALLIN");
+  gp.run.coins = 7; const idxB = gp.run.spinIndex; gp.spin("ALLIN");
+  funEq("R6 코인 부족 시 발동 차단(스핀 진행 없음)", gp.run.spinIndex, idxB);
+  funOk("R6 코인 부족 토스트", /8🪙 필요/.test(lastToast(gp)), lastToast(gp));
+  gp.run.coins = 8; gp.spin("ALLIN"); funEq("R6 코인 8이면 발동(코인 0)", gp.run.coins, 0);
+  // 최후(LAST): 마지막 스핀에서만
+  const gl = funGame(75006); funRoomy(gl); funRoll(gl, ["cherry", "book", "star", "gem", "crown"]); const iL = gl.run.spinIndex; gl.spin("LAST");
+  funEq("R6 LAST 는 마지막 스핀에서만", gl.run.spinIndex, iL); funOk("R6 LAST 토스트", /마지막 스핀/.test(lastToast(gl)));
+  gl.run.spinIndex = gl.run.spins - 1; gl.spin("LAST"); funEq("R6 마지막 스핀 LAST 발동", gl.run.spinIndex, gl.run.spins);
+  // (f) 보조릴
+  funEq("R6 dev_subreel expMul", E.applyPassiveDevice(E.defaultMods(), "dev_subreel").expMul, 0.85);
+  funOk("R6 dev_subreel 설명 -15%", DEV_BY_ID.dev_subreel.d.includes("-15%") && !DEV_BY_ID.dev_subreel.d.includes("-30%"), DEV_BY_ID.dev_subreel.d);
+  const gsr = funGame(75007); gsr.run.device = "dev_subreel"; funEq("R6 보조릴 6칸", gsr.reel(), 6);
+  notes.push("FUN-R6 특수스핀 ok: 올인 ×2.5/해골1 실패·집중 0.8 하한+홀드+1·rareWeightMul 패널티 삭제·누진 비용(2번째 ×2, 보스 5×n)·무료권 유지·보조릴 -15%");
+} catch (e) { fail("FUN-R6 threw: " + e.stack); }
+
+// ── F1 빅윈 티어 · 상태 API 계약 ──
+try {
+  const g = funGame(76001); g.run.quota = 100; g.run.spins = 5;   // 페이스 20
+  funDeep("F1 tier 경계", [29, 30, 49, 50, 79, 80, 1000].map((x) => g._bigWinTier(x)), [0, 1, 1, 2, 2, 3, 3]);
+  funEq("F1 tier(0)", g._bigWinTier(0), 0);
+  // 스핀 결과 필드: 타입 계약
+  const g2 = funGame(76002); g2.run.quota = 100; g2.run.spins = 5; funRoll(g2, ["cherry", "cherry", "cherry", "cherry", "cherry"]);
+  const o = g2.spin("N");
+  funEq("F1 out.feverApplied 타입", typeof o.feverApplied, "boolean"); funEq("F1 out.feverTriggered 타입", typeof o.feverTriggered, "boolean");
+  funOk("F1 out.holdUsed 배열", Array.isArray(o.holdUsed)); funEq("F1 out.encoreResult null", o.encoreResult, null);
+  funEq("F1 bigWinTier = 티어(gained÷20)", o.bigWinTier, g2._bigWinTier(o.gained));
+  funOk("F1 5매치 체리는 MEGA(≥4)", o.bigWinTier === 3, `gained=${o.gained}`);
+  const st = g2.state();
+  funEq("F1 state.lastSpin.bigWinTier", st.lastSpin.bigWinTier, o.bigWinTier);
+  funDeep("F1 state.hold 키", Object.keys(st.hold), ["charges", "held", "max"]);
+  funDeep("F1 state.fever 키", Object.keys(st.fever), ["gauge", "spins"]);
+  funDeep("F1 state.encore 키", Object.keys(st.encore), ["available", "active", "k", "pot", "stake", "lastBust", "nextMul"]);
+  // 보스 EXP 후/특수스핀 후 최종 EXP 기준: 올인 성공 시 티어 상승
+  const g3 = funGame(76003); g3.run.quota = 100; g3.run.spins = 5; funRoll(g3, ["cherry", "cherry", "cherry", "book", "star"]);
+  const o3 = g3.spin("ALLIN"); funEq("F1 올인(최종 EXP) 기준 tier", o3.bigWinTier, g3._bigWinTier(o3.gained));
+  // 클리어 스핀 out 에도 필드 존재
+  const g4 = funGame(76004); g4.run.quota = 1; funRoll(g4, ["cherry", "cherry", "cherry", "book", "star"]); const o4 = g4.spin("N");
+  funOk("F1 클리어 스핀 out.cleared + tier 필드", o4.cleared === true && typeof o4.bigWinTier === "number");
+  notes.push("FUN-F1 bigWinTier ok: 경계 1.5/2.5/4(정확값)·최종 EXP 기준·state 계약 키");
+} catch (e) { fail("FUN-F1 threw: " + e.stack); }
+
+// ── 스트레스: 일반 150런 — 홀드·특수스핀(누진)·앵콜을 무작위로 섞어 NaN/예외/종료 확인 ──
+try {
+  let runsOk = 0, encores = 0, busts = 0, holds = 0, feverTrig = 0, specials = 0;
+  for (let s = 0; s < 150; s++) {
+    const g = funGame(77000 + s); const rng = E.makeRng(88000 + s); let st = g.state(); let guard = 0;
+    while (st && st.phase !== PHASE.RUN_END && guard++ < 3000) {
+      scanState("fun-stress", st);
+      switch (st.phase) {
+        case PHASE.SPIN: {
+          if (st.hold && st.lastSpin && rng.double() < 0.5) { g.toggleHold(rng.n(5)); holds++; if (rng.double() < 0.4) g.toggleHold(rng.n(5)); }
+          let mode = "N";
+          if (rng.double() < 0.25) { mode = rng.pick(["FOCUS", "ALLIN", "PRAY"]); if (g.run.coins < g.cmdCost(mode) && !(g.cmdCost(mode) === 0)) mode = "N"; else specials++; }
+          const out = g.spin(mode);
+          if (out && out.kind === "spin") { checkNum("fun-stress.gained", out.gained, out.score, out.coins); if (out.feverTriggered) feverTrig++; if (!(out.bigWinTier >= 0 && out.bigWinTier <= 3)) fail(`fun-stress: bigWinTier ${out.bigWinTier}`); }
+          st = g.state(); break;
+        }
+        case PHASE.POST_SPIN: st = g.giveUp(false); break;
+        case PHASE.STAGE_CLEAR: {
+          let n = 0;
+          while (g.state().encore && g.state().encore.available && n++ < 8 && rng.double() < 0.75) {
+            const pot0 = g.state().encore.pot; g.encoreSpin(); encores++;
+            const er = g.state().lastSpin.encoreResult; if (er && er.bust) busts++;
+            if (g.state().encore.active && rng.double() < 0.7) g.encoreCashOut();
+            checkNum("fun-stress.encore", g.state().score, g.state().encore.pot);
+          }
+          st = g.proceedToNodes(); break;
+        }
+        case PHASE.NODE_SELECT: st = g.selectNode(0); break;
+        case PHASE.PERK_PICK: st = g.pickPerk(0); break;
+        case PHASE.SHOP: st = g.shopExit(); break;
+        case PHASE.DEVICE_NODE: st = g.deviceNodeTake(); break;
+        case PHASE.REWARD_DONE: st = g.proceedToStage(); break;
+        default: st = g.state(); break;
+      }
+      if (!st) break;
+    }
+    if (st && st.phase === PHASE.RUN_END) runsOk++; else fail(`FUN-STRESS seed=${s} 종료 실패 phase=${st && st.phase}`);
+  }
+  funEq("FUN-STRESS 일반 150런 전부 종료", runsOk, 150);
+  funOk("FUN-STRESS 앵콜/홀드/특수/피버가 실제로 쓰임", encores > 20 && holds > 100 && specials > 50 && feverTrig > 0, `encores=${encores} holds=${holds} specials=${specials} fever=${feverTrig}`);
+  notes.push(`FUN-STRESS 일반 150런 종료 ${runsOk}/150 · 앵콜 ${encores}회(BUST ${busts}) · 홀드 토글 ${holds} · 특수스핀 ${specials} · 피버 발동 ${feverTrig}`);
+} catch (e) { fail("FUN-STRESS threw: " + e.stack); }
+
+// ── 심화 격리: 심화 런에서 신규 일반 시스템이 아무것도 동작하지 않음 (100런) ──
+try {
+  let okRuns = 0;
+  for (let s = 0; s < 100; s++) {
+    const g = funGame(78000 + s, { deep: true }); let st = g.state(); let guard = 0; let bad = "";
+    while (st && st.phase !== PHASE.RUN_END && guard++ < 3000) {
+      if (st.hold !== null || st.fever !== null || st.encore !== null) { bad = "state 신규 필드 non-null"; break; }
+      if (st.phase === PHASE.SPIN) {
+        g.toggleHold(0);
+        const out = g.spin("N");
+        if (out && out.kind === "spin" && (out.feverApplied || out.feverTriggered || (out.holdUsed && out.holdUsed.length))) { bad = "심화 스핀에 신규 시스템 작동"; break; }
+        st = g.state();
+      } else if (st.phase === PHASE.POST_SPIN) st = g.giveUp(false);
+      else if (st.phase === PHASE.STAGE_CLEAR) { g.encoreSpin(); g.encoreCashOut(); st = g.proceedToNodes(); }
+      else if (st.phase === PHASE.NODE_SELECT) st = g.selectNode(0);
+      else if (st.phase === PHASE.PERK_PICK) st = g.pickPerk(0);
+      else if (st.phase === PHASE.SHOP) st = g.shopExit();
+      else if (st.phase === PHASE.DEVICE_NODE) st = g.deviceNodeTake();
+      else if (st.phase === PHASE.REWARD_DONE) st = g.proceedToStage();
+      else break;
+    }
+    if (bad) { fail(`FUN-ISO seed=${s}: ${bad}`); break; }
+    const r = g.run;
+    if (r.nFeverGauge !== 0 || r.nFeverSpins !== 0 || r.holdCharges !== 0 || r.held.length || r.encoreK !== 0 || r.encorePot !== 0) { fail(`FUN-ISO seed=${s}: 심화 런에 신규 일반 시스템 상태 변경 (nFever=${r.nFeverGauge}/${r.nFeverSpins} hold=${r.holdCharges} encoreK=${r.encoreK})`); break; }
+    okRuns++;
+  }
+  funEq("FUN-ISO 심화 100런 격리", okRuns, 100);
+  // 일반 런은 심화 카운터를 만들지 않는다 (기존 불변식 재확인)
+  const gn = funGame(78500); funOk("FUN-ISO 일반 런 deepStats/pouch 없음", gn.run.deepStats === null && gn.run.pouch === null);
+  funEq("FUN-ISO 일반 런 state.feverGauge(심화 피버) null", gn.state().feverGauge, null);
+  notes.push(`FUN-ISO 심화 격리 ok: 심화 100런 신규 시스템 무작동(hold/fever/encore null · 토글/앵콜 무시)`);
+} catch (e) { fail("FUN-ISO threw: " + e.stack); }
+notes.push(`FUN-W1 신규 정확값 단언 ${funAsserts}건`);
 
 // ------- output -------
 console.log(JSON.stringify({ ok: errors.length === 0, errorCount: errors.length, errors: errors.slice(0, 40), notes }, null, 2));
