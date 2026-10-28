@@ -16,8 +16,9 @@ namespace JackpotRun.EngineTests
     //    (홀드는 RNG 소비를 바꾸지 않으므로 대조군의 raw 가 곧 '홀드 없을 때의 fresh 굴림').
     //  · 웹은 quota/spins 를 직접 대입(funRoomy)하지만, C# 은 매번 QuotaOf/EffSpins 로 즉석 계산하므로 "클리어되지 않는
     //    스테이지"를 비보스 41스테이지(요구치 거대) + StageBonusSpins 50 으로 만든다(FunTestHelpers.Roomy).
-    //  · 기대값은 웹 하니스의 정확값 단언을 가져오되, C# 의 요구치(보스 스핀 비례 prop 등 기존 이탈)에 의존하는 값은
-    //    outcome.quota/spins 에서 손계산 공식으로 도출한다.
+    //  · 기대값은 웹 하니스의 정확값 단언을 가져오되, 요구치·스핀 수에 의존하는 값은 outcome.quota/spins 에서 손계산
+    //    공식으로 도출한다. (구 C# 의 보스 스핀 비례 prop·EXP 후처리 순서·불꽃 여파·기도 임계 이탈은 2026-10-28 웹 채택으로
+    //    해소됐다 — WEB_PARITY_DESIGN §2-(II)/(JJ). 아래 Tests_FunW1_WebCross 가 웹 정본 스크립트 값과 교차 단언한다.)
     // ══════════════════════════════════════════════════════════════════════════════════════════
 
     internal static class FunTestHelpers
@@ -1391,6 +1392,133 @@ namespace JackpotRun.EngineTests
             // 일반 런은 심화 카운터를 만들지 않는다 (기존 불변식 재확인)
             var gn = FunTestHelpers.NewController(78500);
             t.True(gn.State.DeepStats == null && gn.State.Pouch.Count == 0, "[deep-iso] 일반 런 deepStats/pouch 없음");
+        }
+    }
+    // ── 웹 정본 교차 단언(1차 검수 [중대1·중대2·경미9]) ─────────────────────────────────────────
+    // 값의 출처: 웹 `public/play/game.js` 를 그대로 구동하는 스크립트(`Game` + `_roll` 고정, funGame(12345)·novice·basic)의
+    // 실제 출력. 동일 칸·동일 상태에서 C# 이 같은 EXP 를 내는지 확인한다.
+    //  · A: EXP 후처리 순서 = 보스(applyBossExp) → 특수스핀(applySpecialSpin) → dev_safe 하한 → 피버, 그리고
+    //       pendingNextExpMul 은 굴림 전 mods.expMul 에 곱해져 evaluate 안으로 들어간다.
+    //  · B: evaluate 의 flameNext = hasFlame — 직전 스핀에 불꽃이 있었으면 다음 스핀 EXP -50%.
+    //  · C: 기도 불운 보정 임계 = 페이스 전체(`exp < quota/spins`).
+    internal static class Tests_FunW1_WebCross
+    {
+        private static readonly string[] P0 = FunTestHelpers.Pair0;
+        private static readonly string[] S3 = FunTestHelpers.Set3;
+        private static readonly string[] S2 = FunTestHelpers.Set2;
+
+        // 웹 web_scen.mjs 의 scen(): 스테이지 설정 + 특수스핀 무료권 소진 + 코인 100 + spinIndex + 피버/보류 배율 + 칸 고정 후 1스핀.
+        private static SpinOutcome Scen(int stage, int idx, SpinMode mode, string[] ids, int fever = 0, double pending = 1.0)
+        {
+            var rc = FunTestHelpers.NewController(12345L);
+            var run = rc.State;
+            run.Stage = stage; run.Coins = 100;
+            foreach (var m in new[] { "FOCUS", "ALLIN", "PRAY", "LAST" }) run.CmdFreeUsed.Add(m);
+            run.SpinIndex = idx; run.NFeverSpins = fever; run.PendingNextExpMul = pending;
+            FunTestHelpers.Force(run, ids);
+            var ev = rc.Do(new Spin(mode));
+            t_lastRc = rc;
+            return ev[0].spin;
+        }
+        private static RunController t_lastRc;
+
+        public static void Run(TestCtx t)
+        {
+            // [중대1] 웹 값(web_scen.mjs 실행 결과): (이름, 스테이지, spinIndex, 모드, 칸, 피버, 웹 gained, 웹 quota, 웹 spins)
+            var cases = new (string name, int stage, int idx, SpinMode mode, string[] ids, int fever, long web)[]
+            {
+                ("S10 strict 무매치 집중", 10, 1, SpinMode.Focus, P0, 0, 49),
+                ("S10 strict 3매치 집중", 10, 1, SpinMode.Focus, S3, 0, 49),
+                ("S10 strict 3매치 올인", 10, 1, SpinMode.Allin, S3, 0, 117),
+                ("S10 strict 페어 올인", 10, 1, SpinMode.Allin, S2, 0, 52),
+                ("S5 finals 첫스핀 집중", 5, 0, SpinMode.Focus, S2, 0, 26),
+                ("S5 finals 막스핀 최후", 5, 5, SpinMode.Last, S3, 0, 143),
+                ("S15 luck 별없음 집중", 15, 1, SpinMode.Focus, new[] { "cherry", "book", "gem", "cherry", "book" }, 0, 128),
+                ("S10 strict 3매치 일반+피버", 10, 1, SpinMode.N, S3, 2, 70),
+                ("S10 strict 무매치 집중+피버", 10, 1, SpinMode.Focus, P0, 2, 73),
+            };
+            foreach (var c in cases)
+            {
+                var o = Scen(c.stage, c.idx, c.mode, c.ids, c.fever);
+                t.Eq(c.web, o.gained, $"[web-cross A] {c.name}: 웹 정본 EXP");
+            }
+            // 웹 quota/spins 도 같다 (prop 제거 후): S10 368/6, S5 201/6, S15 966/6.
+            var q10 = Scen(10, 1, SpinMode.N, S3); t.Eq(368L, q10.quota, "[web-cross A] S10 quota 368"); t.Eq(6, q10.spins, "[web-cross A] S10 spins 6");
+            t.Eq(201L, Scen(5, 0, SpinMode.N, S2).quota, "[web-cross A] S5 quota 201");
+            t.Eq(966L, Scen(15, 1, SpinMode.N, S3).quota, "[web-cross A] S15 quota 966");
+
+            // 다음스핀 EXP 배율(pendingNextExpMul): 굴림 전 mods.expMul 에 곱 → 보스/특수스핀은 그 뒤. 웹 값.
+            t.Eq(49L, Scen(10, 1, SpinMode.Focus, P0, 0, 1.3).gained, "[web-cross A] pending×1.3 + S10 strict 무매치 집중 (웹 49)");
+            t.Eq(60L, Scen(10, 1, SpinMode.N, S3, 0, 1.3).gained, "[web-cross A] pending×1.3 + S10 strict 3매치 (웹 60)");
+            t.Eq(61L, Scen(1, 1, SpinMode.N, S3, 0, 1.5).gained, "[web-cross A] pending×1.5 + S1 3매치 (웹 61)");
+            t.Eq(67L, Scen(10, 1, SpinMode.Allin, S2, 0, 1.3).gained, "[web-cross A] pending×1.3 + S10 strict 페어 올인 (웹 67)");
+            t.Eq(92L, Scen(1, 4, SpinMode.Last, S3, 0, 1.3).gained, "[web-cross A] pending×1.3 + S1 막스핀 최후 (웹 92)");
+            Scen(1, 1, SpinMode.N, S3, 0, 1.5);
+            t.Eq(1.0, t_lastRc.State.PendingNextExpMul, "[web-cross A] 보류 배율은 스핀 후 1.0 으로 소비");
+
+            // [중대2] 불꽃 여파 (웹 값: spin1 27·flameNext, spin2 20, 대조군 41).
+            var fr = FunTestHelpers.NewController(12345L);
+            var o1 = FunTestHelpers.SpinN(fr, "flame", "cherry", "book", "star", "gem");
+            t.Eq(27L, o1.gained, "[web-cross B] 불꽃 스핀 gained (웹 27)");
+            t.True(fr.State.FlameNext, "[web-cross B] 불꽃이 나온 스핀 뒤 FlameNext=true");
+            t.True(o1.result.flameNext, "[web-cross B] SpinResult.flameNext = 불꽃 유무");
+            var o2 = FunTestHelpers.SpinN(fr, S3);
+            t.Eq(20L, o2.gained, "[web-cross B] 불꽃 직후 스핀은 EXP -50% (웹 20)");
+            t.True(o2.notes.Any(n => n.Contains("여파 EXP -50%")), "[web-cross B] 여파 노트");
+            t.True(!fr.State.FlameNext, "[web-cross B] 불꽃 없는 스핀 뒤 FlameNext=false (여파는 1스핀)");
+            var ctl = FunTestHelpers.NewController(12345L);
+            FunTestHelpers.SpinN(ctl, S2);
+            t.Eq(41L, FunTestHelpers.SpinN(ctl, S3).gained, "[web-cross B] 대조군(불꽃 없음) 같은 칸 gained (웹 41)");
+
+            // 스테이지 경계: 클리어하면 FlameNext 리셋 (웹 _beginStage `r.flameNext=false`).
+            var fc = FunTestHelpers.NewController(12346L);
+            fc.State.FlameNext = true; fc.State.StageExp = 100_000;
+            var oc = fc.Do(new Spin(SpinMode.N));
+            t.Eq("STAGE_CLEARED", oc[0].type, "[web-cross B] 클리어 스핀");
+            t.True(!fc.State.FlameNext, "[web-cross B] 스테이지 클리어 시 FlameNext 리셋");
+
+            // 조작/재굴림/재시험: 웹 manip()/_freeReroll() 는 evaluate(…, r.flameNext) 를 쓰고 결과의 hasFlame 으로 flameNext 를 갱신한다.
+            var mr = FunTestHelpers.NewController(12347L, device: "dev_reroll");
+            FunTestHelpers.Roomy(mr.State);
+            mr.State.Coins = 50;
+            FunTestHelpers.SpinN(mr, "flame", "cherry", "book", "star", "gem");
+            t.True(mr.State.FlameNext, "[web-cross B] 조작 전 FlameNext=true");
+            var mev = mr.Do(new DeviceCmd("dev_reroll"));
+            t.Eq("DEVICE_MANIP_RESULT", mev[0].type, "[web-cross B] 재굴림기 발동");
+            t.True(mev[0].spin.result.notes.Any(n => n.Contains("여파 EXP -50%")), "[web-cross B] 조작 evaluate 에 불꽃 여파 적용(웹 manip: flameNext 전달)");
+            t.Eq(mev[0].spin.result.flameNext, mr.State.FlameNext, "[web-cross B] 조작 후 FlameNext = 조작 결과의 불꽃 유무(웹 `r.flameNext = res.hasFlame`)");
+            var rr = FunTestHelpers.NewController(12348L);
+            FunTestHelpers.Roomy(rr.State);
+            FunTestHelpers.SpinN(rr, "flame", "cherry", "book", "star", "gem");
+            rr.State.Items.Add("retake_form");
+            var rev = rr.Do(new UseItem("retake_form"));
+            t.True(rev[0].spin.result.notes.Any(n => n.Contains("여파 EXP -50%")), "[web-cross B] 재시험 evaluate 에 불꽃 여파 적용");
+            t.Eq(rev[0].spin.result.flameNext, rr.State.FlameNext, "[web-cross B] 재시험 후 FlameNext = 결과의 불꽃 유무");
+
+            // [경미9] 기도 불운 보정 임계 = 페이스 전체(quota/spins = 82/5 = 16.4). 기본 EXP 10·14 (옛 임계 8 이상, 페이스 미만).
+            //   miracle(8%)이 아닌 시드: gained = 기본 + 25. miracle 이면 기본×3.
+            int plus25 = 0, miracle = 0;
+            foreach (var (ids, baseExp) in new[] { (new[] { "cherry", "book", "gem", "coin", "coin" }, 10L), (new[] { "cherry", "cherry", "coin", "coin", "coin" }, 14L) })
+            {
+                for (long seed = 1; seed <= 60; seed++)
+                {
+                    var rc = FunTestHelpers.NewController(9000 + seed);
+                    rc.State.SpinIndex = 1;
+                    var o = FunTestHelpers.SpinM(rc, SpinMode.Pray, ids);
+                    t.Eq(82L, o.quota, "[web-cross C] 기도 사전조건 quota");
+                    if (o.prayMiracle) { miracle++; t.Eq(baseExp * 3, o.gained, "[web-cross C] 기적 ×3"); }
+                    else { plus25++; t.Eq(baseExp + 25, o.gained, $"[web-cross C] 기본 EXP {baseExp} < 페이스 16.4 → 불운 보정 +25 (옛 임계 ×0.5=8 이면 보정 없음)"); }
+                }
+            }
+            t.True(plus25 > 80 && miracle > 0, "[web-cross C] 표본: 보정 경로와 기적 경로가 모두 실사됨", $"plus25={plus25} miracle={miracle}");
+            // 페이스 이상이면 무응답: 기본 EXP 20(book×2+coin×3) ≥ 16.4 → 보정 없음.
+            var rcN = FunTestHelpers.NewController(9100L); rcN.State.SpinIndex = 1;
+            for (long seed = 1; seed <= 60; seed++)
+            {
+                var rc = FunTestHelpers.NewController(9200 + seed); rc.State.SpinIndex = 1;
+                var o = FunTestHelpers.SpinM(rc, SpinMode.Pray, "book", "book", "coin", "coin", "coin");
+                if (!o.prayMiracle) t.Eq(20L, o.gained, "[web-cross C] 기본 EXP 20 ≥ 페이스 → 보정 없음(무응답)");
+            }
         }
     }
 }

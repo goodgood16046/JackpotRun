@@ -26,7 +26,8 @@ namespace JackpotRun.Engine
     //
     // 재미 개편 R1(FUN_OVERHAUL_DESIGN §1, 웹 data.js BOSSES e6bde8d): finals quotaMul 1.0→1.15 + desc 갱신,
     // strict desc 갱신(실제 룰은 SpinResolver.ApplyBoss — 3매치↑ ×1.15 / 없으면 ×0.75). 위 [원본 버그 유지]
-    // 단락 중 finals/strict 의 "요구↑" 서술은 이 개편으로 해소됐다(luck 은 그대로 — desc 만 옛 문구 유지).
+    // 단락의 "요구↑" 서술은 이 개편으로 전부 해소됐다 — luck/grad desc 도 웹 data.js BOSSES 정본 문구로 통일했다
+    // (2026-10-28, WEB_PARITY §2-(JJ): 웹 desc 가 정본).
     public static class Bosses
     {
         public const int Count = 4;
@@ -50,14 +51,14 @@ namespace JackpotRun.Engine
             new Boss
             {
                 id = "luck", emoji = "🎲", name = "운빨심판관",
-                desc = "스핀+1·요구↑ · ⭐👑🌀 있으면 ×1.8/없으면 ×0.8",
+                desc = "스핀+1 · ⭐👑🌀 있으면 ×1.8 / 없으면 ×0.8",
                 bonusSpins = 1, quotaMul = 1.0,
                 counterTags = new[] { "⭐👑🌀 등장↑", "🔮예언·🎲올인" },
             },
             new Boss
             {
                 id = "grad", emoji = "🎓", name = "졸업심사",
-                desc = "스핀+1·요구↑↑ (빡센 관문)",
+                desc = "스핀+1 · 요구치 ×1.15 (빡센 관문)",
                 bonusSpins = 1, quotaMul = 1.15,
                 counterTags = new[] { "EXP 총량(과부하·탐욕)", "🚑응급처치·아이템" },
             },

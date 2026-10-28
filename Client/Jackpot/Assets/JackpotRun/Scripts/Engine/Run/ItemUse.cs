@@ -196,6 +196,7 @@ namespace JackpotRun.Engine
             run.LastGain = retakeGained;
             run.LastScoreGain = res2.score;
             run.LastCoinGain = res2.coins;
+            run.FlameNext = res2.flameNext;   // 웹 _freeReroll(): `r.flameNext = res.hasFlame`
 
             var outcome = new SpinOutcome
             {

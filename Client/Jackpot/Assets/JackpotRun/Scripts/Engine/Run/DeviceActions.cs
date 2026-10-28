@@ -252,7 +252,7 @@ namespace JackpotRun.Engine
 
             // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): hasPrism/capMul(총배율 캡) 제거 — 웹 engine.js에는
             // 해당 캡이 없다. Evaluate/ApplyBoss 시그니처도 이에 맞춰 축소됨(SpinResolver.cs 주석 참조).
-            var res = SpinResolver.Evaluate(run.Rng, raw, mods, run.LastSpinNo, spins, false);
+            var res = SpinResolver.Evaluate(run.Rng, raw, mods, run.LastSpinNo, spins, run.FlameNext);   // 웹 manip(): evaluate(…, r.flameNext) — 불꽃 여파 그대로(2026-10-28 U1 후속)
             long gained = res.exp;
             var boss = Bosses.For(run.Stage);
             if (boss != null)
@@ -283,6 +283,7 @@ namespace JackpotRun.Engine
             run.LastGain = gained;
             run.LastScoreGain = res.score;
             run.LastCoinGain = res.coins;
+            run.FlameNext = res.flameNext;   // 웹 manip(): `r.flameNext = res.hasFlame` — 조작/재굴림 결과의 불꽃이 다음 스핀 -50% 를 예약
             run.RunSet4 = Math.Max(run.RunSet4 - run.LastSet4 + manipSet4, 0);
             run.RunAdjPairs = Math.Max(run.RunAdjPairs - run.LastAdjPairs + manipAdj, 0);
             run.LastSet4 = manipSet4;
@@ -350,7 +351,7 @@ namespace JackpotRun.Engine
 
             // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): hasPrism/capMul(총배율 캡) 제거 — 웹 engine.js에는
             // 해당 캡이 없다. Evaluate/ApplyBoss 시그니처도 이에 맞춰 축소됨(SpinResolver.cs 주석 참조).
-            var res = SpinResolver.Evaluate(run.Rng, raw, mods, run.LastSpinNo, spins, false);
+            var res = SpinResolver.Evaluate(run.Rng, raw, mods, run.LastSpinNo, spins, run.FlameNext);   // 웹 manip(): evaluate(…, r.flameNext) — 불꽃 여파 그대로(2026-10-28 U1 후속)
             long gained = res.exp;
             var boss = Bosses.For(run.Stage);
             if (boss != null)
@@ -381,6 +382,7 @@ namespace JackpotRun.Engine
             run.LastGain = gained;
             run.LastScoreGain = res.score;
             run.LastCoinGain = res.coins;
+            run.FlameNext = res.flameNext;   // 웹 manip(): `r.flameNext = res.hasFlame` — 조작/재굴림 결과의 불꽃이 다음 스핀 -50% 를 예약
             run.RunSet4 = Math.Max(run.RunSet4 - run.LastSet4 + rrSet4, 0);
             run.RunAdjPairs = Math.Max(run.RunAdjPairs - run.LastAdjPairs + rrAdj, 0);
             run.LastSet4 = rrSet4;

@@ -1217,7 +1217,7 @@ namespace JackpotRun.Engine
                 bestSetCount = bestCount,
                 setIds = setIds,
                 skulls = skulls,
-                flameNext = false,
+                flameNext = anyFlame, // 웹 engine.js:1036 hasFlame — 직전 스핀에 불꽃이 있었으면 다음 스핀 EXP -50%(flamePenalty). 재미 개편 U1 후속 2026-10-28 웹 파리티 복원
                 seedNext = anySeed,
                 jackpotSym = jackpotSym,
                 notes = notes,
@@ -1531,6 +1531,10 @@ namespace JackpotRun.Engine
             HoldFlow.SnapshotRaw(run, raw);
             ApplyCellOps(raw, arm, run.Rng);
 
+            // 웹 spin() 순서(game.js ~949, e6bde8d 이후 정본): pendingNextExpMul(코인투입 등 "다음 스핀 EXP ×N")은 굴림 전
+            // mods.expMul 에 곱해져 evaluate 안의 전역배수로 들어간다 — 옛 C#(Kotlin 유래)은 특수스핀·보스 뒤에 gained 에 사후
+            // 곱했다(재배치 2026-10-28, WEB_PARITY §2-(JJ)). 소비(1.0 리셋)는 아래 상태 반영부(거부 경로가 없어 동치).
+            if (run.PendingNextExpMul != 1.0) mods.expMul *= run.PendingNextExpMul;
             var res = Evaluate(run.Rng, raw, mods, run.SpinIndex, spins, run.FlameNext);
             // 웹 파리티 P7-3b — 🌀운명의소용돌이(FATEVORTEX·fuse) 런 1회: 2번째 굴림을 수행해
             // 더 좋은 결과 채택(웹 game.js:907-916). [웹 quirk 재현] 웹 원문의 `!r.lockedNext` 가드는
@@ -1570,46 +1574,10 @@ namespace JackpotRun.Engine
             var outcomeNotes = new List<string>(res.notes);
             bool prayMiracle = false;
 
-            switch (mode)
-            {
-                case SpinMode.Focus:
-                {
-                    // 재미 개편 R6: 하한 보장 페이스 ×0.6 → ×0.8 (웹 applySpecialSpin FOCUS: mulFloor(per, FOCUS_FLOOR)).
-                    long floor = Formulas.MulFloor(quota / (double)spins, Formulas.FOCUS_FLOOR);
-                    if (gained < floor) { gained = floor; outcomeNotes.Add("🎯집중 — 최소 보장"); }
-                    else outcomeNotes.Add("🎯집중(안정)");
-                    // R6: 집중 발동 시 홀드 충전 +1(일반 모드). 홀드를 같이 쓴 스핀이면 (소모 -1) 뒤의 +1 이라 충전이 유지된다.
-                    if (!run.DeepMode) { run.HoldCharges += 1; outcomeNotes.Add("🎯 집중 — 홀드 +1"); }
-                    break;
-                }
-                case SpinMode.Allin:
-                    // 재미 개편 R6: 올인 EXP ×2 → ×2.5(내림), 해골 2개↑ 실패 → 1개라도 나오면 실패(EXP 0).
-                    if (res.skulls >= Formulas.ALLIN_FAIL_SKULLS) { gained = 0; outcomeNotes.Add("🎲올인 실패! EXP 0 (해골 1개↑)"); }
-                    else { gained = Formulas.MulFloor(gained, Formulas.ALLIN_MUL); outcomeNotes.Add("🎲올인 성공! EXP ×" + FmtMul(Formulas.ALLIN_MUL)); }
-                    break;
-                case SpinMode.Pray:
-                {
-                    long low = (long)(quota / (double)spins * 0.5);
-                    if (run.Rng.Next(100) < 8) { gained *= 3; outcomeNotes.Add("🙏✨ 기적! EXP ×3"); prayMiracle = true; }
-                    else if (gained < low) { gained += 25; outcomeNotes.Add("🙏기도 — 불운보정 +25"); }
-                    else outcomeNotes.Add("🙏기도");
-                    break;
-                }
-                case SpinMode.Last:
-                    gained = (long)(gained * 1.75);
-                    outcomeNotes.Add("⏰최후 EXP ×1.75");
-                    break;
-            }
-            // WEB_PARITY P1 ①: 무료 발동 배너(웹 game.js:1141 "🆓첫 사용 무료") — astral 이모지 금지,
-            // 한글만(uGUI Text 렌더 제약, 이 파일 CLAUDE.md 지시).
-            if (isFreeUse) outcomeNotes.Add("첫 사용 무료");
+            if (run.PendingNextExpMul != 1.0) outcomeNotes.Add($"🪙다음스핀 ×{FmtMul(run.PendingNextExpMul)}");   // 이미 위에서 mods.expMul 에 반영됨(표시용)
 
-            if (run.PendingNextExpMul != 1.0)
-            {
-                gained = (long)(gained * run.PendingNextExpMul);
-                outcomeNotes.Add($"🪙다음스핀 ×{FmtMul(run.PendingNextExpMul)}");
-            }
-
+            // 후처리 순서 = 웹 spin() 정본: 보스(applyBossExp) → 특수스핀(applySpecialSpin) → dev_safe 하한 → 피버 → (빅윈 티어).
+            // 옛 C# 은 특수스핀 → 다음스핀 배율 → 보스 순(Kotlin 유래)이라 같은 칸에서 EXP 가 웹과 갈렸다(재배치 2026-10-28).
             var boss = Bosses.For(run.Stage);
             if (boss != null)
             {
@@ -1637,6 +1605,40 @@ namespace JackpotRun.Engine
                 }
             }
 
+            switch (mode)
+            {
+                case SpinMode.Focus:
+                {
+                    // 재미 개편 R6: 하한 보장 페이스 ×0.6 → ×0.8 (웹 applySpecialSpin FOCUS: mulFloor(per, FOCUS_FLOOR)).
+                    long floor = Formulas.MulFloor(quota / (double)spins, Formulas.FOCUS_FLOOR);
+                    if (gained < floor) { gained = floor; outcomeNotes.Add("🎯집중 — 최소 보장"); }
+                    else outcomeNotes.Add("🎯집중(안정)");
+                    // R6: 집중 발동 시 홀드 충전 +1(일반 모드). 홀드를 같이 쓴 스핀이면 (소모 -1) 뒤의 +1 이라 충전이 유지된다.
+                    if (!run.DeepMode) { run.HoldCharges += 1; outcomeNotes.Add("🎯 집중 — 홀드 +1"); }
+                    break;
+                }
+                case SpinMode.Allin:
+                    // 재미 개편 R6: 올인 EXP ×2 → ×2.5(내림), 해골 2개↑ 실패 → 1개라도 나오면 실패(EXP 0).
+                    if (res.skulls >= Formulas.ALLIN_FAIL_SKULLS) { gained = 0; outcomeNotes.Add("🎲올인 실패! EXP 0 (해골 1개↑)"); }
+                    else { gained = Formulas.MulFloor(gained, Formulas.ALLIN_MUL); outcomeNotes.Add("🎲올인 성공! EXP ×" + FmtMul(Formulas.ALLIN_MUL)); }
+                    break;
+                case SpinMode.Pray:
+                {
+                    // 웹 applySpecialSpin PRAY: 불운 보정 임계는 페이스(quota/spins) 전체 — `exp < per`(옛 C# Kotlin 유래 ×0.5 폐기, 2026-10-28).
+                    double pace = quota / (double)spins;
+                    if (run.Rng.Next(100) < 8) { gained *= 3; outcomeNotes.Add("🙏✨ 기적! EXP ×3"); prayMiracle = true; }
+                    else if (gained < pace) { gained += 25; outcomeNotes.Add("🙏기도 — 불운보정 +25"); }
+                    else outcomeNotes.Add("🙏기도");
+                    break;
+                }
+                case SpinMode.Last:
+                    gained = (long)(gained * 1.75);
+                    outcomeNotes.Add("⏰최후 EXP ×1.75");
+                    break;
+            }
+            // WEB_PARITY P1 ①: 무료 발동 배너(웹 game.js:1141 "🆓첫 사용 무료") — astral 이모지 금지,
+            // 한글만(uGUI Text 렌더 제약, 이 파일 CLAUDE.md 지시).
+            if (isFreeUse) outcomeNotes.Add("첫 사용 무료");
             if (devEq != null && devEq.id == "dev_safe")
             {
                 long fl = (long)(quota / (double)spins * 0.35);
