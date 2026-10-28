@@ -59,6 +59,11 @@ namespace JackpotRun.UI2
 
         private Coroutine _routine;
 
+        // 재미 개편 F6(앵콜) — 카드 스택(cardsContent) 맨 위에 코드로 얹는 앵콜 박스(씬 리빌드 불필요). 심화 런/앵콜 불가면 숨는다.
+        private EncoreBoxView _encoreBox;
+        private GameSession _session;
+        private RunState _run;
+
         private void Awake()
         {
             if (cardTemplate != null) cardTemplate.gameObject.SetActive(false);
@@ -73,17 +78,21 @@ namespace JackpotRun.UI2
         // onShake — 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) stageClearFx의 화면 흔들림 escalation.
         // NodePanel은 ReelView를 직접 참조하지 않으므로(컴포넌트 분리 유지) RunView가 배너 연출과 같은
         // 타이밍에 재생되도록 콜백으로 넘긴다(clear.gradeTier 인자로 즉시 호출).
-        public void Show(ClearOutcome clear, RunState run, Action<int> onChoose, Action<int> onShake = null)
+        public void Show(ClearOutcome clear, RunState run, Action<int> onChoose, Action<int> onShake = null, GameSession session = null)
         {
             bool firstShow = !gameObject.activeSelf;
             gameObject.SetActive(true);
+            _session = session;
+            _run = run;
             BuildCards(run, onChoose);
+            SyncEncore(firstShow);
             // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — 매번 접힌 상태로 다시 연다(웹도 매 클리어
             // 화면 진입마다 cb-calc가 display:none으로 새로 렌더됨, ui.js:1671).
             _detailExpanded = false;
             if (detailRowsRoot != null) detailRowsRoot.gameObject.SetActive(false);
             if (detailToggleLabel != null) detailToggleLabel.text = "▼ 점수 상세";
             BuildClearDetail(clear, run);
+            RefreshTotalScore();
 
             if (_routine != null) StopCoroutine(_routine);
             if (firstShow) _routine = StartCoroutine(EnterRoutine(clear, onShake));
@@ -101,6 +110,47 @@ namespace JackpotRun.UI2
         {
             if (_routine != null) { StopCoroutine(_routine); _routine = null; }
             gameObject.SetActive(false);
+            if (_encoreBox != null) _encoreBox.ResetForNewClear();   // 닫히면 앵콜 결과 표시/연출 상태를 비운다(다음 클리어에 새로 시작)
+        }
+
+        // ── 재미 개편 F6: 앵콜 박스 ──────────────────────────────────────────────────
+        // 앵콜 창 = NodeSelect 페이즈 && Encore.available(또는 진행 중/방금 끝난 결과). 심화(Encore==null)이거나 세션이 없으면 숨긴다.
+        // 노드 카드를 고르면 진행 중인 앵콜은 엔진이 먼저 자동 정산하므로(ENCORE_SETTLED) 정산 버튼은 박스 안에서 active 일 때만 보인다.
+        private void SyncEncore(bool firstShow)
+        {
+            if (_session == null || cardsContent == null) { if (_encoreBox != null) _encoreBox.gameObject.SetActive(false); return; }
+            if (_encoreBox == null)
+            {
+                _encoreBox = EncoreBoxView.Create(cardsContent);
+                if (_encoreBox == null) return;
+            }
+            if (firstShow) _encoreBox.ResetForNewClear();
+            _encoreBox.Bind(_session, RefreshTotalScore, OnEncoreBusy);
+            _encoreBox.transform.SetAsFirstSibling();
+            _encoreBox.Refresh();
+        }
+
+        // 연출 중에는 노드 카드 입력을 막는다 — 앵콜 스핀 결과는 이미 확정돼 있지만, 굴림 도중 노드를 고르면 박스가 통째로 사라져 어색하다.
+        private void OnEncoreBusy(bool busy)
+        {
+            if (cardsContent == null) return;
+            for (int i = 0; i < cardsContent.childCount; i++)
+            {
+                var child = cardsContent.GetChild(i);
+                if (_encoreBox != null && child == _encoreBox.transform) continue;
+                var btn = child.GetComponent<Button>();
+                if (btn != null) btn.interactable = !busy;
+            }
+        }
+
+        // 누적 총점수 라벨 — 앵콜 진행 중엔 팟(정산 시 가산)을 함께 보여 준다. 앵콜 스핀 시작 시 판돈이 점수에서 빠지므로(EncoreFlow.Spin)
+        // 라벨이 실제 점수를 따라가야 한다.
+        private void RefreshTotalScore()
+        {
+            if (totalScoreText == null || _run == null) return;
+            var enc = _session != null ? _session.Controller.Encore : null;
+            string extra = (enc != null && enc.active) ? $"  (+팟 {NumberFormat.Comma(enc.pot)})" : "";
+            totalScoreText.text = $"누적 총점수 {NumberFormat.Comma(_run.Score)}{extra}";
         }
 
         private void SnapToRest()
@@ -341,6 +391,7 @@ namespace JackpotRun.UI2
             {
                 var child = cardsContent.GetChild(i);
                 if (child == cardTemplate) continue;
+                if (_encoreBox != null && child == _encoreBox.transform) continue;   // 앵콜 박스는 노드 카드가 아니다 — 보존
                 Destroy(child.gameObject);
             }
 
@@ -362,7 +413,8 @@ namespace JackpotRun.UI2
                 if (btn != null)
                 {
                     btn.onClick.RemoveAllListeners();
-                    btn.onClick.AddListener(() => onChoose(idx));
+                    // 앵콜 굴림 연출 중에는 노드 선택을 무시한다(OnEncoreBusy 가 버튼을 잠그지만 방어적으로 한 번 더).
+                    btn.onClick.AddListener(() => { if (_encoreBox != null && _encoreBox.Busy) return; onChoose(idx); });
                 }
             }
         }

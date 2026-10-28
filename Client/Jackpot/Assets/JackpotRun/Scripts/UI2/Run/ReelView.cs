@@ -53,6 +53,12 @@ namespace JackpotRun.UI2
     // FxId.SetHit, 4매치 FxId.Converge(수렴), 잭팟 시 FxId.Jackpot+FxId.JackpotRays, 해골 칸 FxId.Skull.
     // FxKit.I가 null이면(프리팹 미로드 등) 전부 조용히 무시한다.
     //
+    // 재미 개편(FUN_OVERHAUL_DESIGN F1·F4·F5·F7) — ① 홀드: 칸마다 코드 생성 오버레이(청록 틴트+프레임 발광+자물쇠 배지)를 얹고
+    // (SetHeld), 스핀 때 홀드된 칸(SpinOutcome.holdUsed)은 스트립을 돌리지 않고 제자리에서 직전 심볼로 고정한다. 칸 탭/롱프레스는
+    // CellPressHandler 가 구분한다(탭=RunView 가 홀드 토글 또는 셀 정보, 롱프레스=셀 정보). ② 빅윈: PostRevealFx 끝에 티어별
+    // 셰이크·플래시·FxKit 파티클·사운드·진동을 얹는다(배너는 RunView 의 RunFxLayer). ③ 피버: 피버 중 릴 프레임 금빛 발광+불꽃 루프
+    // (SetFeverFrame). ④ 기대감 기준 같은 값심볼 2→3개(웹 2026-10-28 동일 변경 — 2개는 스핀 절반에서 떠 긴장감이 흐려졌다).
+    //
     // S14 §G — Time.timeScale 조작은 JackpotSlowMoRoutine 1곳뿐(try/finally 복구). 모든 화면 셰이크는
     // reelRow/셀 개별이 아니라 runScreenRoot(RunScreen 루트, RunView가 자기 자신의 RectTransform을
     // 넘긴다)에만 적용한다 — PlayScreenShake가 이전 셰이크를 취소하고 원점(0,0)으로 스냅한 뒤 새로
@@ -201,6 +207,15 @@ namespace JackpotRun.UI2
 
         public void SetCellTapHandler(Action<int> handler) => _cellTapHandler = handler;
 
+        // 재미 개편 F4 — 롱프레스(0.45s) = 셀 정보(홀드 가능 상태에서 탭은 홀드 토글이라 정보 진입이 롱프레스로 옮겨 간다).
+        private Action<int> _cellLongPressHandler;
+
+        public void SetCellLongPressHandler(Action<int> handler) => _cellLongPressHandler = handler;
+
+        /// <summary>지금 셀이 만들어져 있는가(홀드 선택에는 직전 스핀 결과가 화면에 남아 있어야 한다 — RunView 가 불필요한 ShowIdle 을 건너뛰는 근거).</summary>
+        public bool HasCells => _cells.Count > 0;
+        public int CellCount => _cells.Count;
+
         private sealed class SlotView
         {
             public RectTransform rt;
@@ -216,6 +231,10 @@ namespace JackpotRun.UI2
             public Image streak;          // S14 §B — 최고속 모션 스트릭 오버레이(w_streak, 평소 알파 0)
             public Outline glow;          // 매치 글로우(테두리 Outline과 별개 — GetComponents<Outline>()[1])
             public string lastSymId;      // 마지막으로 중앙에 착지한 심볼 id — 세트 글로우 매칭용
+            public CanvasGroup holdGroup; // F4 홀드 오버레이(틴트+프레임 발광+자물쇠 배지) — 평소 알파 0
+            public RectTransform holdBadge; // 자물쇠 배지(켜질 때 팝)
+            public Coroutine holdFade;    // 스핀 후 홀드 표시 소등 페이드
+            public bool holdOn;           // 오버레이가 켜져 있는가
 
             public Image CenterIcon => slots != null && slots.Length > 2 ? slots[2].icon : null;
         }
@@ -239,6 +258,7 @@ namespace JackpotRun.UI2
         {
             StopAllCoroutines();
             _screenShakeRoutine = null;
+            ResetFeverFrame();
             for (int i = _cells.Count - 1; i >= 0; i--)
                 if (_cells[i].rt != null) Destroy(_cells[i].rt.gameObject);
             _cells.Clear();
@@ -270,7 +290,7 @@ namespace JackpotRun.UI2
         /// 재생한다. onCellsRevealed는 마지막 셀이 멈춘 직후(후처리 FX 시작 전) 호출된다 — RunView가
         /// 이 시점에 HUD EXP 카운트업/코인·점수 플로팅 텍스트를 동시에 시작한다(설계 "정지 후 획득
         /// 라인 표시").</summary>
-        public IEnumerator PlaySpinRoutine(SpinResult result, Action onCellsRevealed)
+        public IEnumerator PlaySpinRoutine(SpinResult result, Action onCellsRevealed, IReadOnlyList<int> heldCells = null, int bigWinTier = 0)
         {
             if (result == null || result.cells == null)
             {
@@ -280,24 +300,45 @@ namespace JackpotRun.UI2
 
             EnsureCellCount(result.cells.Count);
 
+            // S16 §B — 릴은 최종 결과(cells)가 아니라 원시 착지 심볼(rawCells)로 멈춘다(폭탄💥/자석🧲
+            // 등 Evaluate 내부 변형 이전 상태 — null이면 기존대로 cells, 방어).
+            IReadOnlyList<Cell> landingCells = result.rawCells ?? result.cells;
+
+            // F4 홀드 — 직전 스핀의 심볼을 유지하는 칸은 돌리지 않는다: 새로 만든 칸에 지금 착지 심볼을 미리 세워 두고
+            // 오버레이(자물쇠)를 켠 채로 두었다가, 다른 칸이 다 멈춘 뒤 한 번 번쩍이며 해제한다(웹 holdKeepReel).
+            HashSet<int> held = null;
+            if (heldCells != null && heldCells.Count > 0)
+            {
+                held = new HashSet<int>();
+                for (int k = 0; k < heldCells.Count; k++)
+                {
+                    int hi = heldCells[k];
+                    if (hi >= 0 && hi < _cells.Count && hi < landingCells.Count) held.Add(hi);
+                }
+                if (held.Count == 0) held = null;
+                else foreach (int hi in held) PrepareHeldCell(_cells[hi], landingCells[hi]);
+            }
+
             // S14 §B — 차징: 릴 전체가 위로 반동했다 낙하하며 스핀이 시작된다(스핀 버튼 스쿼시는
-            // RunView가 버튼 자신에 대해 동시에 재생한다).
-            yield return ChargeRoutine();
+            // RunView가 버튼 자신에 대해 동시에 재생한다). 홀드 칸은 제자리.
+            yield return ChargeRoutine(held);
 
             DetectNearMiss(result, out bool isNearMiss, out SymInfo nearMissSym);
             bool isAnticipation = DetectAnticipation(result);
 
-            // S16 §B — 릴은 최종 결과(cells)가 아니라 원시 착지 심볼(rawCells)로 멈춘다(폭탄💥/자석🧲
-            // 등 Evaluate 내부 변형 이전 상태 — null이면 기존대로 cells, 방어). 니어미스/기대감 감지는
-            // 위에서 이미 최종 결과(result.cells) 기준으로 끝났다(변경 없음, 설계 그대로).
-            IReadOnlyList<Cell> landingCells = result.rawCells ?? result.cells;
-
             // ── 릴별 정지 타이밍: 왼쪽부터 0.10s 스태거(설계 명시), 가속(0.25s)+최소 유지(0.35s,
             // 설계 미명시 기본값) 이후 순서대로 멈춘다. 니어미스/기대감은 "마지막 릴"에만 적용(설계 그대로).
+            // 마지막 릴이 홀드면 돌지 않으므로 연출 없음(웹 planReelFx).
             int lastIdx = result.cells.Count - 1;
+            if (held != null && held.Contains(lastIdx)) { isNearMiss = false; isAnticipation = false; }
             var routines = new Coroutine[_cells.Count];
             for (int i = 0; i < _cells.Count && i < landingCells.Count; i++)
             {
+                if (held != null && held.Contains(i))
+                {
+                    routines[i] = StartCoroutine(HoldKeepCell(_cells[i], landingCells[i]));
+                    continue;
+                }
                 float stopDelay = AccelDuration + BaseSpinHold + i * StaggerDelay;
                 bool nearMissHere = isNearMiss && i == lastIdx;
                 bool anticipationHere = isAnticipation && i == lastIdx;
@@ -310,24 +351,45 @@ namespace JackpotRun.UI2
             // 끼우는 변형 공개 패스. 변형이 없으면(대부분의 스핀) 즉시 반환 — 추가 지연 0.
             yield return TransformRevealRoutine(result);
 
+            // F4: 잠금 표시 해제(번쩍이며 사라짐) — 결과 공개 직전.
+            if (held != null) foreach (int hi in held) ReleaseHeldCell(_cells[hi]);
+
             onCellsRevealed?.Invoke();
 
-            // ── 세트/잭팟/해골 FX ───────────────────────────────────────────────────────
-            yield return PostRevealFx(result);
+            // ── 세트/잭팟/해골/빅윈 FX ──────────────────────────────────────────────────
+            yield return PostRevealFx(result, bigWinTier);
+        }
+
+        // F4 — 홀드 칸 사전 배치: 중앙 슬롯에 이번 착지 심볼(=직전 raw)을 세우고 이웃은 임의 심볼로 채운 뒤 오버레이를 켠다.
+        private void PrepareHeldCell(CellView cv, Cell landing)
+        {
+            if (cv?.slots == null || landing?.sym == null) return;
+            for (int k = 0; k < cv.slots.Length; k++)
+                SetSlotSymbol(cv.slots[k], k == 2 ? landing.sym : RandomSymbol(), k == 2 ? landing.tag : "");
+            ApplyRestDimming(cv);
+            cv.lastSymId = landing.sym.id;
+            SetHoldVisual(cv, true, pop: false);
+        }
+
+        // F4 — 홀드 칸은 회전 없이 즉시 끝난다(착지음/먼지 FX 도 없다 — 돌지 않았으므로).
+        private IEnumerator HoldKeepCell(CellView cv, Cell landing)
+        {
+            yield break;
         }
 
         // S14 §B — 차징: 모든 셀의 Strip을 동시에 위로 12px 반동시켰다 낙하 복귀시킨다(스크롤 노치와
         // 동일한 Strip.anchoredPosition을 잠깐 빌려 쓰고, 끝나면 정확히 0으로 되돌리므로 이어지는
         // AdvanceNotch 시퀀스와 충돌하지 않는다). reelRow는 HorizontalLayoutGroup 자식이라
         // anchoredPosition을 레이아웃이 되돌릴 수 있어 셀(cv.rt)이 아니라 Strip에 적용한다.
-        private IEnumerator ChargeRoutine()
+        private IEnumerator ChargeRoutine(HashSet<int> skip = null)
         {
             if (_cells.Count == 0) yield break;
-            yield return AnimateAllStripsY(0f, ChargeUpDistance, ChargeUpDuration, UiTween.Ease.OutBack);
-            yield return AnimateAllStripsY(ChargeUpDistance, 0f, ChargeFallDuration, UiTween.Ease.OutQuad);
+            yield return AnimateAllStripsY(0f, ChargeUpDistance, ChargeUpDuration, UiTween.Ease.OutBack, skip);
+            yield return AnimateAllStripsY(ChargeUpDistance, 0f, ChargeFallDuration, UiTween.Ease.OutQuad, skip);
         }
 
-        private IEnumerator AnimateAllStripsY(float from, float to, float duration, UiTween.Ease ease)
+        // skip: 홀드 칸 인덱스 — 반동 없이 제자리를 지킨다.
+        private IEnumerator AnimateAllStripsY(float from, float to, float duration, UiTween.Ease ease, HashSet<int> skip = null)
         {
             float t = 0f;
             while (t < duration)
@@ -336,6 +398,7 @@ namespace JackpotRun.UI2
                 float y = Mathf.LerpUnclamped(from, to, UiTween.Apply(ease, t / duration));
                 for (int i = 0; i < _cells.Count; i++)
                 {
+                    if (skip != null && skip.Contains(i)) continue;
                     var strip = _cells[i]?.strip;
                     if (strip != null) strip.anchoredPosition = new Vector2(0f, y);
                 }
@@ -343,6 +406,7 @@ namespace JackpotRun.UI2
             }
             for (int i = 0; i < _cells.Count; i++)
             {
+                if (skip != null && skip.Contains(i)) continue;
                 var strip = _cells[i]?.strip;
                 if (strip != null) strip.anchoredPosition = new Vector2(0f, to);
             }
@@ -383,34 +447,38 @@ namespace JackpotRun.UI2
                 if (kv.Value > bestCount) { bestCount = kv.Value; bestId = kv.Key; }
         }
 
-        // ── S14 §B 기대감(anticipation) 판정 — "정지 순서상 남은 릴이 1개이고 이미 2개 이상 같은
-        // 심볼"이면(마지막 릴 기준) 결과가 실제로 세트를 완성하는지와 무관하게 트리거된다(니어미스와
-        // 달리 "완성되는 경우"도 포함 — 서스펜스는 결과와 무관하게 쌓인다). 니어미스 트리거 조건은
-        // 이 조건의 부분집합(+ 실제로는 미완성이어야 함)이라 항상 함께 검사해도 모순이 없다.
+        // ── S14 §B 기대감(anticipation) 판정 — "정지 순서상 남은 릴이 1개이고 이미 같은 심볼 3개 이상"
+        // (마지막 릴을 뺀 앞 칸 기준)이면 결과가 실제로 세트를 완성하는지와 무관하게 트리거된다(니어미스와
+        // 달리 "완성되는 경우"도 포함 — 서스펜스는 결과와 무관하게 쌓인다).
+        // 재미 개편 F7(웹 ui.js ANTIC_MIN, 2026-10-28 리드 결정): 기준을 2→3개로 올렸다 — 2개 기준은 스핀의 절반에서 떠
+        // 긴장감이 흐려졌다. 니어미스(DetectNearMiss)도 같은 3개 기준 위에서 "4매치 실패"로 맞춰 다시 기대감의 부분집합이 된다.
+        private const int AnticipationMinCount = 3;
+
         private static bool DetectAnticipation(SpinResult result)
         {
             int lastIdx = result.cells.Count - 1;
             if (lastIdx < 1) return false;
             FindDominantValueSymbol(result, lastIdx, out _, out int bestCount);
-            return bestCount >= 2;
+            return bestCount >= AnticipationMinCount;
         }
 
         // ── 니어미스 판정(설계 D "니어미스" — 뷰 계층에서만 수행, 엔진 결과 불변) ──────────────────
-        // 결과가 세트를 완성하지 못했는데(bestSetCount<3) 마지막 릴을 제외한 칸들 중 어떤 "세트
-        // 가능" 심볼이 정확히 2번 등장했다면(한 칸만 더 있었으면 세트 완성) 그 심볼을 "니어미스
-        // 후보"로 삼는다.
+        // 재미 개편 F7(웹 ui.js planReelFx, 2026-10-28 리드 결정): 기대감 조건(마지막 릴을 뺀 앞 칸에 "세트 가능" 같은 값심볼 3개↑)
+        // + 최종 결과가 4매치 미만(bestSetCount < AnticipationMinCount+1 — 한 칸만 더 맞았으면 4매치였다) + 마지막 릴 결과가 그
+        // 심볼이 아니면 그 심볼을 "니어미스 후보"로 삼는다. (기존 "앞 2개 + 결과 3매치 미만"은 기대감 기준을 3개로 올리면서
+        // 기대감과 동시에 성립할 수 없게 돼 니어미스가 영영 안 뜨므로 4매치 실패 기준으로 옮겼다.)
         private static void DetectNearMiss(SpinResult result, out bool isNearMiss, out SymInfo nearMissSym)
         {
             isNearMiss = false;
             nearMissSym = null;
 
             int lastIdx = result.cells.Count - 1;
-            if (lastIdx < 1 || result.bestSetCount >= 3) return;
+            if (lastIdx < 1 || result.bestSetCount >= AnticipationMinCount + 1) return;
 
             FindDominantValueSymbol(result, lastIdx, out string bestId, out int bestCount);
-            if (bestCount < 2 || bestId == null) return;
+            if (bestCount < AnticipationMinCount || bestId == null) return;
             string lastSymId = result.cells[lastIdx]?.sym?.id;
-            if (bestId == lastSymId) return; // 이미 세트가 완성됐을 상황(전제와 모순) — 방어적 가드
+            if (bestId == lastSymId) return; // 마지막 릴이 같은 심볼이면 니어미스가 아니다(4매치가 이뤄진 경우 등) — 방어적 가드
 
             var candidate = Symbols.ById(bestId);
             if (candidate == null) return;
@@ -675,7 +743,8 @@ namespace JackpotRun.UI2
             if (cv.glow == null) yield break;
             // 니어미스는 실제 매치가 아니므로 글로우를 원상복구한다(대개 disabled) — 실제 매치 처리는
             // 이 루틴이 끝난 뒤 PostRevealFx/GlowMatchingCells가 별도로 담당(둘이 겹칠 일은 없다 —
-            // 니어미스는 bestSetCount<3일 때만 발생하므로).
+            // 이 플래시는 마지막 릴이 멈추기 전(감속 2번째 노치)에 끝나고, 셋 글로우는 전 릴 정지 후이며 마지막 칸은 그 심볼이 아니다.
+            // F7 이후 니어미스는 3매치 결과와 함께 날 수 있다 — 3개는 글로우, 빗나간 마지막 칸만 회색으로 가라앉는다).
             cv.glow.effectColor = prevColor;
             cv.glow.enabled = wasEnabled;
         }
@@ -779,7 +848,7 @@ namespace JackpotRun.UI2
 
         // S14 §C — 결과 연출 단계별(2/3/4/5매치+잭팟). 잭팟(전칸)이 최우선이고, 그 다음 4/3매치
         // 순서로 배타적으로 처리한다(2매치는 3+가 아닐 때만 — TryPairAccent가 자체 가드).
-        private IEnumerator PostRevealFx(SpinResult result)
+        private IEnumerator PostRevealFx(SpinResult result, int bigWinTier = 0)
         {
             bool jackpot = !string.IsNullOrEmpty(result.jackpotSym);
             int matchCount = result.bestSetCount;
@@ -817,7 +886,9 @@ namespace JackpotRun.UI2
             // 웹 파리티 P5(웹 ui.js:368-369 그대로) — 잭팟이면 잭팟음만, 아니면 bestCount>=3(세트
             // 성립, matchCount 3/4 둘 다 hasSet==true라 한 번에 커버)일 때만 win. 2매치 이하는 무음
             // (TryPairAccent는 시각 연출만 — 웹도 2매치엔 sfx가 없다).
+            // 재미 개편 F1: 빅윈 티어가 있으면 티어 사운드가 일반 승리음을 대체한다(웹 doSpin 분기 — 잭팟이 최우선이라 중복 금지).
             if (jackpot) SoundKit.Sfx("jackpot");
+            else if (bigWinTier > 0) SoundKit.Sfx("bigwin" + Mathf.Clamp(bigWinTier, 1, 3));
             else if (hasSet) SoundKit.Sfx("win");
 
             if (jackpot)
@@ -839,6 +910,39 @@ namespace JackpotRun.UI2
             }
 
             if (result.skulls > 0) PlaySkullFx(result.cells);
+
+            // 재미 개편 F1: 빅윈 티어별 셰이크·플래시·파티클·진동 — 세트 연출 위에 얹되 입력을 더 막지 않도록 비동기로 발사한다.
+            // 잭팟은 위에서 이미 최상위 연출을 했으므로 건너뛴다(중복 금지). 마지막에 호출해 해골 셰이크보다 우선한다.
+            if (!jackpot && bigWinTier > 0) PlayBigWinImpact(bigWinTier);
+        }
+
+        // ── F1 빅윈 임팩트(티어 1=NICE 2=BIG 3=MEGA) — 웹 BIGWIN 표(shake sm/bg/xl, 파티클 10/24/48, vib 18/[30,40,50]/[40,40,60,40,140]) ──
+        private static readonly int[] BigWinVibe1 = { 18 };
+        private static readonly int[] BigWinVibe2 = { 30, 40, 50 };
+        private static readonly int[] BigWinVibe3 = { 40, 40, 60, 40, 140 };
+        private static readonly int[] ConfettiByBigWinTier = { 0, 2, 4 };   // index = tier-1 (NICE 는 CoinSpark 만)
+        private const float BigWinFlashAlphaBig = 0.08f;
+        private const float BigWinFlashAlphaMega = 0.18f;
+
+        private void PlayBigWinImpact(int tier)
+        {
+            tier = Mathf.Clamp(tier, 1, 3);
+            PlayClearShake(tier == 3 ? 5 : tier == 2 ? 3 : 1);   // 클리어 등급 셰이크 눈금 재사용: sm / bg / xl(+2차)
+            if (flashOverlay != null && tier >= 2) StartCoroutine(FlashRoutine(tier == 3 ? BigWinFlashAlphaMega : BigWinFlashAlphaBig));
+            FxKit.I?.Play(FxId.RisingLight, reelRow);
+            if (tier == 1) FxKit.I?.Play(FxId.CoinSpark, reelRow);
+            int bursts = ConfettiByBigWinTier[tier - 1];
+            if (bursts > 0) StartCoroutine(BigWinConfettiRoutine(bursts));
+            StartCoroutine(FunHaptics.Routine(tier == 3 ? BigWinVibe3 : tier == 2 ? BigWinVibe2 : BigWinVibe1));
+        }
+
+        private IEnumerator BigWinConfettiRoutine(int bursts)
+        {
+            for (int i = 0; i < bursts; i++)
+            {
+                FxKit.I?.Play(FxId.Clear, reelRow);
+                if (i < bursts - 1) yield return new WaitForSeconds(0.08f);
+            }
         }
 
         // S14 §C — 잭팟 슬로모(§G "1곳만 + try/finally 복구"). 지속시간(0.25s)은 실시간
@@ -1049,6 +1153,204 @@ namespace JackpotRun.UI2
             yield return UiTween.FloatRoutine(1f, 0f, duration * 0.5f, t => { if (img != null) img.color = Color.Lerp(baseColor, tint, t); }, UiTween.Ease.OutQuad);
         }
 
+        // ══════════════════════════════════════════════════════════════════════
+        // F4 홀드 표시 — 칸 위 오버레이(청록 틴트 + 프레임 발광 + 자물쇠 배지). 칸(RectMask2D) 안쪽에 얹는 자식이라 마스크 안에서만
+        // 그려진다. 전부 코드 생성 도형(ProcSprites)이라 씬 리빌드가 필요 없고 astral 이모지(🔒)도 쓰지 않는다.
+        // ══════════════════════════════════════════════════════════════════════
+        private const float HoldBadgeSize = 44f;
+        private const float HoldLockIconSize = 30f;
+        private const float HoldKeepFadeDuration = 0.7f;   // 웹 holdKeep 700ms
+        private static readonly Color HoldLockColor = new Color(0.72f, 1f, 0.95f);
+
+        private static void BuildHoldOverlay(CellView cv)
+        {
+            if (cv?.rt == null) return;
+            var go = new GameObject("HoldOverlay", typeof(RectTransform), typeof(CanvasGroup));
+            var rt = (RectTransform)go.transform;
+            rt.SetParent(cv.rt, false);
+            UiKit.Fill(rt);
+            var cg = go.GetComponent<CanvasGroup>();
+            cg.alpha = 0f;
+            cg.blocksRaycasts = false;
+            cg.interactable = false;
+
+            var teal = UiKit.Good;
+            var tint = UiKit.Panel(rt, "Tint", new Color(teal.r, teal.g, teal.b, 0.17f));
+            UiKit.Fill(tint);
+            tint.GetComponent<Image>().raycastTarget = false;
+
+            var frame = UiKit.Panel(rt, "Frame", teal, ProcSprites.FrameGlow());
+            UiKit.Fill(frame);
+            frame.GetComponent<Image>().raycastTarget = false;
+
+            var badge = UiKit.Panel(rt, "Badge", new Color(0.02f, 0.14f, 0.16f, 0.92f), ProcSprites.Disc());
+            var badgeImg = badge.GetComponent<Image>();
+            badgeImg.type = Image.Type.Simple;
+            badgeImg.raycastTarget = false;
+            badge.anchorMin = badge.anchorMax = new Vector2(0.5f, 1f);
+            badge.pivot = new Vector2(0.5f, 1f);
+            badge.sizeDelta = new Vector2(HoldBadgeSize, HoldBadgeSize);
+            badge.anchoredPosition = new Vector2(0f, -6f);
+            var badgeRing = badge.gameObject.AddComponent<Outline>();
+            badgeRing.effectColor = new Color(teal.r, teal.g, teal.b, 0.9f);
+            badgeRing.effectDistance = new Vector2(1.5f, -1.5f);
+
+            var lockImg = UiKit.Image(badge, ProcSprites.Lock(), HoldLockColor);
+            lockImg.name = "Lock";
+            lockImg.raycastTarget = false;
+            var lrt = lockImg.rectTransform;
+            lrt.anchorMin = lrt.anchorMax = new Vector2(0.5f, 0.5f);
+            lrt.pivot = new Vector2(0.5f, 0.5f);
+            lrt.sizeDelta = new Vector2(HoldLockIconSize, HoldLockIconSize);
+            lrt.anchoredPosition = Vector2.zero;
+
+            cv.holdGroup = cg;
+            cv.holdBadge = badge;
+            cv.holdOn = false;
+        }
+
+        /// <summary>현재 홀드된 칸 인덱스로 오버레이를 맞춘다(null/빈 목록이면 전부 끈다). 새로 켜지는 칸은 자물쇠가 팝한다.</summary>
+        public void SetHeld(IReadOnlyList<int> held)
+        {
+            for (int i = 0; i < _cells.Count; i++)
+            {
+                bool on = false;
+                if (held != null)
+                    for (int k = 0; k < held.Count; k++)
+                        if (held[k] == i) { on = true; break; }
+                SetHoldVisual(_cells[i], on, pop: true);
+            }
+        }
+
+        private void SetHoldVisual(CellView cv, bool on, bool pop)
+        {
+            if (cv?.holdGroup == null || cv.holdOn == on) return;
+            cv.holdOn = on;
+            if (cv.holdFade != null) { StopCoroutine(cv.holdFade); cv.holdFade = null; }
+            cv.holdGroup.alpha = on ? 1f : 0f;
+            if (on && pop && cv.holdBadge != null)
+                StartCoroutine(UiTween.ScaleRoutine(cv.holdBadge, Vector3.one * 0.2f, Vector3.one, 0.3f, UiTween.Ease.OutBack));
+            else if (cv.holdBadge != null) cv.holdBadge.localScale = Vector3.one;
+        }
+
+        // 스핀 후 홀드 표시 해제 — 번쩍이며(0.7s) 사라진다(웹 .reel.hold-keep). holdOn 은 즉시 꺼진 것으로 취급해
+        // 곧이어 오는 SetHeld(빈 목록)가 페이드를 끊지 않게 한다.
+        private void ReleaseHeldCell(CellView cv)
+        {
+            if (cv?.holdGroup == null || !cv.holdOn) return;
+            cv.holdOn = false;
+            if (cv.holdFade != null) StopCoroutine(cv.holdFade);
+            cv.holdFade = StartCoroutine(HoldFadeRoutine(cv));
+        }
+
+        private IEnumerator HoldFadeRoutine(CellView cv)
+        {
+            var group = cv.holdGroup;
+            if (group == null) yield break;
+            group.alpha = 1f;
+            yield return UiTween.FloatRoutine(1f, 0f, HoldKeepFadeDuration, a => { if (group != null) group.alpha = a; }, UiTween.Ease.OutQuad);
+            cv.holdFade = null;
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // F5 피버 중 릴 프레임 — 금빛 발광 프레임(ProcSprites.FrameGlow, 섹션 자식 · 셀 뒤)이 맥동하고 FxKit 불꽃 루프(fx_boss 를
+        // 금빛으로 틴트)가 릴 가장자리에서 오른다. 피버 상태는 RunView 가 RunController.Fever 로 판단해 넘긴다.
+        // ══════════════════════════════════════════════════════════════════════
+        private static readonly Color FeverFrameGold = new Color(1f, 0.72f, 0.16f, 1f);
+        private static readonly Color FeverFrameOrange = new Color(1f, 0.45f, 0.05f, 1f);
+        private static readonly Color FeverFxTint = new Color(1f, 0.72f, 0.18f, 0.7f);
+        private const float FeverFramePad = 12f;
+
+        private RectTransform _feverFrame;
+        private Image _feverFrameImg;
+        private Coroutine _feverPulse;
+        private ParticleSystem _feverFx;
+        private bool _feverOn;
+
+        public void SetFeverFrame(bool on)
+        {
+            if (on == _feverOn) return;
+            _feverOn = on;
+            if (on)
+            {
+                EnsureFeverFrame();
+                if (_feverFrame != null)
+                {
+                    _feverFrame.gameObject.SetActive(true);
+                    if (_feverPulse != null) StopCoroutine(_feverPulse);
+                    if (isActiveAndEnabled) _feverPulse = StartCoroutine(FeverFramePulse());
+                }
+                if (_feverFx == null) _feverFx = FxKit.I?.PlayLoop(FxId.Boss, reelRow, FeverFxTint);
+            }
+            else ResetFeverFrame();
+        }
+
+        /// <summary>피버 발동 순간(FEVER! 배너와 함께) — 셰이크 + 금빛 상승 광입자/색종이. 사운드·배너·진동은 RunView 몫이다.</summary>
+        public void PlayFeverTriggerFx()
+        {
+            PlayClearShake(3);   // bg 눈금(웹 shake("bg"))
+            FxKit.I?.Play(FxId.RisingLight, reelRow, FeverFxTint);
+            StartCoroutine(FeverBurstRoutine());
+        }
+
+        private IEnumerator FeverBurstRoutine()
+        {
+            yield return new WaitForSeconds(0.12f);
+            FxKit.I?.Play(FxId.Clear, reelRow, FeverFxTint);
+        }
+
+        private void ResetFeverFrame()
+        {
+            _feverOn = false;
+            if (_feverPulse != null) { StopCoroutine(_feverPulse); _feverPulse = null; }
+            if (_feverFrame != null) _feverFrame.gameObject.SetActive(false);
+            if (_feverFx != null) { FxKit.I?.StopLoop(_feverFx); _feverFx = null; }
+        }
+
+        private void OnDisable()
+        {
+            // 화면을 떠날 때 루프 파티클을 남기지 않는다(코루틴은 비활성화와 함께 멈춘다).
+            ResetFeverFrame();
+        }
+
+        private void EnsureFeverFrame()
+        {
+            if (_feverFrame != null) return;
+            var go = new GameObject("FeverFrame", typeof(RectTransform), typeof(Image));
+            _feverFrame = (RectTransform)go.transform;
+            _feverFrame.SetParent(transform, false);
+            _feverFrame.SetAsFirstSibling();   // 셀(reelRow) 뒤 — 셀 사이/바깥으로 번져 보이는 발광
+            // 가로로 늘어나는(stretch-x) 앵커 + 세로 고정 높이: sizeDelta.x 는 "부모 폭 - 값"이라 음수로 좌우 여백을 준다.
+            _feverFrame.anchorMin = new Vector2(0f, 0.5f);
+            _feverFrame.anchorMax = new Vector2(1f, 0.5f);
+            _feverFrame.pivot = new Vector2(0.5f, 0.5f);
+            _feverFrame.sizeDelta = new Vector2(-FeverFramePad * 2f, UiKit.ReelCellSize + FeverFramePad * 2f);
+            _feverFrame.anchoredPosition = Vector2.zero;
+            _feverFrameImg = go.GetComponent<Image>();
+            _feverFrameImg.sprite = ProcSprites.FrameGlow();
+            _feverFrameImg.type = Image.Type.Sliced;
+            _feverFrameImg.color = FeverFrameGold;
+            _feverFrameImg.raycastTarget = false;
+        }
+
+        private IEnumerator FeverFramePulse()
+        {
+            while (_feverFrameImg != null)
+            {
+                yield return UiTween.FloatRoutine(0f, 1f, 0.5f, k => ApplyFeverFrame(k), UiTween.Ease.OutQuad);
+                if (_feverFrameImg == null) yield break;
+                yield return UiTween.FloatRoutine(1f, 0f, 0.5f, k => ApplyFeverFrame(k), UiTween.Ease.OutQuad);
+            }
+        }
+
+        private void ApplyFeverFrame(float k)
+        {
+            if (_feverFrameImg == null) return;
+            var c = Color.Lerp(FeverFrameOrange, FeverFrameGold, k);
+            c.a = Mathf.Lerp(0.6f, 1f, k);
+            _feverFrameImg.color = c;
+        }
+
         // ── 셀 구성 ──────────────────────────────────────────────────────────────────
         private void EnsureCellCount(int count)
         {
@@ -1101,12 +1403,15 @@ namespace JackpotRun.UI2
                 // 변수라 캡처 전 로컬 복사 필요). 결과가 없는 칸(대기 상태/직전 스핀 정보 없음)은
                 // CellInfoView.Build가 null을 반환하므로 핸들러 쪽에서 조용히 무시된다.
                 int cellIdx = i;
+                // 재미 개편 F4 — 탭/롱프레스 구분(CellPressHandler). 기존 Button.onClick 탭 리스너는 중복 호출을 막기 위해 비운다
+                // (Button 자체는 그대로 둔다 — 포인터 이벤트를 받는 Selectable 로서 해가 없다).
                 var button = inst.GetComponent<Button>();
-                if (button != null)
-                {
-                    button.onClick.RemoveAllListeners();
-                    button.onClick.AddListener(() => _cellTapHandler?.Invoke(cellIdx));
-                }
+                if (button != null) button.onClick.RemoveAllListeners();
+                var press = inst.gameObject.GetComponent<CellPressHandler>();
+                if (press == null) press = inst.gameObject.AddComponent<CellPressHandler>();
+                press.Tap = () => _cellTapHandler?.Invoke(cellIdx);
+                press.LongPress = () => _cellLongPressHandler?.Invoke(cellIdx);
+                BuildHoldOverlay(cv);
                 _cells.Add(cv);
             }
         }
