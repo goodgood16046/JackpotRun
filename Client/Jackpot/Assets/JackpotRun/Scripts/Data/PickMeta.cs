@@ -293,7 +293,7 @@ namespace JackpotRun.Data
                 "dev_subreel", new DevFit
                 {
                     s = 1.0f, macs = new[] { "magnet", "star", "wildmac" }, themes = new[] { "콤보", "세트" },
-                    b = "6칸으로 콤보 폭이 넓어집니다 (최종 EXP -30% 감수)."
+                    b = "6칸으로 콤보 폭이 넓어집니다 (최종 EXP -15% 감수)."
                 }
             },
             {

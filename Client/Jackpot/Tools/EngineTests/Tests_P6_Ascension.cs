@@ -116,28 +116,31 @@ namespace JackpotRun.EngineTests
         // 위 QuotaOfWiring의 HandQuota 비교는 SpinResolver.QuotaOf와 "같은 수식을 두 번 쓴" 대조라
         // 수식 자체가 틀리면 함께 틀려서 못 잡는다(순환검증) — 이 테스트는 축 조합(stage15·기본Mods·
         // asc10·bossPhase2=true)을 외부에서 독립적으로 손 계산한 정수 리터럴로 고정한다.
-        //   baseSpins=5, bsp(luck bonusSpins)=1, prop=6/5=1.2
-        //   Quota(15)=755 × mods.quotaMul(1.0) × Bosses.QuotaMulFor(15)(luck=1.0) × 1.2 = 906.0
-        //   × am.quotaMul(asc10=1.8) = 1630.8
-        //   × am.bossQuotaMul(asc10=1.42, IsBossStage(15)=true) = 2315.736
-        //   × 1.3(bossPhase2) = 3010.4568 → (long) = 3010
+        //   재미 개편 R2(2026-10-28): 일반 모드 Quota(15)=1050(개편 표 — 개편 전 755 는 QuotasDeep 으로 보존).
+        //   2026-10-28 보스 스핀 비례 prop(×6/5) 제거(웹 game.js:423 공식) — 보스 스핀 +1 은 요구치 비례 없음.
+        //   Quota(15)=1050 × mods.quotaMul(1.0) × Bosses.QuotaMulFor(15)(luck=1.0) = 1050.0
+        //   × am.quotaMul(asc10=1.8) = 1890.0
+        //   × am.bossQuotaMul(asc10=1.42, IsBossStage(15)=true) = 2683.8 → (long) = 2683
+        //   × 1.3(bossPhase2) = 3488.94 → (long) = 3488
+        //   (심화 표 보존 확인용 deep=true: 755 기준 1359.0 → 1929.78 → 2508.714 — 표 값 자체는 개편 전 그대로)
         private static void QuotaOfLiteralGolden(TestCtx t)
         {
             long q = SpinResolver.QuotaOf(15, new Mods(), 10, true);
-            t.Eq(3010L, q, "[QuotaOf 리터럴] stage15·기본Mods·asc10·bossPhase2=true → 3010(외부 손계산 고정값)");
+            t.Eq(3488L, q, "[QuotaOf 리터럴] stage15·기본Mods·asc10·bossPhase2=true → 3488(외부 손계산 고정값)");
 
-            // 동일 축, bossPhase2=false만 다른 경우도 함께 고정(2315 — 위 손계산 3번째 줄).
+            // 동일 축, bossPhase2=false만 다른 경우도 함께 고정(2683 — 위 손계산 3번째 줄).
             long qNoPhase2 = SpinResolver.QuotaOf(15, new Mods(), 10, false);
-            t.Eq(2315L, qNoPhase2, "[QuotaOf 리터럴] stage15·기본Mods·asc10·bossPhase2=false → 2315");
+            t.Eq(2683L, qNoPhase2, "[QuotaOf 리터럴] stage15·기본Mods·asc10·bossPhase2=false → 2683");
+
+            // 재미 개편 R2: deep=true 는 개편 전 표(755)를 그대로 보존 → 755×1.8×1.42=1929, ×1.3=2508.
+            t.Eq(2508L, SpinResolver.QuotaOf(15, new Mods(), 10, true, 1.0, deep: true), "[QuotaOf 리터럴] deep=true 는 개편 전 표(755) 보존 → 2508");
+            t.Eq(1929L, SpinResolver.QuotaOf(15, new Mods(), 10, false, 1.0, deep: true), "[QuotaOf 리터럴] deep=true 는 개편 전 표(755) 보존 → 1929");
         }
 
         // SpinResolver.QuotaOf와 완전히 동일한 연산 순서로 손계산(부동소수 재현성 보존 — HandQuota 관례).
         private static double HandQuota(int stage, Mods mods, int asc, bool bossPhase2)
         {
-            int baseSpins = ModsBuilder.SpinsPerStage(mods);
-            int bsp = Bosses.Spins(stage);
-            double prop = (bsp > 0 && baseSpins > 0) ? (double)(baseSpins + bsp) / baseSpins : 1.0;
-            double q = Formulas.Quota(stage) * mods.quotaMul * Bosses.QuotaMulFor(stage) * prop;
+            double q = Formulas.Quota(stage) * mods.quotaMul * Bosses.QuotaMulFor(stage);   // 2026-10-28 보스 스핀 비례 prop 제거(웹 game.js:423)
             var am = AscMods.Get(asc);
             q *= am.QuotaMul;
             if (Formulas.IsBossStage(stage)) q *= am.BossQuotaMul;

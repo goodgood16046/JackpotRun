@@ -2299,6 +2299,31 @@
       `Assembly-CSharp`(GameSession.cs·ReelView.cs·GainPanel.cs 수정분 포함)·`Assembly-CSharp-Editor`
       둘 다 **0에러·0경고**.
 
+- **(II) 2026-10-28 재미 개편 U1 후속 — 보스 스핀 비례 `prop` 제거(웹 파리티 버그로 판정, 리드 결정)**:
+  - **발견**: `SpinResolver.QuotaOf` 가 `Formulas.Quota × mods.quotaMul × Bosses.QuotaMulFor × prop`,
+    `prop=(baseSpins+bossSpins)/baseSpins`(보스 스테이지 ×6/5=1.2)로 계산했다. 이는 `kotlin-reference`
+    `qOf`(`EngineSpec/02_service.md §3-A`)의 잔재이고, **바로 위 주석이 인용하는 웹 game.js:423**
+    (`r.quota = Math.max(1, Math.floor(E.quota(stage[,deep]) * mods.quotaMul * E.bossQuotaMul(stage) * am.quotaMul * …))`)
+    에는 보스 스핀 비례 항이 **없다**(웹은 `r.spins = spinsPerStage + bossSpins` 만 늘리고 요구치는 비례시키지 않음).
+    §0 원칙(웹 채택이 기본)상 명시 예외 근거가 없는 이탈이므로 **웹 파리티 버그**로 판정했다.
+    재미 개편 W1 의 R8 튜닝(보스 클리어율 S10 80~92% 등)은 prop 없는 웹 요구치 기준이라, prop 이 남아 있으면 Unity
+    보스가 튜닝 목표보다 +20% 어려웠다.
+  - **조치**: `QuotaOf` 에서 `prop` 계산을 삭제(일반·심화 공통, 곱셈 순서는 웹과 동일하게 유지). 보스 스핀 +1 은
+    요구치 비례 없는 순수 보너스. `EffSpins`/`Bosses.Spins`(스핀 수)는 무변경.
+  - **영향(novice·basic, 퍽 없음)**: 보스 요구치 S5 241→**201**, S10 → 368, S15 → 966, S20 → 3389 등 약 -17%(÷1.2).
+    비보스 스테이지는 무변경. **웹 대조**: `public/play/engine.js` 의 `floor(quota(s,deep)*novice quotaMul*bossQuotaMul(s))`
+    와 C# `QuotaOf(s)` 를 S1~S25 에 대해 일반·심화 모두 전수 대조 — **정확히 일치**(예: 일반 `…,201,184,220,262,312,368,437,515,607,717,966,…`).
+  - **원인 분리(교차 실행)**: prop 제거 직전 트리(37769 passed)와 직후 트리를 비교 — 실패 19건 전부 요구치 단언
+    (아래 목록)이고, 직후 트리에서 `prop` 한 줄만 되살린 스크래치 복제본은 **같은 19건만** 실패하며
+    `[sim]`/`[sim100]` 스모크 궤적 출력이 prop 제거 전 값과 바이트 단위로 동일(제거 후 `[sim]` avg S4.55→S4.72,
+    `[sim100]` S5.53→S5.76 — 보스가 쉬워진 방향). 즉 변화의 원인은 prop 제거뿐.
+  - **갱신한 기대값(원인이 prop 뿐인 것만)**: `Tests_FunW1`(R1 S5 보스 quota 241→201 — 웹 하니스와 같은 값),
+    `Tests_P4_RewardDoneCellInfo`(NextPreview S5 241→201), `Tests_P6_Ascension`(`HandQuota` 헬퍼에서 prop 삭제,
+    QuotaOf 리터럴 4186/3220/3010/2315 → 3488/2683/2508/1929 — 독립 손계산 1050×1.8×1.42(×1.3) / 755×…),
+    `Tests_RunNet`(QuotaOf 공식 stage5 262→218·stage20 4421→3684·deep 207→172/2591→2159, `clearE` 보스 클리어
+    quota 241→201·leftover 479→519·clearScore 1808→1888·overPct 298→358·gainedScore 1908→1988; 등급은 tier5 로 동일).
+  - **재검증**: `dotnet run --project Client/Jackpot/Tools/EngineTests` **37953 passed, 0 failed**.
+
 ## 3. 페이즈 로드맵
 
 | 페이즈 | 내용 | 상태 |

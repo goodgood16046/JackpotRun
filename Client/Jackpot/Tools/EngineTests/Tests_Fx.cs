@@ -864,7 +864,7 @@ namespace JackpotRun.EngineTests
             ["dev_retake"] = 0xCBF29CE484222325UL,
             ["dev_safe"] = 0xCBF29CE484222325UL,
             ["dev_seal"] = 0x57277B0B8DFC782AUL,
-            ["dev_subreel"] = 0x5E6E191746E35570UL,
+            ["dev_subreel"] = 0x589CF78D74755908UL, // 재미 개편 R6: expMul 0.7→0.85 (FNV-1a("expMul=0.85") — 파이썬 독립 계산)
             ["dev_swap"] = 0xCBF29CE484222325UL,
             ["dev_syllabus"] = 0xCBF29CE484222325UL,
                     ["dev_reaper"] = 0xF4B7EFEF373E4E09UL,

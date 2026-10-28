@@ -117,6 +117,10 @@ namespace JackpotRun.Engine
     //   BOSS_PHASE2 — 웹 파리티 P6(§1-A #18): A10 승천 최종보스(15) 1페이즈 클리어(진짜 클리어 아님,
     //     요구치↑ 후 같은 스테이지 재시작). StatTracker는 이 타입을 STAGE_CLEARED와 다르게 취급한다
     //     (스핀 통계만 반영, 클리어/졸업 통계는 건너뜀 — StageFlow.BuildClearEvent/ClearStage 참조).
+    //   HOLD_CHANGED / ENCORE_SPIN / ENCORE_SETTLED — 재미 개편(FUN_OVERHAUL_DESIGN R3·R5, 일반 모드 전용). HOLD_CHANGED:
+    //     ToggleHold 성공(홀드 칸 켜짐/꺼짐 — 현재 상태는 Hold 프로퍼티). ENCORE_SPIN: EncoreSpin 1회 결과(spin.encoreResult
+    //     + spin.result 칸 — StatTracker 는 이 타입을 무시해 통계/업적을 건드리지 않는다). ENCORE_SETTLED: EncoreCashOut 또는
+    //     노드 선택(ChooseNode)이 진행 중인 앵콜 팟을 정산(scoreDelta=가산한 팟).
     //   REPAIR_DONE / ARCHETYPE_CHANGED — 웹 파리티 P7-2(§1-A #19 2/4): 정비소 구매 성공 / 전공
     //     발동·승급. RepairBuy 성공 시 REPAIR_DONE 1개 + (전공 변화가 있으면) ARCHETYPE_CHANGED 1개,
     //     최대 2개 이벤트가 함께 반환된다(Run/RepairShop.cs 참조).
@@ -292,6 +296,8 @@ namespace JackpotRun.Engine
             // 웹 _beginStage()의 A8 금지 심볼 롤(game.js:425) — 스테이지1 시작(=_launch() 끝 _beginStage()
             // 호출)과 동일 파리티. StageFlow.ClearStage(다음 스테이지 진입)/A10 2페이즈 재시작에서도 재롤한다.
             AscRunHooks.RollBannedSym(run);
+            // 재미 개편(웹 _beginStage()): 스테이지1 시작 리셋 — 홀드 충전 1(일반)/0(심화)·직전 raw 비움·특수스핀 사용 횟수 0·앵콜 창 닫힘.
+            HoldFlow.ResetForStage(run);
 
             // honor(수석졸업생) — 실버 증강 1개로 시작(launchRun L483-489).
             // 웹 파리티 P3-4 Opus 2차검수 웹 이탈 정리⑥(WEB_PARITY_DESIGN.md §2, 웹 game.js:393-397
@@ -321,7 +327,7 @@ namespace JackpotRun.Engine
             switch (a)
             {
                 case Spin s: return WrapSpin(StageFlow.ProcessSpin(State, s.mode));
-                case ChooseNode c: return NodeEvents.ChooseNode(State, c.index, _stat);
+                case ChooseNode c: return HandleChooseNode(c.index);
                 case PickOffer p: return DispatchPickOffer(p.index);
                 case HoldAugment h: return NodeEvents.HoldAugment(State, h.index);
                 case Retake _: return NodeEvents.Retake(State, _stat);
@@ -357,6 +363,60 @@ namespace JackpotRun.Engine
             }
         }
 
+        // 재미 개편 R5 — 노드 선택은 진행 중인 앵콜 팟을 먼저 정산한다(NodeEvents.ChooseNode 가 정산·앵콜 창 닫기를 수행하고,
+        // 여기서는 그 사실을 ENCORE_SETTLED 이벤트로 결과 맨 앞에 붙여 UI 가 팟 가산 연출을 할 수 있게 한다).
+        private IReadOnlyList<RunEvent> HandleChooseNode(int index)
+        {
+            bool willSettle = State.Phase == RunPhase.NodeSelect && index >= 0 && index < State.NodeOptions.Count && State.EncoreActive;
+            long pot = State.EncorePot;
+            var events = NodeEvents.ChooseNode(State, index, _stat);
+            if (!willSettle) return events;
+            var merged = new List<RunEvent>(events.Count + 1)
+            {
+                new RunEvent { type = "ENCORE_SETTLED", scoreDelta = pot },
+            };
+            merged.AddRange(events);
+            return merged;
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 재미 개편(FUN_OVERHAUL_DESIGN R3·R4·R5·R6·F1; 웹 game.js `toggleHold`/`encoreSpin`/`encoreCashOut`/`cmdCost`/
+        // `state().hold|fever|encore|lastSpin`, e6bde8d) — UI 가 쓰는 공개 API. 홀드·피버·앵콜은 **일반 모드 전용**이다:
+        // 심화(DeepMode) 런에서는 Hold/Fever/Encore 가 null, ToggleHold/EncoreSpin/EncoreCashOut 은 REJECTED 를 돌려준다.
+        // GameSession 에는 StatTracker/저장 후처리를 공유하는 DoToggleHold/DoEncoreSpin/DoEncoreCashOut 래퍼가 있다.
+        // ══════════════════════════════════════════════════════════════════════
+
+        // R3 홀드 상태(웹 state().hold). 심화면 null.
+        public HoldView Hold => HoldFlow.View(State);
+
+        // R4 일반 모드 피버 상태(웹 state().fever). 심화면 null. (심화 피버는 State.FeverGauge/FeverSpins — 별개 필드.)
+        public FeverView Fever => HoldFlow.FeverOf(State);
+
+        // R5 앵콜 상태(웹 state().encore). 심화면 null.
+        public EncoreView Encore => EncoreFlow.View(State);
+
+        // 마지막 스핀(또는 앵콜 스핀) 요약(웹 state().lastSpin: feverApplied/feverTriggered/holdUsed/encoreResult/bigWinTier …).
+        // 아직 스핀이 없으면 null.
+        public LastSpinInfo LastSpin => State.LastSpin;
+
+        // R6 특수스핀 "지금 누르면 낼 코인 비용"(웹 cmdCost(mode)) — UI 버튼 라벨용. 일반 스핀(N)=0, 런 첫 사용=0(무료),
+        // 이후 같은 스테이지 n번째 = 기본(보스 +1·상한 5)×n.
+        public int CmdCost(SpinMode mode) => SpinResolver.CurrentCmdCost(State, mode);
+
+        // R3 홀드 토글(웹 toggleHold(i)): 직전 스핀의 i번째 칸(0-base)을 다음 스핀에서 유지하도록 켜고 끈다(최대 2칸·충전 1 필요,
+        // 켜진 칸을 다시 누르면 해제). 성공 시 HOLD_CHANGED, 불가 시 REJECTED(reason: HOLD_DEEP_MODE / PHASE_NOT_SPIN /
+        // HOLD_LOCKED_NEXT / HOLD_NO_LAST_SPIN / HOLD_INDEX_OUT_OF_RANGE / HOLD_NO_CHARGE / HOLD_MAX_REACHED).
+        public IReadOnlyList<RunEvent> ToggleHold(int index) => HoldFlow.Toggle(State, index);
+
+        // R5 앵콜 스핀(웹 encoreSpin()): 클리어 보드(NodeSelect)에서 남은 스핀 1개로 클리어 점수 더블업에 도전. 성공/BUST/자동정산 결과는
+        // ENCORE_SPIN 이벤트의 spin.encoreResult. 불가 시 REJECTED(reason: ENCORE_DEEP_MODE / PHASE_NOT_NODE_SELECT /
+        // ENCORE_ALREADY_DONE / ENCORE_NO_SPINS_LEFT / ENCORE_NO_STAKE / ENCORE_STAKE_SHORT).
+        public IReadOnlyList<RunEvent> EncoreSpin() => EncoreFlow.Spin(State);
+
+        // R5 앵콜 정산(웹 encoreCashOut()): 진행 중인 앵콜의 팟을 점수에 더하고 앵콜을 끝낸다(이후 ChooseNode 로 노드 선택).
+        // 성공 시 ENCORE_SETTLED(scoreDelta=팟), 진행 중인 앵콜이 없으면 REJECTED(ENCORE_NOT_ACTIVE …).
+        public IReadOnlyList<RunEvent> EncoreCashOut() => EncoreFlow.CashOut(State);
+
         // 웹 파리티 P4 — RewardDone → Spin. State가 아니라면 거부(웹은 이 가드를 `if` 조건으로 조용히
         // 무시하지만, Unity는 다른 모든 액션과 동일하게 REJECTED 이벤트로 UI에 알린다 — 기존 관례).
         private List<RunEvent> HandleProceedToStage()
@@ -380,7 +440,7 @@ namespace JackpotRun.Engine
             var mods = ModsBuilder.ApplyItemMods(
                 ModsBuilder.Build(State.MachineId, State.CharId, State.Perks, State.Curses, "", levels: State.PerkLevels),
                 State.PhaseItems);
-            long quota = SpinResolver.QuotaOf(State.Stage, mods, State.Asc, State.BossPhase2, DeepRunHooks.DeepPenalty(State));
+            long quota = SpinResolver.QuotaOf(State.Stage, mods, State.Asc, State.BossPhase2, DeepRunHooks.DeepPenalty(State), State.DeepMode);
             long deficit = quota - State.StageExp;
             var fail = StageFlow.ForceGameOver(State, deficit);
             return RunEvents.One(new RunEvent { type = "GAME_OVER", failure = fail });

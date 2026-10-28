@@ -2680,7 +2680,7 @@
       "key": "dev_subreel",
       "emoji": "➕",
       "nameKo": "보조릴",
-      "descKo": "장착 시 항상 6칸 슬롯 · 최종 EXP -30%",
+      "descKo": "장착 시 항상 6칸 슬롯 · 최종 EXP -15%",
       "deviceKind": "PASSIVE",
       "command": null,
       "rare": true,
@@ -2692,7 +2692,7 @@
         "kind": "패시브",
         "cmd": null,
         "cool": "상시(패시브)",
-        "eff": "항상 6칸 슬롯 · 최종 EXP -30%",
+        "eff": "항상 6칸 슬롯 · 최종 EXP -15%",
         "tags": [
           "패시브",
           "콤보",

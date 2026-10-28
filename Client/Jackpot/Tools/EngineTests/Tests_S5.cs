@@ -157,7 +157,7 @@ namespace JackpotRun.EngineTests
                     if (res.jackpotSym != null) exp.Jackpots++;
                     if (res.jackpotSym == "crown") exp.CrownJackpots++;
                     if (res.jackpotSym != null && res.cells.Any(c => c.sym.special == Sp.WILD)) exp.WildJackpots++;
-                    if (e.spin.mode == SpinMode.Allin && res.skulls >= 2) exp.AllinBusts++;
+                    if (e.spin.mode == SpinMode.Allin && res.skulls >= Formulas.ALLIN_FAIL_SKULLS) exp.AllinBusts++;
                     exp.MaxSkullSpin = Math.Max(exp.MaxSkullSpin, CellCount("skull"));
                     exp.MaxCoinSpin = Math.Max(exp.MaxCoinSpin, CellCount("coin"));
                     exp.MaxCherrySpin = Math.Max(exp.MaxCherrySpin, CellCount("cherry"));
@@ -639,12 +639,14 @@ namespace JackpotRun.EngineTests
             t.True(totalCmdCoinTotal > 0, "[device-autoplay] 시드 합산 cmdCoinTotal > 0 (특수명령 코인 지출 실제 발생)");
         }
 
+        // 재미 개편 R6: 특수스핀은 더 이상 UsedCmds 에 마커를 남기지 않는다(스테이지당 1회 제한 폐지) — 종류별 이번 스테이지
+        // 사용 횟수(RunState.CmdUses)로 "아직 안 쓴 모드"를 골라 기존과 같이 스테이지당 종류별 1회씩 순환한다.
         private static SpinMode ChooseMode(RunState run)
         {
-            if (!run.UsedCmds.Contains("FOCUS")) return SpinMode.Focus;
-            if (!run.UsedCmds.Contains("ALLIN")) return SpinMode.Allin;
-            if (!run.UsedCmds.Contains("PRAY")) return SpinMode.Pray;
-            if (!run.UsedCmds.Contains("LAST")) return SpinMode.Last;
+            if (run.CmdUses["FOCUS"] == 0) return SpinMode.Focus;
+            if (run.CmdUses["ALLIN"] == 0) return SpinMode.Allin;
+            if (run.CmdUses["PRAY"] == 0) return SpinMode.Pray;
+            if (run.CmdUses["LAST"] == 0) return SpinMode.Last;
             return SpinMode.N;
         }
 

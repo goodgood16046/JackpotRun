@@ -43,7 +43,7 @@ namespace JackpotRun.Engine
             var mods = ModsBuilder.ApplyItemMods(
                 ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                 run.PhaseItems);
-            return SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
+            return SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run), run.DeepMode);
         }
 
         // ══════════════════════════════════════════════════════════════════
@@ -102,7 +102,7 @@ namespace JackpotRun.Engine
                     ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                     run.PhaseItems);
                 int spins = SpinResolver.EffSpins(run, mods);
-                long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
+                long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run), run.DeepMode);
                 var outcome = new SpinOutcome
                 {
                     rejected = false, mode = SpinMode.N, result = null, gained = 0,
@@ -147,7 +147,7 @@ namespace JackpotRun.Engine
             // 한다.
             var pre0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels);
             var preSpins = SpinResolver.EffSpins(run, pre0);
-            var preQuota = SpinResolver.QuotaOf(run.Stage, pre0, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
+            var preQuota = SpinResolver.QuotaOf(run.Stage, pre0, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run), run.DeepMode);
             var ctx = SpinResolver.RunCtxOf(run, run.SpinIndex, preSpins, preQuota);
             var pmods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, ctx, run.PerkLevels);
             var pmods1 = ModsBuilder.ApplyItemMods(pmods0, run.PhaseItems);
@@ -166,10 +166,15 @@ namespace JackpotRun.Engine
             int n = run.LastCells.Count;
             var newRaw = new List<Cell>(n);
             for (int i = 0; i < n; i++) newRaw.Add(SpinResolver.RollCellOne(run, pmods));
+            // 재미 개편 R3(웹 _freeReroll(): `if (!r.deepMode) r.lastRaw = cells.map(...)`): 재시험 결과가 새 '직전 raw'.
+            HoldFlow.ReplaceLastRaw(run, newRaw);
             // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): Evaluate capMul 인자 제거(총배율 캡 폐지).
             var res2 = SpinResolver.Evaluate(run.Rng, newRaw, pmods, run.LastSpinNo, spins, run.FlameNext);
+            // 재미 개편 R4(웹 _freeReroll(): `if (r.lastFeverApplied) exp = mulFloor(exp, FEVER_EXP_MUL)`): 피버가 적용된 스핀의
+            // 재시험은 피버 배율을 유지한다.
+            long retakeGained = run.LastFeverApplied ? Formulas.MulFloor(res2.exp, Formulas.FEVER_EXP_MUL) : res2.exp;
 
-            run.StageExp = Math.Max(run.StageExp - run.LastGain, 0) + res2.exp;
+            run.StageExp = Math.Max(run.StageExp - run.LastGain, 0) + retakeGained;
             run.Score = Math.Max(run.Score - run.LastScoreGain + res2.score, 0);
             run.Coins = Math.Max(run.Coins - run.LastCoinGain + res2.coins, 0);
             run.LastCells.Clear();
@@ -188,13 +193,13 @@ namespace JackpotRun.Engine
             // `r.lastResult = res`는 한다, game.js:1222 — r.lastMods만 예외적으로 안 건드림. 위 LastMods
             // 미갱신 주석과 혼동하지 말 것).
             run.LastNotes.Clear(); if (res2.notes != null) run.LastNotes.AddRange(res2.notes);
-            run.LastGain = res2.exp;
+            run.LastGain = retakeGained;
             run.LastScoreGain = res2.score;
             run.LastCoinGain = res2.coins;
 
             var outcome = new SpinOutcome
             {
-                rejected = false, mode = SpinMode.N, result = res2, gained = res2.exp,
+                rejected = false, mode = SpinMode.N, result = res2, gained = retakeGained,
                 newExp = run.StageExp, newScore = run.Score, newCoins = run.Coins, newSpinIndex = run.SpinIndex,
             };
             return RunEvents.One(new RunEvent { type = "ITEM_USED", itemId = "retake_form", spin = outcome });

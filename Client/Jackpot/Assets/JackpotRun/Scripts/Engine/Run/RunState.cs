@@ -480,6 +480,63 @@ namespace JackpotRun.Engine
         public bool FateVortexUsed = false;
         public bool FateVortexConsumed = false;
 
+        // ══════════════════════════════════════════════════════════════════════
+        // 재미 개편(FUN_OVERHAUL_DESIGN §1 R3~R6·F1, 2026-10-28; 웹 game.js `run` 필드군, e6bde8d).
+        // 홀드·피버·앵콜은 **일반 모드 전용**이다 — 심화(DeepMode)는 이 필드들을 건드리지 않는다(격리).
+        // 심화 피버(FeverGauge/FeverSpins, 위 §9.1 J2)와는 완전히 별개 필드 — 이름이 NFever* 인 이유(웹 nFever*).
+        // ══════════════════════════════════════════════════════════════════════
+
+        // ── R3 홀드 — 웹 holdCharges/held/lastRaw ──
+        // 충전 수: 스테이지 시작마다 일반 모드 1(누적 없음)·심화 0으로 리셋(HoldFlow.ResetForStage), 집중(FOCUS)
+        // 특수스핀 발동 시 +1. 스핀에서 홀드가 실제로 1칸 이상 적용되면 -1.
+        public int HoldCharges = 0;
+        // 잡은 칸 인덱스(오름차순, 최대 Formulas.HOLD_MAX). 홀드 표시는 스핀마다 해제된다.
+        public readonly List<int> Held = new List<int>();
+        // 직전 스핀의 "원시 착지 칸"(홀드 적용 후·cellOps/Evaluate 이전, tag 비움) — 홀드가 유지하는 값. Count==0 이면 아직
+        // 직전 스핀이 없다(스테이지 시작 직후). run.LastCells(ids, cellOps 이후 스냅샷)와는 시점이 다른 별도 필드.
+        public readonly List<Cell> LastRaw = new List<Cell>();
+
+        // ── R4 일반 모드 피버 — 웹 nFeverGauge/nFeverSpins/lastFeverApplied ──
+        // 게이지 0~FEVER_MAX(스핀 bestSetCount 별 충전, 런 내내 유지·스테이지 이월), 남은 피버 스핀(이월),
+        // 직전 스핀에 피버 ×1.5 가 적용됐는지(재굴림/조작이 같은 배율을 유지하는 데 쓴다).
+        public int NFeverGauge = 0;
+        public int NFeverSpins = 0;
+        public bool LastFeverApplied = false;
+
+        // ── R6 특수스핀 누진 — 웹 cmdUses ──
+        // 이번 스테이지에서 종류별("FOCUS"/"ALLIN"/"PRAY"/"LAST", CmdFreeUsed 와 같은 마커) 사용 횟수. 스테이지 시작마다
+        // 0으로 리셋(HoldFlow.ResetForStage). n번째 사용 비용 = 기본×(1+STEP×(n-1)). UsedCmds 에는 더 이상 특수스핀 마커를
+        // 넣지 않는다(스테이지당 1회 제한 폐지).
+        public readonly Dictionary<string, int> CmdUses = new Dictionary<string, int>
+        {
+            ["FOCUS"] = 0, ["ALLIN"] = 0, ["PRAY"] = 0, ["LAST"] = 0,
+        };
+
+        // ── R5 앵콜(클리어 점수 더블업) — 웹 encoreK/encorePot/encoreStake/encoreActive/encoreDone/encoreLastBust ──
+        // Unity 는 웹의 PHASE.STAGE_CLEAR 를 별도 RunPhase 로 두지 않고 NodeSelect 에 클리어 보드를 합쳐 쓰므로(WEB_PARITY
+        // §2-(X)), 앵콜 창은 "Phase==NodeSelect && !EncoreDone" 로 표현한다. EncoreDone: 이번 클리어의 앵콜이 끝났거나
+        // 창이 닫힘(기본 true — StageFlow.ClearStage 가 실제 클리어 때만 false 로 연다, 노드 선택/다음 스테이지 시작 시 true).
+        public long EncoreStake = 0;       // 판돈 = 이번 스테이지 클리어 점수(ClearOutcome.gainedScore, 빚문서면 0)
+        public long EncorePot = 0;         // 진행 중인 팟(첫 앵콜 스핀에서 판돈을 run 점수에서 빼 걸고, 성공마다 floor(stake×(1+0.5k)))
+        public int EncoreK = 0;            // 성공 횟수
+        public bool EncoreActive = false;  // 첫 앵콜 스핀 이후 정산 전
+        public bool EncoreDone = true;
+        public bool EncoreLastBust = false;
+        // 앵콜 스핀이 웹 `_mods()`(클리어한 스테이지 기준)와 같은 mods 를 만들기 위한 클리어 시점 스냅샷 — ClearStage 는 스핀 수/
+        // 스테이지/PhaseItems/금지심볼을 즉시 다음 스테이지 값으로 리셋하므로(웹은 STAGE_CLEAR 동안 유지) 따로 보관한다.
+        public int EncoreStage = 0;        // 방금 클리어한 스테이지(ctx.stage)
+        public int EncoreSpinsTotal = 0;   // 그 스테이지 총 스핀 수
+        public int EncoreSpinsUsed = 0;    // 사용 스핀 수(클리어 스핀 포함, 앵콜 스핀마다 +1) — 남은 스핀 = Total-Used
+        public long EncoreStageExp = 0;    // 클리어 확정 시 StageExp(ctx.stageExp)
+        public long EncoreQuota = 0;       // 그 스테이지 요구치(ctx.quota)
+        public bool EncoreBoss = false;    // 보스 스테이지였는지(ctx.boss)
+        public string EncoreBannedSym = "";
+        public readonly List<string> EncorePhaseItems = new List<string>();
+        public readonly List<string> EncorePhasePerks = new List<string>();
+
+        // 마지막 스핀(또는 앵콜 스핀) 결과 요약 — 웹 state().lastSpin. 아직 스핀이 없으면 null.
+        public LastSpinInfo LastSpin = null;
+
         public RunState(long seed)
         {
             Rng = new Rng(seed);

@@ -93,7 +93,7 @@ namespace JackpotRun.Engine
             // 실제 스핀 시점 재계산(§2)과 다를 수 있으나 원문 그대로 이식(정보성 게이트일 뿐 최종 판정은
             // dev_bell 발동 시 SpinResolver가 실제 mods로 다시 계산함, S3 기이식).
             var mods = ModsBuilder.ApplyItemMods(ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", levels: run.PerkLevels), run.PhaseItems);
-            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
+            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run), run.DeepMode);
             long shortfall = quota - run.StageExp;
             if (shortfall > DevBellMaxDeficit) return RunEvents.Rejected("DEV_BELL_DEFICIT_TOO_HIGH");
             run.ArmItems.Add("dev_bell");
@@ -115,7 +115,7 @@ namespace JackpotRun.Engine
             var mods = ModsBuilder.ApplyItemMods(
                 ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                 run.PhaseItems);
-            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
+            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run), run.DeepMode);
             long deficit = quota - run.StageExp;
             if (deficit > DevBellMaxDeficit) return RunEvents.Rejected("DEV_BELL_DEFICIT_TOO_HIGH");
 
@@ -158,6 +158,9 @@ namespace JackpotRun.Engine
             var raw = SpinResolver.RollCells(run, mods, Formulas.REEL, run.SeedNext);
             if (run.DeepMode) raw = DeepRunHooks.ApplyGrowNext(run, raw);
             if (run.DeepMode) raw = DeepRunHooks.ApplyDeepPity(run, raw);
+            // 재미 개편 R3(웹 oracle(): `if (r.held && r.held.length) r.held = []`): 예언이 다음 스핀을 확정하므로 이미 잡은
+            // 홀드는 해제된다(충전은 보존 — 소모는 실제로 홀드가 적용되는 스핀에서만).
+            HoldFlow.ReleaseOnOracle(run);
             run.LockedNext.Clear();
             run.LockedNext.AddRange(raw.Select(c => c.sym.id));
             run.UsedCmds.Add(dev.id);
@@ -198,13 +201,13 @@ namespace JackpotRun.Engine
             // 33종 세트 중 reqDevice가 MANIP 장치(dev_reroll/pin/copy/swap)를 가리키는 항목은 없어 device
             // 생략의 실질 영향은 없지만, phasePerks(broken_prism 임시 프리즘) 생략은 실제로 결과를 바꾼다.
             var preModsM = ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", levels: run.PerkLevels);
-            var mCtx = BuildRunCtx(run, run.LastSpinNo, ModsBuilder.SpinsPerStage(preModsM), SpinResolver.QuotaOf(run.Stage, preModsM, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run)));
+            var mCtx = BuildRunCtx(run, run.LastSpinNo, ModsBuilder.SpinsPerStage(preModsM), SpinResolver.QuotaOf(run.Stage, preModsM, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run), run.DeepMode));
             var mods0 = ModsBuilder.Build(run.MachineId, run.CharId, run.Perks, run.Curses, "", mCtx, run.PerkLevels);
             var mods = ModsBuilder.ApplyItemMods(mods0, run.PhaseItems);
             AscRunHooks.ApplyRunAscMods(mods, run);
             DeepRunHooks.ApplyDeepMods(mods, run);
             int spins = SpinResolver.EffSpins(run, mods);
-            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
+            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run), run.DeepMode);
 
             // 위 §신규 발견 주석 그대로 — LastCellsFinal(이미 List<Cell>)을 얕은 복사해 조작 대상으로
             // 삼는다. Cell은 불변(readonly 필드)이라 리스트만 복사하면 원본 run.LastCellsFinal을 건드리지
@@ -243,6 +246,10 @@ namespace JackpotRun.Engine
                     return RunEvents.Rejected("DEVICE_NOT_SUPPORTED");
             }
 
+            // 재미 개편 R3(웹 manip(): `if (!r.deepMode) r.lastRaw = cells.map(...)`): 조작 결과가 새 '직전 raw' 가 된다
+            // (잡아둔 홀드 칸 표시 Held 는 유지). 일반 모드 전용.
+            HoldFlow.ReplaceLastRaw(run, raw);
+
             // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): hasPrism/capMul(총배율 캡) 제거 — 웹 engine.js에는
             // 해당 캡이 없다. Evaluate/ApplyBoss 시그니처도 이에 맞춰 축소됨(SpinResolver.cs 주석 참조).
             var res = SpinResolver.Evaluate(run.Rng, raw, mods, run.LastSpinNo, spins, false);
@@ -251,6 +258,9 @@ namespace JackpotRun.Engine
             if (boss != null)
                 gained = SpinResolver.ApplyBoss(boss, gained, res, run.LastSpinNo, spins).gained;
             gained = (long)(gained * 0.9); // MANIP 페널티 EXP -10%(공통 4종)
+            // 재미 개편 R4(웹 manip(): `if (r.lastFeverApplied) exp = mulFloor(exp, FEVER_EXP_MUL)`): 피버가 적용된 스핀의
+            // 조작은 피버 배율을 유지한다(피버는 항상 "마지막 곱"이라 보스/MANIP 페널티 뒤에 곱한다).
+            if (run.LastFeverApplied) gained = Formulas.MulFloor(gained, Formulas.FEVER_EXP_MUL);
 
             long newExp = Math.Max(run.StageExp - run.LastGain + gained, 0);
             long newScore = Math.Max(run.Score - run.LastScoreGain + res.score, 0);
@@ -319,7 +329,7 @@ namespace JackpotRun.Engine
             var combinedPerks = new List<string>(run.Perks);
             combinedPerks.AddRange(run.PhasePerks);
             var preMods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels);
-            var rrCtx = BuildRunCtx(run, run.LastSpinNo, ModsBuilder.SpinsPerStage(preMods0), SpinResolver.QuotaOf(run.Stage, preMods0, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run)));
+            var rrCtx = BuildRunCtx(run, run.LastSpinNo, ModsBuilder.SpinsPerStage(preMods0), SpinResolver.QuotaOf(run.Stage, preMods0, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run), run.DeepMode));
             var mods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, rrCtx, run.PerkLevels);
             var mods = ModsBuilder.ApplyItemMods(mods0, run.PhaseItems);
             var devEq = Devices.ById(run.Device);
@@ -327,7 +337,7 @@ namespace JackpotRun.Engine
             AscRunHooks.ApplyRunAscMods(mods, run);
             DeepRunHooks.ApplyDeepMods(mods, run);
             int spins = SpinResolver.EffSpins(run, mods);
-            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
+            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run), run.DeepMode);
 
             // 웹 파리티 P4-3 — 통합 manip()이 gambler "재굴림" 분기도 함께 타므로(game.js:1240-1245)
             // 여기도 HandleManip과 동일하게 LastCellsFinal에서 복원한다(전체 재굴림이라 셀 값 자체는
@@ -335,6 +345,8 @@ namespace JackpotRun.Engine
             // 웹 파리티 P7-2 blocker(§0) — RollCellOne(주머니 추출)로 전환(HandleManip과 동일 근거).
             var raw = new List<Cell>(run.LastCellsFinal);
             for (int i = 0; i < raw.Count; i++) raw[i] = SpinResolver.RollCellOne(run, mods);
+            // 재미 개편 R3: 재굴림 결과가 새 '직전 raw' (웹 통합 manip() 의 "재굴림" 분기 — 도박꾼 무료 재굴림 포함).
+            HoldFlow.ReplaceLastRaw(run, raw);
 
             // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B): hasPrism/capMul(총배율 캡) 제거 — 웹 engine.js에는
             // 해당 캡이 없다. Evaluate/ApplyBoss 시그니처도 이에 맞춰 축소됨(SpinResolver.cs 주석 참조).
@@ -343,6 +355,8 @@ namespace JackpotRun.Engine
             var boss = Bosses.For(run.Stage);
             if (boss != null)
                 gained = SpinResolver.ApplyBoss(boss, gained, res, run.LastSpinNo, spins).gained;
+            // 재미 개편 R4: 피버가 적용된 스핀의 재굴림은 피버 배율 유지(웹 manip() 공통 경로).
+            if (run.LastFeverApplied) gained = Formulas.MulFloor(gained, Formulas.FEVER_EXP_MUL);
 
             long newExp = Math.Max(run.StageExp - run.LastGain + gained, 0);
             long newScore = Math.Max(run.Score - run.LastScoreGain + res.score, 0);

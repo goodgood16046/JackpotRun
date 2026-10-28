@@ -39,6 +39,10 @@ namespace JackpotRun.Engine
             if (run.Phase != RunPhase.NodeSelect) return RunEvents.Rejected("PHASE_NOT_NODE_SELECT");
             if (index < 0 || index >= run.NodeOptions.Count) return RunEvents.Rejected("INVALID_INDEX");
             var node = run.NodeOptions[index];
+            // 재미 개편 R5(웹 proceedToNodes `if (r.encoreActive) this._encoreSettle()`): 노드로 넘어가기 전에 진행 중인
+            // 앵콜 팟을 정산하고 앵콜 창을 닫는다. 선택이 확정(검증 통과)된 뒤에만 실행 — 거부 경로는 상태 불변.
+            // 정산 사실은 RunController 래퍼가 ENCORE_SETTLED 이벤트로 앞에 붙여 알린다.
+            EncoreFlow.CloseOnLeave(run);
             run.NodeOptions.Clear();
 
             switch (node)

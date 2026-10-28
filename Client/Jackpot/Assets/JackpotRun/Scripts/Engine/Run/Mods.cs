@@ -465,7 +465,10 @@ namespace JackpotRun.Engine
         public static int SpinsPerStage(Mods mods) =>
             Math.Max(Formulas.SPINS_PER_STAGE + mods.bonusSpins, Formulas.MIN_SPINS);
 
-        public static int CmdCoinCost(SpinMode mode, bool boss)
+        // 재미 개편 R6(웹 engine.js cmdCoinCost(mode, boss, n), e6bde8d): n = 같은 스테이지에서 그 종류를 쓰는
+        // 횟수(1=첫 사용, 기본값이라 기존 2-인자 호출부는 무변경). 비용 = min(기본+보스가산, 상한5) × (1+STEP×(n-1)) —
+        // 보스 +1·상한 5는 기본 비용에만 적용한 뒤 배수를 곱한다(상한 5 초과 가능). 비용 0(일반 스핀)은 0 유지.
+        public static int CmdCoinCost(SpinMode mode, bool boss, int n = 1)
         {
             int baseCost = mode switch
             {
@@ -477,7 +480,9 @@ namespace JackpotRun.Engine
             };
             if (baseCost == 0) return 0;
             int withBoss = baseCost + (boss ? Formulas.CMD_COST_BOSS_SURCHARGE : 0);
-            return Math.Min(withBoss, Formulas.CMD_COST_MAX);
+            int capped = Math.Min(withBoss, Formulas.CMD_COST_MAX);
+            int k = Math.Max(1, n);
+            return (int)Math.Round(capped * (1.0 + Formulas.CMD_COST_STEP * (k - 1)), MidpointRounding.AwayFromZero);
         }
 
         // ── fx 점 표기 해석기 ────────────────────────────────────────────────

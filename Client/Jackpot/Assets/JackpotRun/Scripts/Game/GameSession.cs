@@ -86,6 +86,13 @@ namespace JackpotRun.Game
         // 공유한다.
         public IReadOnlyList<RunEvent> DoGiveUp() => FinishAction(Controller.GiveUp());
 
+        // 재미 개편(R3·R5): 홀드 토글 / 앵콜 스핀 / 앵콜 정산도 RunAction 이 아니라 RunController 의 별도 공개 메서드라
+        // DoGiveUp 과 같은 이유로 래퍼를 둔다 — 결과 후처리(StatTracker 반영·저장)는 Do(...)와 동일해야 한다
+        // (ENCORE_SPIN/ENCORE_SETTLED/HOLD_CHANGED 는 StatTracker 가 무시하는 타입이라 통계/업적을 건드리지 않는다).
+        public IReadOnlyList<RunEvent> DoToggleHold(int index) => FinishAction(Controller.ToggleHold(index));
+        public IReadOnlyList<RunEvent> DoEncoreSpin() => FinishAction(Controller.EncoreSpin());
+        public IReadOnlyList<RunEvent> DoEncoreCashOut() => FinishAction(Controller.EncoreCashOut());
+
         private IReadOnlyList<RunEvent> FinishAction(IReadOnlyList<RunEvent> events)
         {
             StatTracker.Apply(Profile, Controller.State, events, _scratch);
@@ -134,7 +141,7 @@ namespace JackpotRun.Game
                     ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
                     run.Device),
                 run.PhaseItems);
-            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run));
+            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run), run.DeepMode);
             int spins = SpinResolver.EffSpins(run, mods);
             return (quota, spins);
         }
