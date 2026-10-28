@@ -953,6 +953,9 @@ function render() {
   tutLive();
 }
 
+// 타이틀/로그인 게이트 장식 릴 — 그림(sym_*)이 있으면 그림, 없으면 이모지(2026-10-28 이모지→그림 교체).
+const INTRO_SYMS = [["cherry", "🍒"], ["golden_bell", "🔔"], ["gem", "💎"], ["lucky7", "7️⃣"], ["star", "⭐"], ["coin_bag", "💰"], ["book", "📘"], ["crown", "👑"], ["wild", "🌀"]];
+const introReelsHtml = () => [["cherry", "🍒"], ["lucky7", "7️⃣"], ["gem", "💎"]].map(([id, e]) => `<span>${icon("sym_" + id, e, "", true)}</span>`).join("");
 // ── 인트로 (타이틀 스플래시) ──
 function renderIntro() {
   snd.bgmStop();
@@ -960,18 +963,18 @@ function renderIntro() {
   const p = g.profile;
   app.innerHTML = `
     <div class="intro">
-      <div class="intro-reels"><span>🍒</span><span>7️⃣</span><span>💎</span></div>
+      <div class="intro-reels">${introReelsHtml()}</div>
       <h1 class="intro-title">🎰 <span class="g">잭팟 슬롯</span></h1>
       <div class="intro-sub">텍스트 로그라이크 슬롯머신 · 웹 단독판</div>
       ${p.runs ? `<div class="intro-best">${esc(titleOf(p.bestScore))} · 최고 ${p.bestScore.toLocaleString()}점 · ${p.runs}런</div>` : `<div class="intro-best">버튼·애니로 즐기는 슬롯 로그라이크!</div>`}
       <button class="intro-start" data-act="introStart">▶ 탭하여 시작</button>
       <div class="intro-hint">🔊 소리 ON · 첫 탭에서 활성화돼요</div>
     </div>`;
-  const SYM = ["🍒", "🔔", "💎", "7️⃣", "⭐", "🍀", "💰", "📘", "👑", "🎰"];
   const reels = [...app.querySelectorAll(".intro-reels span")];
   if (introTimer) clearInterval(introTimer);
-  introTimer = setInterval(() => { reels.forEach((s) => { s.textContent = SYM[Math.floor(Math.random() * SYM.length)]; }); }, 110);
+  introTimer = setInterval(() => { reels.forEach((s) => { const k = INTRO_SYMS[Math.floor(Math.random() * INTRO_SYMS.length)]; s.innerHTML = icon("sym_" + k[0], k[1], "", true); }); }, 110);
 }
+
 function exitIntro() {
   if (introTimer) { clearInterval(introTimer); introTimer = null; }
   snd.resume(); st = null;
@@ -985,7 +988,7 @@ function renderLoginGate() {
   const p = g.profile;
   app.innerHTML = `
     <div class="intro login-gate" id="login-gate">
-      <div class="intro-reels"><span>🍒</span><span>7️⃣</span><span>💎</span></div>
+      <div class="intro-reels">${introReelsHtml()}</div>
       <h1 class="intro-title">🎰 <span class="g">잭팟 슬롯</span></h1>
       <div class="intro-sub">${p.runs ? `${esc(titleOf(p.bestScore))} · 최고 ${p.bestScore.toLocaleString()}점` : "시작 방법을 선택하세요"}</div>
       <div class="gate-btns">
