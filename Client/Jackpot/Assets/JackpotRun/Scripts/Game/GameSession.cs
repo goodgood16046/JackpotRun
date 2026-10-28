@@ -123,25 +123,35 @@ namespace JackpotRun.Game
             return events;
         }
 
-        // ── HUD 미리보기 전용(진행바/남은 스핀 표시) — 실제 스핀 판정에는 전혀 관여하지 않는다.
-        // ItemUse.InstantQuota/StageFlow.ClearStage의 clearCoinBonus 계산과 동일한 근사 패턴(device+
-        // phasePerks는 반영하되 RunCtx 조건부 신규 증강 8종은 미반영) — 정확한 값은 SpinResolver.
-        // ResolveSpin 내부(3단계 mods 재계산)에서만 산출되고 여기서는 재현하지 않는다.
-        // Opus 2차검수 필수④(2026-08-09, WEB_PARITY_DESIGN.md §1-A #15/#16) — ApplyPassiveDevice
-        // 누락으로 dev_reactor(quotaMul×1.15) 장착 런에서 HUD 진행바가 요구 EXP를 15% 낮게 보여주고
-        // 있었다. RewardDoneView.NextPreview/CurrentStats(Engine/Run/RewardDoneInfo.cs)와 3곳 모두
-        // 동일한 mods 조성(Build→ApplyPassiveDevice→ApplyItemMods)으로 통일한다.
+        // ── HUD 미리보기 전용(진행바/남은 스핀 표시, 막판 버튼·LAST SPIN 판정) — 실제 스핀 판정에는 관여하지 않는다(상태 불변).
+        // 재미 개편 2차 검수 M4: ResolveSpin(SpinResolver 3~8단계)과 같은 "ctx 포함 다단계 빌드"를 그대로 재현한다 —
+        // ① ctx 없는 1차 mods 로 spins/quota 산출 → ② 그 값으로 RunCtx 구성해 2차 mods → ③ 2차 값으로 다시 RunCtx → 최종 baseMods,
+        // 이어서 장전(arm)+phase 아이템 → 패시브 장치 → 심화 훅(mods 계산 전용 — run 을 바꾸지 않는다) 순으로 얹는다.
+        // 그래서 black_diploma(curseCount>=5 → 스핀 +) 등 ctx 조건부 퍽의 스핀/요구치 변화가 HUD·막판 버튼·LAST SPIN 판정에 정확히 반영된다
+        // (예전엔 ctx 없는 mods 라 엔진의 실제 spins 와 어긋날 수 있었다). RewardDoneView.NextPreview/CurrentStats 와는 별개 경로다.
+        // 아직 RunCtx 의 spinIndex 는 "지금 스핀 직전 상태"(= run.SpinIndex)로 계산한다(ResolveSpin 과 동일).
         public (long quota, int spins) PreviewQuotaSpins()
         {
             var run = State;
             var combinedPerks = new List<string>(run.Perks);
             combinedPerks.AddRange(run.PhasePerks);
-            var mods = ModsBuilder.ApplyItemMods(
-                ModsBuilder.ApplyPassiveDevice(
-                    ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels),
-                    run.Device),
-                run.PhaseItems);
-            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, DeepRunHooks.DeepPenalty(run), run.DeepMode);
+            double deepPenalty = DeepRunHooks.DeepPenalty(run);
+
+            var preMods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, levels: run.PerkLevels);
+            var preCtx = SpinResolver.RunCtxOf(run, run.SpinIndex, SpinResolver.SpinsPerStage(preMods0),
+                SpinResolver.QuotaOf(run.Stage, preMods0, run.Asc, run.BossPhase2, deepPenalty, run.DeepMode));
+            var preMods = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, preCtx, run.PerkLevels);
+            var runCtx = SpinResolver.RunCtxOf(run, run.SpinIndex, SpinResolver.EffSpins(run, preMods),
+                SpinResolver.QuotaOf(run.Stage, preMods, run.Asc, run.BossPhase2, deepPenalty, run.DeepMode));
+            var baseMods = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, run.Curses, run.Device, runCtx, run.PerkLevels);
+
+            var items = new List<string>(run.ArmItems);
+            items.AddRange(run.PhaseItems);
+            var mods = ModsBuilder.ApplyItemMods(baseMods, items);
+            mods = ModsBuilder.ApplyPassiveDevice(mods, run.Device);
+            DeepRunHooks.ApplyDeepMods(mods, run);   // 일반 모드는 즉시 반환 — 심화는 mods 에 deep 필드만 채운다(run 불변)
+
+            long quota = SpinResolver.QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, deepPenalty, run.DeepMode);
             int spins = SpinResolver.EffSpins(run, mods);
             return (quota, spins);
         }

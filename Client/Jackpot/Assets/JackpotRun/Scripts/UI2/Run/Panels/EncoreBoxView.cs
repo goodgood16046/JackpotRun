@@ -53,6 +53,7 @@ namespace JackpotRun.UI2
         private GameSession _session;
         private Action _onChanged;       // 팟/점수가 바뀌어 NodePanel 의 누적 총점 표시를 갱신해야 할 때
         private Action<bool> _onBusy;    // 연출 시작/종료 — NodePanel 이 노드 카드 입력을 잠근다
+        private Func<string, Sprite> _symbolSprite;   // 릴과 같은 해석 순서(신규 그림 → 구운 도형 타일)의 심볼 스프라이트 — RunView 가 ReelView 에서 넘긴다
 
         // ── UI 참조 ──
         private LayoutElement _layout;
@@ -91,11 +92,16 @@ namespace JackpotRun.UI2
         }
 
         /// <summary>세션/콜백 연결. NodePanel.Show 마다 호출해도 된다(멱등).</summary>
-        public void Bind(GameSession session, Action onChanged, Action<bool> onBusy)
+        public void Bind(GameSession session, Action onChanged, Action<bool> onBusy, Func<string, Sprite> symbolSprite = null)
         {
             _session = session;
             _onChanged = onChanged;
             _onBusy = onBusy;
+            if (symbolSprite != null && _symbolSprite != symbolSprite)
+            {
+                _symbolSprite = symbolSprite;
+                _spriteCache.Clear();   // 해석기가 바뀌면 캐시된 null(그림 없음)도 다시 본다
+            }
         }
 
         private static HashSet<string> BuildValueSymIds()
@@ -236,8 +242,9 @@ namespace JackpotRun.UI2
         private Sprite SpriteOf(string symId)
         {
             if (string.IsNullOrEmpty(symId)) return null;
-            if (_spriteCache.TryGetValue(symId, out var sp)) return sp;
-            sp = JackpotCatalog.LoadSymbolSprite(symId);
+            if (_spriteCache.TryGetValue(symId, out var sp) && sp != null) return sp;   // null(그림 없음)은 캐시하지 않고 다시 시도 — 나중에 추가된 그림 반영
+            sp = _symbolSprite != null ? _symbolSprite(symId) : null;
+            if (sp == null) sp = JackpotCatalog.LoadSymbolSprite(symId);
             _spriteCache[symId] = sp;
             return sp;
         }
@@ -306,6 +313,7 @@ namespace JackpotRun.UI2
         public void ResetForNewClear()
         {
             StopAllCoroutines();
+            _flashGen++;
             _busy = false;
             _result = Mode.Hidden;
             _settledPot = 0;
@@ -355,7 +363,11 @@ namespace JackpotRun.UI2
             int left = Mathf.Max(0, run.EncoreSpinsTotal - run.EncoreSpinsUsed);
             _bg.color = m == Mode.Bust ? BustBg : BoxBg;
             _bgOutline.effectColor = m == Mode.Bust ? UiKit.Bad : BoxLine;
+            // 연출이 중간에 끊겼어도(예외 등) 정적 표시는 항상 깨끗한 상태로 다시 그린다.
+            ClearHalvesAndShards();
             if (_potText != null) _potText.enabled = true;
+            if (_body != null) _body.anchoredPosition = Vector2.zero;
+            for (int i = 0; i < _tiles.Count; i++) { _tiles[i].rt.localScale = Vector3.one; _tiles[i].rt.localRotation = Quaternion.identity; }
 
             string defaultMsg = $"성공할 때마다 팟 ×{NumberFormat.Fmt(1.0 + Formulas.ENCORE_STEP)} → ×{NumberFormat.Fmt(1.0 + Formulas.ENCORE_STEP * 2)} → ...   " +
                                 $"페어가 없거나 해골 {Formulas.ENCORE_BUST_SKULLS}개면 BUST(전부 소멸)";
@@ -437,7 +449,8 @@ namespace JackpotRun.UI2
             _busy = busy;
             if (_spinBtn != null) _spinBtn.interactable = !busy;
             if (_cashBtn != null) _cashBtn.interactable = !busy;
-            _onBusy?.Invoke(busy);
+            // 잠금 해제 콜백(NodePanel 카드 입력)이 예외로 끊기지 않게 격리한다 — 노드 카드 잠금이 영구히 남는 소프트락 방지.
+            CoroutineGuard.Safe(() => _onBusy?.Invoke(busy));
         }
 
         private static void Toast(string message)
@@ -508,6 +521,9 @@ namespace JackpotRun.UI2
         // ══════════════════════════════════════════════════════════════════════
         // 앵콜 스핀 연출
         // ══════════════════════════════════════════════════════════════════════
+        // 2차 검수 M2: ① 결과 상태(_result/_lastMsg/_lastCells 등)는 연출 전에 먼저 확정한다 — 연출이 중간에 예외로 끊겨도 마지막
+        // Refresh 가 올바른 결과를 그린다. ② 하위 연출(RollTiles/UpFx/BustFx)은 CoroutineGuard 로 감싸 예외가 삼켜지고 항상 이어서
+        // 실행된다. ③ try/finally 로 입력 잠금(SetBusy(false))은 어떤 경우에도 푼다.
         private IEnumerator EncoreRoutine(SpinOutcome spin, long potBefore)
         {
             SetBusy(true);
@@ -515,24 +531,50 @@ namespace JackpotRun.UI2
             var cells = spin.result.cells;
             try
             {
-                SoundKit.Sfx("spin");
-                _lastMsg = "";
-                _lastMsgBad = false;
-                SetMessage("", false);
-                _bg.color = BoxBg;
-                _bgOutline.effectColor = BoxLine;
-                yield return RollTiles(cells);
-                _lastCells = cells;
-                if (er.bust) yield return BustFx(er, spin.result);
-                else yield return UpFx(er, potBefore);
+                CoroutineGuard.Safe(() => CommitOutcome(spin));
+                CoroutineGuard.Safe(() =>
+                {
+                    SoundKit.Sfx("spin");
+                    SetMessage("", false);
+                    _bg.color = BoxBg;
+                    _bgOutline.effectColor = BoxLine;
+                });
+                yield return CoroutineGuard.Run(RollTiles(cells));
+                if (er.bust) yield return CoroutineGuard.Run(BustFx(er));
+                else yield return CoroutineGuard.Run(UpFx(er, potBefore));
             }
             finally
             {
-                // 연출 도중 예외/비활성화가 나도 게임 상태는 이미 반영돼 있다 — 입력 잠금만은 반드시 푼다.
                 SetBusy(false);
             }
-            Refresh();
-            _onChanged?.Invoke();
+            CoroutineGuard.Safe(Refresh);
+            CoroutineGuard.Safe(() => _onChanged?.Invoke());
+        }
+
+        // 앵콜 스핀 결과를 박스 상태로 확정(순수 상태 갱신 — 연출 없음).
+        private void CommitOutcome(SpinOutcome spin)
+        {
+            var er = spin.encoreResult;
+            _lastCells = spin.result.cells;
+            if (er.bust)
+            {
+                int skulls = spin.result.skulls;
+                string why = skulls >= Formulas.ENCORE_BUST_SKULLS ? $"해골 {skulls}개" : "페어가 하나도 없어요";
+                _result = Mode.Bust;
+                _lostPot = er.lostPot;
+                _lastMsg = $"BUST! {why} — 팟 {NumberFormat.Comma(er.lostPot)}점이 소멸했어요";
+                _lastMsgBad = true;
+                return;
+            }
+            string msg = $"성공! 팟 ×{NumberFormat.Fmt(er.mulApplied)} · +{NumberFormat.Comma(er.gained)}점";
+            if (er.settled)
+            {
+                msg += $"\n남은 스핀이 없어 자동 정산 +{NumberFormat.Comma(er.settledPot)}점";
+                _result = Mode.Settled;
+                _settledPot = er.settledPot;
+            }
+            _lastMsg = msg;
+            _lastMsgBad = false;
         }
 
         // 타일이 심볼을 빠르게 바꾸다 왼쪽부터 차례로 착지(웹 encoreRoll).
@@ -636,36 +678,20 @@ namespace JackpotRun.UI2
             FxKit.I?.Play(FxId.RisingLight, _potWrap);
             StartCoroutine(OutlineFlash(UiKit.Accent));
 
-            string msg = $"성공! 팟 ×{NumberFormat.Fmt(er.mulApplied)} · +{NumberFormat.Comma(er.gained)}점";
-            if (er.settled)
-            {
-                msg += $"\n남은 스핀이 없어 자동 정산 +{NumberFormat.Comma(er.settledPot)}점";
-                _result = Mode.Settled;
-                _settledPot = er.settledPot;
-                SoundKit.Sfx("coin");
-            }
-            _lastMsg = msg;
-            _lastMsgBad = false;
-            SetMessage(msg, false);
+            if (er.settled) SoundKit.Sfx("coin");
+            SetMessage(_lastMsg, false);   // 메시지/결과 상태는 CommitOutcome 이 이미 확정했다
             yield return new WaitForSeconds(0.8f);
         }
 
         // 실패(BUST): 팟이 반으로 깨져 떨어지고 조각이 튀며 박스가 흔들리고 진동.
-        private IEnumerator BustFx(EncoreResult er, SpinResult res)
+        private IEnumerator BustFx(EncoreResult er)
         {
-            int skulls = res != null ? res.skulls : 0;
-            string why = skulls >= Formulas.ENCORE_BUST_SKULLS ? $"해골 {skulls}개" : "페어가 하나도 없어요";
-            _result = Mode.Bust;
-            _lostPot = er.lostPot;
-            string msg = $"BUST! {why} — 팟 {NumberFormat.Comma(er.lostPot)}점이 소멸했어요";
-            _lastMsg = msg;
-            _lastMsgBad = true;
-
+            // 결과 상태/메시지는 CommitOutcome 이 이미 확정했다 — 여기서는 연출만.
             SoundKit.Sfx("bust");
             StartCoroutine(FunHaptics.Routine(new[] { 60, 40, 140, 40, 60 }));
             _bg.color = BustBg;
             _bgOutline.effectColor = UiKit.Bad;
-            SetMessage(msg, true);
+            SetMessage(_lastMsg, true);
             StartCoroutine(UiTween.ShakeRoutine(_body, 12f, 0.6f));
             yield return SplitPotRoutine(er.lostPot);
             yield return new WaitForSeconds(0.25f);
@@ -794,12 +820,25 @@ namespace JackpotRun.UI2
             StartCoroutine(UiTween.ScaleRoutine(rt, Vector3.one * 1.25f, Vector3.one, 0.45f, UiTween.Ease.OutBack));
         }
 
+        // 박스 테두리 번쩍(0.2s 상승 + 0.5s 하강) — 단일 루프 + 세대 확인(다른 번쩍임/Refresh 가 값을 덮어쓴 뒤 늦게 끝나는 연출이 색을 되돌리지 않게),
+        // 끝에서 기본 색을 확정한다.
+        private int _flashGen;
+
         private IEnumerator OutlineFlash(Color flash)
         {
-            if (_bgOutline == null) yield break;
+            int gen = ++_flashGen;
             Color baseColor = BoxLine;
-            yield return UiTween.FloatRoutine(0f, 1f, 0.2f, k => { if (_bgOutline != null) _bgOutline.effectColor = Color.Lerp(baseColor, flash, k); }, UiTween.Ease.OutQuad);
-            yield return UiTween.FloatRoutine(1f, 0f, 0.5f, k => { if (_bgOutline != null) _bgOutline.effectColor = Color.Lerp(baseColor, flash, k); }, UiTween.Ease.OutQuad);
+            const float up = 0.2f, down = 0.5f;
+            float t = 0f;
+            while (t < up + down)
+            {
+                if (gen != _flashGen || _bgOutline == null) yield break;
+                t += Time.deltaTime;
+                float k = t < up ? t / up : 1f - (t - up) / down;
+                _bgOutline.effectColor = Color.Lerp(baseColor, flash, Mathf.Clamp01(k));
+                yield return null;
+            }
+            if (gen == _flashGen && _bgOutline != null) _bgOutline.effectColor = baseColor;
         }
 
         private void OnDisable()

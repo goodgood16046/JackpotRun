@@ -214,6 +214,9 @@ namespace JackpotRun.UI2
 
         /// <summary>지금 셀이 만들어져 있는가(홀드 선택에는 직전 스핀 결과가 화면에 남아 있어야 한다 — RunView 가 불필요한 ShowIdle 을 건너뛰는 근거).</summary>
         public bool HasCells => _cells.Count > 0;
+
+        /// <summary>릴과 같은 순서로 심볼 스프라이트를 해석한다(신규 그림 → 씬에 구운 도형 타일 → null). 앵콜 박스 타일이 같은 그림을 쓰게 한다.</summary>
+        public Sprite ResolveSymbolSprite(string symId) => SymbolSpriteOf(symId);
         public int CellCount => _cells.Count;
 
         private sealed class SlotView
@@ -233,7 +236,8 @@ namespace JackpotRun.UI2
             public string lastSymId;      // 마지막으로 중앙에 착지한 심볼 id — 세트 글로우 매칭용
             public CanvasGroup holdGroup; // F4 홀드 오버레이(틴트+프레임 발광+자물쇠 배지) — 평소 알파 0
             public RectTransform holdBadge; // 자물쇠 배지(켜질 때 팝)
-            public Coroutine holdFade;    // 스핀 후 홀드 표시 소등 페이드
+            public Coroutine holdFade;    // 홀드 자물쇠 팝/스핀 후 소등 페이드(한 번에 하나)
+            public int holdGen;           // 2차 검수 M1 — 코루틴 세대 토큰(교체된 연출이 값을 덮어쓰지 않게)
             public bool holdOn;           // 오버레이가 켜져 있는가
 
             public Image CenterIcon => slots != null && slots.Length > 2 ? slots[2].icon : null;
@@ -1162,9 +1166,10 @@ namespace JackpotRun.UI2
         private const float HoldKeepFadeDuration = 0.7f;   // 웹 holdKeep 700ms
         private static readonly Color HoldLockColor = new Color(0.72f, 1f, 0.95f);
 
-        private static void BuildHoldOverlay(CellView cv)
+        // 칸이 처음 홀드될 때 한 번만 만든다(이미 있으면 그대로).
+        private static void EnsureHoldOverlay(CellView cv)
         {
-            if (cv?.rt == null) return;
+            if (cv?.rt == null || cv.holdGroup != null) return;
             var go = new GameObject("HoldOverlay", typeof(RectTransform), typeof(CanvasGroup));
             var rt = (RectTransform)go.transform;
             rt.SetParent(cv.rt, false);
@@ -1206,7 +1211,6 @@ namespace JackpotRun.UI2
 
             cv.holdGroup = cg;
             cv.holdBadge = badge;
-            cv.holdOn = false;
         }
 
         /// <summary>현재 홀드된 칸 인덱스로 오버레이를 맞춘다(null/빈 목록이면 전부 끈다). 새로 켜지는 칸은 자물쇠가 팝한다.</summary>
@@ -1224,13 +1228,33 @@ namespace JackpotRun.UI2
 
         private void SetHoldVisual(CellView cv, bool on, bool pop)
         {
-            if (cv?.holdGroup == null || cv.holdOn == on) return;
+            if (cv == null || cv.holdOn == on) return;
+            if (on) EnsureHoldOverlay(cv);
             cv.holdOn = on;
+            cv.holdGen++;   // 진행 중인 팝/페이드는 다음 프레임에 세대 불일치로 스스로 끝난다
             if (cv.holdFade != null) { StopCoroutine(cv.holdFade); cv.holdFade = null; }
+            if (cv.holdGroup == null) return;   // 한 번도 홀드된 적 없는 칸 — 끄기는 할 일이 없다
             cv.holdGroup.alpha = on ? 1f : 0f;
-            if (on && pop && cv.holdBadge != null)
-                StartCoroutine(UiTween.ScaleRoutine(cv.holdBadge, Vector3.one * 0.2f, Vector3.one, 0.3f, UiTween.Ease.OutBack));
-            else if (cv.holdBadge != null) cv.holdBadge.localScale = Vector3.one;
+            if (cv.holdBadge != null) cv.holdBadge.localScale = Vector3.one;
+            if (on && pop && cv.holdBadge != null && isActiveAndEnabled)
+                cv.holdFade = StartCoroutine(HoldPopRoutine(cv, cv.holdGen));
+        }
+
+        // 자물쇠 배지 팝(0.2→1 OutBack 0.3s) — 단일 루프 + 세대 확인, 끝에서 최종 스케일 1 확정.
+        private IEnumerator HoldPopRoutine(CellView cv, int gen)
+        {
+            const float dur = 0.3f;
+            float t = 0f;
+            while (t < dur)
+            {
+                if (gen != cv.holdGen || cv.holdBadge == null) yield break;
+                t += Time.deltaTime;
+                cv.holdBadge.localScale = Vector3.one * Mathf.LerpUnclamped(0.2f, 1f, UiTween.Apply(UiTween.Ease.OutBack, t / dur));
+                yield return null;
+            }
+            if (gen != cv.holdGen) yield break;
+            if (cv.holdBadge != null) cv.holdBadge.localScale = Vector3.one;
+            cv.holdFade = null;
         }
 
         // 스핀 후 홀드 표시 해제 — 번쩍이며(0.7s) 사라진다(웹 .reel.hold-keep). holdOn 은 즉시 꺼진 것으로 취급해
@@ -1239,16 +1263,25 @@ namespace JackpotRun.UI2
         {
             if (cv?.holdGroup == null || !cv.holdOn) return;
             cv.holdOn = false;
+            cv.holdGen++;
             if (cv.holdFade != null) StopCoroutine(cv.holdFade);
-            cv.holdFade = StartCoroutine(HoldFadeRoutine(cv));
+            cv.holdGroup.alpha = 1f;
+            if (cv.holdBadge != null) cv.holdBadge.localScale = Vector3.one;
+            cv.holdFade = StartCoroutine(HoldFadeRoutine(cv, cv.holdGen));
         }
 
-        private IEnumerator HoldFadeRoutine(CellView cv)
+        private IEnumerator HoldFadeRoutine(CellView cv, int gen)
         {
-            var group = cv.holdGroup;
-            if (group == null) yield break;
-            group.alpha = 1f;
-            yield return UiTween.FloatRoutine(1f, 0f, HoldKeepFadeDuration, a => { if (group != null) group.alpha = a; }, UiTween.Ease.OutQuad);
+            float t = 0f;
+            while (t < HoldKeepFadeDuration)
+            {
+                if (gen != cv.holdGen || cv.holdGroup == null) yield break;
+                t += Time.deltaTime;
+                cv.holdGroup.alpha = 1f - UiTween.Apply(UiTween.Ease.OutQuad, t / HoldKeepFadeDuration);
+                yield return null;
+            }
+            if (gen != cv.holdGen) yield break;
+            if (cv.holdGroup != null) cv.holdGroup.alpha = 0f;   // 끄기 경로 최종값 확정
             cv.holdFade = null;
         }
 
@@ -1264,6 +1297,7 @@ namespace JackpotRun.UI2
         private RectTransform _feverFrame;
         private Image _feverFrameImg;
         private Coroutine _feverPulse;
+        private int _feverGen;   // 2차 검수 M1 — 피버 프레임 펄스 세대 토큰
         private ParticleSystem _feverFx;
         private bool _feverOn;
 
@@ -1277,8 +1311,9 @@ namespace JackpotRun.UI2
                 if (_feverFrame != null)
                 {
                     _feverFrame.gameObject.SetActive(true);
+                    _feverGen++;
                     if (_feverPulse != null) StopCoroutine(_feverPulse);
-                    if (isActiveAndEnabled) _feverPulse = StartCoroutine(FeverFramePulse());
+                    if (isActiveAndEnabled) _feverPulse = StartCoroutine(FeverFramePulse(_feverGen));
                 }
                 if (_feverFx == null) _feverFx = FxKit.I?.PlayLoop(FxId.Boss, reelRow, FeverFxTint);
             }
@@ -1302,6 +1337,7 @@ namespace JackpotRun.UI2
         private void ResetFeverFrame()
         {
             _feverOn = false;
+            _feverGen++;
             if (_feverPulse != null) { StopCoroutine(_feverPulse); _feverPulse = null; }
             if (_feverFrame != null) _feverFrame.gameObject.SetActive(false);
             if (_feverFx != null) { FxKit.I?.StopLoop(_feverFx); _feverFx = null; }
@@ -1333,13 +1369,16 @@ namespace JackpotRun.UI2
             _feverFrameImg.raycastTarget = false;
         }
 
-        private IEnumerator FeverFramePulse()
+        // 금빛↔주황 맥동(0.5s 반주기)을 단일 루프로 돌린다 — 세대가 바뀌면(꺼짐/재켜짐) 값을 건드리지 않고 끝난다.
+        private IEnumerator FeverFramePulse(int gen)
         {
+            float phase = 0f;
             while (_feverFrameImg != null)
             {
-                yield return UiTween.FloatRoutine(0f, 1f, 0.5f, k => ApplyFeverFrame(k), UiTween.Ease.OutQuad);
-                if (_feverFrameImg == null) yield break;
-                yield return UiTween.FloatRoutine(1f, 0f, 0.5f, k => ApplyFeverFrame(k), UiTween.Ease.OutQuad);
+                if (gen != _feverGen) yield break;
+                phase += Time.deltaTime;
+                ApplyFeverFrame(Mathf.PingPong(phase / 0.5f, 1f));
+                yield return null;
             }
         }
 
@@ -1411,7 +1450,7 @@ namespace JackpotRun.UI2
                 if (press == null) press = inst.gameObject.AddComponent<CellPressHandler>();
                 press.Tap = () => _cellTapHandler?.Invoke(cellIdx);
                 press.LongPress = () => _cellLongPressHandler?.Invoke(cellIdx);
-                BuildHoldOverlay(cv);
+                // 홀드 오버레이는 칸이 처음 홀드될 때 지연 생성한다(EnsureHoldOverlay) — 스핀마다 칸을 새로 만드는 구조라 매번 미리 만들면 낭비.
                 _cells.Add(cv);
             }
         }

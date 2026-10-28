@@ -114,7 +114,8 @@ namespace JackpotRun.UI2
         private string _lastSpinKey = "";        // F3: 같은 마지막 스핀 상태에서 LAST SPIN! 배너/음을 반복하지 않는 키
         private bool _clutchPending;             // F3: 이번 이벤트 배치가 "마지막 스핀으로 클리어"인가(HandleEvents 가 채움)
         private bool _batchCleared;              // 이번 배치에 스테이지 클리어가 있었나(클리어 직전 배너 여운 대기용)
-        private const float ClearBannerBeat = 1.6f;   // 웹 CLEAR_BEAT(~2초 여운)의 상한 — 배너가 있을 때만 그만큼 기다린다
+        private bool _actionWasSpin;             // 이번 배치를 만든 액션이 Spin(일반/특수 스핀)이었나 — CLUTCH 는 스핀으로 클리어했을 때만(재굴림/조작/재시험 제외)
+        private const float ClearBannerBeatMax = 4.5f;   // 클리어 직전 배너 여운 대기의 상한(FEVER!+CLUTCH! 연쇄까지 끝까지 보여 주되 무한히 기다리진 않는다)
 
         private void Awake()
         {
@@ -159,6 +160,14 @@ namespace JackpotRun.UI2
 
             // 재미 개편 연출 레이어 — 씬 리빌드 없이 동작하도록 런타임에 만든다(UiSceneBuilder 무변경).
             if (_fx == null) _fx = RunFxLayer.Create((RectTransform)transform);
+            // 보스 인트로 카드가 뜨는 진입이면 HUD 상단 배너는 생략(중복) — 튜토리얼 중처럼 카드가 안 뜰 때만 HUD 배너 유지.
+            if (hudView != null) hudView.BossIntroCardWillShow = () => _fx != null && !(tutorialOverlay != null && tutorialOverlay.Active);
+            // 앵콜 박스(NodePanel 안)가 릴과 같은 심볼 그림을 쓰게 하고, 앵콜 스핀/정산 뒤 HUD 점수·코인을 즉시 갱신한다.
+            if (nodePanel != null)
+            {
+                nodePanel.SetSymbolSpriteResolver(reelView != null ? (Func<string, Sprite>)reelView.ResolveSymbolSprite : null);
+                nodePanel.SetEncoreChangedHandler(() => { if (_session != null) hudView?.RefreshCurrency(_session.State); });
+            }
             if (_statusHud == null && reelView != null) _statusHud = ReelStatusHud.Create((RectTransform)reelView.transform);
 
             // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16) — HUD "?"/"⚙".
@@ -245,7 +254,8 @@ namespace JackpotRun.UI2
             {
                 if (events[i].type != "REJECTED") continue;
                 rejected = true;
-                appRoot?.Toast?.Show(RejectReasonText(events[i].reason));
+                // PHASE_NOT_SPIN 은 스핀 거부용 문구("지금은 스핀할 수 없습니다")라 홀드에는 맞지 않는다(예: 만회 대기 중) — 홀드 전용 문구로.
+                appRoot?.Toast?.Show(events[i].reason == "PHASE_NOT_SPIN" ? "⚠ 지금은 홀드할 수 없어요" : RejectReasonText(events[i].reason));
             }
             if (!rejected)
             {
@@ -256,9 +266,11 @@ namespace JackpotRun.UI2
             return true;
         }
 
-        // 홀드 가능: 일반 모드 · SPIN 페이즈 · 스테이지 첫 스핀 이후(직전 raw 가 있어야 함) · 충전>0 (웹 holdCapable).
+        // 홀드 가능: 일반 모드 · SPIN 페이즈 · 스테이지 첫 스핀 이후(직전 raw 가 있어야 함) · 충전>0 · 예언(LockedNext) 확정 중이 아님 (웹 holdCapable +
+        // 엔진 HOLD_LOCKED_NEXT). 예언이 확정된 동안엔 탭=셀 정보로 가고 안내 문구도 "홀드 불가"로 바뀐다(ReelStatusHud).
         private static bool IsHoldCapable(RunState run, HoldView hold) =>
-            hold != null && run != null && run.Phase == RunPhase.Spin && run.SpinIndex > 0 && run.LastRaw.Count > 0 && hold.charges > 0;
+            hold != null && run != null && run.Phase == RunPhase.Spin && run.SpinIndex > 0 && run.LastRaw.Count > 0
+            && run.LockedNext.Count == 0 && hold.charges > 0;
 
         // WEB_PARITY P1 ⑤: "게임 포기" 클릭 → 확인 시트(웹 ui.js:863-871 giveUpAsk) → 확정 시 즉시 결산.
         // 오작동 방지를 위한 1회 확인만 하고, 확정 후에는 SendGiveUp()이 그대로 Send(RunAction)와 같은
@@ -387,100 +399,135 @@ namespace JackpotRun.UI2
             if (_busy || _session == null) return;
             // 재미 개편(웹 doSpin `bannerQ.length = 0`): 새 스핀을 시작하면 지난 스핀의 대기 중 배너는 버린다(뒤늦게 뜨는 것 방지).
             if (action is Spin) _fx?.ClearQueued();
+            _actionWasSpin = action is Spin;   // PlayRoutine 이 첫 줄에서 읽고 비운다
             var events = _session.Do(action);
             StartCoroutine(PlayRoutine(events));
         }
 
+        // 2차 검수 M2: 바깥 try/finally 로 `_busy`/입력 잠금을 반드시 복구하고, 이벤트 처리·콜백·꼬리 갱신·하위 코루틴은 예외를 격리한다
+        // (CoroutineGuard — 하나가 실패해도 나머지(특히 RefreshPhasePanel: 이게 빠지면 노드/상점 패널이 안 떠 소프트락)가 이어서 실행된다).
         private IEnumerator PlayRoutine(IReadOnlyList<RunEvent> events)
         {
             _busy = true;
             SetControlsInteractable(false);
-
-            _clutchPending = false;
-            _batchCleared = false;
-            SpinOutcome spinToAnimate = HandleEvents(events);
-            bool clutch = _clutchPending;
-            _clutchPending = false;
-
-            if (spinToAnimate != null && spinToAnimate.result != null)
+            bool spinAction = _actionWasSpin;   // Send() 가 채운 값 — 런 시작/포기 등 다른 경로는 false
+            _actionWasSpin = false;
+            try
             {
-                long expBefore = spinToAnimate.newExp - spinToAnimate.gained;
-                var res = spinToAnimate.result;
-                var quotaSpins = _session.PreviewQuotaSpins();
-                // 재미 개편: holdUsed(홀드 칸은 회전하지 않는다)·bigWinTier(셰이크/플래시/파티클/사운드 강도)를 릴 연출에 넘긴다.
-                yield return reelView.PlaySpinRoutine(spinToAnimate.result, () =>
+                _clutchPending = false;
+                _batchCleared = false;
+                SpinOutcome spinToAnimate = null;
+                try { spinToAnimate = HandleEvents(events); }
+                catch (Exception e) { Debug.LogException(e); }
+                // 경미5(웹과 동일): CLUTCH 는 스핀 액션으로 클리어했을 때만 — 재굴림/장치 조작/재시험/아이템 클리어는 제외.
+                bool clutch = _clutchPending && spinAction;
+                _clutchPending = false;
+
+                if (spinToAnimate != null && spinToAnimate.result != null)
                 {
-                    hudView.RefreshAfterSpin(_session.State, quotaSpins, expBefore);
-                    // S16 — "정지 후 획득 라인 표시": 결과 패널(GainPanel)이 대문짝 카운트업 + 기여
-                    // 내역 스태거를 재생한다(구 ScorePopupRoutine 대체).
-                    gainPanel?.Show(spinToAnimate);
-                    // S7c 연출 훅: "코인 증가 시 Coin(릴→코인 라벨 flyTo)".
-                    hudView.PlayCoinFx((RectTransform)reelView.transform, res.coins);
-                    // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 doSpin 꼬리 ui.js:379-382) —
-                    // 튜토리얼 1단 action 스텝 중 실제 스핀이었다면 결과 해설(2단)로 이어간다.
-                    tutorialOverlay?.NotifySpinResult(_session.State, quotaSpins.quota, quotaSpins.spins);
-                    // 재미 개편: 결과 공개 순간 — 빅윈/FEVER!/CLUTCH! 배너, 피버 게이지·홀드 칩 갱신.
-                    OnSpinRevealed(spinToAnimate, clutch);
-                }, spinToAnimate.holdUsed, spinToAnimate.bigWinTier);
-
-                // 재미 개편 F1/F3/F5: 클리어 스핀의 배너(NICE!/CLUTCH!/FEVER!)가 클리어 시트에 가려지지 않게 잠깐 여운을 둔다(웹 CLEAR_BEAT).
-                if (_batchCleared && _fx != null && _fx.BannerBusy) yield return _fx.WaitBanners(ClearBannerBeat);
-            }
-            else
-            {
-                // 스핀 결과가 없는 이벤트 배치(런 시작·노드 선택 등)에서는 릴을 비우는 대신 대기
-                // 상태로 세워 둔다 — 그냥 Clear하면 첫 스핀 전까지 릴 영역이 통째로 비어 보인다.
-                // 재미 개편 F4: 같은 스테이지 도중(SPIN 페이즈 + 직전 raw 있음)의 비스핀 액션(아이템/장치 장전 등)은 마지막 결과 칸을
-                // 그대로 둔다 — 홀드는 화면에 보이는 직전 결과 칸을 고르는 기능이라 임의 심볼로 되돌리면 안 된다.
-                var cur = _session.State;
-                bool keepResult = reelView.HasCells && cur.Phase == RunPhase.Spin && cur.LastRaw.Count > 0;
-                if (!keepResult) reelView.ShowIdle(IdleReelCount());
-                hudView.RefreshInstant(_session.State, _session.PreviewQuotaSpins());
-            }
-
-            RefreshBagLabel();
-            RefreshDeviceRow();
-            var preview = _session.PreviewQuotaSpins();
-            RefreshModeButtons(preview);
-            RefreshPouchButton();
-            RefreshPhasePanel();
-            // 재미 개편: 홀드 칩/안내·피버 바·피버 프레임/BGM 피치 — 스핀 직후엔 OnSpinRevealed 가 한 번 했고 여기서 최종 상태로 맞춘다(멱등).
-            RefreshFunHud();
-            // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 tutLive 호출 지점 — render() 매번) — 3단
-            // 라이브 안내는 모든 액션 배치 처리 후 현재 phase/stage를 본다(스핀뿐 아니라 노드선택·상점
-            // 등에서도 트리거되어야 하므로 RefreshPhasePanel 다음, PlayRoutine 공통 꼬리에 둔다).
-            // Opus 2차검수 LOW①(2026-08-09) — 자동 시작(MaybeAutoStart)도 여기서 매번 재평가한다(웹
-            // render()가 매번 조건을 다시 보는 것과 동일 취지, 1회성 코루틴이었던 이전 버전을 대체).
-            if (_session != null)
-            {
-                tutorialOverlay?.NotifyPhase(_session.State.Phase, _session.State.Stage);
-                tutorialOverlay?.MaybeAutoStart(_session.State, appRoot == null || appRoot.Profile == null || appRoot.Profile.TutDone);
-
-                // 웹 파리티 P5 — bgmStart(웹 ui.js:696 `if (soundOn) snd.bgmStart();`, renderPlay 매번
-                // 호출 — SoundKit.BgmStart는 이미 켜져 있으면 조용히 무시하므로 매번 불러도 안전)
-                // + 보스 스테이지 최초 진입 사운드(위 _lastBossCheckStage 필드 주석 참조).
-                var run = _session.State;
-                if (run.Phase == RunPhase.Spin || run.Phase == RunPhase.PostSpin)
-                {
-                    SoundKit.BgmStart();
-                    if (run.Stage != _lastBossCheckStage)
+                    long expBefore = spinToAnimate.newExp - spinToAnimate.gained;
+                    var res = spinToAnimate.result;
+                    (long quota, int spins) quotaSpins = default;
+                    CoroutineGuard.Safe(() => quotaSpins = _session.PreviewQuotaSpins());
+                    bool revealed = false;
+                    // 재미 개편: holdUsed(홀드 칸은 회전하지 않는다)·bigWinTier(셰이크/플래시/파티클/사운드 강도)를 릴 연출에 넘긴다.
+                    // 콜백은 단계마다 격리한다 — HUD/결과 패널/코인/튜토리얼/재미 연출 중 하나가 던져도 나머지는 실행된다.
+                    yield return CoroutineGuard.Run(reelView.PlaySpinRoutine(spinToAnimate.result, () =>
                     {
-                        _lastBossCheckStage = run.Stage;
-                        var boss = Bosses.For(run.Stage);
-                        if (boss != null)
-                        {
-                            SoundKit.Sfx("boss");
-                            // 재미 개편 F2: 보스 스테이지 시작 전면 카드(1.6초·탭 스킵). 튜토리얼 진행 중엔 띄우지 않는다(웹 `!tut.active`).
-                            if (!(tutorialOverlay != null && tutorialOverlay.Active)) _fx?.ShowBossIntro(boss, run.Stage);
-                        }
+                        revealed = true;
+                        CoroutineGuard.Safe(() => hudView.RefreshAfterSpin(_session.State, quotaSpins, expBefore));
+                        // S16 — "정지 후 획득 라인 표시": 결과 패널(GainPanel)이 대문짝 카운트업 + 기여
+                        // 내역 스태거를 재생한다(구 ScorePopupRoutine 대체).
+                        CoroutineGuard.Safe(() => gainPanel?.Show(spinToAnimate));
+                        // S7c 연출 훅: "코인 증가 시 Coin(릴→코인 라벨 flyTo)".
+                        CoroutineGuard.Safe(() => hudView.PlayCoinFx((RectTransform)reelView.transform, res.coins));
+                        // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 doSpin 꼬리 ui.js:379-382) —
+                        // 튜토리얼 1단 action 스텝 중 실제 스핀이었다면 결과 해설(2단)로 이어간다.
+                        CoroutineGuard.Safe(() => tutorialOverlay?.NotifySpinResult(_session.State, quotaSpins.quota, quotaSpins.spins));
+                        // 재미 개편: 결과 공개 순간 — 빅윈/FEVER!/CLUTCH! 배너, 피버 게이지·홀드 칩 갱신.
+                        CoroutineGuard.Safe(() => OnSpinRevealed(spinToAnimate, clutch));
+                    }, spinToAnimate.holdUsed, spinToAnimate.bigWinTier));
+                    // 릴 연출이 콜백 전에 예외로 끊겼다면 HUD/결과 패널만이라도 최종 상태로 맞춘다.
+                    if (!revealed)
+                    {
+                        CoroutineGuard.Safe(() => hudView.RefreshAfterSpin(_session.State, quotaSpins, expBefore));
+                        CoroutineGuard.Safe(() => gainPanel?.Show(spinToAnimate));
+                    }
+
+                    // 재미 개편 F1/F3/F5: 클리어 스핀의 배너(NICE!/CLUTCH!/FEVER! — FEVER!→CLUTCH! 연쇄 포함)가 클리어 시트에 가려지거나 잘리지 않게
+                    // 큐에 남은 시간만큼(상한 ClearBannerBeatMax) 기다린다(웹 CLEAR_BEAT 여운).
+                    if (_batchCleared && _fx != null && _fx.BannerBusy)
+                        yield return _fx.WaitBanners(Mathf.Min(ClearBannerBeatMax, _fx.PendingSeconds + 0.15f));
+                }
+                else
+                {
+                    // 스핀 결과가 없는 이벤트 배치(런 시작·노드 선택 등)에서는 릴을 비우는 대신 대기
+                    // 상태로 세워 둔다 — 그냥 Clear하면 첫 스핀 전까지 릴 영역이 통째로 비어 보인다.
+                    // 재미 개편 F4: 같은 스테이지 도중(SPIN 페이즈 + 직전 raw 있음)의 비스핀 액션(아이템/장치 장전 등)은 마지막 결과 칸을
+                    // 그대로 둔다 — 홀드는 화면에 보이는 직전 결과 칸을 고르는 기능이라 임의 심볼로 되돌리면 안 된다.
+                    CoroutineGuard.Safe(() =>
+                    {
+                        var cur = _session.State;
+                        bool keepResult = reelView.HasCells && cur.Phase == RunPhase.Spin && cur.LastRaw.Count > 0;
+                        if (!keepResult) reelView.ShowIdle(IdleReelCount());
+                        hudView.RefreshInstant(_session.State, _session.PreviewQuotaSpins());
+                    });
+                }
+
+                CoroutineGuard.Safe(RefreshBagLabel);
+                CoroutineGuard.Safe(RefreshDeviceRow);
+                (long quota, int spins) preview = default;
+                CoroutineGuard.Safe(() => preview = _session.PreviewQuotaSpins());
+                CoroutineGuard.Safe(() => RefreshModeButtons(preview));
+                CoroutineGuard.Safe(RefreshPouchButton);
+                CoroutineGuard.Safe(RefreshPhasePanel);   // 반드시 실행 — 노드/상점/게임오버 패널이 여기서 뜬다
+                // 재미 개편: 홀드 칩/안내·피버 바·피버 프레임/BGM 피치 — 스핀 직후엔 OnSpinRevealed 가 한 번 했고 여기서 최종 상태로 맞춘다(멱등).
+                CoroutineGuard.Safe(() => RefreshFunHud());
+                // 웹 파리티 P4-3(WEB_PARITY_DESIGN.md §1-A #16, 웹 tutLive 호출 지점 — render() 매번) — 3단
+                // 라이브 안내는 모든 액션 배치 처리 후 현재 phase/stage를 본다(스핀뿐 아니라 노드선택·상점
+                // 등에서도 트리거되어야 하므로 RefreshPhasePanel 다음, PlayRoutine 공통 꼬리에 둔다).
+                // Opus 2차검수 LOW①(2026-08-09) — 자동 시작(MaybeAutoStart)도 여기서 매번 재평가한다(웹
+                // render()가 매번 조건을 다시 보는 것과 동일 취지, 1회성 코루틴이었던 이전 버전을 대체).
+                CoroutineGuard.Safe(() =>
+                {
+                    if (_session == null) return;
+                    tutorialOverlay?.NotifyPhase(_session.State.Phase, _session.State.Stage);
+                    tutorialOverlay?.MaybeAutoStart(_session.State, appRoot == null || appRoot.Profile == null || appRoot.Profile.TutDone);
+                });
+                CoroutineGuard.Safe(() => TailStageEntry(preview));
+            }
+            finally
+            {
+                SetControlsInteractable(true);
+                _busy = false;
+            }
+        }
+
+        // 꼬리 — BGM 시작 · 보스 스테이지 최초 진입(사운드 + 전면 인트로 카드) · 마지막 스핀 긴장.
+        private void TailStageEntry((long quota, int spins) preview)
+        {
+            if (_session == null) return;
+            // 웹 파리티 P5 — bgmStart(웹 ui.js:696 `if (soundOn) snd.bgmStart();`, renderPlay 매번
+            // 호출 — SoundKit.BgmStart는 이미 켜져 있으면 조용히 무시하므로 매번 불러도 안전)
+            // + 보스 스테이지 최초 진입 사운드(위 _lastBossCheckStage 필드 주석 참조).
+            var run = _session.State;
+            if (run.Phase == RunPhase.Spin || run.Phase == RunPhase.PostSpin)
+            {
+                SoundKit.BgmStart();
+                if (run.Stage != _lastBossCheckStage)
+                {
+                    _lastBossCheckStage = run.Stage;
+                    var boss = Bosses.For(run.Stage);
+                    if (boss != null)
+                    {
+                        SoundKit.Sfx("boss");
+                        // 재미 개편 F2: 보스 스테이지 시작 전면 카드(1.6초·탭 스킵). 튜토리얼 진행 중엔 띄우지 않는다(웹 `!tut.active`).
+                        if (!(tutorialOverlay != null && tutorialOverlay.Active)) _fx?.ShowBossIntro(boss, run.Stage);
                     }
                 }
-                // 재미 개편 F3: 미클리어 마지막 스핀 대기 중 LAST SPIN! 펄스·붉은 비네트.
-                SyncLastSpin(preview);
             }
-
-            SetControlsInteractable(true);
-            _busy = false;
+            // 재미 개편 F3: 미클리어 마지막 스핀 대기 중 LAST SPIN! 펄스·붉은 비네트.
+            SyncLastSpin(preview);
         }
 
         // ── 재미 개편: 스핀 결과 공개 순간 연출(PlaySpinRoutine 콜백) ──────────────────────────────

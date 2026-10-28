@@ -66,6 +66,13 @@ namespace JackpotRun.UI2
         private readonly Queue<BannerReq> _queue = new Queue<BannerReq>();
         private Coroutine _pump;
         private bool _showing;
+        // 2차 검수 M1 — 코루틴 세대 토큰. 중첩(yield return IEnumerator) 코루틴은 부모 StopCoroutine 으로 멈추지 않을 수 있어, 끝난/교체된
+        // 연출이 뒤늦게 값을 덮어쓰지 않도록 모든 루틴을 "단일 레벨 + 매 프레임 세대 확인"으로 짠다(불일치하면 즉시 종료). 끄기/정리
+        // 경로는 최종값을 직접 써서 확정한다.
+        private int _bannerGen;
+        private int _vignetteGen;
+        private int _bossGen;
+        private float _bannerRemaining;   // 지금 떠 있는 배너의 남은 시간(PendingSeconds 계산용)
 
         private RectTransform _bannerRt;
         private CanvasGroup _bannerGroup;
@@ -145,7 +152,7 @@ namespace JackpotRun.UI2
         /// <summary>배너를 큐에 넣는다. 재생 중이면 끝난 뒤 이어서 나온다(웹 queueBanner).</summary>
         public void QueueBanner(string text, BannerStyle style, float duration, string sub = "")
         {
-            if (string.IsNullOrEmpty(text) || _bannerRt == null) return;
+            if (string.IsNullOrEmpty(text) || _bannerRt == null || !isActiveAndEnabled) return;   // 비활성(화면 이탈 중)이면 코루틴을 시작할 수 없다 — 버린다
             _queue.Enqueue(new BannerReq { text = text, sub = sub ?? "", style = style, duration = Mathf.Max(0.3f, duration) });
             if (_pump == null) _pump = StartCoroutine(PumpRoutine());
         }
@@ -156,14 +163,27 @@ namespace JackpotRun.UI2
         /// <summary>재생 중인 배너까지 즉시 정리 — 화면 전환(클리어/종료)·런 재시작.</summary>
         public void FlushBanners()
         {
+            _bannerGen++;   // 진행 중인 PumpRoutine 은 다음 프레임에 세대 불일치로 스스로 끝난다
             _queue.Clear();
             if (_pump != null) { StopCoroutine(_pump); _pump = null; }
             _showing = false;
+            _bannerRemaining = 0f;
             if (_bannerGroup != null) _bannerGroup.alpha = 0f;
             if (_bannerRt != null) { _bannerRt.localScale = Vector3.one; _bannerRt.localRotation = Quaternion.identity; }
         }
 
-        /// <summary>배너가 모두 끝날 때까지(최대 maxSeconds) 기다린다 — 클리어 직전 NICE!/CLUTCH! 가 시트에 가려지지 않게.</summary>
+        /// <summary>지금 떠 있는 배너 + 대기열 배너를 전부 보여 주는 데 필요한 남은 시간(초) — 클리어 시트를 열기 전 기다릴 길이.</summary>
+        public float PendingSeconds
+        {
+            get
+            {
+                float t = _showing ? _bannerRemaining : 0f;
+                foreach (var req in _queue) t += req.duration + BannerOutDuration;
+                return t;
+            }
+        }
+
+        /// <summary>배너가 모두 끝날 때까지(최대 maxSeconds) 기다린다 — 클리어 직전 NICE!/FEVER!/CLUTCH! 가 시트에 가려지지 않게.</summary>
         public IEnumerator WaitBanners(float maxSeconds)
         {
             float waited = 0f;
@@ -174,16 +194,75 @@ namespace JackpotRun.UI2
             }
         }
 
+        // 배너 큐 펌프 — 한 배너의 등장/유지/퇴장을 이 코루틴 안에서 직접 돌린다(중첩 코루틴 없음). 세대가 바뀌면(FlushBanners) 즉시 끝낸다.
         private IEnumerator PumpRoutine()
         {
+            int gen = _bannerGen;
             while (_queue.Count > 0)
             {
                 var req = _queue.Dequeue();
                 _showing = true;
+                _bannerRemaining = req.duration + BannerOutDuration;
                 ApplyStyle(req);
-                yield return ShowOne(req);
+
+                _bannerGroup.alpha = 0f;
+                _bannerRt.localScale = Vector3.one * 0.3f;
+                _bannerRt.localRotation = Quaternion.Euler(0f, 0f, -4f);
+
+                // 등장: scale .3→1 OutBack + 회전 -4°→0 + 페이드(웹 fxbIn).
+                float t = 0f;
+                while (t < BannerInDuration)
+                {
+                    if (gen != _bannerGen) yield break;
+                    t += Time.deltaTime;
+                    _bannerRemaining = Mathf.Max(0f, req.duration + BannerOutDuration - t);
+                    float k = Mathf.Clamp01(t / BannerInDuration);
+                    float e = UiTween.Apply(UiTween.Ease.OutBack, k);
+                    _bannerRt.localScale = Vector3.one * Mathf.LerpUnclamped(0.3f, 1f, e);
+                    _bannerRt.localRotation = Quaternion.Euler(0f, 0f, Mathf.Lerp(-4f, 0f, k));
+                    _bannerGroup.alpha = Mathf.Clamp01(k * 3f);
+                    yield return null;
+                }
+                if (gen != _bannerGen) yield break;
+                _bannerRt.localScale = Vector3.one;
+                _bannerRt.localRotation = Quaternion.identity;
+                _bannerGroup.alpha = 1f;
+
+                // 유지 — 스타일별 장식(MEGA 무지개 색 순환 · FEVER/LAST SPIN 박동).
+                float hold = Mathf.Max(0.05f, req.duration - BannerInDuration);
+                float h = 0f;
+                while (h < hold)
+                {
+                    if (gen != _bannerGen) yield break;
+                    h += Time.deltaTime;
+                    _bannerRemaining = Mathf.Max(0f, hold - h + BannerOutDuration);
+                    if (req.style == BannerStyle.Mega) _mainText.color = Color.HSVToRGB(Mathf.Repeat(h * 0.9f, 1f), 0.55f, 1f);
+                    float beat = 1f;
+                    if (req.style == BannerStyle.Fever) beat = 1f + 0.08f * Mathf.Max(0f, Mathf.Sin(h * Mathf.PI * 2f / 0.3f));
+                    else if (req.style == BannerStyle.LastSpin) beat = 1f + 0.10f * Mathf.Max(0f, Mathf.Sin(h * Mathf.PI * 2f / 0.45f));
+                    _bannerRt.localScale = Vector3.one * beat;
+                    yield return null;
+                }
+
+                // 퇴장: 커지며 사라짐(웹 fxbOut scale 1.12 + fade).
+                t = 0f;
+                while (t < BannerOutDuration)
+                {
+                    if (gen != _bannerGen) yield break;
+                    t += Time.deltaTime;
+                    _bannerRemaining = Mathf.Max(0f, BannerOutDuration - t);
+                    float k = Mathf.Clamp01(t / BannerOutDuration);
+                    _bannerRt.localScale = Vector3.one * Mathf.Lerp(1f, 1.12f, k);
+                    _bannerGroup.alpha = 1f - k;
+                    yield return null;
+                }
+                if (gen != _bannerGen) yield break;
+                _bannerGroup.alpha = 0f;
+                _bannerRt.localScale = Vector3.one;
             }
+            if (gen != _bannerGen) yield break;
             _showing = false;
+            _bannerRemaining = 0f;
             _pump = null;
         }
 
@@ -214,56 +293,6 @@ namespace JackpotRun.UI2
             _subText.fontSize = subSize;
         }
 
-        private IEnumerator ShowOne(BannerReq req)
-        {
-            _bannerGroup.alpha = 0f;
-            _bannerRt.localScale = Vector3.one * 0.3f;
-            _bannerRt.localRotation = Quaternion.Euler(0f, 0f, -4f);
-
-            // 등장: scale .3→1 OutBack + 회전 -4°→0 + 페이드(웹 fxbIn).
-            float t = 0f;
-            while (t < BannerInDuration)
-            {
-                t += Time.deltaTime;
-                float k = Mathf.Clamp01(t / BannerInDuration);
-                float e = UiTween.Apply(UiTween.Ease.OutBack, k);
-                _bannerRt.localScale = Vector3.one * Mathf.LerpUnclamped(0.3f, 1f, e);
-                _bannerRt.localRotation = Quaternion.Euler(0f, 0f, Mathf.Lerp(-4f, 0f, k));
-                _bannerGroup.alpha = Mathf.Clamp01(k * 3f);
-                yield return null;
-            }
-            _bannerRt.localScale = Vector3.one;
-            _bannerRt.localRotation = Quaternion.identity;
-            _bannerGroup.alpha = 1f;
-
-            // 유지 — 스타일별 장식(MEGA 무지개 색 순환 · FEVER/LAST SPIN 박동).
-            float hold = Mathf.Max(0.05f, req.duration - BannerInDuration);
-            float h = 0f;
-            while (h < hold)
-            {
-                h += Time.deltaTime;
-                if (req.style == BannerStyle.Mega) _mainText.color = Color.HSVToRGB(Mathf.Repeat(h * 0.9f, 1f), 0.55f, 1f);
-                float beat = 1f;
-                if (req.style == BannerStyle.Fever) beat = 1f + 0.08f * Mathf.Max(0f, Mathf.Sin(h * Mathf.PI * 2f / 0.3f));
-                else if (req.style == BannerStyle.LastSpin) beat = 1f + 0.10f * Mathf.Max(0f, Mathf.Sin(h * Mathf.PI * 2f / 0.45f));
-                _bannerRt.localScale = Vector3.one * beat;
-                yield return null;
-            }
-
-            // 퇴장: 커지며 사라짐(웹 fxbOut scale 1.12 + fade).
-            t = 0f;
-            while (t < BannerOutDuration)
-            {
-                t += Time.deltaTime;
-                float k = Mathf.Clamp01(t / BannerOutDuration);
-                _bannerRt.localScale = Vector3.one * Mathf.Lerp(1f, 1.12f, k);
-                _bannerGroup.alpha = 1f - k;
-                yield return null;
-            }
-            _bannerGroup.alpha = 0f;
-            _bannerRt.localScale = Vector3.one;
-        }
-
         // ══════════════════════════════════════════════════════════════════════
         // F3 마지막 스핀 붉은 비네트
         // ══════════════════════════════════════════════════════════════════════
@@ -285,27 +314,39 @@ namespace JackpotRun.UI2
         {
             if (_vignette == null || on == _vignetteOn) return;
             _vignetteOn = on;
-            if (_vignetteRoutine != null) StopCoroutine(_vignetteRoutine);
-            _vignetteRoutine = StartCoroutine(on ? VignetteOnRoutine() : VignetteOffRoutine());
+            _vignetteGen++;
+            if (_vignetteRoutine != null) { StopCoroutine(_vignetteRoutine); _vignetteRoutine = null; }
+            if (!isActiveAndEnabled) { SetVignetteAlpha(on ? VignetteMaxAlpha : 0f); return; }   // 비활성이면 코루틴 없이 최종값만
+            _vignetteRoutine = StartCoroutine(VignetteRoutine(on, _vignetteGen));
         }
 
-        private IEnumerator VignetteOnRoutine()
-        {
-            float from = _vignette.color.a;
-            yield return UiTween.FloatRoutine(from, VignetteMaxAlpha, VignetteFade, SetVignetteAlpha, UiTween.Ease.OutQuad);
-            while (_vignette != null)
-            {
-                yield return UiTween.FloatRoutine(VignetteMaxAlpha, VignetteMinAlpha, VignetteHalfCycle, SetVignetteAlpha, UiTween.Ease.Linear);
-                if (_vignette == null) yield break;
-                yield return UiTween.FloatRoutine(VignetteMinAlpha, VignetteMaxAlpha, VignetteHalfCycle, SetVignetteAlpha, UiTween.Ease.Linear);
-            }
-        }
-
-        private IEnumerator VignetteOffRoutine()
+        // 켜기: 현재 알파에서 최대치까지 페이드 인 후 최대↔최소 펄스를 반복 / 끄기: 0 까지 페이드 아웃 후 최종값 0 확정.
+        // 단일 레벨 루프 + 세대 확인(중첩 코루틴 없음) — 켜고 끄기가 빠르게 번갈아도 늦은 쪽이 값을 덮어쓰지 않는다.
+        private IEnumerator VignetteRoutine(bool on, int gen)
         {
             float from = _vignette != null ? _vignette.color.a : 0f;
-            yield return UiTween.FloatRoutine(from, 0f, VignetteFade, SetVignetteAlpha, UiTween.Ease.OutQuad);
-            _vignetteRoutine = null;
+            float to = on ? VignetteMaxAlpha : 0f;
+            float t = 0f;
+            while (t < VignetteFade)
+            {
+                if (gen != _vignetteGen || _vignette == null) yield break;
+                t += Time.deltaTime;
+                SetVignetteAlpha(Mathf.Lerp(from, to, UiTween.Apply(UiTween.Ease.OutQuad, t / VignetteFade)));
+                yield return null;
+            }
+            if (gen != _vignetteGen) yield break;
+            SetVignetteAlpha(to);
+            if (!on) { _vignetteRoutine = null; yield break; }
+
+            float phase = 0f;
+            while (_vignette != null)
+            {
+                if (gen != _vignetteGen) yield break;
+                phase += Time.deltaTime;
+                float k = Mathf.PingPong(phase / VignetteHalfCycle, 1f);
+                SetVignetteAlpha(Mathf.Lerp(VignetteMaxAlpha, VignetteMinAlpha, k));
+                yield return null;
+            }
         }
 
         private void SetVignetteAlpha(float a)
@@ -398,7 +439,8 @@ namespace JackpotRun.UI2
         /// <summary>보스 스테이지 시작 전면 카드를 띄운다(1.6초 후 자동 닫힘, 탭하면 즉시). 그림이 없으면 그림 칸 없이 텍스트만.</summary>
         public void ShowBossIntro(Boss boss, int stage)
         {
-            if (boss == null || _bossRoot == null) return;
+            if (boss == null || _bossRoot == null || !isActiveAndEnabled) return;
+            _bossGen++;
             if (_bossRoutine != null) StopCoroutine(_bossRoutine);
 
             _bossTagText.text = $"BOSS STAGE {stage}";
@@ -414,29 +456,59 @@ namespace JackpotRun.UI2
             _bossRoot.gameObject.SetActive(true);
             _bossRoot.SetAsLastSibling();
             _bossGroup.alpha = 0f;
+            if (_bossCard != null) _bossCard.localScale = Vector3.one * 0.6f;
             StartCoroutine(FunHaptics.Routine(new[] { 30, 50, 90 }));
-            _bossRoutine = StartCoroutine(BossIntroRoutine());
+            _bossRoutine = StartCoroutine(BossIntroRoutine(_bossGen));
         }
 
-        private IEnumerator BossIntroRoutine()
+        // 등장 페이드/카드 팝 → 유지(1.6s, 탭하면 즉시 종료) → 페이드 아웃을 한 코루틴 안에서 직접 돌린다(중첩 코루틴 없음, 세대 확인).
+        private IEnumerator BossIntroRoutine(int gen)
         {
-            if (_bossCard != null) _bossCard.localScale = Vector3.one * 0.6f;
-            if (_bossCard != null) StartCoroutine(UiTween.ScaleRoutine(_bossCard, Vector3.one * 0.6f, Vector3.one, 0.5f, UiTween.Ease.OutBack));
-            yield return UiTween.FadeRoutine(_bossGroup, 0f, 1f, BossIntroFadeIn);
             float t = 0f;
-            float hold = Mathf.Max(0.1f, BossIntroHold - BossIntroFadeIn);
-            while (t < hold && !_bossClosing)
+            while (t < BossIntroFadeIn)
             {
+                if (gen != _bossGen) yield break;
                 t += Time.deltaTime;
+                float k = Mathf.Clamp01(t / BossIntroFadeIn);
+                _bossGroup.alpha = k;
+                if (_bossCard != null)
+                    _bossCard.localScale = Vector3.one * Mathf.LerpUnclamped(0.6f, 1f, UiTween.Apply(UiTween.Ease.OutBack, Mathf.Clamp01(t / 0.5f)));
+                yield return null;
+            }
+            if (gen != _bossGen) yield break;
+            _bossGroup.alpha = 1f;
+
+            float held = 0f;
+            float hold = Mathf.Max(0.1f, BossIntroHold - BossIntroFadeIn);
+            while (held < hold && !_bossClosing)
+            {
+                if (gen != _bossGen) yield break;
+                held += Time.deltaTime;
+                t += Time.deltaTime;
+                if (_bossCard != null && t < 0.5f)   // 팝 애니가 페이드 인보다 길 때 마저 재생
+                    _bossCard.localScale = Vector3.one * Mathf.LerpUnclamped(0.6f, 1f, UiTween.Apply(UiTween.Ease.OutBack, Mathf.Clamp01(t / 0.5f)));
+                else if (_bossCard != null) _bossCard.localScale = Vector3.one;
                 if (_bossVignette != null)
                 {
                     var c = _bossVignette.color;
-                    c.a = 0.35f + 0.25f * (0.5f + 0.5f * Mathf.Sin(t * Mathf.PI * 2f / 0.8f));
+                    c.a = 0.35f + 0.25f * (0.5f + 0.5f * Mathf.Sin(held * Mathf.PI * 2f / 0.8f));
                     _bossVignette.color = c;
                 }
                 yield return null;
             }
-            yield return UiTween.FadeRoutine(_bossGroup, _bossGroup.alpha, 0f, BossIntroFadeOut);
+            if (_bossCard != null) _bossCard.localScale = Vector3.one;
+
+            float startAlpha = _bossGroup.alpha;
+            float f = 0f;
+            while (f < BossIntroFadeOut)
+            {
+                if (gen != _bossGen) yield break;
+                f += Time.deltaTime;
+                _bossGroup.alpha = Mathf.Lerp(startAlpha, 0f, Mathf.Clamp01(f / BossIntroFadeOut));
+                yield return null;
+            }
+            if (gen != _bossGen) yield break;
+            _bossGroup.alpha = 0f;
             if (_bossRoot != null) _bossRoot.gameObject.SetActive(false);
             _bossRoutine = null;
         }
@@ -450,6 +522,7 @@ namespace JackpotRun.UI2
         /// <summary>보스 인트로를 즉시 숨긴다(화면을 떠날 때·새 런).</summary>
         public void HideBossIntroImmediate()
         {
+            _bossGen++;
             if (_bossRoutine != null) { StopCoroutine(_bossRoutine); _bossRoutine = null; }
             _bossClosing = false;
             if (_bossGroup != null) _bossGroup.alpha = 0f;
@@ -462,7 +535,7 @@ namespace JackpotRun.UI2
         /// <summary>진동 패턴(진동/쉼 ms 교대)을 재생한다. 진동 설정을 존중한다.</summary>
         public void Haptic(params int[] pattern)
         {
-            if (pattern == null || pattern.Length == 0) return;
+            if (pattern == null || pattern.Length == 0 || !isActiveAndEnabled) return;
             StartCoroutine(FunHaptics.Routine(pattern));
         }
 
@@ -470,6 +543,7 @@ namespace JackpotRun.UI2
         public void FlushAll()
         {
             FlushBanners();
+            _vignetteGen++;
             if (_vignetteRoutine != null) { StopCoroutine(_vignetteRoutine); _vignetteRoutine = null; }
             _vignetteOn = false;
             SetVignetteAlpha(0f);
@@ -479,9 +553,13 @@ namespace JackpotRun.UI2
         private void OnDisable()
         {
             // 화면이 꺼지면 모든 코루틴이 멈춘다 — 다음에 켜질 때 반쯤 그려진 채 남지 않게 상태를 되돌린다.
+            _bannerGen++;
+            _vignetteGen++;
+            _bossGen++;
             _queue.Clear();
             _pump = null;
             _showing = false;
+            _bannerRemaining = 0f;
             _vignetteRoutine = null;
             _vignetteOn = false;
             _bossRoutine = null;

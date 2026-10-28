@@ -42,7 +42,12 @@ namespace JackpotRun.UI2
         private Coroutine _fillRoutine;
         private Coroutine _glowRoutine;
         private float _fillPct;
+        private float _fillTarget;   // 진행 중이거나 마지막으로 요청된 채움 목표(같은 목표의 animate:false 재호출이 애니를 끊지 않게 비교)
         private int _glowMode;   // 0 평상 · 1 곧 폭발(hot) · 2 피버 중(active)
+        // 2차 검수 M1 — 코루틴 세대 토큰: 중첩 코루틴은 부모 StopCoroutine 으로 멈추지 않을 수 있어 단일 레벨 루프 + 매 프레임 세대 확인으로 짠다.
+        private int _tagGen;
+        private int _fillGen;
+        private int _glowGen;
 
         /// <summary>reelSection(ReelView 의 RectTransform) 안에 상태 표시줄을 만든다.</summary>
         public static ReelStatusHud Create(RectTransform reelSection)
@@ -193,7 +198,12 @@ namespace JackpotRun.UI2
 
             string hint = "";
             if (capable) hint = held > 0 ? $"{held}칸 고정 · 다음 스핀에 유지" : "탭: 홀드 · 길게: 정보";
-            else if (run != null && run.Phase == RunPhase.Spin && run.SpinIndex > 0 && hold.charges < 1) hint = "홀드 충전 없음 (집중 +1)";
+            else if (run != null && run.Phase == RunPhase.Spin && run.SpinIndex > 0 && run.LastRaw.Count > 0)
+            {
+                // 예언(LockedNext)으로 다음 스핀이 확정돼 있으면 홀드 불가 — 탭은 셀 정보로 간다(엔진도 HOLD_LOCKED_NEXT 로 거부).
+                if (run.LockedNext.Count > 0) hint = "다음 스핀 확정 · 홀드 불가";
+                else if (hold.charges < 1) hint = "홀드 충전 없음 (집중 +1)";
+            }
             _hintText.text = hint;
             _hintText.color = (capable && held > 0) ? ChipText : UiKit.TextSecondary;
         }
@@ -203,33 +213,46 @@ namespace JackpotRun.UI2
         {
             if (_tagRt == null || on == _tagOn) return;
             _tagOn = on;
+            _tagGen++;
             if (_tagPulse != null) { StopCoroutine(_tagPulse); _tagPulse = null; }
             if (on)
             {
                 _tagRt.gameObject.SetActive(true);
-                _tagPulse = StartCoroutine(TagPulseRoutine());
+                if (isActiveAndEnabled) _tagPulse = StartCoroutine(TagPulseRoutine(_tagGen));
+                else { _tagGroup.alpha = 1f; _tagRt.localScale = Vector3.one; }
             }
             else
             {
                 _tagGroup.alpha = 0f;
+                _tagRt.localScale = Vector3.one;
                 _tagRt.gameObject.SetActive(false);
             }
         }
 
-        private IEnumerator TagPulseRoutine()
+        // 등장(0.25s OutBack) 후 1↔1.07 박동을 한 코루틴에서 직접 돌린다. 세대가 바뀌면 값을 건드리지 않고 끝난다(끄기 경로가 최종값을 확정).
+        private IEnumerator TagPulseRoutine(int gen)
         {
             _tagGroup.alpha = 0f;
             _tagRt.localScale = Vector3.one * 0.7f;
-            yield return UiTween.FloatRoutine(0f, 1f, 0.25f, k =>
+            float t = 0f;
+            while (t < 0.25f)
             {
-                if (_tagGroup != null) _tagGroup.alpha = k;
-                if (_tagRt != null) _tagRt.localScale = Vector3.one * Mathf.Lerp(0.7f, 1f, k);
-            }, UiTween.Ease.OutBack);
+                if (gen != _tagGen || _tagRt == null) yield break;
+                t += Time.deltaTime;
+                float k = Mathf.Clamp01(t / 0.25f);
+                _tagGroup.alpha = k;
+                _tagRt.localScale = Vector3.one * Mathf.LerpUnclamped(0.7f, 1f, UiTween.Apply(UiTween.Ease.OutBack, k));
+                yield return null;
+            }
+            if (gen != _tagGen) yield break;
+            _tagGroup.alpha = 1f;
+            float phase = 0f;
             while (_tagRt != null)
             {
-                yield return UiTween.ScaleRoutine(_tagRt, Vector3.one, Vector3.one * 1.07f, 0.35f, UiTween.Ease.OutQuad);
-                if (_tagRt == null) yield break;
-                yield return UiTween.ScaleRoutine(_tagRt, Vector3.one * 1.07f, Vector3.one, 0.35f, UiTween.Ease.OutQuad);
+                if (gen != _tagGen) yield break;
+                phase += Time.deltaTime;
+                _tagRt.localScale = Vector3.one * Mathf.Lerp(1f, 1.07f, Mathf.PingPong(phase / 0.35f, 1f));
+                yield return null;
             }
         }
 
@@ -262,25 +285,42 @@ namespace JackpotRun.UI2
 
         private void AnimateFill(float target, bool animate)
         {
+            // 같은 목표로 이미 진행 중이면(animate:false 재호출 포함) 애니를 끊지 않는다. 다른 목표면 새 세대로 교체한다.
+            if (_fillRoutine != null && Mathf.Approximately(_fillTarget, target)) return;
+            _fillGen++;
             if (_fillRoutine != null) { StopCoroutine(_fillRoutine); _fillRoutine = null; }
+            _fillTarget = target;
             if (!animate || !isActiveAndEnabled || Mathf.Approximately(_fillPct, target))
             {
-                SetFill(target);
+                SetFill(target);   // 최종값 확정
                 return;
             }
-            _fillRoutine = StartCoroutine(FillRoutine(_fillPct, target));
+            _fillRoutine = StartCoroutine(FillRoutine(_fillPct, target, _fillGen));
         }
 
-        private IEnumerator FillRoutine(float from, float to)
+        private IEnumerator FillRoutine(float from, float to, int gen)
         {
-            yield return UiTween.FloatRoutine(from, to, FillAnimDuration, SetFill, UiTween.Ease.OutCubic);
+            float t = 0f;
+            while (t < FillAnimDuration)
+            {
+                if (gen != _fillGen) yield break;
+                t += Time.deltaTime;
+                SetFill(Mathf.LerpUnclamped(from, to, UiTween.Apply(UiTween.Ease.OutCubic, t / FillAnimDuration)));
+                yield return null;
+            }
+            if (gen != _fillGen) yield break;
+            SetFill(to);
             _fillRoutine = null;
         }
 
         private void SetFill(float pct)
         {
             _fillPct = pct;
-            if (_fillRt != null) _fillRt.anchorMax = new Vector2(Mathf.Clamp01(pct), 1f);
+            if (_fillRt == null) return;
+            _fillRt.anchorMax = new Vector2(Mathf.Clamp01(pct), 1f);
+            // 0% 면 채움 자체를 끈다(둥근 9-slice 가 폭 0 에서 점으로 남아 보이는 것 방지).
+            bool visible = pct > 0.002f;
+            if (_fillRt.gameObject.activeSelf != visible) _fillRt.gameObject.SetActive(visible);
         }
 
         // 평상=주황 / 곧 폭발=골드 펄스+테두리 번쩍(웹 .fever-wrap.hot) / 피버 중=붉은-금 흐름(웹 .active).
@@ -291,28 +331,32 @@ namespace JackpotRun.UI2
             StopGlow();
             if (mode == 0)
             {
+                // 끄기 경로 — 최종값을 확정적으로 쓴다(진행 중이던 펄스가 남기는 중간 색을 덮어쓴다).
                 if (_fillImg != null) _fillImg.color = new Color(1f, 0.55f, 0.05f, 1f);
                 if (_trackOutline != null) _trackOutline.effectColor = new Color(1f, 0.55f, 0.16f, 0.4f);
                 return;
             }
-            if (isActiveAndEnabled) _glowRoutine = StartCoroutine(GlowRoutine(mode));
+            if (isActiveAndEnabled) _glowRoutine = StartCoroutine(GlowRoutine(mode, _glowGen));
         }
 
         private void StopGlow()
         {
+            _glowGen++;
             if (_glowRoutine != null) { StopCoroutine(_glowRoutine); _glowRoutine = null; }
         }
 
-        private IEnumerator GlowRoutine(int mode)
+        private IEnumerator GlowRoutine(int mode, int gen)
         {
             Color a = mode == 2 ? new Color(1f, 0.22f, 0.02f, 1f) : new Color(1f, 0.55f, 0.05f, 1f);
             Color b = mode == 2 ? new Color(1f, 0.88f, 0.40f, 1f) : new Color(1f, 0.82f, 0.25f, 1f);
             float half = mode == 2 ? 0.55f : 0.25f;
+            float phase = 0f;
             while (_fillImg != null)
             {
-                yield return UiTween.FloatRoutine(0f, 1f, half, k => ApplyGlow(a, b, k, mode), UiTween.Ease.OutQuad);
-                if (_fillImg == null) yield break;
-                yield return UiTween.FloatRoutine(1f, 0f, half, k => ApplyGlow(a, b, k, mode), UiTween.Ease.OutQuad);
+                if (gen != _glowGen) yield break;
+                phase += Time.deltaTime;
+                ApplyGlow(a, b, Mathf.PingPong(phase / half, 1f), mode);
+                yield return null;
             }
         }
 
@@ -326,13 +370,15 @@ namespace JackpotRun.UI2
         /// <summary>새 런 시작/화면 이탈 — 전부 초기 상태로.</summary>
         public void ResetAll()
         {
+            _tagGen++; _fillGen++; _glowGen++;
             StopAllCoroutines();
             _fillRoutine = null;
             _glowRoutine = null;
             _tagPulse = null;
             _tagOn = false;
             _glowMode = 0;
-            if (_tagRt != null) _tagRt.gameObject.SetActive(false);
+            if (_tagRt != null) { _tagGroup.alpha = 0f; _tagRt.localScale = Vector3.one; _tagRt.gameObject.SetActive(false); }
+            _fillTarget = 0f;
             SetFill(0f);
             SetHold(null, false, null);
             SetFever(null, false);
@@ -341,6 +387,7 @@ namespace JackpotRun.UI2
         private void OnDisable()
         {
             // 코루틴이 멈추므로 진행 중이던 상태 플래그를 되돌린다(다시 켜질 때 SetXxx 가 재시작한다).
+            _tagGen++; _fillGen++; _glowGen++;
             _fillRoutine = null;
             _glowRoutine = null;
             _tagPulse = null;

@@ -182,6 +182,7 @@ namespace JackpotRun.UI2
                     var go = Instantiate(prefab, transform);
                     free = go.GetComponent<ParticleSystem>();
                     list.Add(free);
+                    RecordBaseColors(free);   // 처음 만들어진 순간의 startColor 를 저장 — 이후 틴트가 풀 인스턴스에 남지 않게(아래 RestoreBaseColors)
                 }
                 else
                 {
@@ -197,7 +198,33 @@ namespace JackpotRun.UI2
             free.gameObject.SetActive(true);
             free.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             free.Clear(true);
+            // 2차 검수 경미2: 풀 인스턴스는 재사용되므로 이전 호출의 tint(ApplyTint)가 남아 다음 틴트 없는 재생을 물들이지 않게
+            // 매 Acquire 마다 원래 startColor 로 되돌린다(틴트가 필요한 호출은 이어서 ApplyTint 가 다시 덮는다).
+            RestoreBaseColors(free);
             return free;
+        }
+
+        // 인스턴스(루트+자식 파티클 시스템)별 원본 startColor — 틴트 오염 방지용.
+        private readonly Dictionary<ParticleSystem, ParticleSystem.MinMaxGradient> _baseStartColors =
+            new Dictionary<ParticleSystem, ParticleSystem.MinMaxGradient>();
+
+        private void RecordBaseColors(ParticleSystem root)
+        {
+            if (root == null) return;
+            var systems = root.GetComponentsInChildren<ParticleSystem>(true);
+            for (int i = 0; i < systems.Length; i++) _baseStartColors[systems[i]] = systems[i].main.startColor;
+        }
+
+        private void RestoreBaseColors(ParticleSystem root)
+        {
+            if (root == null) return;
+            var systems = root.GetComponentsInChildren<ParticleSystem>(true);
+            for (int i = 0; i < systems.Length; i++)
+            {
+                if (!_baseStartColors.TryGetValue(systems[i], out var original)) continue;
+                var main = systems[i].main;
+                main.startColor = original;
+            }
         }
 
         private GameObject GetPrefab(FxId id)

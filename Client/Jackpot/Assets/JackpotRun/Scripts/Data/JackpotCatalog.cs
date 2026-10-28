@@ -271,8 +271,13 @@ namespace JackpotRun.Data
 
         public static Sprite LoadSprite(CatalogEntry e)
         {
-            if (e == null || string.IsNullOrEmpty(e.spritePath)) return null;
-            return Resources.Load<Sprite>(e.spritePath);
+            if (e == null) return null;
+            // spritePath 가 비어 있는 항목(그림이 없던 시절의 catalog.json — 예: dev_holdfile/dev_major/dev_retake/dev_syllabus)도
+            // 규칙 경로(SpritePathOf)로 한 번 시도한다 — 나중에 그림 PNG 만 추가돼도 catalog.json 을 다시 굽지 않고 표시된다.
+            // 파일이 없으면 Resources.Load 가 null 을 돌려주므로 기존 이모지/글자 폴백이 그대로 동작한다.
+            string path = !string.IsNullOrEmpty(e.spritePath) ? e.spritePath : SpritePathOf(e.category, e.id);
+            if (string.IsNullOrEmpty(path)) return null;
+            return Resources.Load<Sprite>(path);
         }
 
         // ── 스프라이트 경로 규칙 (FUN_OVERHAUL_DESIGN §3) ────────────────────────────────────────

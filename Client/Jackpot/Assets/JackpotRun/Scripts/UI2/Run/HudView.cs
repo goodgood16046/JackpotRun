@@ -80,7 +80,12 @@ namespace JackpotRun.UI2
         private const float BossBannerIconSize = 76f;  // 보스 진입 배너(높이 96) 왼쪽 아이콘
         private Image _bossStageIcon;
 
-        private string _shownBossId; // 마지막으로 배너를 띄운 보스 id(null=아직 없음/보스 아님) — 재진입 배너 중복 방지
+        private string _shownBossId; // 마지막으로 "진입 연출"(배너·비네트·셰이크)을 낸 보스 id(null=아직 없음/보스 아님) — 재진입 중복 방지
+        private string _staticBossId; // 마지막으로 "정적 표시"(불꽃 루프)를 반영한 보스 id — 진입 연출 추적과 분리
+
+        /// <summary>RunView 가 건다 — 이번 보스 진입에 전면 인트로 카드(RunFxLayer)가 뜨면 true. 그러면 HUD 상단 배너는 생략한다
+        /// (카드와 중복). 튜토리얼 중처럼 카드가 안 뜨는 경우만 HUD 배너를 유지한다.</summary>
+        public System.Func<bool> BossIntroCardWillShow;
         private int _lastCurseCount = -1; // -1=미초기화(첫 표시에는 플래시하지 않는다)
         private Coroutine _expRoutine;
         private Coroutine _expPulseRoutine;
@@ -123,6 +128,14 @@ namespace JackpotRun.UI2
             RefreshUnluckyGauge(run.UnluckyGauge, false);
             RefreshBossState(run);
             RefreshDeepStatus(run);
+        }
+
+        /// <summary>코인/점수 라벨만 즉시 갱신 — 앵콜 스핀/정산(NodePanel 안에서 처리돼 PlayRoutine 을 타지 않는다) 직후 HUD 가 실제 값을 따라가게 한다.</summary>
+        public void RefreshCurrency(RunState run)
+        {
+            if (run == null) return;
+            if (coinsText != null) coinsText.text = $"코인 {NumberFormat.Comma(run.Coins)}";
+            if (scoreText != null) scoreText.text = $"점수 {NumberFormat.Comma(run.Score)}";
         }
 
         /// <summary>스핀 등으로 EXP/코인/점수/저주/스핀수가 바뀌었을 때 — EXP 바만 0.3s 트윈, 나머지는 즉시.</summary>
@@ -458,23 +471,33 @@ namespace JackpotRun.UI2
             if (hudOutline != null) hudOutline.enabled = boss != null;
 
             string bossId = boss?.id;
-            if (bossId != _shownBossId)
-            {
-                _shownBossId = bossId;
-                if (boss != null)
-                {
-                    PlayBossBanner(boss);
-                    StartCoroutine(BossVignettePulse());
-                    PlayScreenShake(BossEntryShakeAmplitude, BossEntryShakeDuration);
-                }
 
-                // S7c 연출 훅: "보스 스테이지 Boss 루프(스테이지 종료 시 Stop)" — HUD 영역(자기 자신의
-                // RectTransform, hudRoot에 붙어 있다) 기준으로 재생.
+            // ── 정적 표시: 보스 스테이지 동안 유지되는 불꽃 루프(HUD 영역) — 스테이지 종료 시 Stop. 라벨/아이콘/테두리는 위에서 이미 반영.
+            if (bossId != _staticBossId)
+            {
+                _staticBossId = bossId;
+                // S7c 연출 훅: "보스 스테이지 Boss 루프(스테이지 종료 시 Stop)" — HUD 영역(자기 자신의 RectTransform, hudRoot에 붙어 있다) 기준.
                 if (boss != null && _bossFx == null) _bossFx = FxKit.I?.PlayLoop(FxId.Boss, (RectTransform)transform);
                 else if (boss == null && _bossFx != null)
                 {
                     FxKit.I?.StopLoop(_bossFx);
                     _bossFx = null;
+                }
+            }
+
+            // ── 진입 연출(배너·적색 비네트·셰이크): 스테이지가 실제로 시작되는 Spin/PostSpin 에서만. C# 엔진은 클리어 즉시 run.Stage 를 다음
+            //    스테이지로 올리므로(NodeSelect 동안 이미 다음 스테이지) 그 시점에 내면 클리어 스핀/클리어 보드 위에 보스 배너가 뜬다 —
+            //    Phase 가 Spin/PostSpin 으로 돌아왔을 때(ProceedToStage 이후) 한 번만 낸다. 전면 인트로 카드가 뜨면 HUD 배너는 생략한다.
+            bool playing = run.Phase == RunPhase.Spin || run.Phase == RunPhase.PostSpin;
+            if (playing && bossId != _shownBossId)
+            {
+                _shownBossId = bossId;
+                if (boss != null)
+                {
+                    bool introCard = BossIntroCardWillShow != null && BossIntroCardWillShow();
+                    if (!introCard) PlayBossBanner(boss);
+                    StartCoroutine(BossVignettePulse());
+                    PlayScreenShake(BossEntryShakeAmplitude, BossEntryShakeDuration);
                 }
             }
         }
@@ -566,6 +589,7 @@ namespace JackpotRun.UI2
         public void ResetForNewRun()
         {
             _shownBossId = null;
+            _staticBossId = null;
             _lastCurseCount = -1;
             if (bossBannerGroup != null) bossBannerGroup.alpha = 0f;
             if (bossVignetteGroup != null) bossVignetteGroup.alpha = 0f;

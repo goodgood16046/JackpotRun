@@ -63,6 +63,11 @@ namespace JackpotRun.UI2
         private EncoreBoxView _encoreBox;
         private GameSession _session;
         private RunState _run;
+        private Func<string, Sprite> _symbolSprite;   // RunView 가 ReelView 의 해석기(신규 그림 → 구운 타일)를 넘긴다 — 앵콜 타일이 릴과 같은 그림을 쓴다
+        private Action _onEncoreChanged;              // 앵콜 스핀/정산으로 점수·코인이 바뀌었을 때 RunView 가 HUD 를 즉시 갱신하는 훅
+
+        public void SetSymbolSpriteResolver(Func<string, Sprite> resolver) => _symbolSprite = resolver;
+        public void SetEncoreChangedHandler(Action handler) => _onEncoreChanged = handler;
 
         private void Awake()
         {
@@ -125,9 +130,15 @@ namespace JackpotRun.UI2
                 if (_encoreBox == null) return;
             }
             if (firstShow) _encoreBox.ResetForNewClear();
-            _encoreBox.Bind(_session, RefreshTotalScore, OnEncoreBusy);
+            _encoreBox.Bind(_session, OnEncoreChanged, OnEncoreBusy, _symbolSprite);
             _encoreBox.transform.SetAsFirstSibling();
             _encoreBox.Refresh();
+        }
+
+        private void OnEncoreChanged()
+        {
+            RefreshTotalScore();
+            _onEncoreChanged?.Invoke();
         }
 
         // 연출 중에는 노드 카드 입력을 막는다 — 앵콜 스핀 결과는 이미 확정돼 있지만, 굴림 도중 노드를 고르면 박스가 통째로 사라져 어색하다.
