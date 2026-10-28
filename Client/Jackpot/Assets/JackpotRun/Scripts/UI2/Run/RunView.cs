@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using JackpotRun.Core;
+using JackpotRun.Data;
 using JackpotRun.Engine;
 using JackpotRun.Game;
 using UnityEngine;
@@ -585,6 +586,7 @@ namespace JackpotRun.UI2
                         {
                             Head = SymLabel(id),
                             Body = $"보유 ×{have} — 최대 {removeN}개 제거됩니다.",
+                            Icon = JackpotCatalog.LoadSymbolSprite(id),
                             OnPick = () => Send(new PickOffer(idx)),
                         });
                     }
@@ -643,6 +645,7 @@ namespace JackpotRun.UI2
                     Body = "",
                     Badge = DeepCardBadge(card),
                     TierColor = DeepTierColor(card),
+                    Icon = JackpotCatalog.LoadSymbolSprite(card.Id),
                     OnPick = () => Send(new PickOffer(idx)),
                 });
             }
@@ -690,11 +693,14 @@ namespace JackpotRun.UI2
         {
             var dev = Devices.ById(run.PendingDeviceDrop);
             if (dev == null) { deviceOfferPopup?.Hide(); return; }
+            // FUN_OVERHAUL_DESIGN §3 — 장치 그림이 있으면 제목 왼쪽에 아이콘(이모지 대신), 없으면 기존 그대로.
+            var devSprite = JackpotCatalog.LoadSprite(JackpotCatalog.Get(dev.id));
             deviceOfferPopup?.Show(
-                $"{dev.emoji} {dev.name} 획득",
+                devSprite != null ? $"{dev.name} 획득" : $"{dev.emoji} {dev.name} 획득",
                 dev.desc,
                 "장착하기", () => Send(new TakeDevice(true)),
-                "코인 +15", () => Send(new TakeDevice(false)));
+                "코인 +15", () => Send(new TakeDevice(false)),
+                headIcon: devSprite);
         }
 
         private void OpenManipPicker(DeviceDef dev)
@@ -779,6 +785,7 @@ namespace JackpotRun.UI2
                     Head = $"{SymLabel(id)} ×{kv.Value}",
                     Badge = string.Join(" · ", badgeParts),
                     TierColor = tier == "CURSE" ? UiKit.Purple : UiKit.TierColor(tier),
+                    Icon = JackpotCatalog.LoadSymbolSprite(id),
                 });
             }
 
@@ -824,13 +831,14 @@ namespace JackpotRun.UI2
             var dev = Devices.ById(deviceId);
             if (dev == null) return;
             string suffix = isSecondary ? "(보조)" : "";
+            var devSprite = JackpotCatalog.LoadSprite(JackpotCatalog.Get(dev.id));
 
             if (dev.kind == "PASSIVE")
             {
                 var chip = Instantiate(deviceButtonTemplate, deviceRow);
                 chip.gameObject.SetActive(true);
                 chip.name = "Device_" + dev.id;
-                SetDeviceButtonVisual(chip, $"{dev.emoji}{dev.name}{suffix}", UiKit.Card, UiKit.TextSecondary, false, null);
+                SetDeviceButtonVisual(chip, DeviceChipLabel(dev, suffix, devSprite), UiKit.Card, UiKit.TextSecondary, false, null, devSprite);
                 return;
             }
             // dev_holdfile/dev_retake는 증강·유물 오퍼 패널 전용 명령(RunController.cs 계약) — 메인 줄 제외.
@@ -839,15 +847,23 @@ namespace JackpotRun.UI2
             var btn = Instantiate(deviceButtonTemplate, deviceRow);
             btn.gameObject.SetActive(true);
             btn.name = "Device_" + dev.id;
-            SetDeviceButtonVisual(btn, $"{dev.emoji}{dev.name}{suffix}", UiKit.Blue, UiKit.Bg, true, () => OnDeviceButtonClick(dev));
+            SetDeviceButtonVisual(btn, DeviceChipLabel(dev, suffix, devSprite), UiKit.Blue, UiKit.Bg, true, () => OnDeviceButtonClick(dev), devSprite);
         }
 
-        private static void SetDeviceButtonVisual(RectTransform btnRt, string label, Color bg, Color fg, bool interactable, Action onClick)
+        // 장치 그림이 있으면 이모지 없이 "이름(보조)"만(아이콘이 대신한다), 없으면 기존 "{이모지}{이름}".
+        private static string DeviceChipLabel(DeviceDef dev, string suffix, Sprite sprite) =>
+            sprite != null ? $"{dev.name}{suffix}" : $"{dev.emoji}{dev.name}{suffix}";
+
+        private const float DeviceChipIconSize = 60f; // 칩 높이 80 안에 여백 10씩
+
+        private static void SetDeviceButtonVisual(RectTransform btnRt, string label, Color bg, Color fg, bool interactable, Action onClick, Sprite icon = null)
         {
             var image = btnRt.GetComponent<Image>();
             if (image != null) image.color = bg;
             var text = btnRt.Find("Label")?.GetComponent<Text>();
             if (text != null) { text.text = label; text.color = fg; }
+            // FUN_OVERHAUL_DESIGN §3 — 칩 왼쪽에 장치 그림(없으면 숨김 + 라벨 오프셋 원복).
+            IconKit.SetLeftIcon(btnRt, "ArtIcon", icon, DeviceChipIconSize, 10f, text != null ? text.rectTransform : null, 0f);
             var button = btnRt.GetComponent<Button>();
             if (button != null)
             {

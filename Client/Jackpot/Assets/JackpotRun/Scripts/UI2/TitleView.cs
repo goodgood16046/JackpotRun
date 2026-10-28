@@ -1,5 +1,7 @@
 using System.Collections;
+using System.Collections.Generic;
 using JackpotRun.Core;
+using JackpotRun.Data;
 using JackpotRun.Engine;
 using UnityEngine;
 using UnityEngine.UI;
@@ -32,13 +34,16 @@ namespace JackpotRun.UI2
         [SerializeField] private RectTransform[] reelTiles;
         [SerializeField] private Image[] reelIcons;
         [SerializeField] private Outline[] reelGlows;
-        [SerializeField] private Sprite[] symbolSprites; // 14종(빌더가 UiSpriteGen.Load("sym_"+id)로 구움)
+        // 레거시 14종(빌더가 신규 Symbols 아이콘 우선, 없으면 UiSpriteGen.Load("sym_"+id) 도형 타일로 구움).
+        // 런타임엔 Resources 의 신규 아이콘을 먼저 쓰고(씬 리빌드 없이도 반영), 이 배열은 폴백이다.
+        [SerializeField] private Sprite[] symbolSprites;
         [SerializeField] private Text bestText;
         [SerializeField] private Button startButton;
         [SerializeField] private RectTransform reelsRow; // S13 §E — fx_title_spark 앵커(릴 타일 3개를 담는 행)
 
         private Coroutine _symbolLoop;
         private Coroutine[] _bobLoops;
+        private readonly List<Sprite> _cyclePool = new List<Sprite>(); // 릴 사이클 후보(신규 아이콘 우선)
 
         // S13 §E — 릴 주변 반짝임 루프 + 시작 버튼 뒤 은은한 발광. FxKit.I가 없으면(프리팹 미생성 등)
         // Play*가 조용히 null을 반환하므로 handle도 null로 남아 StopLoop가 안전하게 무시한다.
@@ -55,7 +60,8 @@ namespace JackpotRun.UI2
             RefreshBest();
             PlayEntry();
 
-            if (symbolSprites != null && symbolSprites.Length > 0 && reelIcons != null && reelIcons.Length > 0)
+            BuildCyclePool();
+            if (_cyclePool.Count > 0 && reelIcons != null && reelIcons.Length > 0)
                 _symbolLoop = StartCoroutine(SymbolCycleLoop());
 
             if (reelTiles != null && reelTiles.Length > 0)
@@ -138,6 +144,23 @@ namespace JackpotRun.UI2
             }
         }
 
+        // FUN_OVERHAUL_DESIGN §3 — 타이틀 릴은 레거시 14종(Symbols.LegacyCount) 범위만 돈다(신규 58종은
+        // 심화 전용이라 타이틀에 어울리지 않는다). 신규 광택 아이콘(Resources/.../Symbols/sym_<id>)이 하나라도
+        // 있으면 그 목록만, 하나도 없으면 빌더가 구워 둔 도형 타일(symbolSprites)로 폴백한다.
+        private void BuildCyclePool()
+        {
+            _cyclePool.Clear();
+            var syms = Symbols.All;
+            for (int i = 0; i < Symbols.LegacyCount && i < syms.Length; i++)
+            {
+                var sp = JackpotCatalog.LoadSymbolSprite(syms[i].id);
+                if (sp != null) _cyclePool.Add(sp);
+            }
+            if (_cyclePool.Count > 0 || symbolSprites == null) return;
+            foreach (var sp in symbolSprites)
+                if (sp != null) _cyclePool.Add(sp);
+        }
+
         private IEnumerator SymbolCycleLoop()
         {
             while (true)
@@ -146,7 +169,7 @@ namespace JackpotRun.UI2
                 for (int i = 0; i < reelIcons.Length; i++)
                 {
                     if (reelIcons[i] == null) continue;
-                    reelIcons[i].sprite = symbolSprites[Random.Range(0, symbolSprites.Length)];
+                    reelIcons[i].sprite = _cyclePool[Random.Range(0, _cyclePool.Count)];
                 }
             }
         }

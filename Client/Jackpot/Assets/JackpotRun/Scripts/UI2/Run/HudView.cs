@@ -1,5 +1,6 @@
 using System.Collections;
 using JackpotRun.Core;
+using JackpotRun.Data;
 using JackpotRun.Engine;
 using UnityEngine;
 using UnityEngine.UI;
@@ -72,6 +73,12 @@ namespace JackpotRun.UI2
         // 통째로 숨긴다(빈 진행바 트랙만 남는 시각적 잔여물 방지 — archChipText/feverText는 "행 유지,
         // 텍스트만 비움" 관례를 쓰지만 이 바는 트랙 자체가 배경색 있는 그래픽이라 빈 칸이 더 도드라짐).
         [SerializeField] private RectTransform feverBarFill; // anchorMax.x = 게이지 비율(0~1). 발동 중엔 100% 고정.
+
+        // FUN_OVERHAUL_DESIGN §3 — 보스 그림(Resources/.../Bosses/boss_<id>.png). 씬에 슬롯이 없어 런타임에
+        // 지연 생성한다(씬 리빌드 불필요). 그림이 없으면 아무것도 만들지 않아 기존 화면 그대로.
+        private const float BossStageIconSize = 40f;   // HUD 윗줄(높이 44) 안에 들어가는 크기
+        private const float BossBannerIconSize = 76f;  // 보스 진입 배너(높이 96) 왼쪽 아이콘
+        private Image _bossStageIcon;
 
         private string _shownBossId; // 마지막으로 배너를 띄운 보스 id(null=아직 없음/보스 아님) — 재진입 배너 중복 방지
         private int _lastCurseCount = -1; // -1=미초기화(첫 표시에는 플래시하지 않는다)
@@ -439,8 +446,14 @@ namespace JackpotRun.UI2
         private void RefreshBossState(RunState run)
         {
             var boss = Bosses.For(run.Stage);
+            var bossSprite = boss != null ? JackpotCatalog.LoadBossSprite(boss.id) : null;
             if (stageText != null)
-                stageText.text = boss != null ? $"스테이지 {run.Stage} · {boss.emoji}{boss.name}" : $"스테이지 {run.Stage}";
+            {
+                // 보스 그림이 있으면 이모지(astral 은 어차피 미표시) 대신 아이콘이 이름 왼쪽에 붙는다.
+                string bossLabel = boss == null ? "" : (bossSprite != null ? boss.name : $"{boss.emoji}{boss.name}");
+                stageText.text = boss != null ? $"스테이지 {run.Stage} · {bossLabel}" : $"스테이지 {run.Stage}";
+            }
+            RefreshBossStageIcon(bossSprite);
 
             if (hudOutline != null) hudOutline.enabled = boss != null;
 
@@ -464,6 +477,39 @@ namespace JackpotRun.UI2
                     _bossFx = null;
                 }
             }
+        }
+
+        // HUD 윗줄(스테이지 텍스트가 속한 HorizontalLayoutGroup) 왼쪽 끝에 보스 아이콘 1개를 둔다.
+        // 이 그룹은 childForceExpandWidth=true 라 자식으로 끼워 넣으면 폭을 균등 분배받아 아이콘 주위에
+        // 빈 공간이 생긴다 → 아이콘은 ignoreLayout 으로 레이아웃 밖에 절대 배치하고, 그 폭만큼 그룹의
+        // 왼쪽 패딩을 키워 스테이지 텍스트가 겹치지 않게 한다(보스가 아니면 패딩 0 = 기존과 동일).
+        private void RefreshBossStageIcon(Sprite sprite)
+        {
+            var row = stageText != null ? stageText.transform.parent as RectTransform : null;
+            if (row == null) return;
+
+            if (_bossStageIcon == null)
+            {
+                if (sprite == null) return; // 그림이 없으면 아무것도 만들지 않는다(기존 화면 그대로).
+                var go = new GameObject("BossIcon", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
+                var rt = (RectTransform)go.transform;
+                rt.SetParent(row, false);
+                rt.anchorMin = new Vector2(0f, 0.5f);
+                rt.anchorMax = new Vector2(0f, 0.5f);
+                rt.pivot = new Vector2(0f, 0.5f);
+                rt.sizeDelta = new Vector2(BossStageIconSize, BossStageIconSize);
+                rt.anchoredPosition = Vector2.zero;
+                go.GetComponent<LayoutElement>().ignoreLayout = true;
+                _bossStageIcon = go.GetComponent<Image>();
+                _bossStageIcon.preserveAspect = true;
+                _bossStageIcon.raycastTarget = false;
+            }
+            _bossStageIcon.sprite = sprite;
+            _bossStageIcon.enabled = sprite != null;
+            _bossStageIcon.gameObject.SetActive(sprite != null);
+
+            var group = row.GetComponent<HorizontalLayoutGroup>();
+            if (group != null) group.padding = new RectOffset(sprite != null ? Mathf.RoundToInt(BossStageIconSize + 8f) : 0, 0, 0, 0);
         }
 
         private IEnumerator BossVignettePulse()
@@ -497,7 +543,10 @@ namespace JackpotRun.UI2
         {
             if (bossBannerGroup == null || bossBannerText == null) return;
             if (_bossBannerRoutine != null) StopCoroutine(_bossBannerRoutine);
-            bossBannerText.text = $"⚠ 보스: {boss.emoji}{boss.name}";
+            var bossSprite = JackpotCatalog.LoadBossSprite(boss.id);
+            bossBannerText.text = bossSprite != null ? $"⚠ 보스: {boss.name}" : $"⚠ 보스: {boss.emoji}{boss.name}";
+            // 배너 왼쪽에 보스 그림 — 없으면 숨기고 라벨 오프셋도 원래대로(IconKit.SetLeftIcon).
+            IconKit.SetLeftIcon(bossBannerRect, "BossIcon", bossSprite, BossBannerIconSize, 14f, bossBannerText.rectTransform, 0f);
             _bossBannerRoutine = StartCoroutine(BossBannerRoutine());
         }
 
@@ -521,6 +570,7 @@ namespace JackpotRun.UI2
             if (bossBannerGroup != null) bossBannerGroup.alpha = 0f;
             if (bossVignetteGroup != null) bossVignetteGroup.alpha = 0f;
             if (hudOutline != null) hudOutline.enabled = false;
+            RefreshBossStageIcon(null); // 보스 아이콘 숨김 + 윗줄 왼쪽 패딩 원복
             if (spinsText != null) spinsText.color = UiKit.TextSecondary;
             if (_spinsBlinkRoutine != null) { StopCoroutine(_spinsBlinkRoutine); _spinsBlinkRoutine = null; }
             if (_bossFx != null)

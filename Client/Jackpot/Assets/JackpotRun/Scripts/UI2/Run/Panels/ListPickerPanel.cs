@@ -43,8 +43,13 @@ namespace JackpotRun.UI2
             public string Body;
             public string Badge;
             public Color TierColor = Color.clear; // clear=기본 테두리색(UiKit.Bd) 유지
+            // FUN_OVERHAUL_DESIGN §3 — 카드 왼쪽 그림(심볼 아이콘 등). null 이면 기존 카드 그대로.
+            public Sprite Icon;
             public Action OnPick;
         }
+
+        private const float CardIconSize = 104f;   // 카드 높이 168 안에 위아래 32씩
+        private const float CardIconMargin = 20f;
 
         private void Awake()
         {
@@ -132,6 +137,10 @@ namespace JackpotRun.UI2
                 card.gameObject.SetActive(true);
                 card.name = "ListPickerCard_" + i;
                 result.Add(card);
+
+                // Content(VGroup, Fill) 가 아이콘과 겹치지 않도록 왼쪽 오프셋을 아이콘 폭만큼 민다(그림 없으면 원복).
+                var contentRt = card.Find("Content") as RectTransform;
+                IconKit.SetLeftIcon(card, "ArtIcon", item.Icon, CardIconSize, CardIconMargin, contentRt, 0f);
 
                 var headText = card.Find("Content/Head")?.GetComponent<Text>();
                 if (headText != null) headText.text = item.Head ?? "";

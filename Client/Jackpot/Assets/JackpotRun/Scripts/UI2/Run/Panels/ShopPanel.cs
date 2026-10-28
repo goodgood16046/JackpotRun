@@ -334,6 +334,7 @@ namespace JackpotRun.UI2
                 {
                     Head = SymLabel(tCap.Id),
                     Body = $"보유 ×{tCap.N} · {tCap.Rarity}",
+                    Icon = JackpotCatalog.LoadSymbolSprite(tCap.Id),
                     OnPick = () => { repairTargetPanel?.Hide(); _onRepairBuy(sv.id, new RepairArgs { Id = tCap.Id }); },
                 });
             }
@@ -354,6 +355,7 @@ namespace JackpotRun.UI2
                 {
                     Head = SymLabel(tCap.Id),
                     Body = $"보유 ×{tCap.N} · {tCap.Rarity}",
+                    Icon = JackpotCatalog.LoadSymbolSprite(tCap.Id),
                     OnPick = () => { _swapPendingServiceId = sv.id; _swapPendingFrom = tCap.Id; ShowSwapToTargets(sv, tCap.Id); },
                 });
             }
@@ -373,6 +375,7 @@ namespace JackpotRun.UI2
                 {
                     Head = SymLabel(tCap.Id),
                     Body = $"보유 ×{tCap.N} · {tCap.Rarity}",
+                    Icon = JackpotCatalog.LoadSymbolSprite(tCap.Id),
                     OnPick = () =>
                     {
                         repairTargetPanel?.Hide();

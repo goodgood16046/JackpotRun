@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using JackpotRun.Data;
 using JackpotRun.Engine;
 using JackpotRun.Game;
 using UnityEngine;
@@ -188,6 +189,9 @@ namespace JackpotRun.UI2
         [SerializeField] private RectTransform runScreenRoot;
 
         private Dictionary<string, Sprite> _spriteById;
+        // FUN_OVERHAUL_DESIGN §3 — 런타임 해석 캐시(null 도 캐시해 Resources.Load 반복 호출을 막는다).
+        // 인스턴스 필드라 화면(씬)을 다시 열면 비워진다 → 나중에 PNG 가 추가돼도 stale null 이 남지 않는다.
+        private Dictionary<string, Sprite> _resolvedById;
         private Coroutine _screenShakeRoutine;
 
         // 웹 파리티 P4(WEB_PARITY_DESIGN.md §1-A #16) — 셀 탭(openCellSheet 대응). RunView가 1회만
@@ -223,6 +227,7 @@ namespace JackpotRun.UI2
             _spriteById = new Dictionary<string, Sprite>(symbolSprites.Length);
             foreach (var s in symbolSprites)
                 if (!string.IsNullOrEmpty(s.id) && s.sprite != null) _spriteById[s.id] = s.sprite;
+            _resolvedById = new Dictionary<string, Sprite>();
 
             if (cellTemplate != null) cellTemplate.gameObject.SetActive(false);
             if (flashOverlay != null) flashOverlay.alpha = 0f;
@@ -254,9 +259,7 @@ namespace JackpotRun.UI2
                 {
                     var slot = cell.slots[k];
                     if (slot?.icon == null) continue;
-                    slot.icon.sprite = symbolSprites != null && symbolSprites.Length > 0
-                        ? symbolSprites[UnityEngine.Random.Range(0, symbolSprites.Length)].sprite
-                        : null;
+                    slot.icon.sprite = SymbolSpriteOf(RandomSymbol().id);
                     slot.icon.enabled = slot.icon.sprite != null;
                     if (slot.tag != null) slot.tag.text = "";
                 }
@@ -1113,12 +1116,31 @@ namespace JackpotRun.UI2
             if (slot == null || sym == null) return;
             if (slot.icon != null)
             {
-                slot.icon.sprite = _spriteById.TryGetValue(sym.id, out var sp) ? sp : null;
+                slot.icon.sprite = SymbolSpriteOf(sym.id);
                 slot.icon.color = Color.white;
                 slot.icon.enabled = slot.icon.sprite != null;
             }
             if (slot.rt != null) slot.rt.localScale = Vector3.one;
             if (slot.tag != null) slot.tag.text = TranslateTag(tag);
+        }
+
+        // FUN_OVERHAUL_DESIGN §3 — 심볼 스프라이트 해석 순서:
+        //   ① Resources/JackpotRun/Sprites/Symbols/sym_<id>.png(신규 광택 아이콘, 투명 배경) — 씬을 다시
+        //      굽지 않아도(▶ Play 만으로) 새 그림이 보이도록 런타임에 지연 로드한다.
+        //   ② 빌더가 씬에 구워 둔 도형 타일(_spriteById, 구 Art/UI/sym_*.png) — 신규 그림이 없을 때의 폴백.
+        //   ③ 둘 다 없으면 null(호출부가 icon.enabled=false 로 빈칸 처리).
+        // 신규 그림이 구운 타일보다 우선하는 이유: 구워진 14종은 옛 도형 타일이라, 리빌드 전에도 새 아트가
+        // 이겨야 한다(리빌드 후엔 빌더가 같은 순서로 굽는다 — UiSceneBuilder.LoadSymbolArt).
+        private Sprite SymbolSpriteOf(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return null;
+            if (_resolvedById == null) _resolvedById = new Dictionary<string, Sprite>();
+            if (_resolvedById.TryGetValue(id, out var cached)) return cached;
+
+            var sp = JackpotCatalog.LoadSymbolSprite(id);
+            if (sp == null && _spriteById != null) _spriteById.TryGetValue(id, out sp);
+            _resolvedById[id] = sp;
+            return sp;
         }
 
         private static void CopySlot(SlotView dest, SlotView src)

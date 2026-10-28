@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using JackpotRun.Core;
+using JackpotRun.Data;
 using JackpotRun.Engine;
 using UnityEngine;
 using UnityEngine.UI;
@@ -121,7 +122,10 @@ namespace JackpotRun.UI2
                     btn.name = "Manip_" + devId;
                     result.Add(btn);
                     var label = btn.Find("Label")?.GetComponent<Text>();
-                    if (label != null) label.text = $"{dev.emoji} {dev.name}";
+                    // FUN_OVERHAUL_DESIGN §3 — 장치 그림이 있으면 버튼 왼쪽 아이콘(이모지 대신), 없으면 기존 그대로.
+                    var devSprite = JackpotCatalog.LoadSprite(JackpotCatalog.Get(dev.id));
+                    if (label != null) label.text = devSprite != null ? dev.name : $"{dev.emoji} {dev.name}";
+                    IconKit.SetLeftIcon(btn, "ArtIcon", devSprite, 68f, 14f, label != null ? label.rectTransform : null, 0f);
                     var button = btn.GetComponent<Button>();
                     if (button != null)
                     {

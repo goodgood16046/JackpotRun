@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using JackpotRun.Core;
+using JackpotRun.Data;
 using JackpotRun.Engine;
 using JackpotRun.Game;
 using UnityEngine;
@@ -257,12 +258,18 @@ namespace JackpotRun.UI2
                 // 남지 않도록 분기한다. name/desc는 데이터 원문을 그대로 보존하므로(웹 문장 중간에
                 // 박힌 이모지, 예: "체리 계열(🍒+🍑)") TextSanitize.StripAstral로 표시 직전에만 걸러낸다
                 // (Opus 2차 검수 저⑤, Core/TextSanitize.cs 헤더 참조 — 데이터는 미수정).
+                // FUN_OVERHAUL_DESIGN §3 — 업적 그림(ach_<id>)이 있으면 행 왼쪽 아이콘으로 표시하고 이모지는 생략,
+                // 없으면 기존 "{이모지} 이름 — 설명" 그대로. 행 높이(56)는 유지(아이콘 44 + 위아래 6).
+                var achSprite = JackpotCatalog.LoadSprite(JackpotCatalog.Get("ach_" + a.id));
                 if (label != null)
                 {
                     string name = TextSanitize.StripAstral(a.name);
                     string desc = TextSanitize.StripAstral(a.desc);
-                    label.text = string.IsNullOrEmpty(a.emoji) ? $"{name} — {desc}" : $"{a.emoji} {name} — {desc}";
+                    label.text = (achSprite != null || string.IsNullOrEmpty(a.emoji))
+                        ? $"{name} — {desc}"
+                        : $"{a.emoji} {name} — {desc}";
                 }
+                IconKit.SetLeftIcon(row, "ArtIcon", achSprite, 44f, 10f, label != null ? label.rectTransform : null, 16f, 8f);
             }
             return result;
         }

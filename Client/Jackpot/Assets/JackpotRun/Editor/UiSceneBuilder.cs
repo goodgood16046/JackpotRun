@@ -832,11 +832,14 @@ namespace JackpotRun.EditorTools
             // 확률로 빈 사각형을 보여주는 회귀가 생긴다 — `Symbols.LegacyCount`(14, 실제 릴에 등장
             // 가능한 심볼 전체) 범위로 한정하고, 혹시 모를 개별 누락에도 방어적으로 null은 아예
             // 배열에 넣지 않는다(리스트로 모아 압축).
+            // FUN_OVERHAUL_DESIGN §3 — 각 심볼은 신규 광택 아이콘(Resources/.../Symbols/sym_<id>.png)을 우선하고
+            // 없으면 기존 도형 타일(UiSpriteGen)로 폴백, 둘 다 없으면 배열에서 제외한다(LoadSymbolArt).
+            // 타이틀 장식 릴은 여전히 레거시 14종 범위만 쓴다(TitleView 런타임도 같은 범위).
             var syms = JackpotRun.Engine.Symbols.All;
             var symSpriteList = new System.Collections.Generic.List<Sprite>(JackpotRun.Engine.Symbols.LegacyCount);
             for (int i = 0; i < JackpotRun.Engine.Symbols.LegacyCount; i++)
             {
-                var sp = UiSpriteGen.Load("sym_" + syms[i].id);
+                var sp = LoadSymbolArt(syms[i].id);
                 if (sp != null) symSpriteList.Add(sp);
             }
             result.symbolSprites = symSpriteList.ToArray();
@@ -2062,12 +2065,32 @@ namespace JackpotRun.EditorTools
             // `ReelView.Awake()`는 이미 null 스프라이트를 걸러내므로(ReelView.cs:225) 기능적으로는
             // 안전하지만, 72개를 전부 굽고 그중 58개를 즉시 버리는 것은 씬 리빌드마다 불필요한
             // `Resources.Load` 호출과 직렬화 데이터 낭비("다음 씬 리빌드 오염")라 여기서도
-            // `Symbols.LegacyCount`(14)로 한정한다.
+            // `Symbols.LegacyCount`(14)로 한정했었다(→ 아래 FUN_OVERHAUL 항목으로 대체).
+            //
+            // FUN_OVERHAUL_DESIGN §3 — 신규 광택 아이콘이 들어오면서 Symbols.All 72종 전부를 굽는다: 각 심볼은
+            // 신규 아이콘(Resources/.../Symbols/sym_<id>.png) 우선 → 없으면 기존 도형 타일(UiSpriteGen) →
+            // 둘 다 없으면 배열에서 제외(null 스프라이트를 굽지 않는다 — 위 "직렬화 낭비" 근거 그대로).
+            // 아이콘이 아직 없는 심볼은 ReelView 가 런타임에 Resources 를 다시 시도하므로(지연 로드·캐시)
+            // 씬을 다시 굽지 않아도 이후에 추가된 그림이 보인다.
             var syms = JackpotRun.Engine.Symbols.All;
-            var sprites = new (string id, Sprite sprite)[JackpotRun.Engine.Symbols.LegacyCount];
-            for (int i = 0; i < JackpotRun.Engine.Symbols.LegacyCount; i++)
-                sprites[i] = (syms[i].id, UiSpriteGen.Load("sym_" + syms[i].id));
-            result.symbolSprites = sprites;
+            var sprites = new System.Collections.Generic.List<(string id, Sprite sprite)>(syms.Length);
+            for (int i = 0; i < syms.Length; i++)
+            {
+                var sp = LoadSymbolArt(syms[i].id);
+                if (sp != null) sprites.Add((syms[i].id, sp));
+            }
+            result.symbolSprites = sprites.ToArray();
+        }
+
+        // 심볼 스프라이트(릴/타이틀 공용) — 신규 광택 아이콘 우선, 없으면 구 도형 타일, 둘 다 없으면 null.
+        // 에디터 시점이라 UiSpriteGen.Load 와 같은 AssetDatabase.LoadAssetAtPath 관례를 쓴다
+        // (런타임 JackpotCatalog.LoadSymbolSprite 의 Resources 경로와 같은 파일을 가리킨다).
+        private const string SymbolArtDir = "Assets/JackpotRun/Resources/JackpotRun/Sprites/Symbols";
+
+        private static Sprite LoadSymbolArt(string symId)
+        {
+            var art = AssetDatabase.LoadAssetAtPath<Sprite>($"{SymbolArtDir}/sym_{symId}.png");
+            return art != null ? art : UiSpriteGen.Load("sym_" + symId);
         }
 
         // 릴 셀 템플릿 — S13 §D 재설계: 세로 스트립(위2/중앙/아래2 5칸)이 RectMask2D 안에서 무한
