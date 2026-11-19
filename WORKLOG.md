@@ -33,7 +33,8 @@
 - **검증**: 웹 `node _harness.mjs` ok(신규 정확값 단언 280+), 유니티 EngineTests 33190 → **37586 passed, 0 failed**,
   유니티 UI 는 UnityEngine 모듈 DLL+uGUI 스텁 컴파일 0 error(에디터 실기 미확인 — 설계 문서 §6/검수 보고의 육안 확인 목록 참고),
   웹 Playwright 스크린샷으로 그림 표시·홀드·피버·앵콜·보스 카드 확인(깨진 그림 0).
-- **미해결/결정 대기**: 랭킹 점수 분포 변화(시즌 분리 여부 사용자 결정), GitHub 푸시 권한(403 — Claude GitHub 앱 미설치).
+- **후속(2026-11-19)**: GitHub 권한 연결 후 PR #1 로 main 병합. 랭킹은 사용자 결정으로 시즌 분리 없이 기존 노드 유지.
+  웹 배포(`firebase deploy --only hosting --project jackpotrun-web`)는 이 환경에 파이어베이스 인증이 없어 PC 에서 실행 필요.
 
 ## 2026-08-13 - README 설명란 정리 — 실제 구동 웹페이지 명시 + 낡은 콘텐츠 수치 정정
 
