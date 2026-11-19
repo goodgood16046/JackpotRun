@@ -63,10 +63,11 @@ namespace JackpotRun.Engine
             },
             new DeviceDef
             {
-                id = "dev_subreel", name = "보조릴", emoji = "➕", desc = "장착 시 항상 6칸 슬롯 · 최종 EXP -30%",
+                id = "dev_subreel", name = "보조릴", emoji = "➕", desc = "장착 시 항상 6칸 슬롯 · 최종 EXP -15%",
                 kind = "PASSIVE", rare = true, unlockAch = "jackpot1", // 웹 ACH_DEVICE_REWARD: jackpot1→dev_subreel
-                // reel+1(6칸 확장) 자체는 서비스가 처리, 여기서는 최종 EXP -30% 페널티만.
-                fx = new Dictionary<string, double> { ["expMul"] = 0.7 },
+                // reel+1(6칸 확장) 자체는 서비스가 처리, 여기서는 최종 EXP 페널티만. 재미 개편 R6: -30%(0.7) → -15%(0.85)
+                // (웹 data.js C.SUBREEL_EXP_MUL = 0.85, e6bde8d).
+                fx = new Dictionary<string, double> { ["expMul"] = 0.85 },
             },
 
             // ── 능동 (명령어) ──

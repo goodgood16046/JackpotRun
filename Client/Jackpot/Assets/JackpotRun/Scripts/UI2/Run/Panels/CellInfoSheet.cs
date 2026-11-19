@@ -65,8 +65,13 @@ namespace JackpotRun.UI2
             gameObject.SetActive(true);
 
             string pos = info.isCenter ? " · 가운데 칸" : (info.idx == 0 ? " · 첫 칸" : "");
+            // FUN_OVERHAUL_DESIGN §3 — 심볼 그림이 있으면 제목 오른쪽 끝에 아이콘(제목은 왼쪽 정렬), 이모지는 생략.
+            var symSprite = JackpotCatalog.LoadSymbolSprite(info.sym.id);
             if (titleText != null)
-                titleText.text = TextSanitize.StripAstral($"{info.sym.emoji} {info.sym.name} · {info.idx + 1}번 칸{pos}");
+                titleText.text = TextSanitize.StripAstral(symSprite != null
+                    ? $"{info.sym.name} · {info.idx + 1}번 칸{pos}"
+                    : $"{info.sym.emoji} {info.sym.name} · {info.idx + 1}번 칸{pos}");
+            IconKit.SetHeadIcon(titleText, "HeadIcon", symSprite, 64f, 36f, atRight: true);
 
             if (tagsText != null)
             {

@@ -210,9 +210,14 @@ namespace JackpotRun.UI2
         // try/catch 관례와 동일).
         private const long VibrateShortMs = 15L;
 
-        public static void SafeVibrate()
+        public static void SafeVibrate() => SafeVibrate(VibrateShortMs);
+
+        // 재미 개편(FUN_OVERHAUL_DESIGN F1/F6 — 빅윈·앵콜 BUST 진동 패턴): 길이(ms)를 지정하는 오버로드. 설정이 꺼져 있으면 무동작.
+        // 패턴(진동-쉼 반복)은 호출부(FunHaptics.Routine)가 이 단발 진동을 시간차로 이어 붙인다.
+        public static void SafeVibrate(long milliseconds)
         {
             if (!VibeEnabled) return;
+            long ms = milliseconds < 1L ? VibrateShortMs : (milliseconds > 400L ? 400L : milliseconds);
 #if UNITY_ANDROID && !UNITY_EDITOR
             try
             {
@@ -231,13 +236,13 @@ namespace JackpotRun.UI2
                             {
                                 const int defaultAmplitude = -1; // VibrationEffect.DEFAULT_AMPLITUDE
                                 var effect = effectClass.CallStatic<AndroidJavaObject>(
-                                    "createOneShot", VibrateShortMs, defaultAmplitude);
+                                    "createOneShot", ms, defaultAmplitude);
                                 vibrator.Call("vibrate", effect);
                             }
                         }
                         else
                         {
-                            vibrator.Call("vibrate", VibrateShortMs); // 구버전 API — 밀리초 오버로드.
+                            vibrator.Call("vibrate", ms); // 구버전 API — 밀리초 오버로드.
                         }
                     }
                 }

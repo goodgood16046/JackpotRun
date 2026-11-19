@@ -1,5 +1,5 @@
 {
- "generatedAt": "manifest-sha1:4dcb5470fdf1",
+ "generatedAt": "manifest-sha1:e4e3b49fae88",
  "total": 294,
  "entries": [
   {
@@ -6209,7 +6209,7 @@
    "key": "dev_subreel",
    "emoji": "➕",
    "nameKo": "보조릴",
-   "descKo": "장착 시 항상 6칸 슬롯 · 최종 EXP -30%",
+   "descKo": "장착 시 항상 6칸 슬롯 · 최종 EXP -15%",
    "tier": "",
    "price": -1,
    "coinCost": -1,
@@ -6228,7 +6228,7 @@
     "name": "보조릴",
     "role": "",
     "theme": "",
-    "eff": "항상 6칸 슬롯 · 최종 EXP -30%",
+    "eff": "항상 6칸 슬롯 · 최종 EXP -15%",
     "kind": "패시브",
     "cmd": "",
     "cool": "상시(패시브)",

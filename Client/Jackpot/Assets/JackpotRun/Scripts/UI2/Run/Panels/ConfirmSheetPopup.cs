@@ -34,14 +34,19 @@ namespace JackpotRun.UI2
             if (scrimButton != null) scrimButton.onClick.AddListener(Hide);
         }
 
-        /// <summary>secondaryLabel/onSecondary가 null이면 보조 버튼은 "취소"로만 동작(닫기, 콜백 없음).</summary>
+        private const float HeadIconSize = 96f;   // FUN_OVERHAUL_DESIGN §3 — 제목 왼쪽 그림(장치 획득 등)
+        private const float HeadBaseHeight = 40f; // UiSceneBuilder.BuildConfirmSheetPopup 의 제목 행 높이
+
+        /// <summary>secondaryLabel/onSecondary가 null이면 보조 버튼은 "취소"로만 동작(닫기, 콜백 없음).
+        /// headIcon 이 있으면 제목 왼쪽에 그림을 얹고(없으면 숨김) 제목 행을 그만큼 키운다.</summary>
         public void Show(string head, string desc, string primaryLabel, Action onPrimary,
-            string secondaryLabel = "취소", Action onSecondary = null)
+            string secondaryLabel = "취소", Action onSecondary = null, Sprite headIcon = null)
         {
             bool firstShow = !gameObject.activeSelf;
             gameObject.SetActive(true);
 
             if (headText != null) headText.text = head;
+            IconKit.SetHeadIcon(headText, "HeadIcon", headIcon, HeadIconSize, HeadBaseHeight);
             if (descText != null) descText.text = desc;
             if (primaryButtonLabel != null) primaryButtonLabel.text = primaryLabel;
             if (secondaryButtonLabel != null) secondaryButtonLabel.text = secondaryLabel;

@@ -4,6 +4,7 @@ import { Game, PHASE } from "./game.js";
 import * as D from "./data.js";
 import { symTierOf, symCatOf, isAutoDecayTarget } from "./engine.js";
 import * as snd from "./sound.js";
+import { ART } from "./art_index.js";   // public/jackpotdex/img 에 존재하는 그림 id 집합(tools/gen_art_index.mjs 로 생성)
 
 const g = new Game();
 let soundOn = (localStorage.getItem("slotweb_sound") !== "0");
@@ -16,6 +17,7 @@ const app = document.getElementById("app");
 const toastRoot = document.getElementById("toast");
 const sheetRoot = document.getElementById("sheet-root");
 const gearBtn = document.getElementById("gearbtn");
+{ const vig = document.createElement("div"); vig.className = "lastspin-vig"; document.body.appendChild(vig); }   // F3 마지막 스핀 붉은 비네트(body.last-spin 일 때만 보임)
 // 고정 설정 기어: 인트로/플레이 화면 외 모든 화면 우상단에 표시(플레이는 HUD 내 기어 사용).
 function gearShow(on) { if (gearBtn) gearBtn.style.display = on ? "flex" : "none"; }
 
@@ -33,6 +35,33 @@ let introTimer = null;    // 인트로 릴 회전
 const tut = { active: false, ti: 0, live: false, shown: {} };   // 튜토리얼
 
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// 숫자 표기 계약(CLAUDE.md): 소수 2자리까지·끝 0 제거(1.50→1.5, 2.00→2).
+const fmt2 = (n) => Math.round(n * 100) / 100;
+
+// ── 그림(FUN_OVERHAUL §3) — 이모지 대신 ../jackpotdex/img/<id>.png. 존재 목록(ART)에 없으면 이모지 폴백(404 깜빡임 방지) ──
+const ART_DIR = "../jackpotdex/img/";
+// icon(id, emoji, cls) — ART 에 있으면 <img>, 없으면 이모지 텍스트. eager=true 면 lazy 미적용(릴 스트립처럼 즉시 필요한 곳).
+function icon(id, emoji, cls = "", eager = false) {
+  if (id && ART.has(id)) return `<img class="art-ico${cls ? " " + cls : ""}" src="${ART_DIR}${id}.png" alt="" ${eager ? "" : 'loading="lazy" '}draggable="false">`;
+  return esc(emoji);
+}
+// data 객체 종류별 그림 id 접두어(dev_* 는 id 그대로)
+const ART_PFX = { char: "char_", mac: "mac_", dev: "", aug: "aug_", rel: "rel_", cur: "cur_", item: "item_", ach: "ach_", sym: "sym_", symaug: "symaug_", symrel: "symrel_", boss: "boss_" };
+const artId = (kind, id) => (kind in ART_PFX && id != null && id !== "") ? ART_PFX[kind] + id : "";
+const iconK = (kind, id, emoji, cls, eager) => icon(artId(kind, id), emoji, cls, eager);
+// 증강/유물/저주/심볼퍽/장치/아이템이 섞인 id → 종류 판별(심볼퍽은 접두어가 아니라 멤버십으로 판별 — SYM_PERK_BY_ID)
+function perkKind(id) { return D.AUG_BY_ID[id] ? "aug" : D.REL_BY_ID[id] ? "rel" : D.CUR_BY_ID[id] ? "cur" : D.SYM_AUG_BY_ID[id] ? "symaug" : D.SYM_REL_BY_ID[id] ? "symrel" : D.DEV_BY_ID[id] ? "dev" : D.ITEM_BY_ID[id] ? "item" : ""; }
+const perkInfo = (id) => D.PERK_BY_ID[id] || D.SYM_PERK_BY_ID[id] || D.DEV_BY_ID[id] || D.ITEM_BY_ID[id] || null;
+const iconP = (id, emoji, cls, eager) => { const k = perkKind(id); return icon(k ? artId(k, id) : "", emoji != null ? emoji : (perkInfo(id) || {}).e, cls, eager); };
+// 심볼(데이터 sym 객체 {id,e}) 아이콘 — 접두어 sym_
+const symIcon = (s, cls, eager) => iconK("sym", s && s.id, s ? s.e : "", cls, eager);
+const symIconById = (id, cls) => { const s = D.SYM_BY_ID[id]; return iconK("sym", id, s ? s.e : (id === "empty" ? "▫" : id === "random" ? "🎲" : "❔"), cls); };
+// 이름 → 종류/아이디(셀 시트의 '영향 주는 항목'은 id 없이 이름만 내려옴)
+function nameToArt(name, kindLabel) {
+  if (kindLabel === "캐릭터") { const c = D.CHARS.find((x) => x.n === name); return c ? artId("char", c.id) : ""; }
+  const p = D.AUGMENTS.find((x) => x.n === name) ? ["aug", D.AUGMENTS.find((x) => x.n === name)] : D.RELICS.find((x) => x.n === name) ? ["rel", D.RELICS.find((x) => x.n === name)] : D.CURSES.find((x) => x.n === name) ? ["cur", D.CURSES.find((x) => x.n === name)] : null;
+  return p ? artId(p[0], p[1].id) : "";
+}
 // 배치F P1: 칸당 확률 %(소수 2자리·끝0 자동제거, fmt2 계약) — 분모 0 가드.
 const pct2 = (n, d) => d > 0 ? Math.round(n / d * 10000) / 100 : 0;
 // 배치G: 전공(계열 아키타입) HUD 칩 — 활성(tier>0)일 때만 콤팩트 배지. pouchView.archetype 소비.
@@ -72,7 +101,6 @@ function archGaugeHtml(pv) {
     <div class="arch-foot">계열 비중 <b>${share}%</b> ${nextTxt}</div>
   </div>`;
 }
-const SPIN_EMOJIS = D.SYMS.filter((s) => s.weight > 0).map((s) => s.e);
 const titleOf = (best) => { const t = D.SCORE_TITLES.find((x) => best >= x.min); return t ? t.e + t.n : "🐣잭팟 새내기"; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const $ = (id) => document.getElementById(id);
@@ -80,7 +108,13 @@ const CLEAR_BEAT = 2000;   // 스테이지 클리어 결과 화면이 나오기 
 
 // ── 토스트 ──
 function drainToasts() {
-  while (g.log.length > logShown) { showToast(g.log[logShown]); logShown++; }
+  // F9: 플레이어 레벨업/레벨 보상 장치 토스트는 런 종료 화면의 중앙 모달(showLevelUp)이 대신한다 — 토스트 중복 방지.
+  const leveled = !!(st && st.levelAfter > st.levelBefore);
+  while (g.log.length > logShown) {
+    const m = g.log[logShown++];
+    if (leveled && (/^🎉 플레이어 레벨 \d+ 달성!/.test(m) || /^🔧 레벨 보상 장치 획득/.test(m))) continue;
+    showToast(m);
+  }
 }
 function showToast(msg) {
   const t = document.createElement("div"); t.className = "t"; t.textContent = msg; toastRoot.appendChild(t);
@@ -92,13 +126,33 @@ function showToast(msg) {
 // ── 클릭 위임 (document 전역 — #app 과 바텀시트 모두 포함) ──
 document.addEventListener("click", (e) => {
   const t = e.target.closest("[data-act]"); if (!t) return;
+  if (lpFired) { lpFired = false; return; }   // 롱프레스(셀 정보)가 이미 열렸다면 손을 뗄 때 뒤따르는 클릭 1회는 대상과 무관하게 무시(시트 배경에 맞아 즉시 닫히는 것 방지)
   snd.resume();
-  if (t.dataset.act !== "spin" && t.dataset.act !== "noop") snd.sfx("tap");
+  if (t.dataset.act !== "spin" && t.dataset.act !== "noop" && t.dataset.act !== "reelTap") snd.sfx("tap");
   tapFx(e.clientX, e.clientY, t);
   handle(t.dataset.act, t.dataset.arg, t);
 });
 // 모바일/인앱브라우저 오디오 잠금 해제 — 첫 포인터다운에서 컨텍스트 재개
 document.addEventListener("pointerdown", () => snd.resume(), { passive: true });
+
+// ── F4 릴 칸 롱프레스(450ms) = 셀 정보 시트 ──
+//  홀드 가능 상태(충전>0·첫 스핀 이후)에선 칸 탭 = 홀드 토글, 길게 누르면 정보. 홀드 불가 상태에선 탭도 정보(기존 동작). 손가락이 8px 넘게 움직이면(스크롤) 취소.
+const LONGPRESS_MS = 450;
+let lpTimer = null, lpFired = false, lpX = 0, lpY = 0;
+function lpCancel() { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } }
+document.addEventListener("pointerdown", (e) => {
+  const r = e.target.closest && e.target.closest(".reel[data-act='reelTap']"); if (!r) return;
+  lpFired = false; lpX = e.clientX; lpY = e.clientY; lpCancel();
+  const idx = +r.dataset.arg;
+  lpTimer = setTimeout(() => {
+    lpTimer = null;
+    if (busy || !st || (st.phase !== PHASE.SPIN && st.phase !== PHASE.POST_SPIN)) return;
+    lpFired = true; setTimeout(() => { lpFired = false; }, 700); vibrate(14); openCellSheet(idx);
+  }, LONGPRESS_MS);
+}, { passive: true });
+document.addEventListener("pointermove", (e) => { if (lpTimer && Math.hypot(e.clientX - lpX, e.clientY - lpY) > 8) lpCancel(); }, { passive: true });
+["pointerup", "pointercancel"].forEach((ev) => document.addEventListener(ev, lpCancel, { passive: true }));
+document.addEventListener("contextmenu", (e) => { if (e.target.closest && e.target.closest(".reels")) e.preventDefault(); });   // 모바일 길게누르기 컨텍스트 메뉴 차단
 
 // ── 탭 이펙트 (리플 + 파티클 + 햅틱) — 모든 클릭에 손맛 부여 ──
 function tapFx(x, y, el) {
@@ -144,6 +198,10 @@ function handle(act, arg, el) {
     case "deviceSheet": openDeviceSheet(); break;
     case "status": openStatusSheet(); break;
     case "cellinfo": if (!busy) openCellSheet(+arg); break;
+    case "reelTap": reelTap(+arg); break;   // F4: 홀드 가능하면 홀드 토글, 아니면 셀 정보
+    case "bossSkip": { const bi = document.querySelector(".boss-intro"); if (bi && bi._kill) bi._kill(); break; }
+    case "lvlOk": { const m = document.querySelector(".lvup-modal"); if (m) { m.classList.add("out"); setTimeout(() => m.remove(), 220); } break; }
+    case "encoreSpin": doEncore(); break;
     case "deckCard": openDeckCardDetail(arg); break;   // §10 V3: 덱 보드 카드 탭 → 상세(뒤로=덱 보드 복귀)
     case "buildInfo": showBuildInfo(arg, el); break;
     case "useItem": st = g.useItem(+arg); afterPlayAction(); closeSheet(); break;
@@ -153,7 +211,7 @@ function handle(act, arg, el) {
     case "manipN": { uiManip = null; const out = g.manip(arg.split(":")[0], +arg.split(":")[1]); afterManip(out); } break;
     case "giveUpAsk": giveUpAsk(); break;
     case "giveUpConfirm": closeSheet(); st = g.giveUp(true); drainToasts(); render(); break;
-    case "proceed": st = g.proceedToNodes(); render(); break;
+    case "proceed": if (busy) break; st = g.proceedToNodes(); drainToasts(); render(); break;   // 앵콜 팟이 남아 있으면 게임이 먼저 정산
     case "cleardetail": { const bd = $("clear-bd"); if (bd && el) { const open = bd.style.display === "none"; bd.style.display = open ? "block" : "none"; el.textContent = (open ? "▲" : "▼") + " 점수 상세"; } break; }
     case "proceedStage": st = g.proceedToStage(); lastGain = null; render(); break;
     case "node": { if (el) { el.classList.add("chosen"); spawnSparkle(el, "GOLD"); } st = g.selectNode(+arg); drainToasts(); setTimeout(render, 260); break; }
@@ -283,18 +341,47 @@ function rTween(dur, ease, fn) {
     requestAnimationFrame(frame);
   });
 }
-function randSpinCell() { return { sym: { e: SPIN_EMOJIS[Math.floor(Math.random() * SPIN_EMOJIS.length)] }, tag: "" }; }
+const SPIN_SYMS = D.SYMS.filter((s) => s.weight > 0);
+function randSpinCell() { const s = SPIN_SYMS[Math.floor(Math.random() * SPIN_SYMS.length)]; return { sym: { id: s.id, e: s.e }, tag: "" }; }
+const reducedMotion = () => !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
-// 릴 1개 시퀀스: 결과(landCell)는 이미 확정된 상태로 진입 — 연출은 그 결과에 착지할 뿐(결정론).
-async function spinReelOne(reelEl, idx, landCell) {
+// ── F7 기대감(anticipation)·니어미스 — Unity ReelView.cs DetectAnticipation/DetectNearMiss 와 같은 조건(마지막 릴에만 적용) ──
+//  기대감: 마지막 릴을 제외한 칸에서 "세트 가능(값심볼)" 같은 심볼이 ANTIC_MIN(3)개 이상 → 마지막 릴 유지 구간 +0.6s · 감속 3→5노치 · 골드 펄스 · 살짝 줌인.
+//  니어미스: 기대감 조건 + 결과가 4매치를 못 이룸 + 마지막 릴 결과가 그 심볼이 아님(2026-10-28: ANTIC_MIN 3 상향에 맞춰 "3매치 실패"→"4매치 실패") → 마지막 감속 노치에서 그 심볼이 한 칸 중앙을 0.35s 스치고 지나감.
+const R_DECEL_ANT = [0.10, 0.14, 0.18, 0.22, 0.32];   // 기대감 감속 5노치(Unity AntDecel1~5) — 타깃은 idx(D-3)=2 에 주입
+const R_ANTIC_EXTRA = 0.6;                            // 유지 구간 연장(초)
+const R_NEARMISS_PAUSE = 0.35;                        // 니어미스 심볼이 중앙을 스치는 노치 길이(초)
+const ANTIC_MIN = 3;                                  // 앞 4칸 같은 값심볼 3개↑ (2개 기준은 스핀 절반에서 떠서 긴장감이 흐려짐 — 2026-10-28 리드 결정)
+function planReelFx(cells, bestCount, heldIdx) {
+  const plan = { antic: false, nearMiss: false, nearSym: null };
+  const last = cells.length - 1;
+  if (last < 1 || (heldIdx && heldIdx.includes(last))) return plan;   // 마지막 릴이 홀드면 돌지 않으므로 연출 없음
+  const cnt = {}; let bestId = null, best = 0;
+  for (let i = 0; i < last; i++) { const s = cells[i] && cells[i].sym; if (s && D.VALUE_IDS.has(s.id)) cnt[s.id] = (cnt[s.id] || 0) + 1; }
+  for (const id of Object.keys(cnt)) if (cnt[id] > best) { best = cnt[id]; bestId = id; }
+  plan.antic = best >= ANTIC_MIN;
+  const lastSym = cells[last] && cells[last].sym;
+  if (plan.antic && (bestCount || 0) < ANTIC_MIN + 1 && bestId && lastSym && lastSym.id !== bestId) { plan.nearMiss = true; plan.nearSym = D.SYM_BY_ID[bestId] || null; if (!plan.nearSym) plan.nearMiss = false; }
+  return plan;
+}
+const symOfSlot = (slot) => { const el = slot && slot.querySelector(".sym"); return { id: el ? (el.dataset.sid || "") : "", e: el ? (el.dataset.e || "") : "" }; };
+const REEL_FX_CLASSES = ["settle", "match", "m-2", "m-3", "m-4", "m-5", "blast", "empty", "skull-hit", "hold-keep", "antic", "nm-flash"];
+function resetReelFx(reelEl) {
+  reelEl.classList.remove(...REEL_FX_CLASSES);
+  reelEl.querySelectorAll(".mshine, .mspark").forEach((n) => n.remove());
+  reelEl.querySelectorAll(".nm-gray").forEach((n) => n.classList.remove("nm-gray"));
+}
+
+// 릴 1개 시퀀스: 결과(landCell)는 이미 확정된 상태로 진입 — 연출은 그 결과에 착지할 뿐(결정론). plan 은 마지막 릴에만 전달(기대감/니어미스).
+async function spinReelOne(reelEl, idx, landCell, plan) {
   const strip = reelEl.querySelector(".rstrip");
   const S = reelEl.clientHeight / 1.5;   // 뷰포트 높이 = 1.5×슬롯(§D)
   const BASE = -1.75 * S;
   const overshoot = S * R_OVERSHOOT_RATIO;
+  const antic = !!(plan && plan.antic), nearMiss = !!(plan && plan.nearMiss);
   reelEl.classList.add("spinning");
-  reelEl.classList.remove("settle", "match", "m-2", "m-3", "m-4", "m-5", "blast", "empty");
+  resetReelFx(reelEl);
   [...strip.children].forEach((s) => s.classList.remove("center"));
-  reelEl.querySelectorAll(".mshine, .mspark").forEach((n) => n.remove());
 
   const advance = (dur, ease, cell) => rTween(dur, ease, (p) => {
     strip.style.transform = `translateY(${BASE + S * p}px)`;
@@ -313,13 +400,24 @@ async function spinReelOne(reelEl, idx, landCell) {
     await advance(nd, linear, randSpinCell());
     t += nd;
   }
-  await advance(R_NOTCH_MAX, linear, randSpinCell());   // 유지 마지막 노치
+  // F7 기대감 — 마지막 릴: 유지 구간 +0.6s 연장 + 골드 펄스 + 줌인(남은 릴 1개, 이미 같은 심볼 2개↑)
+  if (antic) {
+    reelEl.classList.add("antic"); if (reelEl.parentElement) reelEl.parentElement.classList.add("antic-zoom"); snd.sfx("antic");
+    let extra = 0;
+    while (extra < R_ANTIC_EXTRA) { await advance(R_NOTCH_MAX, linear, randSpinCell()); extra += R_NOTCH_MAX; }
+  }
+  // 유지 마지막 노치 — 니어미스면 여기서 그 심볼(X)을 주입(2노치 뒤 중앙 통과)
+  await advance(R_NOTCH_MAX, linear, nearMiss ? { sym: { id: plan.nearSym.id, e: plan.nearSym.e }, tag: "" } : randSpinCell());
 
   reelEl.classList.remove("spinning");
-  for (let k = 0; k < 3; k++) {
-    // 감속 3노치(outCubic) — idx0 에서 타깃 주입(D-3 공식): 마지막 노치 종료 시 정확히 중앙 도착
-    await advance(R_DECEL[k], outCubic, k === 0 ? landCell : randSpinCell());
+  const decel = antic ? R_DECEL_ANT : R_DECEL;
+  const injectAt = decel.length - 3;   // 타깃은 (D-3)번째 노치에 주입 → 마지막 노치 종료 시 정확히 중앙 도착(D-3 공식)
+  for (let k = 0; k < decel.length; k++) {
+    const pass = nearMiss && k === 1;   // X 가 중앙에 닿는 노치 — 0.35s 로 느려졌다가 골드 플래시
+    await advance(pass ? R_NEARMISS_PAUSE : decel[k], outCubic, k === injectAt ? landCell : randSpinCell());
+    if (pass) { reelEl.classList.add("nm-flash"); snd.sfx("nearmiss"); setTimeout(() => reelEl.classList.remove("nm-flash"), 160); }
   }
+  if (antic) { reelEl.classList.remove("antic"); if (reelEl.parentElement) reelEl.parentElement.classList.remove("antic-zoom"); }
 
   strip.style.transform = `translateY(${BASE - overshoot}px)`;
   await rTween(R_OVERSHOOT_DUR, outBack, (p) => {
@@ -327,48 +425,77 @@ async function spinReelOne(reelEl, idx, landCell) {
   });
 
   strip.children[2].classList.add("center");
+  if (nearMiss) strip.children[2].classList.add("nm-gray");   // 아깝게 빗나간 마지막 칸은 잠깐 회색 톤(Unity NearMissGray)
   reelEl.classList.add("settle");
   strip.style.transform = "";   // outBack 종료 지점(BASE)은 CSS 기본값(-35%)과 동일 지점 — 인라인 px 를 걷어내 리사이즈/브레이크포인트 전환 시 어긋남 방지
   // 착지한 이웃 장식(0,1,3,4)을 memo 에 반영 — 다음 재렌더(setReels/renderPlay)가 지금 보이는 모습 그대로 복원(깜빡임 방지).
-  stripMemo.set(idx, [0, 1, 3, 4].map((k) => strip.children[k].querySelector(".sym")?.textContent || ""));
+  stripMemo.set(idx, [0, 1, 3, 4].map((k) => symOfSlot(strip.children[k])));
   snd.sfx("reel");
+}
+// F4 홀드 칸 — 회전하지 않고 그 자리에서 새 raw 값(=직전 raw 와 동일)으로 고정 표시. 잠금 펄스만.
+function holdKeepReel(reelEl, idx, landCell) {
+  const strip = reelEl.querySelector(".rstrip"); if (!strip) return;
+  resetReelFx(reelEl);
+  [...strip.children].forEach((s) => s.classList.remove("center"));
+  const center = strip.children[2]; center.classList.add("center"); center.innerHTML = reelInner(landCell);
+  strip.style.transform = "";
+  reelEl.classList.add("hold-keep");
+  setTimeout(() => reelEl.classList.remove("hold-keep"), 700);
 }
 
 async function doSpin(mode) {
   if (busy || st.phase !== PHASE.SPIN) return;
   busy = true; uiManip = null; snd.sfx("spin");
+  const wasLast = st.spinIndex === st.spins - 1 && st.stageExp < st.quota;   // F3: 미클리어 마지막 스핀이었나(이 스핀으로 클리어하면 CLUTCH!)
+  bannerQ.length = 0;   // 연속 스핀 시 지난 스핀의 대기 중 배너는 버린다(뒤늦게 뜨는 것 방지)
   const spinBtn = $("spinbtn"); if (spinBtn) spinBtn.disabled = true; updateExtras();
+  const holdHint = $("hold-hint"); if (holdHint) { holdHint.classList.remove("on"); holdHint.innerHTML = "&nbsp;"; }   // 스핀 중엔 홀드 안내 숨김
   const reelsBox = $("reels");
   let reelEls = [...reelsBox.querySelectorAll(".reel")];
   reelsBox.classList.remove("win", "jackpot");
   reelsBox.classList.remove("multi-2", "multi-3", "multi-4", "multi-5");
   const out = g.spin(mode);   // 결과를 먼저 확정 — 연출은 이 결과에 착지할 뿐
-  if (!out || !out.cells) {   // 조기 반환(예: 이미 쓴 특수스핀) — 애니 안전 복구
+  if (!out || !out.cells) {   // 조기 반환(예: 코인 부족) — 애니 안전 복구
     st = out || g.state(); busy = false; drainToasts(); renderPlay(); return;
   }
   const finalCells = out.cells;
   const landCells = out.preCells || finalCells;   // 폭탄 폭발 전(착지) 모습
-  const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const heldIdx = out.holdUsed || [];             // F4: 이번 스핀에서 고정된 칸(회전 안 함)
+  const reduced = reducedMotion();
   if (reduced) {
     setReels(landCells);
     reelEls = [...reelsBox.querySelectorAll(".reel")];   // setReels 가 DOM 을 새로 그렸으므로 재조회
     await sleep(150);
   } else {
+    const plan = planReelFx(finalCells, out.bestCount, heldIdx);
     try {
-      await Promise.all(reelEls.map((el, i) => spinReelOne(el, i, landCells[i] || finalCells[i])));
+      await Promise.all(reelEls.map((el, i) => heldIdx.includes(i)
+        ? holdKeepReel(el, i, landCells[i] || finalCells[i])
+        : spinReelOne(el, i, landCells[i] || finalCells[i], i === reelEls.length - 1 ? plan : null)));
     } catch (err) {
       // 연출 예외에도 결과는 반드시 반영한다(g.spin 은 이미 상태를 바꿨다) — 최종 상태로 강제 스냅
       setReels(landCells);
       reelEls = [...reelsBox.querySelectorAll(".reel")];
     }
+    reelsBox.classList.remove("antic-zoom");
   }
   await sleep(110);
   if (out.bomb) await blastBomb(reelEls, out.bomb, finalCells);   // 다 등장 후 폭발 → 비우기
   glowMatches(reelEls, finalCells, out.setIds, out.bestSetId, out.bestCount, reelsBox);
-  if (out.jackpot) { reelsBox.classList.add("jackpot"); jackpotFx(out.jackpot); shake("bg"); floatExp(out.gained, true); snd.sfx("jackpot"); }
-  else { if (out.bestCount >= 3) { reelsBox.classList.add("win"); shake("sm"); snd.sfx("win"); } if (out.gained >= st.quota / Math.max(1, st.spins) * 1.5) floatExp(out.gained, false); }
-  lastGain = { gained: out.gained, notes: out.notes, jackpot: out.jackpot, banner: out.banner, bestCount: out.bestCount, setGroups: (out.setIds || []).length };
-  st = out.state; showGain(); updateHud(); drainToasts();
+  const tier = out.bigWinTier || 0;
+  try {   // 순수 연출 — 예외가 나도 게임 진행(busy 해제·상태 반영)을 막지 않는다
+    skullHits(reelEls, finalCells);   // F8: 해골 칸 흔들림 + 붉은 플래시
+    if (out.jackpot) { reelsBox.classList.add("jackpot"); jackpotFx(out.jackpot); shake("bg"); floatExp(out.gained, true); snd.sfx("jackpot"); }   // 잭팟이 최상위 — 빅윈 배너와 중복 금지
+    else {
+      if (out.bestCount >= 3) reelsBox.classList.add("win");
+      if (tier > 0) bigWinFx(tier, wasLast && out.cleared);   // F1: NICE!/BIG WIN!/MEGA WIN! (CLUTCH 와 겹치면 배너는 CLUTCH 가 맡고 사운드/파티클만)
+      else if (out.bestCount >= 3) { shake("sm"); snd.sfx("win"); }
+    }
+    if (out.feverTriggered) feverTriggerFx();     // F5: FEVER! 배너
+    if (wasLast && out.cleared) clutchFx(tier > 0 ? BIGWIN[tier].txt : "");       // F3: CLUTCH!
+  } catch (err) { console.error("spin fx", err); }
+  lastGain = { gained: out.gained, notes: out.notes, jackpot: out.jackpot, banner: out.banner, bestCount: out.bestCount, setGroups: (out.setIds || []).length, score: out.score || 0, coins: out.coins || 0 };
+  st = out.state; showGain(true); updateHud(); drainToasts();
   // 잭팟 흔들림(jpShake)만 1회성으로 제거.
   // ★반짝임 일회성화(CSS): 매치 펄스/빛스윕(.mshine)/반짝이(.mspark)/프리즘/컨테이너 호흡은
   // 전부 finite iteration(+both) 라 매치 직후 ~2초 터졌다가 잦아든다. 결과 화면 동안에는
@@ -387,6 +514,316 @@ async function doSpin(mode) {
 
 // ── 이펙트 헬퍼 ──
 function shake(kind) { app.classList.remove("shk-sm", "shk-bg", "shk-xl"); void app.offsetWidth; app.classList.add(kind === "xl" ? "shk-xl" : kind === "bg" ? "shk-bg" : "shk-sm"); setTimeout(() => app.classList.remove("shk-sm", "shk-bg", "shk-xl"), 640); }
+
+// ── 중앙 대형 배너 큐(NICE!/BIG WIN!/MEGA WIN!/FEVER!/CLUTCH!/LAST SPIN!) — 겹치지 않고 순서대로 ──
+const bannerQ = []; let bannerBusy = false;
+function queueBanner(text, cls, dur = 1000, sub = "") { bannerQ.push({ text, cls, dur, sub }); if (!bannerBusy) pumpBanner(); }
+async function pumpBanner() {
+  bannerBusy = true;
+  while (bannerQ.length) {
+    const b = bannerQ.shift();
+    const o = document.createElement("div"); o.className = "fx-banner " + b.cls;
+    o.innerHTML = `<div class="fxb-txt">${esc(b.text)}</div>${b.sub ? `<div class="fxb-sub">${esc(b.sub)}</div>` : ""}`;
+    document.body.appendChild(o);
+    await sleep(b.dur);
+    o.classList.add("out"); await sleep(180); o.remove();
+  }
+  bannerBusy = false;
+}
+// 화면 가장자리 붉은 플래시(해골·앵콜 BUST)
+// 화면 전환(클리어/종료) 시 남은 배너는 즉시 정리 — 다음 화면 위에 겹쳐 뜨지 않게
+function flushBanners() { bannerQ.length = 0; document.querySelectorAll(".fx-banner").forEach((n) => n.remove()); }
+function redFlash() { if (reducedMotion()) return; const o = document.createElement("div"); o.className = "red-flash"; document.body.appendChild(o); setTimeout(() => o.remove(), 520); }
+// 중앙 상단에서 사방으로 튀는 파티클(이모지) — 빅윈/피버/레벨업 공용. 위치: 화면 가로 중앙·세로 top%.
+function burstParticles(n, set, o = {}) {
+  if (reducedMotion()) return;
+  const root = document.createElement("div"); root.className = "fx-burst"; root.style.top = (o.top || 47) + "%";
+  let h = o.flash ? `<div class="fxb-flash"></div>` : "";
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, d = (o.min || 80) + Math.random() * (o.spread || 120);
+    h += `<i class="fxp" style="--dx:${(Math.cos(a) * d).toFixed(0)}px;--dy:${(Math.sin(a) * d - (o.lift || 30)).toFixed(0)}px;--rot:${(Math.random() * 360).toFixed(0)}deg;animation-delay:${(Math.random() * 0.18).toFixed(2)}s;font-size:${(14 + Math.random() * 12).toFixed(0)}px">${set[i % set.length]}</i>`;
+  }
+  root.innerHTML = h; document.body.appendChild(root); setTimeout(() => root.remove(), o.life || 1500);
+}
+
+// ── F1 빅윈 티어(스핀 EXP ÷ 페이스 ≥2 NICE · ≥3 BIG · ≥5 MEGA) — 배너·셰이크·파티클·사운드·진동 강도 차등 ──
+const BIGWIN = [null,
+  { txt: "NICE!",     cls: "bw1", dur: 850,  n: 10, set: ["✨", "⭐"],                                shake: "sm", vib: 18 },
+  { txt: "BIG WIN!",  cls: "bw2", dur: 1100, n: 24, set: ["✨", "⭐", "🪙", "💫"],                    shake: "bg", vib: [30, 40, 50] },
+  { txt: "MEGA WIN!", cls: "bw3", dur: 1500, n: 48, set: ["✨", "⭐", "🪙", "💎", "🌟", "💫"],        shake: "xl", vib: [40, 40, 60, 40, 140] },
+];
+function bigWinFx(tier, noBanner) {
+  const c = BIGWIN[tier]; if (!c) return;
+  snd.sfx("bigwin" + tier); shake(c.shake); vibrate(c.vib);
+  if (!noBanner) queueBanner(c.txt, c.cls, c.dur);
+  burstParticles(c.n, c.set, { flash: tier >= 3, spread: 90 + tier * 45, life: 1100 + tier * 250 });
+  if (tier >= 3) setTimeout(() => shake("bg"), 260);
+}
+// ── F5 피버 발동 ──
+function feverTriggerFx() {
+  snd.sfx("fever"); shake("bg"); vibrate([30, 30, 90]);
+  queueBanner("FEVER!", "fever", 1300, `다음 ${D.C.FEVER_SPINS}스핀 EXP ×${fmt2(D.C.FEVER_EXP_MUL)}`);
+  burstParticles(28, ["🔥", "✨", "🔥", "💥"], { top: 44, spread: 130, life: 1500 });
+}
+// ── F3 클러치(마지막 스핀으로 클리어) ──
+function clutchFx(bigTxt) { snd.sfx("clutch"); vibrate([25, 30, 70]); queueBanner("CLUTCH!", "clutch", 1100, "마지막 스핀으로 클리어!" + (bigTxt ? ` · ${bigTxt}` : "")); }
+// ── F8 해골 칸: 흔들림 + 붉은 플래시 ──
+function skullHits(reelEls, cells) {
+  let n = 0;
+  cells.forEach((c, i) => { if (c && c.sym && c.sym.special === "SKULL" && reelEls[i]) { reelEls[i].classList.add("skull-hit"); n++; } });
+  if (!n) return;
+  redFlash(); vibrate(n > 1 ? [30, 30, 60] : 26);
+  setTimeout(() => reelEls.forEach((el) => el.classList.remove("skull-hit")), 900);
+}
+
+// ── F3 마지막 스핀 긴장: 미클리어로 마지막 스핀 대기 중이면 LAST SPIN! 펄스 + 붉은 비네트 ──
+let lastSpinKey = "";
+function syncLastSpin() {
+  const on = !!(st && st.phase === PHASE.SPIN && st.spins > 0 && st.spinIndex === st.spins - 1 && st.stageExp < st.quota && $("reels"));
+  document.body.classList.toggle("last-spin", on);
+  const tag = $("last-tag"); if (tag) tag.classList.toggle("on", on);
+  if (on) {
+    const key = `${st.stage}:${st.spinIndex}:${st.spins}`;
+    if (key !== lastSpinKey) { lastSpinKey = key; if (!tut.active) { snd.sfx("lastspin"); vibrate([20, 60, 20]); queueBanner("LAST SPIN!", "lastspin", 900); } }
+  } else if (!st || st.phase !== PHASE.SPIN) lastSpinKey = "";
+}
+
+// ── F4 홀드 UI ──
+// 홀드 가능: SPIN 페이즈 · 스테이지 첫 스핀 이후(직전 raw 가 있어야 함) · 충전>0. (예언 확정 등 게임이 거부하면 게임이 토스트)
+function holdCapable() { return !!(st && st.hold && st.phase === PHASE.SPIN && st.spinIndex > 0 && st.hold.charges > 0); }
+function reelTap(i) {
+  if (busy || !st) return;
+  if (holdCapable() || (st.hold && st.hold.held.includes(i))) {
+    st = g.toggleHold(i) || st; drainToasts(); snd.sfx("hold"); vibrate(10); syncHoldUI();
+  } else openCellSheet(i);
+}
+function syncHoldUI() {
+  const box = $("reels"); if (!box) return;
+  const h = st && st.hold;
+  const held = h ? h.held : [];
+  [...box.querySelectorAll(".reel")].forEach((el, i) => {
+    const on = held.includes(i);
+    el.classList.toggle("held", on);
+    const lock = el.querySelector(":scope > .hold-lock");
+    if (on && !lock) { const l = document.createElement("span"); l.className = "hold-lock"; l.textContent = "🔒"; el.appendChild(l); }
+    else if (!on && lock) lock.remove();
+  });
+  const chip = $("hold-chip");
+  if (chip && h) {
+    chip.classList.toggle("off", h.charges < 1 && !held.length);
+    chip.innerHTML = `🔒 홀드 <b>${h.charges}</b>${held.length ? `<i>(${held.length}/${h.max})</i>` : ""}`;
+  }
+  const hint = $("hold-hint");
+  if (hint && h) {
+    const can = holdCapable();
+    hint.classList.toggle("on", can && !!held.length);
+    hint.innerHTML = can
+      ? (held.length ? `🔒 <b>${held.length}칸</b> 고정 — 다음 스핀에 그대로 유지돼요` : `칸을 탭해 🔒 <b>홀드</b> (최대 ${h.max}) · 길게 누르면 정보`)
+      : (st.phase === PHASE.SPIN && st.spinIndex > 0 && h.charges < 1 ? `홀드 충전 없음 · 🎯집중을 쓰면 +1` : "&nbsp;");
+  }
+}
+
+// ── F5 피버 게이지(릴 아래) — 일반 모드 전용(st.fever != null). 심화 모드의 HUD 피버(feverHudHtml)와 별개. ──
+function feverView() {
+  const f = st.fever || { gauge: 0, spins: 0 };
+  const max = D.C.FEVER_MAX || 100, active = f.spins > 0;
+  const pct = active ? Math.round(f.spins / D.C.FEVER_SPINS * 100) : Math.min(100, fmt2((f.gauge || 0) / max * 100));
+  const txt = `<span>${active ? `🔥 FEVER ×${fmt2(D.C.FEVER_EXP_MUL)} · 남은 <b>${f.spins}</b>스핀` : `🔥 피버 게이지 <b>${pct}</b>%${pct >= 90 ? " · 곧 폭발!" : ""}`}</span>`;
+  return { active, pct, txt, hot: !active && pct >= 90 };
+}
+function feverBarHtml() {
+  const v = feverView();
+  return `<div class="fever-wrap${v.active ? " active" : ""}${v.hot ? " hot" : ""}" id="fever-wrap"><div class="fv-track"><div class="fv-fill" id="fv-fill" style="width:${v.pct}%"></div><div class="fv-txt" id="fv-txt">${v.txt}</div></div></div>`;
+}
+function syncFever() {
+  const wrap = $("fever-wrap"); if (!wrap || !st || !st.fever) { snd.setFever(false); return; }
+  const v = feverView();
+  wrap.classList.toggle("active", v.active); wrap.classList.toggle("hot", v.hot);
+  const fill = $("fv-fill"), txt = $("fv-txt");
+  if (fill) fill.style.width = v.pct + "%";
+  if (txt) txt.innerHTML = v.txt;
+  const box = $("reels"); if (box) box.classList.toggle("fever-on", v.active);
+  snd.setFever(v.active);
+}
+
+// ── F2 보스 인트로 — 전면 카드(보스 그림·이름·규칙) 1.6초, 탭으로 스킵 ──
+function showBossIntro(b) {
+  if (!b) return;
+  const old = document.querySelector(".boss-intro"); if (old) old.remove();
+  const o = document.createElement("div"); o.className = "boss-intro"; o.dataset.act = "bossSkip";
+  o.innerHTML = `<div class="bi-vig"></div><div class="bi-card"><div class="bi-tag">⚠ BOSS STAGE ${st.stage}</div>
+    <div class="bi-art">${iconK("boss", b.id, b.e, "bi-img", true)}</div>
+    <div class="bi-name">${esc(b.n)}</div><div class="bi-desc">${esc(b.desc)}</div><div class="bi-skip">탭하여 건너뛰기</div></div>`;
+  document.body.appendChild(o);
+  let done = false;
+  o._kill = () => { if (done) return; done = true; o.classList.add("out"); setTimeout(() => o.remove(), 240); };
+  setTimeout(o._kill, 1600);
+  vibrate([30, 50, 90]);
+}
+
+// ── F9 레벨업 모달 — 토스트 대신 중앙 모달(새 레벨 · 해금 보상 목록 · 확인) ──
+let lvUpShownKey = "";
+function unlockRowIcon(label) {
+  const m = label.match(/^(\S+)\s+(.+?)\s+\((캐릭터|슬롯|장치|증강|유물)\)$/); if (!m) return { ic: "", name: label, kind: "" };
+  const [, em, name, kind] = m; let id = "";
+  if (kind === "캐릭터") { const c = D.CHARS.find((x) => x.n === name); id = c ? artId("char", c.id) : ""; }
+  else if (kind === "슬롯") { const c = D.MACHINES.find((x) => x.n === name); id = c ? artId("mac", c.id) : ""; }
+  else if (kind === "장치") { const c = D.DEVICES.find((x) => x.n === name); id = c ? artId("dev", c.id) : ""; }
+  else if (kind === "증강") { const c = D.AUGMENTS.find((x) => x.n === name); id = c ? artId("aug", c.id) : ""; }
+  else if (kind === "유물") { const c = D.RELICS.find((x) => x.n === name); id = c ? artId("rel", c.id) : ""; }
+  return { ic: icon(id, em, "lu-ic"), name, kind };
+}
+function showLevelUp(from, to) {
+  const rewards = g.levelUnlocks().filter((o) => o.lv > from && o.lv <= to);
+  const rows = rewards.map((r) => { const u = unlockRowIcon(r.label); return `<div class="lu-row"><span class="lu-rlv">Lv.${r.lv}</span><span class="lu-ico">${u.ic}</span><span class="lu-nm">${esc(u.name)}</span><span class="lu-kind">${esc(u.kind)}</span></div>`; }).join("");
+  const old = document.querySelector(".lvup-modal"); if (old) old.remove();
+  const o = document.createElement("div"); o.className = "lvup-modal";
+  o.innerHTML = `<div class="lu-card" data-act="noop"><div class="lu-burst"></div>
+    <div class="lu-tag">🎉 LEVEL UP!</div>
+    <div class="lu-lv"><span class="lu-from">Lv.${from}</span><span class="lu-arrow">➜</span><b class="lu-to">Lv.${to}</b></div>
+    ${rows ? `<div class="lu-ttl">🔓 새로 열린 보상</div><div class="lu-list">${rows}</div>` : `<div class="lu-none">이번 레벨엔 새 해금이 없어요 — 다음 보상을 향해!</div>`}
+    <button class="bigbtn" data-act="lvlOk">확인</button></div>`;
+  document.body.appendChild(o);
+  snd.sfx("levelup"); vibrate([30, 40, 80]);
+  burstParticles(26, ["✨", "⭐", "🌟", "💫"], { top: 24, spread: 130, life: 1500 });
+}
+function maybeShowLevelUp() {
+  if (!st || !(st.levelAfter > st.levelBefore)) return;
+  const key = `${g.profile.runs}:${st.levelBefore}>${st.levelAfter}`;
+  if (key === lvUpShownKey) return;   // 같은 런 결과 화면 재렌더(랭킹/도감 갔다 복귀 등)에서는 다시 띄우지 않는다
+  lvUpShownKey = key; showLevelUp(st.levelBefore, st.levelAfter);
+}
+
+// ── F6 앵콜(STAGE_CLEAR 화면) ──
+//  클리어 점수(stake)를 걸고 남은 스핀으로 굴림 — 성공(페어↑·해골 <2)마다 팟 = stake×(1+0.5k), 실패(BUST)하면 팟 소멸. 정산하면 팟이 점수에 더해진다.
+let encUi = { cells: null, state: "idle", msg: "", lost: 0, settled: 0 };
+function encCellInner(c) { return `${symIcon(c.sym, "", true)}${c.tag ? `<span class="rt">${esc(c.tag)}</span>` : ""}`; }
+function encoreInner() {
+  const e = st.encore, left = Math.max(0, st.spins - st.spinIndex);
+  const active = e.active, bust = encUi.state === "bust";
+  const potLbl = active ? "팟" : bust ? "팟" : (encUi.state === "settled" ? "정산" : "판돈");
+  const potVal = active ? e.pot : bust ? 0 : (encUi.state === "settled" ? encUi.settled : e.stake);
+  const mulTxt = active && e.k > 0 ? `×${fmt2(1 + D.C.ENCORE_STEP * e.k)}` : "";
+  let sub, msg = encUi.msg;
+  if (encUi.state === "idle" && !active) { sub = `남은 스핀 ${left}회 중 1회를 쓰고 판돈 <b>${e.stake.toLocaleString()}점</b>을 걸어요`; if (!msg) msg = `성공할 때마다 팟 ×${fmt2(1 + D.C.ENCORE_STEP)} → ×${fmt2(1 + D.C.ENCORE_STEP * 2)} → …  · 페어도 없거나 ☠ ${D.C.ENCORE_BUST_SKULLS}개면 <b>BUST</b>(전부 소멸)`; }
+  else if (active) { sub = `남은 스핀 ${left}회 · 다음 성공 시 <b>×${fmt2(e.nextMul || 1 + D.C.ENCORE_STEP * (e.k + 1))}</b>`; }
+  else sub = bust ? "앵콜 종료" : "정산 완료";
+  const tiles = encUi.cells ? encUi.cells.map((c) => `<div class="enc-cell landed">${encCellInner(c)}</div>`).join("") : Array.from({ length: g.reel() }, () => `<div class="enc-cell empty">?</div>`).join("");
+  return `<div class="enc-head"><span class="enc-ttl">🎤 앵콜</span><span class="enc-sub">${sub}</span></div>
+    <div class="enc-reels" id="enc-reels">${tiles}</div>
+    <div class="enc-pot-row" id="enc-pot-row"><span class="enc-pot-lbl">${potLbl}</span><span class="enc-pot-wrap" id="enc-pot-wrap"><b class="enc-pot" id="enc-pot">${potVal.toLocaleString()}</b></span><span class="enc-pot-u">점</span><span class="enc-mul" id="enc-mul">${mulTxt}</span></div>
+    <div class="enc-msg${bust ? " bad" : ""}" id="enc-msg">${msg}</div>`;
+}
+function encoreBoxHtml() {
+  const e = st.encore; if (!e || !e.available) return "";
+  encUi = { cells: null, state: "idle", msg: "", lost: 0, settled: 0 };
+  return `<div class="encore-box" id="encore-box">${encoreInner()}</div>`;
+}
+function clearFootHtml() {
+  const e = st.encore;
+  if (e && e.available) {
+    return `<div class="enc-foot"><button class="bigbtn ghost" data-act="proceed">정산하고 진행${e.active ? ` <b class="enc-plus">+${e.pot.toLocaleString()}</b>` : ""}</button>
+      <button class="bigbtn enc-go" data-act="encoreSpin">🎤 앵콜 ×${fmt2(e.nextMul)}</button></div>`;
+  }
+  return `<button class="bigbtn pulse" data-act="proceed">다음 → 보상 선택 ▶</button>`;
+}
+// 앵콜 후 클리어 화면 요약 수치(누적 총점수·코인·남은 스핀) + 하단 버튼 갱신
+function updateEncorePanel() {
+  const cs = st.clearSummary;
+  const tot = $("clear-total-n"); if (tot && cs) tot.textContent = (cs.total || 0).toLocaleString();
+  const co = $("clear-coins-n"); if (co && cs) co.textContent = cs.coinsNow != null ? cs.coinsNow : "?";
+  const lf = $("clear-left-n"); if (lf) lf.textContent = Math.max(0, st.spins - st.spinIndex);
+  const foot = $("clear-foot"); if (foot) foot.innerHTML = clearFootHtml();
+}
+async function doEncore() {
+  if (busy || !st || !st.encore || !st.encore.available) return;
+  busy = true;
+  const before = st.encore;
+  const potBefore = before.active ? before.pot : before.stake;   // 이번 스핀 전의 팟(첫 스핀이면 판돈)
+  const foot = $("clear-foot"); if (foot) foot.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  const bx = $("encore-box"); if (bx && bx.scrollIntoView) bx.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });   // 앵콜 굴림이 화면에 보이도록
+  try {
+    const nxt = g.encoreSpin();
+    if (!nxt) return;
+    st = nxt;
+    const ls = st.lastSpin;
+    if (!ls || ls.kind !== "encore" || !ls.encoreResult) { drainToasts(); return; }   // 거부(토스트) — 상태 그대로
+    const er = ls.encoreResult;
+    snd.sfx("spin");
+    await encoreRoll(ls.cells);
+    if (er.bust) await encoreBustFx(er, ls.cells);
+    else await encoreUpFx(er, potBefore);
+    drainToasts();
+  } catch (err) {
+    console.error("encore fx", err);   // 연출 예외에도 결과(게임 상태)는 이미 반영됨 — 아래에서 패널만 갱신
+    drainToasts();
+  } finally {
+    busy = false;
+    updateEncorePanel();
+  }
+}
+// 앵콜 릴 굴림 — 타일이 심볼을 빠르게 바꾸다 왼쪽부터 차례로 착지
+async function encoreRoll(cells) {
+  const wrap = $("enc-reels"); if (!wrap) return;
+  const box = $("encore-box"); if (box) box.classList.remove("bust", "up");
+  const msg = $("enc-msg"); if (msg) { msg.classList.remove("bad"); msg.innerHTML = "&nbsp;"; }
+  wrap.innerHTML = cells.map(() => `<div class="enc-cell rolling"></div>`).join("");
+  const tiles = [...wrap.children];
+  const quick = reducedMotion();
+  const tick = () => tiles.forEach((t) => { if (t.classList.contains("rolling")) t.innerHTML = symIcon(randSpinCell().sym, "", true); });
+  tick(); const iv = quick ? null : setInterval(tick, 65);
+  try {
+    for (let i = 0; i < tiles.length; i++) {
+      await sleep(quick ? 0 : (i === 0 ? 480 : 190));
+      tiles[i].classList.remove("rolling"); tiles[i].classList.add("landed"); tiles[i].innerHTML = encCellInner(cells[i]);
+      if (cells[i].sym && cells[i].sym.special === "SKULL") tiles[i].classList.add("skull");
+      snd.sfx("reel");
+    }
+  } finally { if (iv) clearInterval(iv); }
+  // 같은 값심볼 2개↑ 칸 강조
+  const cnt = {}; cells.forEach((c) => { if (c.sym && D.VALUE_IDS.has(c.sym.id)) cnt[c.sym.id] = (cnt[c.sym.id] || 0) + 1; });
+  cells.forEach((c, i) => { if (c.sym && cnt[c.sym.id] >= 2) tiles[i].classList.add("hit"); });
+  encUi.cells = cells;
+  await sleep(quick ? 0 : 220);
+}
+// 성공: 팟 카운트업 + 상승 연출
+async function encoreUpFx(er, potBefore) {
+  const potAfter = potBefore + er.gained;
+  const box = $("encore-box"), potEl = $("enc-pot"), mulEl = $("enc-mul"), msg = $("enc-msg");
+  if (box) { box.classList.remove("up"); void box.offsetWidth; box.classList.add("up"); }
+  const lbl = document.querySelector(".enc-pot-lbl"); if (lbl) lbl.textContent = "팟";
+  if (potEl) { countUp(potEl, potAfter, "", potBefore, 750); potEl.classList.remove("pop"); void potEl.offsetWidth; potEl.classList.add("pop"); }
+  if (mulEl) { mulEl.textContent = `×${fmt2(er.mulApplied)}`; mulEl.classList.remove("pop"); void mulEl.offsetWidth; mulEl.classList.add("pop"); }
+  const kk = Math.max(1, Math.round((er.mulApplied - 1) / D.C.ENCORE_STEP));
+  snd.sfx("encoreup", kk); vibrate(22);
+  burstParticles(14 + kk * 3, ["✨", "⭐", "🪙"], { top: 70, min: 40, spread: 90, lift: 70, life: 1200 });
+  let m = `✅ 성공! 팟 <b>×${fmt2(er.mulApplied)}</b> · +${er.gained.toLocaleString()}점`;
+  if (er.settled) { m += ` — 남은 스핀이 없어 <b>자동 정산 +${er.settledPot.toLocaleString()}점</b>`; encUi.state = "settled"; encUi.settled = er.settledPot; snd.sfx("coin"); }
+  if (msg) msg.innerHTML = m;
+  encUi.msg = m;
+  await sleep(reducedMotion() ? 0 : 800);
+  if (er.settled) { const b = $("encore-box"); if (b) b.innerHTML = encoreInner(); }
+  else { const mu = $("enc-mul"); if (mu) mu.classList.remove("pop"); }
+}
+// 실패(BUST): 팟이 반으로 깨지며 조각이 튀고 붉은 플래시 + 진동
+async function encoreBustFx(er, cells) {
+  const box = $("encore-box"), wrap = $("enc-pot-wrap"), msg = $("enc-msg");
+  const skulls = cells.filter((c) => c.sym && c.sym.special === "SKULL").length;
+  const why = skulls >= D.C.ENCORE_BUST_SKULLS ? `☠ 해골 ${skulls}개` : "페어가 하나도 없어요";
+  encUi.state = "bust"; encUi.lost = er.lostPot;
+  const m = `💥 <b>BUST!</b> ${why} — 팟 ${er.lostPot.toLocaleString()}점이 소멸했어요`;
+  encUi.msg = m;
+  snd.sfx("bust"); vibrate([60, 40, 140, 40, 60]); shake("bg"); redFlash();
+  if (box) { box.classList.remove("up"); box.classList.add("bust"); }
+  if (wrap) {
+    let shards = "";
+    for (let i = 0; i < 12; i++) { const a = Math.random() * Math.PI * 2, d = 40 + Math.random() * 70; shards += `<i class="shard" style="--dx:${(Math.cos(a) * d).toFixed(0)}px;--dy:${(Math.sin(a) * d - 10).toFixed(0)}px;--rot:${(Math.random() * 540 - 270).toFixed(0)}deg;animation-delay:${(Math.random() * 0.12).toFixed(2)}s"></i>`; }
+    wrap.innerHTML = `<b class="enc-pot half l">${er.lostPot.toLocaleString()}</b><b class="enc-pot half r">${er.lostPot.toLocaleString()}</b>${shards}`;
+  }
+  if (msg) { msg.classList.add("bad"); msg.innerHTML = m; }
+  await sleep(reducedMotion() ? 0 : 1000);
+  const b = $("encore-box"); if (b) { b.innerHTML = encoreInner(); b.classList.add("bust"); }
+}
 function glowMatches(reelEls, cells, setIds, bestSetId, bestCount, reelsBox) {
   if (!setIds || !setIds.length) return;
   const set = new Set(setIds);
@@ -456,7 +893,7 @@ function spawnExplosion(el) {
   el.appendChild(b); setTimeout(() => b.remove(), 580);
 }
 function jackpotFx(symId) {
-  const e = D.SYM_BY_ID[symId]?.e || "🎰";
+  const sy = D.SYM_BY_ID[symId]; const e = sy ? symIcon(sy, "jp-ico", true) : "🎰";
   const o = document.createElement("div"); o.className = "jackpot-fx";
   o.innerHTML = `<div class="rays"></div><div class="jptxt">${e}<span>JACKPOT!</span></div>`;
   document.body.appendChild(o); setTimeout(() => o.remove(), 1750);
@@ -465,11 +902,13 @@ function floatExp(amount, jp) {
   const f = document.createElement("div"); f.className = "float-exp" + (jp ? " jp" : ""); f.textContent = `+${amount} EXP`;
   document.body.appendChild(f); setTimeout(() => f.remove(), 1050);
 }
+// 증강/유물/저주/심볼퍽/장치/아이템 id → 그림 id("" = 그림 없음 → 이모지 폴백)
+function perkArtId(id) { const k = id ? perkKind(id) : ""; return k ? artId(k, id) : ""; }
 function celebratePerk(p) {
   if (!p) return;
   snd.sfx("perk");
   const o = document.createElement("div"); o.className = "celebrate c-" + (p.t || "GOLD");
-  o.innerHTML = `<div class="cel-burst"></div><div class="cel-ico">${p.e}</div><div class="cel-name">${esc(p.n)}</div><div class="cel-tier">${esc(p.t || "")}</div><div class="cel-desc">${esc(p.d || "")}</div>`;
+  o.innerHTML = `<div class="cel-burst"></div><div class="cel-ico">${icon(p.art !== undefined ? p.art : perkArtId(p.id), p.e, "cel-img", true)}</div><div class="cel-name">${esc(p.n)}</div><div class="cel-tier">${esc(p.t || "")}</div><div class="cel-desc">${esc(p.d || "")}</div>`;
   document.body.appendChild(o);
   setTimeout(() => { o.style.transition = "opacity .4s"; o.style.opacity = "0"; setTimeout(() => o.remove(), 420); }, 1000);
 }
@@ -492,6 +931,9 @@ function spawnSparkle(el, tier) {
 // ── 렌더 디스패치 ──
 function render() {
   uiManip = null;
+  syncLastSpin();   // 플레이 화면을 벗어나면 LAST SPIN 비네트 해제
+  if (!(st && (st.phase === PHASE.SPIN || st.phase === PHASE.POST_SPIN))) flushBanners();
+  if (!(st && (st.phase === PHASE.SPIN || st.phase === PHASE.POST_SPIN))) snd.setFever(false);
   // 플레이 화면(HUD 내 ⚙️ 있음)만 고정 기어 숨김 — 그 외 모든 화면은 우상단에 표시
   gearShow(!(st && (st.phase === PHASE.SPIN || st.phase === PHASE.POST_SPIN)));
   if (!st) { renderHome(); return; }
@@ -511,6 +953,9 @@ function render() {
   tutLive();
 }
 
+// 타이틀/로그인 게이트 장식 릴 — 그림(sym_*)이 있으면 그림, 없으면 이모지(2026-10-28 이모지→그림 교체).
+const INTRO_SYMS = [["cherry", "🍒"], ["golden_bell", "🔔"], ["gem", "💎"], ["lucky7", "7️⃣"], ["star", "⭐"], ["coin_bag", "💰"], ["book", "📘"], ["crown", "👑"], ["wild", "🌀"]];
+const introReelsHtml = () => [["cherry", "🍒"], ["lucky7", "7️⃣"], ["gem", "💎"]].map(([id, e]) => `<span>${icon("sym_" + id, e, "", true)}</span>`).join("");
 // ── 인트로 (타이틀 스플래시) ──
 function renderIntro() {
   snd.bgmStop();
@@ -518,18 +963,18 @@ function renderIntro() {
   const p = g.profile;
   app.innerHTML = `
     <div class="intro">
-      <div class="intro-reels"><span>🍒</span><span>7️⃣</span><span>💎</span></div>
+      <div class="intro-reels">${introReelsHtml()}</div>
       <h1 class="intro-title">🎰 <span class="g">잭팟 슬롯</span></h1>
       <div class="intro-sub">텍스트 로그라이크 슬롯머신 · 웹 단독판</div>
       ${p.runs ? `<div class="intro-best">${esc(titleOf(p.bestScore))} · 최고 ${p.bestScore.toLocaleString()}점 · ${p.runs}런</div>` : `<div class="intro-best">버튼·애니로 즐기는 슬롯 로그라이크!</div>`}
       <button class="intro-start" data-act="introStart">▶ 탭하여 시작</button>
       <div class="intro-hint">🔊 소리 ON · 첫 탭에서 활성화돼요</div>
     </div>`;
-  const SYM = ["🍒", "🔔", "💎", "7️⃣", "⭐", "🍀", "💰", "📘", "👑", "🎰"];
   const reels = [...app.querySelectorAll(".intro-reels span")];
   if (introTimer) clearInterval(introTimer);
-  introTimer = setInterval(() => { reels.forEach((s) => { s.textContent = SYM[Math.floor(Math.random() * SYM.length)]; }); }, 110);
+  introTimer = setInterval(() => { reels.forEach((s) => { const k = INTRO_SYMS[Math.floor(Math.random() * INTRO_SYMS.length)]; s.innerHTML = icon("sym_" + k[0], k[1], "", true); }); }, 110);
 }
+
 function exitIntro() {
   if (introTimer) { clearInterval(introTimer); introTimer = null; }
   snd.resume(); st = null;
@@ -543,7 +988,7 @@ function renderLoginGate() {
   const p = g.profile;
   app.innerHTML = `
     <div class="intro login-gate" id="login-gate">
-      <div class="intro-reels"><span>🍒</span><span>7️⃣</span><span>💎</span></div>
+      <div class="intro-reels">${introReelsHtml()}</div>
       <h1 class="intro-title">🎰 <span class="g">잭팟 슬롯</span></h1>
       <div class="intro-sub">${p.runs ? `${esc(titleOf(p.bestScore))} · 최고 ${p.bestScore.toLocaleString()}점` : "시작 방법을 선택하세요"}</div>
       <div class="gate-btns">
@@ -657,7 +1102,7 @@ function renderSelect(kind) {
   const act = kind === "char" ? "selChar" : kind === "mac" ? "selMac" : "selDev";
   let cards = st.options.map((o) => {
     return `<button class="pcard" data-act="${act}" data-arg="${o.id}">
-      <div class="ico">${o.e}</div><div class="nm">${esc(o.n)}</div><div class="ds">${esc(o.d || "")}</div><div class="pcard-mast">${masteryStars(kind, o.id)}</div></button>`;
+      <div class="ico">${iconK(kind, o.id, o.e)}</div><div class="nm">${esc(o.n)}</div><div class="ds">${esc(o.d || "")}</div><div class="pcard-mast">${masteryStars(kind, o.id)}</div></button>`;
   }).join("");
   if (kind === "dev") cards = `<button class="pcard" data-act="selDev" data-arg=""><div class="ico">🚫</div><div class="nm">장치 없이</div><div class="ds">장치를 장착하지 않고 시작</div></button>` + cards;
   app.innerHTML = `
@@ -668,9 +1113,13 @@ function renderSelect(kind) {
 // ── 플레이 화면 ──
 function buildBadge() {
   const dev = st.device ? D.DEV_BY_ID[st.device] : null;
-  return `<span>✨${st.perks.filter((id) => D.AUG_BY_ID[id] || D.REL_BY_ID[id]).length}</span>${st.curses.length ? `<span>🌑${st.curses.length}</span>` : ""}${dev ? `<span>${dev.e}</span>` : ""}`;
+  return `<span>✨${st.perks.filter((id) => D.AUG_BY_ID[id] || D.REL_BY_ID[id]).length}</span>${st.curses.length ? `<span>🌑${st.curses.length}</span>` : ""}${dev ? `<span>${iconK("dev", st.device, dev.e)}</span>` : ""}`;
 }
-function reelInner(c) { return `<span class="sym">${c.sym.e}</span>${c.tag ? `<span class="tag">${esc(c.tag)}</span>` : ""}`; }
+// 릴 칸 마크업 — 심볼 그림(sym_<id>)이 있으면 <img>(칸을 꽉 채움), 없으면 이모지. data-sid/data-e 는 착지 후 이웃 장식 memo 복원용.
+function reelInner(c) {
+  const s = c.sym, art = !!(s.id && ART.has("sym_" + s.id));
+  return `<span class="sym${art ? " art" : ""}" data-sid="${esc(s.id || "")}" data-e="${esc(s.e)}">${symIcon(s, "", true)}</span>${c.tag ? `<span class="tag">${esc(c.tag)}</span>` : ""}`;
+}
 // Unity ReelView(S13/S14) 노치 스크롤 이식 — jackpotpick/reel.js 와 동일 메커니즘의 게임판(§A).
 // 이웃 장식 캐시 — 인덱스(릴 순번)별 4칸을 최초 1회만 추첨해 재사용(재렌더할 때마다 다시 뽑으면 깜빡임).
 // spinReelOne 착지 후 실제 DOM 모습으로 갱신되어 다음 재렌더가 착지 상태 그대로를 복원한다.
@@ -678,8 +1127,8 @@ const stripMemo = new Map();
 // 셀 1개의 스트립 마크업 — center 에 실제 셀, 이웃 4칸은 무작위 이모지(정지 상태 장식, memo 캐시)
 function reelStrip(c, i) {
   let nb = stripMemo.get(i);
-  if (!nb) { nb = [0, 1, 2, 3].map(() => randSpinCell().sym.e); stripMemo.set(i, nb); }
-  const deco = (e) => reelInner({ sym: { e }, tag: "" });
+  if (!nb) { nb = [0, 1, 2, 3].map(() => randSpinCell().sym); stripMemo.set(i, nb); }
+  const deco = (sym) => reelInner({ sym, tag: "" });
   return `<div class="rstrip">
     <div class="rslot">${deco(nb[0])}</div><div class="rslot">${deco(nb[1])}</div>
     <div class="rslot center">${reelInner(c)}</div>
@@ -692,7 +1141,8 @@ function setCenterCell(reelEl, c) {
   if (center) center.innerHTML = reelInner(c);
 }
 function renderPlay() {
-  if (st.stage !== curStage) { lastGain = null; curStage = st.stage; if (st.boss) snd.sfx("boss"); }
+  let bossIntro = null;
+  if (st.stage !== curStage) { lastGain = null; curStage = st.stage; if (st.boss) { snd.sfx("boss"); bossIntro = st.boss; } }
   if (soundOn) snd.bgmStart();
   const cells = st.lastCells || Array.from({ length: g.reel() }, () => ({ sym: { e: "❔" }, tag: "" }));
   const boss = st.boss;
@@ -701,6 +1151,7 @@ function renderPlay() {
       <div class="hud-top">
         <span class="stage-badge">STAGE ${st.stage}</span>
         ${boss ? `<span class="boss-badge">${boss.e} ${esc(boss.n)}</span>` : ""}
+        ${st.hold ? `<span class="hold-chip" id="hold-chip" title="칸을 탭해 홀드"></span>` : ""}
         ${st.asc > 0 ? `<span class="asc-hud">🎓 심화 ${st.asc} <b>×${(st.ascScoreMul || 1).toFixed(2)}</b></span>` : ""}
         ${st.deepMode ? `<span class="deep-hud" data-act="pouch">🎒${st.pouchView ? `<b>${st.pouchView.total}</b>/${st.pouchView.totalMax ?? D.DEEP.DECK_MAX}` : "덱"}${st.pouchView && st.pouchView.penalty > 1 ? ` <span class="dh-pen">+${Math.round((st.pouchView.penalty - 1) * 100)}%</span>` : ""}${archHudChip(st.pouchView)}</span>` : ""}
         ${st.deepMode ? feverHudHtml(st) : ""}
@@ -717,7 +1168,10 @@ function renderPlay() {
       <div class="unlucky" id="unlucky"></div>
     </div>
     ${boss ? `<div class="boss-rule"><b>보스 룰</b> · ${esc(boss.desc)}</div>` : ""}
-    <div class="reels" id="reels">${cells.map((c, i) => `<div class="reel" data-act="cellinfo" data-arg="${i}">${reelStrip(c, i)}</div>`).join("")}</div>
+    <div class="reels-wrap"><div class="last-tag" id="last-tag">LAST SPIN!</div>
+      <div class="reels" id="reels">${cells.map((c, i) => `<div class="reel" data-act="reelTap" data-arg="${i}">${reelStrip(c, i)}</div>`).join("")}</div></div>
+    ${st.fever ? feverBarHtml() : ""}
+    ${st.hold ? `<div class="hold-hint" id="hold-hint"></div>` : ""}
     <div class="gain" id="gain"></div>
     <div class="logbox" id="logbox"></div>
     <div class="actionbar">
@@ -733,6 +1187,7 @@ function renderPlay() {
       </div>
     </div>`;
   updateHud(); showGain(); updateExtras(); renderLog();
+  if (bossIntro && !tut.active) showBossIntro(bossIntro);   // F2: 보스 스테이지 시작 전면 카드(1.6초·탭 스킵)
   if (!g.profile.tutDone && !tut.active && st.stage === 1 && st.spinIndex === 0)
     setTimeout(() => { if (st && st.phase === PHASE.SPIN && !tut.active) startTutorial(); }, 420);
   if (tut.active && tut.live && st.stage >= 2) endTutorial();   // 2스테이지 진입 = 튜토리얼 완료(폴백)
@@ -743,7 +1198,8 @@ function renderLog() {
 }
 function setReels(cells) {
   const box = $("reels"); if (!box) return;
-  box.innerHTML = cells.map((c, i) => `<div class="reel settle" data-act="cellinfo" data-arg="${i}">${reelStrip(c, i)}</div>`).join("");
+  box.innerHTML = cells.map((c, i) => `<div class="reel settle" data-act="reelTap" data-arg="${i}">${reelStrip(c, i)}</div>`).join("");
+  syncHoldUI();   // innerHTML 교체로 사라진 잠금 오버레이 복원
 }
 function updateHud() {
   if (!$("expbar")) return;
@@ -768,16 +1224,29 @@ function updateHud() {
     }
   }
   renderLog();
+  syncHoldUI(); syncFever(); syncLastSpin();
 }
-function showGain() {
+function showGain(animate) {
   const el = $("gain"); if (!el) return;
   if (!lastGain) { el.innerHTML = `<span class="dim" style="font-size:12.5px">🎰 슬롯을 돌려 EXP를 모으세요</span>`; return; }
+  // F8: 획득 EXP/점수/코인 카운트업(새 스핀 결과일 때만 — 재렌더 시엔 최종값 그대로). 시작값 0 → 목표값.
+  const anim = !!animate && !reducedMotion();
+  const v0 = (n) => (anim ? 0 : n);
+  const subs = [];
+  if (lastGain.score > 0) subs.push(`<b id="gain-score">+${v0(lastGain.score)}</b>점`);
+  if (lastGain.coins > 0) subs.push(`<b id="gain-coin">+${v0(lastGain.coins)}</b>🪙`);
   el.innerHTML =
     (lastGain.banner ? `<div class="spin-banner pop">${esc(lastGain.banner)}</div>` : "") +
-    `<div class="big pop">+${lastGain.gained} EXP</div>` +
+    `<div class="big pop"><span id="gain-exp">+${v0(lastGain.gained)}</span> EXP${subs.length ? `<span class="gsub">${subs.join(" · ")}</span>` : ""}</div>` +
     (lastGain.notes && lastGain.notes.length ? `<div class="notes">${lastGain.notes.map((n) => `<span class="note">${esc(n)}</span>`).join("")}</div>` : "") +
     setBonusExplain(lastGain.bestCount, lastGain.setGroups);
   const big = el.querySelector(".big"); if (big) { big.classList.remove("pop"); void big.offsetWidth; big.classList.add("pop"); }
+  if (anim) {
+    const dur = lastGain.gained >= 200 ? 1000 : 650;
+    countUp($("gain-exp"), lastGain.gained, "+", 0, dur);
+    if (lastGain.score > 0) countUp($("gain-score"), lastGain.score, "+", 0, dur);
+    if (lastGain.coins > 0) countUp($("gain-coin"), lastGain.coins, "+", 0, 500);
+  }
 }
 // 같은 심볼 2개 이상 모였을 때 "왜 점수가 높은지" 쉬운 설명(표시 전용 — 점수 계산 미접촉).
 // SET_EXP=[0,0,8,18,42,100] → 많이 모을수록 보너스가 급격히 커진다는 원리를 안내.
@@ -805,18 +1274,19 @@ function updateExtras() {
     box.innerHTML = html; return;
   }
   if (spinBtn) { spinBtn.disabled = busy; spinBtn.textContent = "🎰 슬롯 돌리기"; }
-  // 특수 스핀 (종류별 스테이지당 1회 — 하나 써도 나머지는 남음). 코인 비용·부족 시 비활성 표시.
+  // 특수 스핀 (R6: 스테이지당 반복 사용 가능 — 같은 스테이지 n번째는 비용 누진). 버튼에 "지금 누르면 낼 코인"(첫 사용 무료면 '무료')을 표시, 부족하면 비활성.
   const cmdBtn = (mode, label) => {
     const free = !!(st.cmdFreeUsed && st.cmdFreeUsed[mode] === false);   // 종류별 런 첫 사용 = 무료
     const cost = g.cmdCost(mode);
+    const used = (st.cmdUses && st.cmdUses[mode]) || 0;
     const tag = free ? `<span class="cmd-cost free">무료</span>` : (cost > 0 ? `<span class="cmd-cost">${cost}🪙</span>` : "");
     const poor = !free && cost > 0 && st.coins < cost;   // 무료면 코인 0이어도 활성
-    return `<button class="abtn special${poor ? " short" : ""}" data-act="spin" data-arg="${mode}"${poor ? " disabled" : ""}>${label}${tag}</button>`;
+    return `<button class="abtn special${poor ? " short" : ""}" data-act="spin" data-arg="${mode}"${poor ? " disabled" : ""} title="이번 스테이지 ${used}회 사용">${label}${tag}</button>`;
   };
-  if (!st.usedCmds.includes("FOCUS")) html += cmdBtn("FOCUS", "🎯 집중");
-  if (!st.usedCmds.includes("ALLIN")) html += cmdBtn("ALLIN", "🎰 올인");
-  if (!st.usedCmds.includes("PRAY")) html += cmdBtn("PRAY", "🙏 기도");
-  if (st.spinIndex === st.spins - 1 && !st.usedCmds.includes("LAST")) html += cmdBtn("LAST", "⏰ 최후");
+  html += cmdBtn("FOCUS", "🎯 집중");
+  html += cmdBtn("ALLIN", "🎰 올인");
+  html += cmdBtn("PRAY", "🙏 기도");
+  if (st.spinIndex === st.spins - 1) html += cmdBtn("LAST", "⏰ 최후");   // 최후는 마지막 스핀에서만 활성
   // 장치 액션
   const dev = st.device ? D.DEV_BY_ID[st.device] : null;
   if (dev) {
@@ -908,11 +1378,11 @@ function openSettings() {
 }
 function openItemSheet() {
   const items = st.items.map((id, i) => { const it = D.ITEM_BY_ID[id]; const kindTxt = it.k === "NEXTSPIN" ? "다음 스핀" : it.k === "PHASE" ? "이번 스테이지" : "즉시"; return `
-    <div class="icard"><div class="ie">${it.e}</div><div class="ib"><div class="iname">${esc(it.n)} <span class="dim" style="font-size:10px">· ${kindTxt}</span></div><div class="idesc">${esc(it.d)}</div></div>
+    <div class="icard"><div class="ie">${iconK("item", id, it.e)}</div><div class="ib"><div class="iname">${esc(it.n)} <span class="dim" style="font-size:10px">· ${kindTxt}</span></div><div class="idesc">${esc(it.d)}</div></div>
       <button class="iuse" data-act="useItem" data-arg="${i}">사용</button></div>`; }).join("");
   openSheet(`<button class="sheet-close" data-act="closeSheet">◀ 닫기</button><h3>🎒 아이템</h3><div class="sub">보유 ${st.items.length}/3 · 장전한 효과는 스핀에 적용돼요.</div>
     <div class="ilist">${items || `<div class="icard empty">보유한 아이템이 없어요. 상점/이벤트에서 얻을 수 있어요.</div>`}</div>
-    ${st.armItems.length ? `<div class="sub" style="margin-top:10px">🔋 장전됨: ${st.armItems.map((id) => D.ITEM_BY_ID[id]?.e || "·").join(" ")}</div>` : ""}`);
+    ${st.armItems.length ? `<div class="sub" style="margin-top:10px">🔋 장전됨: ${st.armItems.map((id) => iconK("item", id, D.ITEM_BY_ID[id]?.e || "·")).join(" ")}</div>` : ""}`);
 }
 function openDeviceSheet() {
   const dev = st.device ? D.DEV_BY_ID[st.device] : null;
@@ -920,9 +1390,9 @@ function openDeviceSheet() {
   if (!dev) body = `<div class="icard empty">장착한 장치가 없어요.</div>`;
   else {
     const usable = devUsableNote();
-    body = `<div class="icard"><div class="ie">${dev.e}</div><div class="ib"><div class="iname">${esc(dev.n)} <span class="dim" style="font-size:10px">· ${dev.kind === "PASSIVE" ? "패시브(상시)" : "능동"}</span></div><div class="idesc">${esc(dev.d)}</div><div class="idesc" style="color:var(--teal)">${usable}</div></div></div>`;
+    body = `<div class="icard"><div class="ie">${iconK("dev", dev.id, dev.e)}</div><div class="ib"><div class="iname">${esc(dev.n)} <span class="dim" style="font-size:10px">· ${dev.kind === "PASSIVE" ? "패시브(상시)" : "능동"}</span></div><div class="idesc">${esc(dev.d)}</div><div class="idesc" style="color:var(--teal)">${usable}</div></div></div>`;
   }
-  const owned = g.profile.ownedDevices.filter((id) => id !== st.device).map((id) => { const d = D.DEV_BY_ID[id]; return `<div class="icard" style="opacity:.7"><div class="ie">${d.e}</div><div class="ib"><div class="iname">${esc(d.n)}</div><div class="idesc">${esc(d.d)} · <span class="dim">보유(런 시작 시 장착 선택)</span></div></div></div>`; }).join("");
+  const owned = g.profile.ownedDevices.filter((id) => id !== st.device).map((id) => { const d = D.DEV_BY_ID[id]; return `<div class="icard" style="opacity:.7"><div class="ie">${iconK("dev", d.id, d.e)}</div><div class="ib"><div class="iname">${esc(d.n)}</div><div class="idesc">${esc(d.d)} · <span class="dim">보유(런 시작 시 장착 선택)</span></div></div></div>`; }).join("");
   openSheet(`<button class="sheet-close" data-act="closeSheet">◀ 닫기</button><h3>🔧 장치</h3><div class="sub">능동 장치는 하단 액션바 버튼으로 발동해요. 패시브는 매 스핀 자동.</div>
     <div class="ilist">${body}${owned}</div>`);
 }
@@ -943,11 +1413,11 @@ function devUsableNote() {
 }
 function openStatusSheet() {
   const ch = D.CHAR_BY_ID[st.charId], mc = D.MAC_BY_ID[st.machineId];
-  const perkRow = (id) => { const p = D.PERK_BY_ID[id]; return p ? `<div class="icard"><div class="ie">${p.e}</div><div class="ib"><div class="iname">${esc(p.n)} <span class="tier t-${p.t}" style="position:static;font-size:calc(9px * var(--sc))">${p.t}</span></div><div class="idesc">${esc(st.deepMode && p.dDesc ? p.dDesc : p.d)}</div></div></div>` : ""; };
+  const perkRow = (id) => { const p = D.PERK_BY_ID[id]; return p ? `<div class="icard"><div class="ie">${iconP(id, p.e)}</div><div class="ib"><div class="iname">${esc(p.n)} <span class="tier t-${p.t}" style="position:static;font-size:calc(9px * var(--sc))">${p.t}</span></div><div class="idesc">${esc(st.deepMode && p.dDesc ? p.dDesc : p.d)}</div></div></div>` : ""; };
   const augs = st.perks.filter((id) => D.AUG_BY_ID[id]); const rels = st.perks.filter((id) => D.REL_BY_ID[id]);
   const sets = []; // 활성 세트 표시
   openSheet(`<button class="sheet-close" data-act="closeSheet">◀ 닫기</button><h3>📊 상태</h3>
-    <div class="sub">${ch?.e}${esc(ch?.n || "")} + ${mc?.e}${esc(mc?.n || "")}${st.device ? " + " + D.DEV_BY_ID[st.device].e + esc(D.DEV_BY_ID[st.device].n) : ""}</div>
+    <div class="sub inl-ic">${ch ? iconK("char", ch.id, ch.e) : ""}${esc(ch?.n || "")} + ${mc ? iconK("mac", mc.id, mc.e) : ""}${esc(mc?.n || "")}${st.device ? " + " + iconK("dev", st.device, D.DEV_BY_ID[st.device].e) + esc(D.DEV_BY_ID[st.device].n) : ""}</div>
     <div class="hud-stats" style="margin-bottom:12px"><div class="s"><div class="k">점수</div><div class="v">${st.score.toLocaleString()}</div></div><div class="s"><div class="k">코인</div><div class="v coin">${st.coins}</div></div><div class="s"><div class="k">스테이지</div><div class="v">${st.stage}</div></div></div>
     ${augs.length ? `<div class="sub">✨ 증강 ${augs.length}</div><div class="ilist" style="margin-bottom:10px">${augs.map(perkRow).join("")}</div>` : ""}
     ${rels.length ? `<div class="sub">🛡️ 유물 ${rels.length}</div><div class="ilist" style="margin-bottom:10px">${rels.map(perkRow).join("")}</div>` : ""}
@@ -980,7 +1450,7 @@ function openCellSheet(idx) {
   const tags = s.tags.length ? `<div class="cb-tags">${s.tags.map((t) => `<span class="cbtag">#${esc(t)}</span>`).join("")}</div>` : "";
   const specials = info.specials.length ? `<div class="cb-sp">${info.specials.map((x) => `<div>▸ ${esc(x)}</div>`).join("")}</div>` : "";
   const affect = info.affecting.length
-    ? info.affecting.map((a) => `<div class="icard"><div class="ie">${a.e}</div><div class="ib"><div class="iname">${esc(a.n)} <span class="dim" style="font-size:10px">${a.tier ? `<span class="tier t-${a.tier}" style="font-size:9px">${a.tier}</span> ` : ""}${esc(a.kind)}</span></div><div class="idesc">${esc(a.effect)}</div></div></div>`).join("")
+    ? info.affecting.map((a) => `<div class="icard"><div class="ie">${icon(nameToArt(a.n, a.kind), a.e)}</div><div class="ib"><div class="iname">${esc(a.n)} <span class="dim" style="font-size:10px">${a.tier ? `<span class="tier t-${a.tier}" style="font-size:9px">${a.tier}</span> ` : ""}${esc(a.kind)}</span></div><div class="idesc">${esc(a.effect)}</div></div></div>`).join("")
     : `<div class="icard empty">이 칸에 직접 영향 주는 항목이 아직 없어요.</div>`;
   const sets = info.sets.length ? `<div class="sub" style="margin-top:12px">🎰 활성 세트 효과</div><div class="ilist">${info.sets.map((x) => `<div class="icard"><div class="ie">🎰</div><div class="ib"><div class="iname">${esc(x.n)}</div><div class="idesc">${esc(x.d)}</div></div></div>`).join("")}</div>` : "";
   const pos = info.isCenter ? " · 가운데 칸" : info.idx === 0 ? " · 첫 칸" : "";
@@ -997,7 +1467,7 @@ function openCellSheet(idx) {
     }
   }
   openSheet(`<button class="sheet-close" data-act="closeSheet">◀ 닫기</button>
-    <h3>${s.e} ${esc(s.n)}${cellTierBadge} <span class="dim" style="font-size:12px">${info.idx + 1}번 칸${pos}</span></h3>
+    <h3>${symIcon(s, "h3-ico")} ${esc(s.n)}${cellTierBadge} <span class="dim" style="font-size:12px">${info.idx + 1}번 칸${pos}</span></h3>
     ${tags}${specials}
     <div class="cb-calc">${calc}${score}</div>
     <div class="cb-note">⚙️ 전체 배수: 모든 칸 합계에 <b>EXP ×${Math.round(info.expMul * 100) / 100}</b>${info.flatExp ? ` · 스핀마다 <b>+${info.flatExp}</b>` : ""} 가 곱·가산되어 최종 획득 EXP가 됩니다.</div>
@@ -1047,7 +1517,7 @@ function renderPerk() {
       <div class="scr-title"><div class="step-tag">⬆️ 증강 강화</div><h1>강화할 증강 선택</h1><div class="sub">보유 증강 하나를 레벨업해요 (최대 Lv.3). 🎁 10% 확률 강화 기회!</div></div>
       <div class="cards-col">${st.options.map((p, i) => `
         <button class="bigcard t-${p.t}" data-act="perk" data-arg="${i}" style="border-color:#ffd23f88">
-          <div style="display:flex;align-items:center;gap:8px"><span class="be">${p.e}</span><span class="lvl-up-badge">Lv.${p.curLevel} → Lv.${p.nextLevel}</span></div>
+          <div style="display:flex;align-items:center;gap:8px"><span class="be">${iconP(p.id, p.e)}</span><span class="lvl-up-badge">Lv.${p.curLevel} → Lv.${p.nextLevel}</span></div>
           <div class="bn">${esc(p.n)}</div><div class="bd">${esc(p.d)}</div></button>`).join("")}</div>`;
     return;
   }
@@ -1073,7 +1543,7 @@ function renderPerk() {
     <div class="scr-title"><div class="step-tag">${stepTag}</div><h1>${titleTxt}</h1><div class="sub">${subTxt}</div></div>
     <div class="cards-col">${st.options.map((p, i) => { const isSym = !!D.SYM_PERK_BY_ID[p.id]; return `
       <button class="bigcard perk-card t-${p.t}${isSym ? " sym-perk" : ""}" data-act="perk" data-arg="${i}">
-        <div style="display:flex;align-items:center;gap:8px"><span class="be">${p.e}</span><span class="tier t-${p.t}" style="position:static">${p.t}</span>${isSym ? `<span class="badge sym">🎒심볼</span>` : ""}${st.deepMode && p.deep === 2 ? `<span class="badge sym">🎒부분적용</span>` : ""}${p.setTag ? `<span class="badge set">🧩세트</span>` : p.tierUp ? `<span class="badge up">🍀등급업</span>` : ""}</div>
+        <div style="display:flex;align-items:center;gap:8px"><span class="be">${iconP(p.id, p.e)}</span><span class="tier t-${p.t}" style="position:static">${p.t}</span>${isSym ? `<span class="badge sym">🎒심볼</span>` : ""}${st.deepMode && p.deep === 2 ? `<span class="badge sym">🎒부분적용</span>` : ""}${p.setTag ? `<span class="badge set">🧩세트</span>` : p.tierUp ? `<span class="badge up">🍀등급업</span>` : ""}</div>
         <div class="bn">${esc(p.n)}</div><div class="bd">${esc(st.deepMode && p.dDesc ? p.dDesc : p.d)}</div></button>`; }).join("")}</div>`;
 }
 
@@ -1118,6 +1588,14 @@ function pouchRewardTitle(p) {
   if (p.type === "upgrade") return `${symE(p.id)} ▲`;
   return `${symE(p.id)} ${m.sign || ""}${p.n || ""}`;
 }
+// pouchRewardTitle 의 HTML 버전 — 심볼 이모지 자리를 그림(sym_<id>)으로(없으면 이모지). 반환은 마크업(비-esc) — 이름 등 텍스트는 직접 esc.
+function pouchRewardTitleHtml(p) {
+  if (p.type === "special") return `${symIcon({ id: p.id, e: p.e || symE(p.id) }, "rw-ic")} ${esc(p.n || symN(p.id))}`;
+  if (p.type === "swap") return `${symIconById(p.from, "rw-ic")} → ${symIconById(p.to, "rw-ic")}`;
+  if (p.type === "upgrade") return `${symIconById(p.id, "rw-ic")} ▲`;
+  if (p.type === "add" || p.type === "remove") { const m = POUCH_RW[p.type] || {}; return `${symIconById(p.id, "rw-ic")} ${esc(m.sign || "")}${esc(p.n || "")}`; }
+  return esc(pouchRewardTitle(p));
+}
 function pouchRewardDesc(p) {
   // V3P2 타입
   if (p.type === "special") return costDesc(p);
@@ -1139,7 +1617,7 @@ function pouchCelebrateData(p) {
   // V3P2 신규 타입
   if (p.type === "special") {
     const tone = p.tier === "PRISM" ? "PRISM" : p.tier === "GOLD" ? "GOLD" : p.tier === "CURSE" ? "CURSE" : "SILVER";
-    return { e: p.e || symE(p.id), n: `${p.n || symN(p.id)} 획득 (${p.tier || "SILVER"})`, t: tone, d: costDesc(p) };
+    return { e: p.e || symE(p.id), art: artId("sym", p.id), n: `${p.n || symN(p.id)} 획득 (${p.tier || "SILVER"})`, t: tone, d: costDesc(p) };
   }
   if (p.type === "skip")        return { e: "⏭", n: "건너뛰기 — 코인 +5", t: "SILVER", d: "코인 +5 획득" };
   if (p.type === "cost_remove") return { e: "🗑️", n: `기본 심볼 ${p.removeN || 1}개 제거`, t: "SILVER", d: "기본 이득 심볼 제거" };
@@ -1149,7 +1627,7 @@ function pouchCelebrateData(p) {
   if (p.type === "package") {
     const pv0 = p.preview || {};
     const totalTxt0 = (pv0.totalBefore != null && pv0.totalAfter != null && pv0.totalBefore !== pv0.totalAfter) ? ` · 총량 ${pv0.totalBefore}→${pv0.totalAfter}` : "";
-    return { e: p.repId ? symE(p.repId) : "📦", n: `${m.lb} · ${p.title || ""}`, t: "PRISM", d: (p.desc || "") + totalTxt0 };
+    return { e: p.repId ? symE(p.repId) : "📦", art: p.repId ? artId("sym", p.repId) : "", n: `${m.lb} · ${p.title || ""}`, t: "PRISM", d: (p.desc || "") + totalTxt0 };
   }
   if (p.type === "randpack") {
     return { e: "🎲", n: `랜덤팩 · ${p.n ?? 2}개`, t: p.tier || "GOLD", d: randpackDesc(p) };
@@ -1158,14 +1636,14 @@ function pouchCelebrateData(p) {
   const pv = p.preview || {};
   const tb = pv.totalBefore, ta = pv.totalAfter;
   const totalTxt = (tb != null && ta != null && tb !== ta) ? ` · 총량 ${tb}→${ta}` : "";
-  return { e: symE(iconId), n: `${m.lb} · ${pouchRewardTitle(p)}`, t: p.tier || "GOLD", d: pouchRewardDesc(p) + totalTxt };
+  return { e: symE(iconId), art: artId("sym", iconId), n: `${m.lb} · ${pouchRewardTitle(p)}`, t: p.tier || "GOLD", d: pouchRewardDesc(p) + totalTxt };
 }
 // 변경 전/후 미리보기(심볼별) + 총량 + 압축 패널티 경고 마크업
 function pouchPreviewHtml(p) {
   const pv = p.preview || {};
   // 배치F P1: tb/ta 를 changes 맵보다 먼저 선언(맵 템플릿의 % 계산이 참조 — TDZ 금지). 계산·up/down 판정 불변.
   const tb = pv.totalBefore ?? 0, ta = pv.totalAfter ?? 0;
-  const changes = (pv.changes || []).map((c) => { const dir = c.after > c.before ? " up" : c.after < c.before ? " down" : ""; return `<div class="rw-chg"><span class="rw-ce">${symE(c.id)}</span><span class="rw-cn">${esc(symN(c.id))}</span><span class="rw-cv${dir}">${c.before} <span class="dim">(${pct2(c.before, tb)}%)</span> → <b>${c.after}</b> <span class="dim">(${pct2(c.after, ta)}%)</span></span></div>`; }).join("");
+  const changes = (pv.changes || []).map((c) => { const dir = c.after > c.before ? " up" : c.after < c.before ? " down" : ""; return `<div class="rw-chg"><span class="rw-ce">${symIconById(c.id)}</span><span class="rw-cn">${esc(symN(c.id))}</span><span class="rw-cv${dir}">${c.before} <span class="dim">(${pct2(c.before, tb)}%)</span> → <b>${c.after}</b> <span class="dim">(${pct2(c.after, ta)}%)</span></span></div>`; }).join("");
   // 방어 가드: preview 에 총량 필드가 없으면 총량 행 미표시("0 → 0" 오표기 방지). 실값 있으면 그대로.
   const totalRow = (pv.totalBefore != null && pv.totalAfter != null) ? `<div class="rw-total">총량 <b>${tb} → ${ta}</b></div>` : "";
   const pb = pv.penBefore ?? 1, pa = pv.penAfter ?? 1;
@@ -1189,17 +1667,17 @@ function renderPouchReward() {
   // V3P2: POUCH_REMOVE 서브상태 — 제거할 기본 심볼 선택 시트
   if (st.pickKind === "POUCH_REMOVE") {
     const ps = g.run && g.run._pendingSpecial || {};
-    const sym = ps.e ? `${ps.e}${ps.n || ps.id || ""}` : (ps.id || "특수 심볼");
+    const sym = ps.e ? `${symIcon({ id: ps.id, e: ps.e }, "h1-ico")}${esc(ps.n || ps.id || "")}` : esc(ps.id || "특수 심볼");
     const removeN = ps.removeN || 1;
     const cards = (st.options || []).map((p, i) => {
-      const se = D.SYM_BY_ID[p.id]; const nm = se ? se.n : p.id; const ic = se ? se.e : "❔";
+      const se = D.SYM_BY_ID[p.id]; const nm = se ? se.n : p.id; const ic = symIconById(p.id, "rw-ic");
       return `<button class="bigcard pouch-rw rw-remove t-SILVER" data-act="perk" data-arg="${i}">
         <div class="rw-head"><span class="rw-lb">제거</span><span class="be rw-title">${ic} ${esc(nm)}</span></div>
         <div class="bd rw-desc">${esc(nm)} ×${p.n || 0}개 보유 — ${removeN}개 제거됩니다</div>
       </button>`;
     }).join("");
     app.innerHTML = `
-      <div class="scr-title"><div class="step-tag">🗑️ 제거할 심볼 선택</div><h1>${esc(sym)} 획득</h1>
+      <div class="scr-title"><div class="step-tag">🗑️ 제거할 심볼 선택</div><h1>${sym} 획득</h1>
       <div class="sub">덱 추가 비용: 기본 이득 심볼 ${removeN}개를 제거하세요.<br>기본 이득 심볼(체리·책·별·보석·코인·불꽃·자석·폭탄)만 선택 가능합니다.</div></div>
       <div class="cards-col">${cards || `<div class="icard empty">제거할 기본 심볼이 없습니다.</div>`}</div>`;
     return;
@@ -1207,7 +1685,7 @@ function renderPouchReward() {
   // V3P2: POUCH_COST 서브상태 — 프리즘 비용 방식 선택
   if (st.pickKind === "POUCH_COST") {
     const ps = g.run && g.run._pendingSpecial || {};
-    const sym = ps.e ? `${ps.e}${ps.n || ps.id || ""}` : (ps.id || "프리즘 심볼");
+    const sym = ps.e ? `${symIcon({ id: ps.id, e: ps.e }, "h1-ico")}${esc(ps.n || ps.id || "")}` : esc(ps.id || "프리즘 심볼");
     const cards = (st.options || []).map((p, i) => {
       const m = POUCH_RW[p.type] || { lb: p.type, cls: "" };
       return `<button class="bigcard pouch-rw ${m.cls} t-SILVER" data-act="perk" data-arg="${i}">
@@ -1216,7 +1694,7 @@ function renderPouchReward() {
       </button>`;
     }).join("");
     app.innerHTML = `
-      <div class="scr-title"><div class="step-tag">🌈 비용 방식 선택</div><h1>${esc(sym)} 획득</h1>
+      <div class="scr-title"><div class="step-tag">🌈 비용 방식 선택</div><h1>${sym} 획득</h1>
       <div class="sub">프리즘 심볼 획득 비용을 선택하세요.</div></div>
       <div class="cards-col">${cards || `<div class="icard empty">선택지가 없습니다.</div>`}</div>`;
     return;
@@ -1233,7 +1711,7 @@ function renderPouchReward() {
       ? `<div class="bd rw-desc">${randpackDesc(p)}</div>`
       : `<div class="bd rw-desc">${esc(pouchRewardDesc(p))}</div>`;
     return `<button class="bigcard pouch-rw ${m.cls} t-${tier}" data-act="perk" data-arg="${i}">
-      <div class="rw-head"><span class="rw-lb">${esc(m.lb)}</span><span class="be rw-title">${pouchRewardTitle(p)}</span></div>
+      <div class="rw-head"><span class="rw-lb">${esc(m.lb)}</span><span class="be rw-title">${pouchRewardTitleHtml(p)}</span></div>
       ${descHtml}
       ${pouchPreviewHtml(p)}
     </button>`;
@@ -1292,7 +1770,7 @@ function deckCardHtml(en, pv) {
   else if (pv.statTable && en.effRatio != null && en.id !== "empty") pctTxt = `${Math.round(en.effRatio * 10000) / 100}%`;
   else pctTxt = `${pct2(en.n, pv.total)}%`;
   return `<div class="pcard deck-card t-${tier}" data-act="deckCard" data-arg="${en.id}">
-    <div class="ico">${en.e}</div>
+    <div class="ico">${iconK("sym", en.id, en.e)}</div>
     <div class="nm">${esc(en.nm)} <span class="dc-cnt">×${en.n}</span></div>
     <div class="dc-pct dim">${pctTxt}</div>
     <div class="dc-badges">${badges}${tagChip}</div>
@@ -1318,7 +1796,7 @@ function openDeckCardDetail(id) {
     + (en.jackpotTag ? row("잭팟 태그", `${TAG_EMOJI[en.jackpotTag] || ""} ${en.jackpotTag}`) : "")
     + row("효과", en.desc);
   openSheet(`<button class="sheet-close" data-act="pouch">◀ 뒤로</button>
-    <h3 style="font-size:calc(20px * var(--sc))">${en.e} ${esc(en.nm)}${tierChip}</h3>
+    <h3 style="font-size:calc(20px * var(--sc))">${iconK("sym", en.id, en.e, "h3-ico")} ${esc(en.nm)}${tierChip}</h3>
     <div class="cb-calc" style="margin-top:8px">${rows}</div>`);
 }
 
@@ -1342,7 +1820,7 @@ function openPouchSheet() {
   // 보유 심볼 증강/유물(심화 빌드 확인) — 정비 탭과 동일 칩.
   const symPerks = (pv.symPerks || []);
   const symLine = symPerks.length
-    ? `<div class="sym-held">${symPerks.map((p) => `<span class="sym-chip t-${p.t}" title="${esc(p.d)}">${p.e}${esc(p.n)}</span>`).join("")}</div>` : "";
+    ? `<div class="sym-held">${symPerks.map((p) => `<span class="sym-chip t-${p.t}" title="${esc(p.d)}">${iconP(p.id, p.e)}${esc(p.n)}</span>`).join("")}</div>` : "";
   // 총량 임계 경고칩(표시 전용) — 압축 패널티 세기 기준: >=40% 위험(빨강), >0% 주의(주황).
   const totalMax = pv.totalMax;
   const totalWarnCls = penPct >= 40 ? "warn-hi" : penPct > 0 ? "warn-lo" : "";
@@ -1440,7 +1918,7 @@ function shopBuyHtml() {
   return `<div class="cards-col">${empty ? `<div class="icard empty">남은 상품이 없어요 — 새로고침하거나 나가세요.</div>` : st.shopItems.map((o, i) => {
       const kindTxt = o.kind === "A" ? "증강" : o.kind === "R" ? "유물" : "아이템"; const afford = st.coins >= o.price;
       return `<div class="bigcard shop-item${afford ? "" : " short"}" data-act="shopBuyAsk" data-arg="${i}" style="display:flex;align-items:center;gap:11px">
-        <span style="font-size:calc(28px * var(--sc))">${o.e}</span>
+        <span class="shop-ic" style="font-size:calc(28px * var(--sc))">${iconP(o.id, o.e)}</span>
         <div style="flex:1;min-width:0"><div class="bn" style="font-size:calc(15px * var(--sc))">${esc(o.n)} <span class="tier t-${o.t || "GOLD"}" style="position:static;font-size:9px">${kindTxt}</span>${st.deepMode && o.deep === 2 ? `<span class="badge sym">🎒부분적용</span>` : ""}${o.couponTag ? `<span class="badge up">🎟쿠폰 -15%</span>` : o.setTag ? `<span class="badge set">🧩세트</span>` : o.tierUp ? `<span class="badge up">🍀등급업</span>` : ""}</div><div class="bd">${esc(st.deepMode && o.dDesc ? o.dDesc : o.d)}</div></div>
         <div class="shop-price${afford ? "" : " short"}">${o.price}🪙</div>
       </div>`; }).join("")}</div>`;
@@ -1457,7 +1935,7 @@ function repairTabHtml() {
   // Phase 5: 보유 심볼 증강/유물 표시(정비 탭에서 빌드 확인). 압축패널티는 심볼증강 배수까지 반영된 값(pouchView.penalty).
   const symPerks = (pv.symPerks || []);
   const symLine = symPerks.length
-    ? `<div class="sym-held">${symPerks.map((p) => `<span class="sym-chip t-${p.t}" title="${esc(p.d)}">${p.e}${esc(p.n)}</span>`).join("")}</div>`
+    ? `<div class="sym-held">${symPerks.map((p) => `<span class="sym-chip t-${p.t}" title="${esc(p.d)}">${iconP(p.id, p.e)}${esc(p.n)}</span>`).join("")}</div>`
     : "";
   const summary = `<div class="pouch-summary repair-summary">
       <span class="ps-item">총량 <b>${pv.total ?? "?"}</b> <span class="dim">/ ${pv.totalMin}~${pv.totalMax}</span></span>
@@ -1485,7 +1963,7 @@ function shopBuyAsk(i) {
   if (st.coins < o.price) { showToast(`🪙 코인 ${o.price - st.coins} 부족 — 살 수 없어요`); return; }
   const kindTxt = o.kind === "A" ? "증강" : o.kind === "R" ? "유물" : "아이템";
   openSheet(`<button class="sheet-close" data-act="closeSheet">◀ 취소</button><h3>🛒 구매할까요?</h3>
-    <div class="ilist"><div class="icard"><div class="ie">${o.e}</div><div class="ib"><div class="iname">${esc(o.n)} <span class="tier t-${o.t || "GOLD"}" style="font-size:9px">${kindTxt}</span></div><div class="idesc">${esc(o.d)}</div></div></div></div>
+    <div class="ilist"><div class="icard"><div class="ie">${iconP(o.id, o.e)}</div><div class="ib"><div class="iname">${esc(o.n)} <span class="tier t-${o.t || "GOLD"}" style="font-size:9px">${kindTxt}</span></div><div class="idesc">${esc(o.d)}</div></div></div></div>
     <div class="buy-confirm">가격 <b>${o.price}🪙</b> · 보유 ${st.coins}🪙 → 구매 후 <b>${st.coins - o.price}🪙</b></div>
     <div class="confirm-row"><button class="bigbtn ghost" data-act="closeSheet">취소</button><button class="bigbtn" data-act="shopBuyConfirm" data-arg="${i}">🛒 구매</button></div>`);
 }
@@ -1499,7 +1977,7 @@ function svcById(id) { return (st.repairServices || []).find((x) => x.id === id)
 // 심볼 선택 행(선택 시트용) 마크업. picked=현재 선택 강조.
 function repairSymRow(en, act, picked) {
   return `<button class="pouch-row rsel-row${picked ? " picked" : ""}" data-act="${act}" data-arg="${en.id}">
-    <span class="pr-e">${en.e}</span>
+    <span class="pr-e">${iconK("sym", en.id, en.e)}</span>
     <div class="pr-body"><div class="pr-top"><span class="pr-nm">${esc(en.nm)}</span><span class="pr-rar ${rarClsOf(en.rarity)}">${esc(en.rarity)}</span><span class="pr-cnt">보유 ×${en.n}</span></div></div>
   </button>`;
 }
@@ -1546,7 +2024,7 @@ function repairPickSwapTo() {
   const rows = targets.map((en) => repairSymRow(en, "repairSelTo", false)).join("");
   openSheet(`<button class="sheet-close" data-act="repairCancel">◀ 취소</button>
     <h3>${sv.e} ${esc(sv.n)} — ② 새 심볼</h3>
-    <div class="sub"><b>${symE(from)} ${esc(symN(from))}</b> ${sv.n2}개 → 어떤 심볼로 바꿀까요?</div>
+    <div class="sub"><b>${symIconById(from)} ${esc(symN(from))}</b> ${sv.n2}개 → 어떤 심볼로 바꿀까요?</div>
     <div class="pouch-list rsel-list">${rows}</div>`);
 }
 // 태그 선택(태그강화)
@@ -1573,7 +2051,7 @@ function repairConfirm() {
   let previewHtml = "";
   if (pv.preview) {
     // 배치F P1: % 병기 — 분모는 pv.preview.* 인라인 참조(아래 tb/ta 선언보다 맵이 먼저 실행 = TDZ 회피). up/down 판정 불변.
-    const changes = (pv.changes || []).map((c) => { const dir = c.after > c.before ? " up" : c.after < c.before ? " down" : ""; return `<div class="rw-chg"><span class="rw-ce">${symE(c.id)}</span><span class="rw-cn">${esc(symN(c.id))}</span><span class="rw-cv${dir}">${c.before} <span class="dim">(${pct2(c.before, pv.preview.totalBefore ?? 0)}%)</span> → <b>${c.after}</b> <span class="dim">(${pct2(c.after, pv.preview.totalAfter ?? 0)}%)</span></span></div>`; }).join("");
+    const changes = (pv.changes || []).map((c) => { const dir = c.after > c.before ? " up" : c.after < c.before ? " down" : ""; return `<div class="rw-chg"><span class="rw-ce">${symIconById(c.id)}</span><span class="rw-cn">${esc(symN(c.id))}</span><span class="rw-cv${dir}">${c.before} <span class="dim">(${pct2(c.before, pv.preview.totalBefore ?? 0)}%)</span> → <b>${c.after}</b> <span class="dim">(${pct2(c.after, pv.preview.totalAfter ?? 0)}%)</span></span></div>`; }).join("");
     const tb = pv.preview.totalBefore, ta = pv.preview.totalAfter;
     previewHtml = `<div class="rw-prev">${changes}${tb !== ta ? `<div class="rw-total">총량 <b>${tb} → ${ta}</b></div>` : ""}</div>`;
   } else if (sv.kind === "expand") previewHtml = `<div class="rw-prev"><div class="rw-total">총량 상한 <b>+${sv.n2}</b></div></div>`;
@@ -1581,8 +2059,8 @@ function repairConfirm() {
   else if (sv.kind === "tagbuff") previewHtml = `<div class="rw-prev"><div class="rw-total">#${esc(repairSel.sel.tag || "")} 심볼 EXP <b>+${Math.round((sv.pct || 0) * 100)}%</b></div></div>`;
   // 대상 요약
   let target = "";
-  if (repairSel.sel.from) target = `${symE(repairSel.sel.from)}${esc(symN(repairSel.sel.from))} → ${symE(repairSel.sel.to)}${esc(symN(repairSel.sel.to))}`;
-  else if (repairSel.sel.id) target = `${symE(repairSel.sel.id)}${esc(symN(repairSel.sel.id))}`;
+  if (repairSel.sel.from) target = `${symIconById(repairSel.sel.from)}${esc(symN(repairSel.sel.from))} → ${symIconById(repairSel.sel.to)}${esc(symN(repairSel.sel.to))}`;
+  else if (repairSel.sel.id) target = `${symIconById(repairSel.sel.id)}${esc(symN(repairSel.sel.id))}`;
   else if (repairSel.sel.tag) target = `#${esc(repairSel.sel.tag)}`;
   const warn = (!pv.ok) ? `<div class="pouch-warn">⚠️ ${esc(pv.error)}</div>` : "";
   const canBuy = pv.ok && pv.afford;
@@ -1607,7 +2085,7 @@ function renderDeviceNode() {
   const d = st.drop || st.options[0];
   app.innerHTML = `
     <div class="scr-title"><div class="step-tag">🔧 보스 보상</div><h1>장치 획득</h1><div class="sub">영구 보유 장치입니다. 지금 장착하거나, 코인을 받으세요.</div></div>
-    <div class="cards-col"><div class="bigcard"><div class="be">${d.e}</div><div class="bn">${esc(d.n)}</div><div class="bd">${esc(d.d)} · <span class="dim">${d.kind === "PASSIVE" ? "패시브" : "능동(" + (d.cmd || "") + ")"}</span></div></div></div>
+    <div class="cards-col"><div class="bigcard"><div class="be">${iconK("dev", d.id, d.e)}</div><div class="bn">${esc(d.n)}</div><div class="bd">${esc(d.d)} · <span class="dim">${d.kind === "PASSIVE" ? "패시브" : "능동(" + (d.cmd || "") + ")"}</span></div></div></div>
     <div class="shop-foot"><button class="bigbtn" data-act="devnode" data-arg="equip">장착하기</button><button class="bigbtn ghost" data-act="devnode" data-arg="coin">코인 +15 받기</button></div>`;
 }
 
@@ -1641,7 +2119,7 @@ function renderStageClear() {
   const cells = cs.lastCells || [];
   const clearReels = cells.length ? `
       <div class="rd-last-ttl">🎰 마지막 스핀 5칸${cs.bySpin ? " — 이렇게 성공!" : ""}</div>
-      <div class="rd-reels">${cells.map((c) => `<div class="rd-reel">${c.e}${c.tag ? `<span class="rt">${esc(c.tag)}</span>` : ""}</div>`).join("")}</div>
+      <div class="rd-reels">${cellsWithArt(cells).map((c) => `<div class="rd-reel">${symIcon({ id: c.id, e: c.e })}${c.tag ? `<span class="rt">${esc(c.tag)}</span>` : ""}</div>`).join("")}</div>
       <div class="rd-gained">🎁 이 스핀에서 <b>+${(cs.lastSpinExp || 0).toLocaleString()}</b> EXP 획득</div>
       <div class="rd-notes-ttl">${cs.bySpin ? "이렇게 EXP를 얻어 요구치를 채웠어요" : "직전 스핀 결과"}</div>
       <div class="rd-notes">${(cs.lastNotes && cs.lastNotes.length) ? cs.lastNotes.map((n) => `<span class="rd-note">${esc(n)}</span>`).join("") : `<span class="rd-note dim">기본 심볼 EXP만 · 특수 효과 없음</span>`}</div>` : "";
@@ -1664,20 +2142,29 @@ function renderStageClear() {
         ${clearReels}
       </div>
       <div class="clear-gain">획득 점수 <span class="gn" id="clear-gain">+0</span></div>
-      <div class="clear-total">누적 총점수 <b>${(cs.total || 0).toLocaleString()}</b></div>
-      <div class="clear-sub">🪙 코인 ${cs.coinsNow != null ? cs.coinsNow : "?"} (+${cs.coin}) · 남은 스핀 ${cs.leftSpins} · 다음 STAGE ${cs.nextStage}</div>
+      <div class="clear-total">누적 총점수 <b id="clear-total-n">${(cs.total || 0).toLocaleString()}</b></div>
+      <div class="clear-sub">🪙 코인 <span id="clear-coins-n">${cs.coinsNow != null ? cs.coinsNow : "?"}</span> (+${cs.coin}) · 남은 스핀 <span id="clear-left-n">${cs.leftSpins}</span> · 다음 STAGE ${cs.nextStage}</div>
       ${decayNote}
+      ${encoreBoxHtml()}
       <button class="clear-detail-tog" data-act="cleardetail">▼ 점수 상세</button>
       <div class="cb-calc clear-bd" id="clear-bd" style="display:none">${bd}</div>
     </div>
-    <div class="choose-foot"><button class="bigbtn pulse" data-act="proceed">다음 → 보상 선택 ▶</button></div>`;
+    <div class="choose-foot clear-foot" id="clear-foot">${clearFootHtml()}</div>`;
   stageClearFx(grade, cs.boss);
   countUp($("clear-gain"), cs.debt ? 0 : cs.gain);
 }
-function countUp(el, target, prefix = "+") {
-  if (!el) return; const dur = 800; const start = performance.now();
+// clearSummary/failInfo 의 마지막 칸은 {e, tag}(심볼 id 없음) — state().lastCells(실제 칸)와 이모지가 일치하면 id 를 보강해 그림으로 표시.
+function cellsWithArt(simple) {
+  const full = (st && st.lastCells) || [];
+  return simple.map((c, i) => { const f = full[i]; return { e: c.e, tag: c.tag, id: (f && f.sym && f.sym.e === c.e && f.sym.id) || "" }; });
+}
+// 숫자 카운트업(from → target, easeOutCubic). 애니메이션 줄이기(OS) 설정이면 즉시 최종값.
+function countUp(el, target, prefix = "+", from = 0, dur = 800) {
+  if (!el) return;
+  if (reducedMotion()) { el.textContent = prefix + Math.floor(target).toLocaleString(); return; }
+  const start = performance.now();
   const tick = (now) => { const t = Math.min(1, (now - start) / dur); const e = 1 - Math.pow(1 - t, 3);
-    el.textContent = prefix + Math.floor(target * e).toLocaleString(); if (t < 1) requestAnimationFrame(tick); };
+    el.textContent = prefix + Math.floor(from + (target - from) * e).toLocaleString(); if (t < 1 && el.isConnected) requestAnimationFrame(tick); else if (el.isConnected) el.textContent = prefix + Math.floor(target).toLocaleString(); };
   requestAnimationFrame(tick);
 }
 // 클리어 등급 — 초과 EXP(요구 대비 %)에 따라 연출/사운드 강도 결정. 딱맞춤=PERFECT, 보스는 +1단계.
@@ -1740,9 +2227,9 @@ function fireworkHtml(color, i) {
 // ── 튜토리얼 (첫 플레이: UI 가이드 → 직접 스핀·결과 해설 → 클리어/보상/증강/상점 안내 → 자유플레이) ──
 const TOUR = [
   { sel: ".hud", t: "📊 상태 정보", b: "스테이지·점수·코인과 EXP 바예요. <b>스핀(현재/최대) 안에 EXP 바를 요구치까지</b> 채우면 클리어! 동시에 <b>점수를 최대한 많이</b> 모으는 게 목표예요." },
-  { sel: "#reels", t: "🎰 슬롯 5칸", b: "한 줄 슬롯이에요. <b>칸을 탭하면</b> 그 심볼의 효과·영향을 볼 수 있어요. 같은 값심볼 2개↑면 세트 보너스!" },
+  { sel: "#reels", t: "🎰 슬롯 5칸", b: "한 줄 슬롯이에요. 같은 값심볼 2개↑면 세트 보너스! <b>칸을 길게 누르면</b> 그 심볼의 효과·영향을 볼 수 있고, 첫 스핀 뒤엔 <b>칸을 탭해 🔒홀드</b>(다음 스핀에 그대로 유지, 스테이지당 1회)할 수 있어요." },
   { sel: "#spinbtn", t: "🕹️ 슬롯 돌리기", b: "이 버튼으로 돌려 EXP를 모아요. <b>정해진 스핀(현재/최대) 안에</b> 요구치를 채우면 클리어! <b>빨리 클리어할수록(남은 스핀·초과 EXP) 점수가 더 올라가요.</b>" },
-  { sel: "#ab-extra", t: "✨ 특수 스핀", b: "집중(안정)·올인(2배도박)·기도(역전)·최후(막스핀↑) — <b>스테이지당 종류별 1회</b>씩 쓰는 모험 스핀! <b>한 판에서 종류별 첫 사용은 무료(코인 0이어도 OK)</b>, 두 번째부터 <b>코인 비용(🎯1·⏰2·🙏3·🎰4, 보스 +1)</b>이 들고 버튼에 가격이 표시돼요." },
+  { sel: "#ab-extra", t: "✨ 특수 스핀", b: "집중(안정+홀드 충전)·올인(2.5배 도박)·기도(역전)·최후(막스핀↑) — 모험 스핀! <b>한 판에서 종류별 첫 사용은 무료(코인 0이어도 OK)</b>, 이후엔 <b>코인 비용(🎯1·⏰2·🙏3·🎰4, 보스 +1)</b>이 들고 <b>같은 스테이지에서 또 쓸수록 비용이 올라가요</b>. 버튼에 지금 가격이 표시돼요." },
   { sel: "#abicons", t: "🎒 아이템·장치·상태", b: "아이템 사용 · 장치 발동 · <b>내 빌드(능력치)</b> 확인을 여기서 해요." },
   { sel: "#spinbtn", t: "🎮 직접 돌려보세요!", b: "이제 <b>[🎰 슬롯 돌리기]</b>를 눌러 첫 스핀! 어떤 효과가 났는지 바로 알려드릴게요.", action: true },
 ];
@@ -1796,7 +2283,7 @@ function tutExplainSpin() {
 }
 function tutToFree() {
   tut.live = true;   // 이제부터 게임 진행에 맞춰 자동 안내(클리어→증강→상점)
-  tutBanner("🎯 <b>정해진 스핀(현재/최대) 안에 EXP 바를 채워 클리어</b>! 스핀이 남아도 다 채우면 바로 클리어돼요.<br>🏆 <b>남은 스핀·초과 EXP·💎보석·👑왕관이 점수가 되니, 빨리·많이 모아 최대 점수에 도전!</b><br>💡 일반 말고 <b>특수 스핀(🎯집중·🎰올인·🙏기도·⏰최후)</b> 으로도 돌릴 수 있어요 — 아래 보라색 버튼! <b>코인 비용(🎯1·⏰2·🙏3·🎰4, 보스 +1)</b>이 들어요. 직접 채워보세요.", "tutBannerOk");
+  tutBanner("🎯 <b>정해진 스핀(현재/최대) 안에 EXP 바를 채워 클리어</b>! 스핀이 남아도 다 채우면 바로 클리어돼요.<br>🏆 <b>남은 스핀·초과 EXP·💎보석·👑왕관이 점수가 되니, 빨리·많이 모아 최대 점수에 도전!</b><br>💡 일반 말고 <b>특수 스핀(🎯집중·🎰올인·🙏기도·⏰최후)</b> 으로도 돌릴 수 있어요 — 아래 보라색 버튼! 종류별 첫 사용은 무료, 이후 <b>코인 비용(🎯1·⏰2·🙏3·🎰4, 보스 +1)</b>이 들어요. 직접 채워보세요.", "tutBannerOk");
 }
 function tutGoLive() { tut.live = true; tutClear(); }
 function tutLive() {
@@ -1815,6 +2302,9 @@ function tutLive() {
 
 // ── 도감 (사용·발견한 것만 상세, 미발견은 ??? + 조건) ──
 // [LOW-5] symAug/symRel = 심화 심볼 증강/유물 도감(36종) 탭 추가.
+// 도감 탭 → 그림 종류(없음 = 이모지): 세트·빌드는 그림이 없다.
+const DEX_ART_KIND = { char: "char", mac: "mac", dev: "dev", aug: "aug", rel: "rel", cur: "cur", item: "item", sym: "sym", deepSym: "sym", symAug: "symaug", symRel: "symrel", ach: "ach" };
+const dexIcon = (cat, x) => (DEX_ART_KIND[cat] ? iconK(DEX_ART_KIND[cat], x.id, x.e) : esc(x.e));
 const DEX_CATS = [["char", "🎭 캐릭터"], ["mac", "🎰 머신"], ["dev", "🔧 장치"], ["aug", "✨ 증강"], ["rel", "🛡️ 유물"], ["cur", "🌑 저주"], ["set", "🎲 세트"], ["item", "🎒 아이템"], ["sym", "🔣 심볼"], ["deepSym", "🎒 심화심볼"], ["symAug", "✨ 심볼증강"], ["symRel", "🛡️ 심볼유물"], ["bld", "🏗️ 빌드"], ["ach", "🏆 업적"]];
 function renderDex() {
   const d = g.dex(); const cat = dexTab; const list = d[cat] || []; const isAch = cat === "ach"; const isBld = cat === "bld";
@@ -1828,18 +2318,18 @@ function renderDex() {
     cards = D.THEME_BUILD_CATEGORIES.map((category) => {
       const items = list.filter((x) => x.cat === category);
       const cdone = items.filter((x) => x.done).length;
-      const inner = items.map((x) => `<div class="dex-card bld ${x.done ? "seen" : "todo"}" data-act="dexInfo" data-arg="bld|${x.id}"><div class="dx-ico">${x.e}</div><div class="dx-b"><div class="dx-n">${esc(x.n)} ${x.done ? '<span class="dx-done">✓ 완성</span>' : '<span class="dx-todo">미완성</span>'}</div><div class="dx-d">${esc(x.detail)}</div></div></div>`).join("");
+      const inner = items.map((x) => `<div class="dex-card bld ${x.done ? "seen" : "todo"}" data-act="dexInfo" data-arg="bld|${x.id}"><div class="dx-ico">${dexIcon("bld", x)}</div><div class="dx-b"><div class="dx-n">${esc(x.n)} ${x.done ? '<span class="dx-done">✓ 완성</span>' : '<span class="dx-todo">미완성</span>'}</div><div class="dx-d">${esc(x.detail)}</div></div></div>`).join("");
       return `<div class="dex-group-ttl">${esc(category)} <span class="dim">${cdone}/${items.length}</span></div>${inner}`;
     }).join("");
   } else {
     cards = list.map((x) => {
-      if (isAch) { const rw = [x.reward ? `🔧${esc(x.reward)}` : "", x.symReward ? `🔓${esc(x.symReward)}` : ""].filter(Boolean).join(" · "); const dtag = x.deep ? `<span class="dx-deep">심화</span> ` : ""; return `<div class="dex-card ach ${x.done ? "seen" : "todo"}" data-act="dexInfo" data-arg="ach|${x.id}"><div class="dx-ico">${x.e}</div><div class="dx-b"><div class="dx-n">${dtag}${esc(x.n)} ${x.done ? '<span class="dx-done">✓ 달성</span>' : '<span class="dx-todo">미달성</span>'}</div><div class="dx-d">${esc(x.detail)}${rw ? ` · 보상 ${rw}` : ""}</div></div></div>`; }
+      if (isAch) { const rw = [x.reward ? `🔧${esc(x.reward)}` : "", x.symReward ? `🔓${esc(x.symReward)}` : ""].filter(Boolean).join(" · "); const dtag = x.deep ? `<span class="dx-deep">심화</span> ` : ""; return `<div class="dex-card ach ${x.done ? "seen" : "todo"}" data-act="dexInfo" data-arg="ach|${x.id}"><div class="dx-ico">${dexIcon("ach", x)}</div><div class="dx-b"><div class="dx-n">${dtag}${esc(x.n)} ${x.done ? '<span class="dx-done">✓ 달성</span>' : '<span class="dx-todo">미달성</span>'}</div><div class="dx-d">${esc(x.detail)}${rw ? ` · 보상 ${rw}` : ""}</div></div></div>`; }
       // 심화심볼: 발견했어도 아직 미해금(locked)이면 자물쇠 표기(주머니 풀 미등장). 장치는 deep 뱃지.
       if (x.seen) {
         // §6.3 deepSym 탭: x.tier 없으면 symTierOf 파생(CURSE 포함 전 티어). 기타 탭은 기존 x.tier 그대로.
         const resolvedTier = x.tier || (cat === "deepSym" ? symTierOf(x.id) : "");
         const tier = resolvedTier ? ` <span class="tier t-${resolvedTier}" style="font-size:9px">${resolvedTier}</span>` : "";
-        const ms = (cat === "char" || cat === "mac" || cat === "dev") ? " " + masteryStars(cat, x.id) : ""; const lockTag = (cat === "deepSym" && x.locked) ? ` <span class="dx-lock">🔒 미해금</span>` : ""; const deepTag = (cat === "dev" && x.deep) ? ` <span class="dx-deep">심화</span>` : ""; return `<div class="dex-card seen" data-act="dexInfo" data-arg="${cat}|${x.id}"><div class="dx-ico">${x.e}</div><div class="dx-b"><div class="dx-n">${esc(x.n)}${tier}${deepTag}${lockTag}${ms} <span class="dx-more">›</span></div><div class="dx-d">${esc(x.detail)}</div></div></div>`; }
+        const ms = (cat === "char" || cat === "mac" || cat === "dev") ? " " + masteryStars(cat, x.id) : ""; const lockTag = (cat === "deepSym" && x.locked) ? ` <span class="dx-lock">🔒 미해금</span>` : ""; const deepTag = (cat === "dev" && x.deep) ? ` <span class="dx-deep">심화</span>` : ""; return `<div class="dex-card seen" data-act="dexInfo" data-arg="${cat}|${x.id}"><div class="dx-ico">${dexIcon(cat, x)}</div><div class="dx-b"><div class="dx-n">${esc(x.n)}${tier}${deepTag}${lockTag}${ms} <span class="dx-more">›</span></div><div class="dx-d">${esc(x.detail)}</div></div></div>`; }
       return `<div class="dex-card masked"><div class="dx-ico">❔</div><div class="dx-b"><div class="dx-n">???</div><div class="dx-d cond">🔒 ${esc(x.cond || "아직 발견하지 못함")}</div></div></div>`;
     }).join("");
   }
@@ -1888,8 +2378,9 @@ function openDexInfo(cat, id) {
   }
   if (!e) return;
   const tierChip = tier ? ` <span class="tier t-${tier}" style="font-size:calc(10px * var(--sc))">${tier}</span>` : "";
+  const dik = DEX_ART_KIND[cat] ? iconK(DEX_ART_KIND[cat], id, e, "h3-ico") : esc(e);
   openSheet(`<button class="sheet-close" data-act="closeSheet">◀ 닫기</button>
-    <h3 style="font-size:calc(20px * var(--sc))">${e} ${esc(n)}${tierChip}</h3>
+    <h3 style="font-size:calc(20px * var(--sc))">${dik} ${esc(n)}${tierChip}</h3>
     <div class="cb-calc" style="margin-top:8px">${rows || '<div class="cb-row"><span>정보</span><b>—</b></div>'}</div>`);
 }
 
@@ -1901,12 +2392,12 @@ function renderRewardDone() {
   const dev = st.device ? (D.DEV_BY_ID[st.device] && D.DEV_BY_ID[st.device].e) : "";
   // 보유 효과 = 클릭 가능한 칩(누르면 아래에 이름·등급·효과 정보 표시). 순서: 증강/유물 → 저주 → 장치
   const buildIds = [...st.perks, ...st.curses, ...(st.device ? [st.device] : [])];
-  const chipEls = buildIds.map((id) => { const p = D.PERK_BY_ID[id] || D.DEV_BY_ID[id]; return p ? `<span class="bchip" data-act="buildInfo" data-arg="${id}">${p.e}</span>` : ""; }).join("");
+  const chipEls = buildIds.map((id) => { const p = D.PERK_BY_ID[id] || D.DEV_BY_ID[id]; return p ? `<span class="bchip" data-act="buildInfo" data-arg="${id}">${iconP(id, p.e)}</span>` : ""; }).join("");
   // 🌑 저주 효과 명시 — 보유 저주의 이름+효과(단점/장점)를 카드로 펼쳐 "무슨 저주인지 모름" 해소
   const curseBlock = st.curses.length ? `
       <div class="rd-curses">
         <div class="rd-curses-ttl">🌑 보유 저주 효과 (${st.curses.length})</div>
-        <div class="ilist">${st.curses.map((id) => { const c = D.CUR_BY_ID[id]; return c ? `<div class="icard"><div class="ie">${c.e}</div><div class="ib"><div class="iname">${esc(c.n)}</div><div class="idesc">${esc(c.d)}</div></div></div>` : ""; }).join("")}</div>
+        <div class="ilist">${st.curses.map((id) => { const c = D.CUR_BY_ID[id]; return c ? `<div class="icard"><div class="ie">${iconK("cur", id, c.e)}</div><div class="ib"><div class="iname">${esc(c.n)}</div><div class="idesc">${esc(c.d)}</div></div></div>` : ""; }).join("")}</div>
       </div>` : "";
   const sv = st.statsView || {};
   const statRows = (sv.rows || []).map((r) => `<div class="cb-row"><span>${esc(r.k)}</span><b class="${r.up ? "up" : "down"}">${esc(r.v)}</b></div>`).join("");
@@ -1946,7 +2437,7 @@ function showBuildInfo(id, el) {
   const tier = p.t ? ` <span class="tier t-${p.t}" style="position:static;font-size:calc(9px * var(--sc))">${p.t}</span>` : "";
   const lvl = (st && st.perkLevels && st.perkLevels[id]) || 1;
   const lvlBadge = lvl > 1 ? ` <span class="lv-badge">Lv.${lvl}</span>` : "";
-  box.innerHTML = `<div class="icard"><div class="ie">${p.e}</div><div class="ib"><div class="iname">${esc(p.n)} <span class="dim" style="font-size:10px">· ${kind}</span>${tier}${lvlBadge}</div><div class="idesc">${esc(st && st.deepMode && p.dDesc ? p.dDesc : p.d)}</div></div></div>`;
+  box.innerHTML = `<div class="icard"><div class="ie">${iconP(id, p.e)}</div><div class="ib"><div class="iname">${esc(p.n)} <span class="dim" style="font-size:10px">· ${kind}</span>${tier}${lvlBadge}</div><div class="idesc">${esc(st && st.deepMode && p.dDesc ? p.dDesc : p.d)}</div></div></div>`;
   box.classList.add("show");
 }
 
@@ -2091,15 +2582,15 @@ async function submitRank() {
 function renderEnd() {
   snd.bgmStop(); snd.sfx("gameover");
   const ch = D.CHAR_BY_ID[st.charId], mc = D.MAC_BY_ID[st.machineId];
-  const build = [...st.perks.map((id) => D.PERK_BY_ID[id]?.e).filter(Boolean), ...st.curses.map((id) => D.CUR_BY_ID[id]?.e)].slice(0, 18);
-  const ach = (st.newAch || []).map((a) => `<span class="a">${a.e} ${esc(a.n)}</span>`).join("");
+  const build = [...st.perks.map((id) => D.PERK_BY_ID[id] && iconP(id, D.PERK_BY_ID[id].e)), ...st.curses.map((id) => D.CUR_BY_ID[id] && iconK("cur", id, D.CUR_BY_ID[id].e))].filter(Boolean).slice(0, 18);
+  const ach = (st.newAch || []).map((a) => `<span class="a">${iconK("ach", a.id, a.e)} ${esc(a.n)}</span>`).join("");
   const fi = st.failInfo;
   const fpct = fi && fi.quota ? Math.min(100, Math.round(fi.exp / fi.quota * 100)) : 0;
   const spinPct = fi && fi.spins ? Math.min(100, Math.round(fi.usedSpins / fi.spins * 100)) : 0;
   const lastCells = (fi && fi.lastCells) || [];
   const lastReels = lastCells.length ? `
       <div class="rd-last-ttl">🎰 마지막 스핀 5칸</div>
-      <div class="rd-reels">${lastCells.map((c) => `<div class="rd-reel">${c.e}${c.tag ? `<span class="rt">${esc(c.tag)}</span>` : ""}</div>`).join("")}</div>
+      <div class="rd-reels">${cellsWithArt(lastCells).map((c) => `<div class="rd-reel">${symIcon({ id: c.id, e: c.e })}${c.tag ? `<span class="rt">${esc(c.tag)}</span>` : ""}</div>`).join("")}</div>
       <div class="rd-gained">🎁 이 스핀에서 <b>+${(fi.lastGained || 0).toLocaleString()}</b> EXP 획득</div>
       <div class="rd-notes-ttl">이렇게 EXP를 얻었어요</div>
       <div class="rd-notes">${(fi.lastNotes && fi.lastNotes.length) ? fi.lastNotes.map((n) => `<span class="rd-note">${esc(n)}</span>`).join("") : `<span class="rd-note dim">기본 심볼 EXP만 · 특수 효과 없음</span>`}</div>` : "";
@@ -2128,7 +2619,7 @@ function renderEnd() {
       <div class="title">${esc(titleOf(st.finalScore))}</div>
       <div class="dim" style="font-size:13px;margin-top:6px">최종 점수</div>
       <div class="fs">${(st.finalScore ?? 0).toLocaleString()}</div>
-      <div class="meta">스테이지 ${st.stage} 도달 · ${ch?.e}${esc(ch?.n || "")} + ${mc?.e}${esc(mc?.n || "")}${st.device ? " + " + D.DEV_BY_ID[st.device].e : ""}</div>
+      <div class="meta inl-ic">스테이지 ${st.stage} 도달 · ${ch ? iconK("char", ch.id, ch.e) : ""}${esc(ch?.n || "")} + ${mc ? iconK("mac", mc.id, mc.e) : ""}${esc(mc?.n || "")}${st.device ? " + " + iconK("dev", st.device, D.DEV_BY_ID[st.device].e) : ""}</div>
       ${st.asc > 0 ? `<div class="asc-result">🎓 심화 학기 <b>${st.asc}</b> · 점수 보정 <b>×${(st.ascScoreMul || 1).toFixed(2)}</b></div>` : ""}
       ${st.deepMode ? `<div class="deep-result">🎒 심볼 덱(심화모드) 런 · <span class="dim">일반 랭킹과 별도 집계</span></div>` : ""}
       ${build.length ? `<div class="build">${build.map((e) => `<span class="b">${e}</span>`).join("")}</div>` : ""}
@@ -2142,6 +2633,7 @@ function renderEnd() {
       <div style="display:flex;gap:8px"><button class="bigbtn ghost" data-act="dex" style="flex:1">📚 도감</button><button class="bigbtn ghost" data-act="home" style="flex:1">🏠 홈으로</button></div>
     </div>`;
   setupEndRank();
+  maybeShowLevelUp();   // F9: 플레이어 레벨업이면 중앙 모달(토스트 대체)
 }
 // 게임 종료 시 랭킹 등록 위젯 — 닉 있으면 자동 등록·표시, 없으면 닉 입력해 바로 등록
 async function setupEndRank() {

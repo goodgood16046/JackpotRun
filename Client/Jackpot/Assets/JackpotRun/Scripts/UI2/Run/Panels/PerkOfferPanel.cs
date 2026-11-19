@@ -257,7 +257,8 @@ namespace JackpotRun.UI2
                 card.name = "PerkCard_" + perk.id;
 
                 var icon = card.Find("Content/Art/Icon")?.GetComponent<Image>();
-                var sprite = JackpotCatalog.LoadSprite(JackpotCatalog.Get(CatalogIdOf(perk.cat, perk.id)));
+                // 심볼퍽(sa_/sp_/sr_)은 카탈로그에 "symaug_"/"symrel_" 접두로 들어 있다(FUN_OVERHAUL_DESIGN §3).
+                var sprite = JackpotCatalog.LoadSprite(JackpotCatalog.Get(JackpotCatalog.SymPerkCatalogId(perk.id) ?? CatalogIdOf(perk.cat, perk.id)));
                 if (icon != null) { icon.sprite = sprite; icon.enabled = sprite != null; }
                 var iconEmoji = card.Find("Content/Art/IconEmoji")?.GetComponent<Text>();
                 if (iconEmoji != null) { iconEmoji.text = perk.emoji; iconEmoji.gameObject.SetActive(sprite == null); }
@@ -391,8 +392,8 @@ namespace JackpotRun.UI2
 
         // Opus 2차검수(P7-4b) [치명] — Perks.ById(순정 증강/유물)가 모르는 심볼퍽(sa_/sp_/sr_ 접두)을
         // PouchOffer.WrapSymPerk(internal로 승격)로 카드 표시 가능한 Perk 형태로 합성한다. 스프라이트는
-        // 없어도 안전(JackpotCatalog.CatalogIdOf가 "aug_sa_..."/"rel_sr_..."로 조회하지만 실제 저장
-        // 키는 "symaug_"/"symrel_"라 미스 → sprite=null → emoji 폴백으로 자연 강등, 크래시 없음).
+        // 없어도 안전(FUN_OVERHAUL_DESIGN §3 이후: JackpotCatalog.SymPerkCatalogId 가 "symaug_"/"symrel_"
+        // 접두 id 를 돌려줘 신규 아트를 쓰고, PNG 가 없으면 sprite=null → emoji 폴백, 크래시 없음).
         private static Perk ResolvePerk(string id, PCat fallbackCat)
         {
             var p = Perks.ById(id);

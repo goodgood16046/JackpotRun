@@ -2,7 +2,7 @@
 // SlotV2Engine.kt 의 buildMods/evaluate/weighted/quota/보스/점수 공식을 충실 포팅.
 // 상태 없음(순수 함수). 런 상태머신은 game.js. 표시는 ui.js.
 import {
-  C, QUOTAS, SET_EXP, SET_SCORE, SYMS, SYM_BY_ID, EMPTY_SYM, VALUE_IDS, BOSSES,
+  C, QUOTAS, QUOTAS_DEEP, SET_EXP, SET_SCORE, SYMS, SYM_BY_ID, EMPTY_SYM, VALUE_IDS, BOSSES,
   CHARS, MACHINES, AUGMENTS, RELICS, CURSES, SETS, ITEMS, DEVICES, SCORE_TITLES,
   MAC_BY_ID, CHAR_BY_ID, REL_BY_ID, AUG_BY_ID, PERK_BY_ID, PERK_FAMILY,
   THEME_BUILDS, THEME_BUILD_CATEGORIES,
@@ -53,12 +53,17 @@ export function makeRng(seed) {
 }
 
 // ── 밸런스 헬퍼 ───────────────────────────────────────────────────────
-export function quota(stage) {
+// 배율 곱 후 내림 — 부동소수 오차(100×1.15=114.99999999999999) 보정용 ε. 재미 개편(R1/R4/R5/R6)의 새 배율에 사용.
+export const mulFloor = (v, m) => Math.floor(v * m + 1e-9);
+//  deep=true(심화 모드)는 개편 전 표(QUOTAS_DEEP, S16+ ×1.2). 일반 모드는 R2 개편 표(QUOTAS, S16+ ×1.25).
+export function quota(stage, deep = false) {
+  const tbl = deep ? QUOTAS_DEEP : QUOTAS;
+  const growth = deep ? C.QUOTA_GROWTH_DEEP : C.QUOTA_GROWTH;
   const i = stage - 1;
-  if (i < 0) return QUOTAS[0];
-  if (i < QUOTAS.length) return QUOTAS[i];
-  let q = QUOTAS[QUOTAS.length - 1];
-  for (let k = 0; k < i - QUOTAS.length + 1; k++) q *= 1.2;
+  if (i < 0) return tbl[0];
+  if (i < tbl.length) return tbl[i];
+  let q = tbl[tbl.length - 1];
+  for (let k = 0; k < i - tbl.length + 1; k++) q *= growth;
   return Math.floor(q);
 }
 export const isBossStage = (stage) => stage % 5 === 0;
@@ -504,7 +509,7 @@ export function applyPassiveDevice(base, deviceId) {
     case "dev_flame": m.expMul *= 1.15; break;
     case "dev_seal": m.expMul *= 1.05; m.symbolWeightMul.skull = (m.symbolWeightMul.skull ?? 1) * 0.0; break;
     case "dev_overheat": m.expMul *= 1.18; m.weightAdd = { ...m.weightAdd, skull: (m.weightAdd.skull ?? 0) + 1.0 }; break;
-    case "dev_subreel": m.expMul *= 0.7; break;
+    case "dev_subreel": m.expMul *= C.SUBREEL_EXP_MUL; break;
     case "dev_reaper": m.skullExp += 10; break;                      // 후반: 해골이 EXP +10
     case "dev_abyss": m.expMul *= 1.35; m.scoreMul *= 0.9; break;    // 후반: EXP+35%·점수-10%
     case "dev_reactor": m.expMul *= 1.4; m.quotaMul *= 1.15; break;  // 후반: EXP+40%·요구+15%
@@ -1094,8 +1099,9 @@ export function applyBossExp(exp, boss, spinIndex, spins, result) {
       return { exp, note: "" };
     }
     case "strict":
-      if (result.bestSetCount < 3) return { exp: Math.floor(exp * 0.5), note: "👨‍🏫 3매치 없음 ×0.5" };
-      return { exp, note: "" };
+      // R1: 같은 심볼 3개↑ 있으면 ×1.15(보상), 없으면 ×0.75(기존 ×0.5 완화).
+      if (result.bestSetCount >= 3) return { exp: mulFloor(exp, 1.15), note: "👨‍🏫 3매치 ×1.15" };
+      return { exp: mulFloor(exp, 0.75), note: "👨‍🏫 3매치 없음 ×0.75" };
     case "luck": {
       const has = result.cells.some((c) => c.sym.id === "star" || c.sym.id === "crown" || c.sym.special === "WILD");
       return has ? { exp: Math.floor(exp * 1.8), note: "🎲 ⭐👑🌀 ×1.8" } : { exp: Math.floor(exp * 0.8), note: "🎲 없음 ×0.8" };
@@ -1107,7 +1113,9 @@ export function applyBossExp(exp, boss, spinIndex, spins, result) {
 // ── 특수 스핀명령 코인 비용 / 효과 설명 (SlotV2Engine.kt:2361-2384) ────
 //  mode: FOCUS=1·LAST=2·PRAY=3·ALLIN=4 (그 외/N=0). boss=true 면 +1, 상한 5.
 //  비용 0(=일반 스핀)은 0 그대로 유지.
-export function cmdCoinCost(mode, boss) {
+//  R6 누진: n = 같은 스테이지에서 그 종류를 쓰는 횟수(1=첫 사용). 비용 = (기본+보스가산, 상한 5) × (1 + CMD_COST_STEP×(n-1)).
+//   보스 +1·상한 5는 기본 비용에만 적용한 뒤 배수를 곱한다(상한 5 초과 가능).
+export function cmdCoinCost(mode, boss, n = 1) {
   let base;
   switch (mode) {
     case "FOCUS": base = C.CMD_COST_FOCUS; break;
@@ -1118,13 +1126,15 @@ export function cmdCoinCost(mode, boss) {
   }
   if (base === 0) return 0;
   const withBoss = base + (boss ? C.CMD_COST_BOSS_SURCHARGE : 0);
-  return Math.min(withBoss, C.CMD_COST_MAX);
+  const capped = Math.min(withBoss, C.CMD_COST_MAX);
+  const k = Math.max(1, Math.floor(n || 1));
+  return Math.round(capped * (1 + C.CMD_COST_STEP * (k - 1)));
 }
 // 특수 스핀명령 효과 설명 한 줄. FOCUS/ALLIN/PRAY/LAST 외에는 빈 문자열.
 export function cmdEffectDesc(mode) {
   switch (mode) {
-    case "FOCUS": return "결과가 나쁘면 최소 EXP 보장 (대박 확률↓)";
-    case "ALLIN": return "EXP ×2 (☠ 2개 이상이면 0)";
+    case "FOCUS": return "최소 EXP 보장(페이스 80%) + 홀드 +1";
+    case "ALLIN": return `EXP ×${fmtMul(C.ALLIN_MUL)} (☠ ${C.ALLIN_FAIL_SKULLS}개라도 나오면 0)`;
     case "PRAY":  return "불운 보정 + 낮은 확률로 기적 (×3)";
     case "LAST":  return "막판 스핀 EXP ×1.75";
     default:      return "";
@@ -1132,13 +1142,13 @@ export function cmdEffectDesc(mode) {
 }
 
 // ── 특수 스핀(집중/올인/기도/최후) 을 EXP 에 적용 ─────────────────────
-//  주: FOCUS 는 rareWeightMul ×0.5 를 굴림 전에 적용(컨트롤러). 여기선 사후 EXP 보정.
+//  주: R6 — FOCUS 의 rareWeightMul ×0.5 패널티는 삭제(굴림 전 보정 없음). 여기선 사후 EXP 하한 보정만. 홀드 +1 은 컨트롤러.
 export function applySpecialSpin(mode, exp, ctx) {
   const { quotaVal, spins, skulls, rng } = ctx;
   const per = quotaVal / spins;
   switch (mode) {
-    case "FOCUS": return { exp: Math.max(exp, Math.floor(per * 0.6)), note: "🎯 집중(하한 보장)" };
-    case "ALLIN": return skulls < 2 ? { exp: exp * 2, note: "🎰 올인 성공 ×2" } : { exp: 0, note: "🎰 올인 실패 (해골 2개↑)" };
+    case "FOCUS": return { exp: Math.max(exp, mulFloor(per, C.FOCUS_FLOOR)), note: "🎯 집중(하한 보장)" };
+    case "ALLIN": return skulls < C.ALLIN_FAIL_SKULLS ? { exp: exp * C.ALLIN_MUL, note: `🎰 올인 성공 ×${fmtMul(C.ALLIN_MUL)}` } : { exp: 0, note: `🎰 올인 실패 (해골 ${C.ALLIN_FAIL_SKULLS}개↑)` };
     case "PRAY": {
       if (rng.double() < 0.08) return { exp: exp * 3, note: "🙏 기적! ×3" };
       if (exp < per) return { exp: exp + 25, note: "🙏 기도 +25" };

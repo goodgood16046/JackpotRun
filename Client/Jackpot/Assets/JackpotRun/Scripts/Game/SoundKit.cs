@@ -37,6 +37,10 @@ namespace JackpotRun.Game
     //     (System.Random)를 쓴다 — 기동 시 1회만 합성해 캐시하는 구조상 결정론이 오히려 유리(같은
     //     기기에서 재현 가능한 동일 질감, 매 재생마다 새로 만들지 않음). 청감상 화이트노이즈 텍스처는
     //     동일한 통계적 성질을 가지므로 체감 차이 없음.
+    // 재미 개편(FUN_OVERHAUL_DESIGN F1·F3·F4·F5·F6, 웹 sound.js e6bde8d/1568024) — 효과음 12종 + 피버 모드:
+    // hold/bigwin1~3/fever/clutch/lastspin/encoreup1~6/bust 를 같은 방식으로 미리 합성하고, SetFever(true)면 BGM 템포(230→170ms)·
+    // 피치(×1.12)와 효과음 피치(×1.05)가 올라간다(웹 pitchMul 대응 — 합성 클립을 다시 만들지 않고 AudioSource.pitch 로 구현).
+    // BGM 은 효과음 풀과 분리된 전용 AudioSource 2개(음표/베이스)를 써서 피치가 효과음에 번지지 않는다.
     // AudioListener — Editor/UiSceneBuilder.cs의 UICamera 생성부(typeof(Camera)만)는 AudioListener를
     // 붙이지 않는다(전수 확인). 씬에 리스너가 하나도 없으면 AudioSource.Play가 완전히 무음이 되므로
     // (콘솔 경고만 뜨고 아무 것도 들리지 않음), 씬 리빌드에 기대지 않고 이 DontDestroyOnLoad 오브젝트
@@ -66,6 +70,13 @@ namespace JackpotRun.Game
 
         private const int PoolSize = 8; // 작업 지시 "AudioSource 풀(동시 재생)" — 라운드로빈.
 
+        // F5 피버 모드 — 웹 sound.js feverMode/pitchMul/tick 대응.
+        private const float FeverBgmPitch = 1.12f;       // 웹 `pitchMul = feverMode ? 1.12 : 1`(BGM)
+        private const float FeverSfxPitch = 1.05f;       // 웹 sfxPitch() — 효과음 피치 소폭 업
+        private const float FeverBgmTickSeconds = 0.17f; // 웹 `setTimeout(tick, feverMode ? 170 : 230)`
+        private const float BgmDecoDur = 0.12f;          // 웹 피버 중 8분 장식음 tone(PENTA[..],0.12,"square",0.025)
+        private const float BgmDecoVol = 0.025f;
+
         private bool _enabled = true;
         private float _volume = DefaultVolume;
         private bool _bgmOn;
@@ -74,14 +85,19 @@ namespace JackpotRun.Game
 
         private AudioSource[] _pool;
         private int _poolCursor;
+        private AudioSource _bgmNoteSource;
+        private AudioSource _bgmBassSource;
+        private bool _fever;
 
         private Dictionary<string, AudioClip> _sfxClips;
         private AudioClip[] _bgmNoteClips;
         private AudioClip[] _bgmBassClips;
+        private AudioClip[] _bgmDecoClips;
 
         public static bool Enabled => Instance != null && Instance._enabled;
         public static float Volume => Instance != null ? Instance._volume : DefaultVolume;
         public static bool BgmActive => Instance != null && Instance._bgmOn;
+        public static bool FeverMode => Instance != null && Instance._fever;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Bootstrap()
@@ -122,6 +138,18 @@ namespace JackpotRun.Game
                 src.spatialBlend = 0f; // 2D — UI 사운드는 방향/거리 무관.
                 _pool[i] = src;
             }
+            // BGM 전용 소스 — 피버 중 피치를 올려도 효과음 풀에 번지지 않게 분리한다.
+            _bgmNoteSource = NewBgmSource();
+            _bgmBassSource = NewBgmSource();
+        }
+
+        private AudioSource NewBgmSource()
+        {
+            var src = gameObject.AddComponent<AudioSource>();
+            src.playOnAwake = false;
+            src.loop = false;
+            src.spatialBlend = 0f;
+            return src;
         }
 
         // ── 공개 API(호출부는 정적으로 쓴다 — Instance 생존은 Bootstrap이 보장) ────────────────
@@ -158,6 +186,26 @@ namespace JackpotRun.Game
         /// 값을 디스크에 실제로 쓴다(항목3, 매 프레임 Save 금지).</summary>
         public static void SaveVolume() => PlayerPrefs.Save();
 
+        /// <summary>F5 피버 모드 on/off(웹 snd.setFever) — 켜면 BGM 템포·피치와 효과음 피치가 올라간다. RunView 가 일반 모드 피버
+        /// 상태(FeverView.spins&gt;0)를 매 갱신마다 넘긴다. BGM 을 멈추면 웹처럼 꺼진다(BgmStop).</summary>
+        public static void SetFever(bool on)
+        {
+            var self = Instance;
+            if (self == null) return;
+            self._fever = on;
+            self.ApplyFeverPitch();
+        }
+
+        private void ApplyFeverPitch()
+        {
+            float sfxPitch = _fever ? FeverSfxPitch : 1f;
+            if (_pool != null)
+                for (int i = 0; i < _pool.Length; i++) if (_pool[i] != null) _pool[i].pitch = sfxPitch;
+            float bgmPitch = _fever ? FeverBgmPitch : 1f;
+            if (_bgmNoteSource != null) _bgmNoteSource.pitch = bgmPitch;
+            if (_bgmBassSource != null) _bgmBassSource.pitch = bgmPitch;
+        }
+
         // 웹 sound.js:15 `resume()` — 모바일/인앱브라우저의 Web Audio 자동재생 정책 우회(사용자
         // 제스처 안에서 AudioContext를 재개)용이다. Unity AudioSource는 이런 브라우저 전용 제약이
         // 없어(권한 프롬프트 등이 없다면) 대응 개념이 존재하지 않는다 — 호출부에서 의도적으로
@@ -185,6 +233,8 @@ namespace JackpotRun.Game
             if (self == null) return;
             self._bgmOn = false;
             if (self._bgmRoutine != null) { self.StopCoroutine(self._bgmRoutine); self._bgmRoutine = null; }
+            self._fever = false; // 웹 bgmStop(): feverMode=false
+            self.ApplyFeverPitch();
         }
 
         // 웹 bgmStart() tick() 재귀 setTimeout(230ms)을 코루틴 루프로 재현 — WaitForSecondsRealtime을
@@ -195,17 +245,27 @@ namespace JackpotRun.Game
             while (_bgmOn && _enabled)
             {
                 int noteIdx = (_bgmStep * 3) % Penta.Length;
-                if (_bgmNoteClips != null && noteIdx < _bgmNoteClips.Length) PlayOnPool(_bgmNoteClips[noteIdx]);
+                if (_bgmNoteClips != null && noteIdx < _bgmNoteClips.Length) PlayBgm(_bgmNoteSource, _bgmNoteClips[noteIdx]);
                 if (_bgmStep % 4 == 0 && _bgmBassClips != null && _bgmBassClips.Length > 0)
                 {
                     int bassIdx = (_bgmStep / 4) % _bgmBassClips.Length;
-                    PlayOnPool(_bgmBassClips[bassIdx]);
+                    PlayBgm(_bgmBassSource, _bgmBassClips[bassIdx]);
                 }
+                // F5: 피버 중 가벼운 8분 장식음(웹 `if (feverMode && bgmStep % 2 === 1) tone(PENTA[(bgmStep*2+1)%5], .12, "square", .025)`).
+                if (_fever && _bgmStep % 2 == 1 && _bgmDecoClips != null && _bgmDecoClips.Length > 0)
+                    PlayBgm(_bgmNoteSource, _bgmDecoClips[(_bgmStep * 2 + 1) % _bgmDecoClips.Length]);
                 _bgmStep++;
-                yield return new WaitForSecondsRealtime(BgmTickSeconds);
+                yield return new WaitForSecondsRealtime(_fever ? FeverBgmTickSeconds : BgmTickSeconds);
             }
             _bgmOn = false;
             _bgmRoutine = null;
+        }
+
+        private void PlayBgm(AudioSource src, AudioClip clip)
+        {
+            if (clip == null) return;
+            if (src == null) { PlayOnPool(clip); return; } // 방어 — 전용 소스가 없으면 풀로 폴백
+            src.PlayOneShot(clip, _volume);
         }
 
         private void PlayOnPool(AudioClip clip)
@@ -331,6 +391,88 @@ namespace JackpotRun.Game
                 for (int i = 0; i < freqs.Length; i++) b.Tone(freqs[i], 0.3f, Wave.Triangle, 0.14f, i * 0.16f);
             });
 
+            // ── 재미 개편(웹 sound.js sfxInner 신규 case) ──────────────────────────────────────────
+            // case "hold": tone(420,.05,"square",.1); tone(300,.07,"square",.09,.045);  — 자물쇠 철컥
+            _sfxClips["hold"] = Bake(b =>
+            {
+                b.Tone(420f, 0.05f, Wave.Square, 0.1f);
+                b.Tone(300f, 0.07f, Wave.Square, 0.09f, 0.045f);
+            });
+
+            // case "bigwin1"(NICE): [659,784,988].forEach((f,i)=>tone(f,.16,"triangle",.15,i*.07));
+            _sfxClips["bigwin1"] = Bake(b =>
+            {
+                float[] freqs = { 659f, 784f, 988f };
+                for (int i = 0; i < freqs.Length; i++) b.Tone(freqs[i], 0.16f, Wave.Triangle, 0.15f, i * 0.07f);
+            });
+
+            // case "bigwin2"(BIG): [523,659,784,1046,1318].forEach((f,i)=>tone(f,.22,"triangle",.17,i*.07)); noise(.3,.06,.2,3000);
+            _sfxClips["bigwin2"] = Bake(b =>
+            {
+                float[] freqs = { 523f, 659f, 784f, 1046f, 1318f };
+                for (int i = 0; i < freqs.Length; i++) b.Tone(freqs[i], 0.22f, Wave.Triangle, 0.17f, i * 0.07f);
+                b.Noise(0.3f, 0.06f, 0.2f, 3000f);
+            });
+
+            // case "bigwin3"(MEGA): [523,659,784,1046,1318,1568,2093].forEach((f,i)=>tone(f,.3,"triangle",.19,i*.065));
+            //   tone(130.8,.8,"sawtooth",.09,0); tone(2093,.6,"sine",.13,.45); noise(.7,.09,.3,3600);
+            _sfxClips["bigwin3"] = Bake(b =>
+            {
+                float[] freqs = { 523f, 659f, 784f, 1046f, 1318f, 1568f, 2093f };
+                for (int i = 0; i < freqs.Length; i++) b.Tone(freqs[i], 0.3f, Wave.Triangle, 0.19f, i * 0.065f);
+                b.Tone(130.8f, 0.8f, Wave.Sawtooth, 0.09f, 0f);
+                b.Tone(2093f, 0.6f, Wave.Sine, 0.13f, 0.45f);
+                b.Noise(0.7f, 0.09f, 0.3f, 3600f);
+            });
+
+            // case "fever": tone(196,.5,"sawtooth",.1,0,392); [392,523,659,784,1046].forEach((f,i)=>tone(f,.2,"square",.1,.12+i*.07));
+            //   noise(.5,.1,.1,1800);  — F5 피버 점화
+            _sfxClips["fever"] = Bake(b =>
+            {
+                b.Tone(196f, 0.5f, Wave.Sawtooth, 0.1f, 0f, 392f);
+                float[] freqs = { 392f, 523f, 659f, 784f, 1046f };
+                for (int i = 0; i < freqs.Length; i++) b.Tone(freqs[i], 0.2f, Wave.Square, 0.1f, 0.12f + i * 0.07f);
+                b.Noise(0.5f, 0.1f, 0.1f, 1800f);
+            });
+
+            // case "clutch": tone(784,.1,"triangle",.17); tone(1046,.1,"triangle",.17,.08); tone(1568,.3,"triangle",.18,.16); tone(98,.3,"sawtooth",.09,0);
+            _sfxClips["clutch"] = Bake(b =>
+            {
+                b.Tone(784f, 0.1f, Wave.Triangle, 0.17f);
+                b.Tone(1046f, 0.1f, Wave.Triangle, 0.17f, 0.08f);
+                b.Tone(1568f, 0.3f, Wave.Triangle, 0.18f, 0.16f);
+                b.Tone(98f, 0.3f, Wave.Sawtooth, 0.09f, 0f);
+            });
+
+            // case "lastspin": tone(98,.14,"sine",.16); tone(98,.14,"sine",.16,.2); noise(.18,.04,0,300);  — 심장박동
+            _sfxClips["lastspin"] = Bake(b =>
+            {
+                b.Tone(98f, 0.14f, Wave.Sine, 0.16f);
+                b.Tone(98f, 0.14f, Wave.Sine, 0.16f, 0.2f);
+                b.Noise(0.18f, 0.04f, 0f, 300f);
+            });
+
+            // case "encoreup"(k=1..6): base = 523.25*1.0595^(k*2); [0,4,7,12].forEach((st,i)=>tone(base*1.0595^st,.18,"triangle",.16,i*.07));
+            //   — 앵콜 성공, k 가 클수록 높아진다. 인자를 못 받는 구조라 "encoreup1".."encoreup6" 로 6벌을 미리 합성한다.
+            for (int k = 1; k <= 6; k++)
+            {
+                float baseFreq = 523.25f * Mathf.Pow(1.0595f, k * 2);
+                int[] semis = { 0, 4, 7, 12 };
+                _sfxClips["encoreup" + k] = Bake(b =>
+                {
+                    for (int i = 0; i < semis.Length; i++)
+                        b.Tone(baseFreq * Mathf.Pow(1.0595f, semis[i]), 0.18f, Wave.Triangle, 0.16f, i * 0.07f);
+                });
+            }
+
+            // case "bust": noise(.45,.18,0,400); tone(196,.4,"sawtooth",.13,0,55); tone(65,.5,"square",.1,.12,40);  — 앵콜 BUST
+            _sfxClips["bust"] = Bake(b =>
+            {
+                b.Noise(0.45f, 0.18f, 0f, 400f);
+                b.Tone(196f, 0.4f, Wave.Sawtooth, 0.13f, 0f, 55f);
+                b.Tone(65f, 0.5f, Wave.Square, 0.1f, 0.12f, 40f);
+            });
+
             // ── BGM 음표 팔레트 — 웹 bgmStart() tick()의 tone(note,.3,"triangle",.045) / bass(.62,"sine",.05) ──
             _bgmNoteClips = new AudioClip[Penta.Length];
             for (int i = 0; i < Penta.Length; i++)
@@ -343,6 +485,13 @@ namespace JackpotRun.Game
             {
                 float bass = BgmBass[i];
                 _bgmBassClips[i] = Bake(b => b.Tone(bass, BgmBassDur, Wave.Sine, BgmBassVol));
+            }
+            // F5 피버 중 8분 장식음 — PENTA 원음(웹은 /2 없이 그대로) 5종.
+            _bgmDecoClips = new AudioClip[Penta.Length];
+            for (int i = 0; i < Penta.Length; i++)
+            {
+                float deco = Penta[i];
+                _bgmDecoClips[i] = Bake(b => b.Tone(deco, BgmDecoDur, Wave.Square, BgmDecoVol));
             }
         }
 

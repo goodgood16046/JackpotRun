@@ -84,8 +84,10 @@ namespace JackpotRun.Data
             // 웹 파리티 P3-4(WEB_PARITY_DESIGN.md §1-A #14, 작업 지시 C "DexView 신규 콘텐츠 표시") —
             // manifest.json/catalog.json엔 아직 신규 콘텐츠(캐릭3·머신3·장치3·증강9·유물12·아이템5)의
             // 아트/엔트리가 없다. 실제 PNG 생성은 이미지 생성 파이프라인(외부 요청)이 필요한 별도
-            // 작업이라 이 슬라이스 범위 밖 — 대신 Engine 콘텐츠를 직접 읽어 spritePath 없는(=이모지
-            // 폴백) 합성 엔트리를 이어붙인다. 실제 JSON 파일은 건드리지 않는다(메모리상의 조회 테이블만
+            // 작업이라 이 슬라이스 범위 밖 — 대신 Engine 콘텐츠를 직접 읽어 합성 엔트리를 이어붙인다.
+            // (FUN_OVERHAUL_DESIGN §3 이후: 합성 엔트리도 spritePath 를 "JackpotRun/Sprites/<폴더>/<id>"로
+            // 채운다 — 신규 PNG 가 들어오면 자동 표시, 파일이 없으면 Resources.Load=null → 이모지 폴백.)
+            // 실제 JSON 파일은 건드리지 않는다(메모리상의 조회 테이블만
             // 확장 — 이후 manifest.json이 갱신되면 정식 엔트리가 자동으로 우선한다, 아래 continue 가드).
             foreach (var entry in BuildSyntheticEntries())
             {
@@ -121,7 +123,7 @@ namespace JackpotRun.Data
             {
                 id = id, category = category, categoryLabel = CategoryTitle(category), key = key,
                 emoji = emoji, nameKo = nameKo, descKo = descKo, tier = tier, deviceKind = deviceKind,
-                command = command, unlockAch = unlockAch, itemKind = itemKind, spritePath = null,
+                command = command, unlockAch = unlockAch, itemKind = itemKind, spritePath = SpritePathOf(category, id),
                 price = price, coinCost = coinCost, cooldown = cooldown, scoreMod = scoreMod, rare = rare,
                 unlockReq = null, hasPick = hasPick, pick = pick,
             };
@@ -174,6 +176,14 @@ namespace JackpotRun.Data
                 if (System.Array.IndexOf(NewItemIds, it.id) < 0) continue;
                 list.Add(Synthetic("item_" + it.id, CatItem, it.id, it.emoji, it.name, it.desc,
                     itemKind: it.kind, coinCost: it.coinCost));
+            }
+            // FUN_OVERHAUL_DESIGN §3 — 업적 34종 중 실 catalog.json(16종)에 없는 18종(후반5 + 심화13)도
+            // 합성해 도감 업적 탭이 34종 전부를 보여주고 신규 아트(ach_<id>)를 쓸 수 있게 한다.
+            // 이모지는 Achievements.cs가 astral을 빈 문자열로 대체해 둔 값 → SafeIcon이 이름 첫 글자로 폴백.
+            foreach (var a in Achievements.All)
+            {
+                if (_byId.ContainsKey("ach_" + a.id)) continue;
+                list.Add(Synthetic("ach_" + a.id, CatAch, a.id, SafeIcon(a.emoji, a.name), a.name, a.desc));
             }
 
             // ── 웹 파리티 P7-4b/Opus 2차검수(WEB_PARITY_DESIGN.md §1-A #19/#20) — 심화 도감 3탭 ──────
@@ -261,8 +271,68 @@ namespace JackpotRun.Data
 
         public static Sprite LoadSprite(CatalogEntry e)
         {
-            if (e == null || string.IsNullOrEmpty(e.spritePath)) return null;
-            return Resources.Load<Sprite>(e.spritePath);
+            if (e == null) return null;
+            // spritePath 가 비어 있는 항목(그림이 없던 시절의 catalog.json — 예: dev_holdfile/dev_major/dev_retake/dev_syllabus)도
+            // 규칙 경로(SpritePathOf)로 한 번 시도한다 — 나중에 그림 PNG 만 추가돼도 catalog.json 을 다시 굽지 않고 표시된다.
+            // 파일이 없으면 Resources.Load 가 null 을 돌려주므로 기존 이모지/글자 폴백이 그대로 동작한다.
+            string path = !string.IsNullOrEmpty(e.spritePath) ? e.spritePath : SpritePathOf(e.category, e.id);
+            if (string.IsNullOrEmpty(path)) return null;
+            return Resources.Load<Sprite>(path);
+        }
+
+        // ── 스프라이트 경로 규칙 (FUN_OVERHAUL_DESIGN §3) ────────────────────────────────────────
+        // Resources/JackpotRun/Sprites/<카테고리 폴더>/<id>.png. 그림이 아직 없으면 Resources.Load 가 null →
+        // 호출부가 기존 이모지/글자 폴백을 쓴다(null 안전).
+        public const string SpriteRoot = "JackpotRun/Sprites/";
+
+        /// <summary>카탈로그 카테고리 → Resources 스프라이트 폴더명. 모르는 카테고리는 null.</summary>
+        public static string SpriteFolderOf(string category)
+        {
+            switch (category)
+            {
+                case CatChar: return "Characters";
+                case CatMac: return "Machines";
+                case CatDev: return "Devices";
+                case CatAug: return "Augments";
+                case CatRel: return "Relics";
+                case CatCur: return "Curses";
+                case CatItem: return "Items";
+                case CatAch: return "Achievements";
+                case CatSym: return "Symbols";
+                case CatSymAug: return "SymAugments";
+                case CatSymRel: return "SymRelics";
+                default: return null;
+            }
+        }
+
+        /// <summary>합성/정식 항목 공통 — "JackpotRun/Sprites/&lt;폴더&gt;/&lt;id&gt;". 폴더를 모르면 null.</summary>
+        public static string SpritePathOf(string category, string id)
+        {
+            string folder = SpriteFolderOf(category);
+            return (folder == null || string.IsNullOrEmpty(id)) ? null : SpriteRoot + folder + "/" + id;
+        }
+
+        /// <summary>릴/타이틀/주머니 등에서 쓰는 심볼 아이콘(sym_&lt;symId&gt;, 투명 배경). 없으면 null.</summary>
+        public static Sprite LoadSymbolSprite(string symId)
+        {
+            if (string.IsNullOrEmpty(symId)) return null;
+            return Resources.Load<Sprite>(SpriteRoot + "Symbols/sym_" + symId);
+        }
+
+        /// <summary>보스 일러스트(boss_&lt;bossId&gt;). 없으면 null.</summary>
+        public static Sprite LoadBossSprite(string bossId)
+        {
+            if (string.IsNullOrEmpty(bossId)) return null;
+            return Resources.Load<Sprite>(SpriteRoot + "Bosses/boss_" + bossId);
+        }
+
+        /// <summary>심볼퍽(sa_/sp_ 증강, sr_ 유물) id 의 카탈로그 id("symaug_.."/"symrel_.."). 심볼퍽이 아니면 null.</summary>
+        public static string SymPerkCatalogId(string perkId)
+        {
+            if (string.IsNullOrEmpty(perkId)) return null;
+            foreach (var p in SymPerks.Augments) if (p.id == perkId) return CatSymAug + "_" + perkId;
+            foreach (var p in SymPerks.Relics) if (p.id == perkId) return CatSymRel + "_" + perkId;
+            return null;
         }
 
         // S8(2026-07-31) 이모지 정리: astral(서로게이트 페어) 이모지는 레거시 uGUI Text에서 렌더링되지

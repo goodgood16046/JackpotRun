@@ -31,6 +31,37 @@ namespace JackpotRun.Engine
         public const int CMD_COST_BOSS_SURCHARGE = 1;
         public const int CMD_COST_MAX = 5;
 
+        // ── 재미 개편(FUN_OVERHAUL_DESIGN R2~R6·F1, 2026-10-28) 상수 — 웹 data.js `C`(e6bde8d)와 1:1 ──────
+        // 일반 모드 전용 신규 시스템(홀드·피버·앵콜)의 상수는 심화 모드에 영향을 주지 않는다(격리).
+        //  R2 요구치 성장률(S16+): 일반 ×1.25/스테이지, 심화 ×1.2(개편 전 값 보존).
+        public const double QUOTA_GROWTH = 1.25;
+        public const double QUOTA_GROWTH_DEEP = 1.2;
+        //  R3 홀드: 스테이지 시작 충전 수(누적 없음)·동시에 잡을 수 있는 최대 칸.
+        public const int HOLD_START_CHARGES = 1;
+        public const int HOLD_MAX = 2;
+        //  R4 일반 모드 피버: 스핀 bestSetCount(0~5) → 게이지 충전량. FEVER_MAX 도달 시 FEVER_SPINS 스핀 동안 최종 EXP ×FEVER_EXP_MUL.
+        public static readonly int[] FEVER_CHARGE = { 0, 0, 5, 15, 35, 60 };
+        public const int FEVER_MAX = 100;
+        public const int FEVER_SPINS = 3;
+        public const double FEVER_EXP_MUL = 1.5;
+        //  R5 앵콜(클리어 점수 더블업): 성공 k번째 팟 배율 = 1 + STEP×k · BUST = 페어 미만(ENCORE_MIN_SET) 또는 해골 ENCORE_BUST_SKULLS개 이상.
+        public const double ENCORE_STEP = 0.5;
+        public const int ENCORE_BUST_SKULLS = 2;
+        public const int ENCORE_MIN_SET = 2;
+        //  R6 특수스핀: 올인 배율·실패 해골 수 / 집중 하한 페이스 비율 / 같은 스테이지 n번째 사용 누진 계수.
+        public const double ALLIN_MUL = 2.5;
+        public const int ALLIN_FAIL_SKULLS = 1;
+        public const double FOCUS_FLOOR = 0.8;
+        public const int CMD_COST_STEP = 1;
+        //  F1 빅윈 티어 임계(스핀 최종 EXP ÷ 페이스(quota/spins)): NICE / BIG / MEGA. 2026-10-28 리드 개정:
+        //  웹 data.js C.BIGWIN_TIERS [1.5, 2.5, 4] → [2, 3, 5] (탐욕 봇 NICE+ 43%→33%, 단순 봇 18%) — FUN_OVERHAUL_DESIGN §2 F1.
+        public static readonly double[] BIGWIN_TIERS = { 2.0, 3.0, 5.0 };
+
+        // 배율 곱 후 내림 — 부동소수 오차(100×1.15=114.99999999999999) 보정 ε. 웹 engine.js `mulFloor`
+        // (`Math.floor(v*m + 1e-9)`)와 같은 지점(보스 strict·올인·집중 하한·피버·앵콜 팟)에서만 쓴다.
+        public static long MulFloor(long v, double m) => (long)Math.Floor(v * m + 1e-9);
+        public static long MulFloor(double v, double m) => (long)Math.Floor(v * m + 1e-9);
+
         // 엔진 내부 미사용(서비스 전용) — 01_engine.md §0 각주. 노출만 하고 로직 의존 없음.
         public const int CLEAR_COIN = 5;
         public const int BOSS_COIN = 12;
@@ -46,23 +77,42 @@ namespace JackpotRun.Engine
         public const int MEDAL_SILVER_S = 10;
         public const int MEDAL_GOLD_S = 15;
 
-        // ── 1.1 quota(stage) — 스테이지 요구 EXP (SlotV2Engine.kt L41-51) ──────
-        private static readonly long[] Quotas =
+        // ── 1.1 quota(stage) — 스테이지 요구 EXP (SlotV2Engine.kt L41-51, 웹 engine.js `quota(stage, deep)`) ──────
+        // 재미 개편 R2: 일반 모드는 개편 표(QuotasNormal, S16+ ×1.25), 심화 모드는 개편 전 표(QuotasDeep,
+        // S16+ ×1.2)를 그대로 보존한다(심화 밸런스 기준선 보호). 호출부는 전부 run.DeepMode 를 넘긴다
+        // (SpinResolver.QuotaOf 의 deep 인자). W1 튜닝(FUN_OVERHAUL_DESIGN §5): 설계표 대비 S5=165→190,
+        // S15=920→1050 만 변경, 나머지 13개는 설계표 그대로.
+        private static readonly long[] QuotasNormal =
+        {
+            90, 105, 125, 145, 190, 200, 240, 285, 340, 400, 475, 560, 660, 780, 1050,
+        };
+        private static readonly long[] QuotasDeep =
         {
             110, 120, 130, 140, 150, 170, 200, 235, 280, 330, 390, 460, 540, 640, 755,
         };
 
-        public static long Quota(int stage)
+        public static long Quota(int stage, bool deep = false)
         {
+            var tbl = deep ? QuotasDeep : QuotasNormal;
+            double growth = deep ? QUOTA_GROWTH_DEEP : QUOTA_GROWTH;
             int i = stage - 1;
-            if (i < 0) return Quotas[0];
-            if (i < Quotas.Length) return Quotas[i];
-            // stage 16+: 755.0에서 시작해 (i-14)회 *1.2를 "반복 곱셈"으로 누적(거듭제곱 한 방 계산 금지 —
+            if (i < 0) return tbl[0];
+            if (i < tbl.Length) return tbl[i];
+            // stage 16+: 마지막 표 값에서 시작해 (i-14)회 growth 를 "반복 곱셈"으로 누적(거듭제곱 한 방 계산 금지 —
             // 01_engine.md §11-5, 반복곱과 Math.Pow는 부동소수 반올림 경로가 달라 결과가 어긋날 수 있음).
-            double q = Quotas[Quotas.Length - 1];
-            int repeats = i - Quotas.Length + 1;
-            for (int k = 0; k < repeats; k++) q *= 1.2;
-            return (long)q; // 항상 양수 → Kotlin Double.toLong()과 C# (long) 캐스트 결과 동일(0 방향 절삭).
+            double q = tbl[tbl.Length - 1];
+            int repeats = i - tbl.Length + 1;
+            for (int k = 0; k < repeats; k++) q *= growth;
+            return (long)q; // 항상 양수 → Kotlin Double.toLong()·웹 Math.floor 와 동일(0 방향 절삭).
+        }
+
+        // F1 빅윈 티어(웹 game.js `_bigWinTier`): 스핀 최종 EXP ÷ 페이스(quota/spins) ≥ 2 NICE(1) · 3 BIG(2) · 5 MEGA(3).
+        public static int BigWinTier(long exp, long quota, int spins)
+        {
+            double pace = spins > 0 ? quota / (double)spins : 0.0;
+            if (!(pace > 0)) return 0;
+            double ratio = exp / pace;
+            return ratio >= BIGWIN_TIERS[2] ? 3 : ratio >= BIGWIN_TIERS[1] ? 2 : ratio >= BIGWIN_TIERS[0] ? 1 : 0;
         }
 
         // ── 1.2 보스 시스템 (SlotV2Engine.kt L53-68) ────────────────────────────

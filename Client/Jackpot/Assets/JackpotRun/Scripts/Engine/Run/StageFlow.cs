@@ -181,6 +181,8 @@ namespace JackpotRun.Engine
                 run.LastGain = 0; run.LastScoreGain = 0; run.LastCoinGain = 0; run.LastSpinNo = -1;
                 run.PendingNextExpMul = 1.0;
                 run.LockedNext.Clear();
+                // 재미 개편(웹 _beginStage() 재호출): 홀드 충전 재충전·직전 raw 초기화·특수스핀 사용 횟수 리셋·앵콜 창 닫기.
+                HoldFlow.ResetForStage(run);
                 AscRunHooks.RollBannedSym(run); // 웹 _beginStage() A8 재롤(game.js:425) 그대로.
                 run.Phase = RunPhase.Spin;
                 return new ClearOutcome { clearedStage = clearedStage, bossPhase2Restart = true };
@@ -366,6 +368,13 @@ namespace JackpotRun.Engine
                 run.RetryReelUsed = false;
                 run.JackpotCrownUsed = false;
             }
+
+            // 재미 개편 R3·R5·R6(웹 _clearStage 말미 + 다음 _beginStage): 다음 스테이지 시작 리셋(홀드 충전 1·직전 raw 비움·
+            // 특수스핀 사용 횟수 0)과 앵콜 창 개설. 앵콜은 아래 "상태 반영"이 PhaseItems/PhasePerks/BannedSym 을 리셋하기
+            // 전의 클리어 스테이지 컨텍스트를 스냅샷해야 하므로 반드시 이 자리(리셋 직전)에서 부른다. 판돈 stake = 이번 클리어
+            // 점수(gainedScore — 빚문서면 0 이라 앵콜 불가).
+            HoldFlow.ResetForStage(run);
+            EncoreFlow.OnStageCleared(run, clearedStage, spins, newIdx, newExp, quota, boss, gainedScore);
 
             // ── 상태 반영 (Kotlin clearStage L872-892) ──
             run.Score = outcome.newScore + gainedScore;

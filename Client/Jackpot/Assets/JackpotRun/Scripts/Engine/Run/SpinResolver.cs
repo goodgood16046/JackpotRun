@@ -134,6 +134,15 @@ namespace JackpotRun.Engine
         public bool prayMiracle;
         public int cmdCost;
         public readonly List<string> notes = new List<string>(); // res.notes + 모드/보스/안전장치 부가설명
+
+        // ── 재미 개편(FUN_OVERHAUL_DESIGN R3·R4·R5·F1; 웹 spin() 반환 out.feverApplied/feverTriggered/holdUsed/
+        // encoreResult/bigWinTier, e6bde8d) — UI 연출용. 일반 스핀 외 경로(MANIP·벨·즉시클리어 아이템 등 합성 outcome)는
+        // 전부 기본값(false/빈 목록/null/0). 심화 런에서는 feverApplied/feverTriggered/holdUsed 가 항상 기본값이다. ──
+        public bool feverApplied;      // 이번 스핀에 일반 모드 피버 ×1.5 가 적용됐는가(최종 EXP 마지막 곱)
+        public bool feverTriggered;    // 이번 스핀으로 피버 게이지가 가득 차 피버가 발동했는가(다음 스핀부터 3스핀 적용)
+        public readonly List<int> holdUsed = new List<int>();   // 이번 스핀에서 직전 심볼을 유지한 홀드 칸 인덱스
+        public EncoreResult encoreResult;                       // 앵콜 스핀(ENCORE_SPIN)일 때만 non-null
+        public int bigWinTier;         // F1 빅윈 티어: 최종 EXP ÷ 페이스(quota/spins) ≥2 NICE(1) · ≥3 BIG(2) · ≥5 MEGA(3)
     }
 
     // 스핀 1회의 정확한 순서 이식 — 02_service.md §2(핵심)·§10.1-10.4, Kotlin SlotV2Engine의
@@ -1208,7 +1217,7 @@ namespace JackpotRun.Engine
                 bestSetCount = bestCount,
                 setIds = setIds,
                 skulls = skulls,
-                flameNext = false,
+                flameNext = anyFlame, // 웹 engine.js:1036 hasFlame — 직전 스핀에 불꽃이 있었으면 다음 스핀 EXP -50%(flamePenalty). 재미 개편 U1 후속 2026-10-28 웹 파리티 복원
                 seedNext = anySeed,
                 jackpotSym = jackpotSym,
                 notes = notes,
@@ -1334,12 +1343,15 @@ namespace JackpotRun.Engine
         // 이하 형태)는 전부 무변경 동작 — asc/bossPhase2와 동일하게 P6에서 다졌던 "트레일링 기본값
         // 추가 + 전 호출부 갱신" 패턴을 그대로 반복한다(호출측이 run.DeepMode를 보고 DeepRunHooks.
         // DeepPenalty(run)을 넘기거나, 심화 무관 호출부는 그냥 생략).
-        public static long QuotaOf(int stage, Mods mods, int asc = 0, bool bossPhase2 = false, double deepPenaltyMul = 1.0)
+        // 재미 개편 R2(웹 game.js `E.quota(stage, r.deepMode)`, e6bde8d) — deep: 심화 런이면 true(개편 전 표 QuotasDeep,
+        // S16+ ×1.2), 일반 런은 false(개편 표, S16+ ×1.25). 트레일링 기본값이라 기존 호출부는 컴파일되지만, 런 컨텍스트가
+        // 있는 모든 실호출부는 반드시 run.DeepMode 를 넘긴다(누락 시 심화 런이 일반 표로 계산되는 회귀).
+        public static long QuotaOf(int stage, Mods mods, int asc = 0, bool bossPhase2 = false, double deepPenaltyMul = 1.0, bool deep = false)
         {
-            int baseSpins = SpinsPerStage(mods);
-            int bsp = Bosses.Spins(stage);
-            double prop = (bsp > 0 && baseSpins > 0) ? (double)(baseSpins + bsp) / baseSpins : 1.0;
-            double q = Formulas.Quota(stage) * mods.quotaMul * Bosses.QuotaMulFor(stage) * prop;
+            // 2026-10-28 리드 결정(WEB_PARITY_DESIGN §2 결정 로그 "보스 스핀 비례 prop 제거"): 옛 Kotlin qOf 의
+            // `prop=(baseSpins+bossSpins)/baseSpins`(보스 스핀 증가분 비례, 보스 ×1.2)는 웹 game.js:423 공식에 없는 잔재라
+            // 웹 파리티 버그로 판정해 제거했다(일반·심화 공통). 보스 스핀 +1은 요구치 비례 없이 순수 보너스다.
+            double q = Formulas.Quota(stage, deep) * mods.quotaMul * Bosses.QuotaMulFor(stage);
             var am = AscMods.Get(asc);
             q *= am.QuotaMul;
             if (Formulas.IsBossStage(stage)) q *= am.BossQuotaMul;
@@ -1348,7 +1360,20 @@ namespace JackpotRun.Engine
             return (long)q;
         }
 
-        public static int CmdCoinCost(SpinMode mode, bool boss) => ModsBuilder.CmdCoinCost(mode, boss);
+        // n = 같은 스테이지에서 그 종류를 쓰는 횟수(1=첫 사용, 기본값). 재미 개편 R6 누진 — ModsBuilder.CmdCoinCost 참조.
+        public static int CmdCoinCost(SpinMode mode, bool boss, int n = 1) => ModsBuilder.CmdCoinCost(mode, boss, n);
+
+        // "지금 누르면 낼 코인 비용"(웹 game.js cmdCost(mode), 재미 개편 R6) — UI 버튼 라벨과 ResolveSpin 이 같은 값을 쓴다.
+        //  · 일반 스핀(N)은 0 · 런 단위 종류별 첫 1회는 무료(0, CmdFreeUsed 에 마커가 없을 때)
+        //  · 그 외 = CmdCoinCost(mode, 보스 스테이지, 이번 스테이지 그 종류 사용 횟수+1) — 2번째 ×2, 3번째 ×3 …
+        public static int CurrentCmdCost(RunState run, SpinMode mode)
+        {
+            if (mode == SpinMode.N) return 0;
+            string marker = CmdMarker(mode);
+            if (!run.CmdFreeUsed.Contains(marker)) return 0;
+            run.CmdUses.TryGetValue(marker, out int uses);
+            return CmdCoinCost(mode, Bosses.For(run.Stage) != null, uses + 1);
+        }
 
         // ── applyBoss (웹 engine.js:1088-1104 applyBossExp) — 정수 나눗셈(내림)을 그대로 유지 ──
         // 웹 파리티 P2(WEB_PARITY_DESIGN §2-B / 항목3): grad(졸업심사)의 "pace" EXP 룰(expectedPerSpin/
@@ -1370,7 +1395,11 @@ namespace JackpotRun.Engine
                     if (spinIndex == spins - 1) return (gained * 2, " · 📝기말 막스핀×2");
                     return (gained, "");
                 case "strict":
-                    return res.bestSetCount < 3 ? (gained / 2, " · 👨‍🏫콤보없음 ×0.5") : (gained, "");
+                    // 재미 개편 R1(웹 engine.js applyBossExp strict, e6bde8d): 같은 심볼 3개↑ 있으면 ×1.15(보상), 없으면
+                    // ×0.75(기존 ×0.5 완화). ε 보정 내림(mulFloor) — floor(100×1.15) 가 114 가 되는 부동소수 오차 방지.
+                    return res.bestSetCount >= 3
+                        ? (Formulas.MulFloor(gained, 1.15), " · 👨‍🏫 3매치 ×1.15")
+                        : (Formulas.MulFloor(gained, 0.75), " · 👨‍🏫 3매치 없음 ×0.75");
                 case "luck":
                 {
                     bool hasRare = false;
@@ -1426,12 +1455,12 @@ namespace JackpotRun.Engine
             // levels를 빠뜨리면 그 단계에서만 레벨업 미반영 값이 섞여 다음 단계 재계산이 오염된다.
             var preMods0 = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, levels: run.PerkLevels);
             double deepPenalty = DeepRunHooks.DeepPenalty(run);
-            var preCtx = RunCtxOf(run, run.SpinIndex, SpinsPerStage(preMods0), QuotaOf(run.Stage, preMods0, run.Asc, run.BossPhase2, deepPenalty));
+            var preCtx = RunCtxOf(run, run.SpinIndex, SpinsPerStage(preMods0), QuotaOf(run.Stage, preMods0, run.Asc, run.BossPhase2, deepPenalty, run.DeepMode));
             var preMods = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, preCtx, run.PerkLevels);
             int preEffSpins = EffSpins(run, preMods);
-            var runCtx = RunCtxOf(run, run.SpinIndex, preEffSpins, QuotaOf(run.Stage, preMods, run.Asc, run.BossPhase2, deepPenalty));
+            var runCtx = RunCtxOf(run, run.SpinIndex, preEffSpins, QuotaOf(run.Stage, preMods, run.Asc, run.BossPhase2, deepPenalty, run.DeepMode));
             var baseMods = ModsBuilder.Build(run.MachineId, run.CharId, combinedPerks, curses, run.Device, runCtx, run.PerkLevels);
-            if (mode == SpinMode.Focus) baseMods.rareWeightMul *= 0.5; // 안정화: 고점 억제
+            // 재미 개편 R6: 집중(FOCUS)의 rareWeightMul ×0.5 패널티("안정화: 고점 억제")는 삭제 — 하한 보장 + 홀드 +1 만 남는다.
 
             var mods = ModsBuilder.ApplyItemMods(baseMods, Concat(arm, phase));
             var devEq = Devices.ById(run.Device);
@@ -1448,22 +1477,21 @@ namespace JackpotRun.Engine
             // 5.0 상한) 제거 — 웹 engine.js에는 이 자리에 해당하는 캡이 없다(Formulas.cs 주석/§2-B 근거
             // 참조). mods.expMul/mods.lastSpinExpMul은 이제 ModsBuilder가 만든 값 그대로 쓰인다.
             int spins = EffSpins(run, mods);
-            long quota = QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, deepPenalty);
+            long quota = QuotaOf(run.Stage, mods, run.Asc, run.BossPhase2, deepPenalty, run.DeepMode);
 
-            bool bossStage = Bosses.For(run.Stage) != null;
-            int cmdCost = CmdCoinCost(mode, bossStage);
+            // 재미 개편 R6: 비용 = 런 첫 사용 무료 / 이후 같은 스테이지 n번째 사용은 기본×n 누진(CurrentCmdCost).
+            int cmdCost = CurrentCmdCost(run, mode);
             // ── WEB_PARITY P1 ①: 특수스핀 첫 사용 무료(런 단위 종류별 1회, 웹 game.js:883-884) ──────
             // 코인 0이어도 발동(검증 자체를 면제) — 실제 발동이 "성공"했을 때만(거부 3경로 통과 후)
             // 아래 상태 반영부에서 CmdFreeUsed에 추가한다(§2-E: 거부 시 미소진). 기존 CmdCoinCost 표
             // (1/2/3/4, 보스+1, 상한5)는 불변 — 무료는 그 위에 얹는 오버레이일 뿐이다.
             bool isFreeUse = mode != SpinMode.N && !run.CmdFreeUsed.Contains(CmdMarker(mode));
-            if (isFreeUse) cmdCost = 0;
             if (mode != SpinMode.N)
             {
                 if (mode == SpinMode.Last && run.SpinIndex != spins - 1)
                     return Rejected(mode, "LAST_NOT_FINAL_SPIN");
-                if (run.UsedCmds.Contains(CmdMarker(mode)))
-                    return Rejected(mode, "MODE_ALREADY_USED");
+                // 재미 개편 R6: "스테이지당 종류별 1회"(MODE_ALREADY_USED 거부) 폐지 — 반복 사용 허용, 대신 비용 누진.
+                // 최후(LAST)는 여전히 마지막 스핀에서만 가능하다.
                 if (run.Coins < cmdCost)
                     return Rejected(mode, "INSUFFICIENT_COINS");
             }
@@ -1485,6 +1513,7 @@ namespace JackpotRun.Engine
             if (run.DeepMode && run.Pouch.TryGetValue("temp_wild", out var twStock) && twStock > 0) arm.Add("wild_temp");
 
             List<Cell> raw;
+            var holdUsed = new List<int>();
             if (run.LockedNext.Count > 0)
             {
                 raw = CellsFromIds(run.LockedNext, run.Rng, run.Pouch);
@@ -1494,9 +1523,18 @@ namespace JackpotRun.Engine
                 raw = RollCells(run, mods, reel, run.SeedNext);
                 if (run.DeepMode) raw = DeepRunHooks.ApplyGrowNext(run, raw);
                 if (run.DeepMode) raw = DeepRunHooks.ApplyDeepPity(run, raw);
+                // 재미 개편 R3(웹 spin(): `holdUsed = this._applyHold(raw)`): 홀드 칸은 직전 스핀 raw 유지 — 일반 모드·fresh
+                // 굴림만, "홀드 적용 → cellOps" 순서. RNG 소비는 홀드와 무관(전부 굴린 뒤 덮어쓴다).
+                holdUsed = HoldFlow.Apply(run, raw);
             }
+            // R3: 다음 스핀 홀드용 원시 착지 칸 스냅샷(홀드 적용 후·cellOps/Evaluate 이전) + 홀드 표시 해제(일반 모드 전용).
+            HoldFlow.SnapshotRaw(run, raw);
             ApplyCellOps(raw, arm, run.Rng);
 
+            // 웹 spin() 순서(game.js ~949, e6bde8d 이후 정본): pendingNextExpMul(코인투입 등 "다음 스핀 EXP ×N")은 굴림 전
+            // mods.expMul 에 곱해져 evaluate 안의 전역배수로 들어간다 — 옛 C#(Kotlin 유래)은 특수스핀·보스 뒤에 gained 에 사후
+            // 곱했다(재배치 2026-10-28, WEB_PARITY §2-(JJ)). 소비(1.0 리셋)는 아래 상태 반영부(거부 경로가 없어 동치).
+            if (run.PendingNextExpMul != 1.0) mods.expMul *= run.PendingNextExpMul;
             var res = Evaluate(run.Rng, raw, mods, run.SpinIndex, spins, run.FlameNext);
             // 웹 파리티 P7-3b — 🌀운명의소용돌이(FATEVORTEX·fuse) 런 1회: 2번째 굴림을 수행해
             // 더 좋은 결과 채택(웹 game.js:907-916). [웹 quirk 재현] 웹 원문의 `!r.lockedNext` 가드는
@@ -1536,42 +1574,10 @@ namespace JackpotRun.Engine
             var outcomeNotes = new List<string>(res.notes);
             bool prayMiracle = false;
 
-            switch (mode)
-            {
-                case SpinMode.Focus:
-                {
-                    long floor = (long)(quota / (double)spins * 0.6);
-                    if (gained < floor) { gained = floor; outcomeNotes.Add("🎯집중 — 최소 보장"); }
-                    else outcomeNotes.Add("🎯집중(안정)");
-                    break;
-                }
-                case SpinMode.Allin:
-                    if (res.skulls >= 2) { gained = 0; outcomeNotes.Add("🎲올인 실패! EXP 0"); }
-                    else { gained *= 2; outcomeNotes.Add("🎲올인 성공! EXP ×2"); }
-                    break;
-                case SpinMode.Pray:
-                {
-                    long low = (long)(quota / (double)spins * 0.5);
-                    if (run.Rng.Next(100) < 8) { gained *= 3; outcomeNotes.Add("🙏✨ 기적! EXP ×3"); prayMiracle = true; }
-                    else if (gained < low) { gained += 25; outcomeNotes.Add("🙏기도 — 불운보정 +25"); }
-                    else outcomeNotes.Add("🙏기도");
-                    break;
-                }
-                case SpinMode.Last:
-                    gained = (long)(gained * 1.75);
-                    outcomeNotes.Add("⏰최후 EXP ×1.75");
-                    break;
-            }
-            // WEB_PARITY P1 ①: 무료 발동 배너(웹 game.js:1141 "🆓첫 사용 무료") — astral 이모지 금지,
-            // 한글만(uGUI Text 렌더 제약, 이 파일 CLAUDE.md 지시).
-            if (isFreeUse) outcomeNotes.Add("첫 사용 무료");
+            if (run.PendingNextExpMul != 1.0) outcomeNotes.Add($"🪙다음스핀 ×{FmtMul(run.PendingNextExpMul)}");   // 이미 위에서 mods.expMul 에 반영됨(표시용)
 
-            if (run.PendingNextExpMul != 1.0)
-            {
-                gained = (long)(gained * run.PendingNextExpMul);
-                outcomeNotes.Add($"🪙다음스핀 ×{FmtMul(run.PendingNextExpMul)}");
-            }
-
+            // 후처리 순서 = 웹 spin() 정본: 보스(applyBossExp) → 특수스핀(applySpecialSpin) → dev_safe 하한 → 피버 → (빅윈 티어).
+            // 옛 C# 은 특수스핀 → 다음스핀 배율 → 보스 순(Kotlin 유래)이라 같은 칸에서 EXP 가 웹과 갈렸다(재배치 2026-10-28).
             var boss = Bosses.For(run.Stage);
             if (boss != null)
             {
@@ -1599,11 +1605,59 @@ namespace JackpotRun.Engine
                 }
             }
 
+            switch (mode)
+            {
+                case SpinMode.Focus:
+                {
+                    // 재미 개편 R6: 하한 보장 페이스 ×0.6 → ×0.8 (웹 applySpecialSpin FOCUS: mulFloor(per, FOCUS_FLOOR)).
+                    long floor = Formulas.MulFloor(quota / (double)spins, Formulas.FOCUS_FLOOR);
+                    if (gained < floor) { gained = floor; outcomeNotes.Add("🎯집중 — 최소 보장"); }
+                    else outcomeNotes.Add("🎯집중(안정)");
+                    // R6: 집중 발동 시 홀드 충전 +1(일반 모드). 홀드를 같이 쓴 스핀이면 (소모 -1) 뒤의 +1 이라 충전이 유지된다.
+                    if (!run.DeepMode) { run.HoldCharges += 1; outcomeNotes.Add("🎯 집중 — 홀드 +1"); }
+                    break;
+                }
+                case SpinMode.Allin:
+                    // 재미 개편 R6: 올인 EXP ×2 → ×2.5(내림), 해골 2개↑ 실패 → 1개라도 나오면 실패(EXP 0).
+                    if (res.skulls >= Formulas.ALLIN_FAIL_SKULLS) { gained = 0; outcomeNotes.Add("🎲올인 실패! EXP 0 (해골 1개↑)"); }
+                    else { gained = Formulas.MulFloor(gained, Formulas.ALLIN_MUL); outcomeNotes.Add("🎲올인 성공! EXP ×" + FmtMul(Formulas.ALLIN_MUL)); }
+                    break;
+                case SpinMode.Pray:
+                {
+                    // 웹 applySpecialSpin PRAY: 불운 보정 임계는 페이스(quota/spins) 전체 — `exp < per`(옛 C# Kotlin 유래 ×0.5 폐기, 2026-10-28).
+                    double pace = quota / (double)spins;
+                    if (run.Rng.Next(100) < 8) { gained *= 3; outcomeNotes.Add("🙏✨ 기적! EXP ×3"); prayMiracle = true; }
+                    else if (gained < pace) { gained += 25; outcomeNotes.Add("🙏기도 — 불운보정 +25"); }
+                    else outcomeNotes.Add("🙏기도");
+                    break;
+                }
+                case SpinMode.Last:
+                    gained = (long)(gained * 1.75);
+                    outcomeNotes.Add("⏰최후 EXP ×1.75");
+                    break;
+            }
+            // WEB_PARITY P1 ①: 무료 발동 배너(웹 game.js:1141 "🆓첫 사용 무료") — astral 이모지 금지,
+            // 한글만(uGUI Text 렌더 제약, 이 파일 CLAUDE.md 지시).
+            if (isFreeUse) outcomeNotes.Add("첫 사용 무료");
             if (devEq != null && devEq.id == "dev_safe")
             {
                 long fl = (long)(quota / (double)spins * 0.35);
                 if (gained < fl) { gained = fl; outcomeNotes.Add("🦺안전벨트 최소 보장"); }
             }
+
+            // 재미 개편 R4 일반 모드 피버(웹 spin(): 보스·특수스핀·dev_safe 하한 적용 뒤 "최종 EXP 확정 직전 마지막 곱").
+            // 피버 중에는 게이지가 차지 않는다(아래 상태 반영부). 심화 런은 이 시스템을 건너뛴다(심화 피버는 별개 필드).
+            bool feverApplied = false, feverTriggered = false;
+            if (!run.DeepMode && run.NFeverSpins > 0)
+            {
+                gained = Formulas.MulFloor(gained, Formulas.FEVER_EXP_MUL);
+                run.NFeverSpins -= 1;
+                feverApplied = true;
+                outcomeNotes.Add($"🔥 피버 ×{FmtMul(Formulas.FEVER_EXP_MUL)} (남은 {run.NFeverSpins})");
+            }
+            // F1 빅윈 티어: 스핀 최종 EXP ÷ 페이스(quota/spins). 비상졸업벨의 "즉시 클리어 보장" 보정 전 값 기준(그 보정은
+            // 자연 결과가 아니라 클리어 보장 장치라 티어 연출에 섞지 않는다).
+            int bigWinTier = Formulas.BigWinTier(gained, quota, spins);
 
             bool destroyDevice = false;
             if (arm.Contains("dev_bell"))
@@ -1648,7 +1702,10 @@ namespace JackpotRun.Engine
             run.ArmItems.Clear();
             if (mode != SpinMode.N)
             {
-                run.UsedCmds.Add(CmdMarker(mode));
+                // 재미 개편 R6: UsedCmds 에는 더 이상 특수스핀 마커를 넣지 않는다(스테이지당 1회 제한 폐지) — 사용 횟수만
+                // 기록해 다음 사용 비용을 누진시킨다(StatTracker 의 PRAY/LAST/ALLIN 통계는 spin.mode 로 재구성하므로 무영향).
+                string cmdMarker = CmdMarker(mode);
+                run.CmdUses[cmdMarker] = (run.CmdUses.TryGetValue(cmdMarker, out int usedN) ? usedN : 0) + 1;
                 // WEB_PARITY P1 ①: 무료권은 "발동 성공" 시에만 소진(위에서 거부 3경로를 이미 통과한
                 // 뒤라 여기 도달 = 성공). 스테이지 클리어 리셋(StageFlow.ClearStage)은 이 필드를
                 // 건드리지 않으므로 런 끝까지 종류별 1회만 유지된다.
@@ -1681,7 +1738,30 @@ namespace JackpotRun.Engine
             run.RunPrayWins += (mode == SpinMode.Pray && (prayMiracle || newExp >= quota)) ? 1 : 0;
             run.RunUsedCmd = run.RunUsedCmd || mode != SpinMode.N;
 
-            return new SpinOutcome
+            // 재미 개편 R4 피버 게이지 충전(일반 모드 전용): 그 스핀 bestSetCount 기준(2개 +5 · 3개 +15 · 4개 +35 · 5개 +60).
+            // 피버 스핀에는 충전 없음. 100 도달 → 다음 스핀부터 FEVER_SPINS 스핀 ×FEVER_EXP_MUL(넘친 양은 버리고 게이지 0).
+            // LastFeverApplied: 재굴림/조작(DeviceActions·ItemUse)이 같은 피버 배율을 유지하는 데 쓴다(웹 lastFeverApplied).
+            run.LastFeverApplied = feverApplied;
+            if (!run.DeepMode && !feverApplied)
+            {
+                int chargeIdx = Math.Max(0, Math.Min(Formulas.FEVER_CHARGE.Length - 1, res.bestSetCount));
+                run.NFeverGauge += Formulas.FEVER_CHARGE[chargeIdx];
+                if (run.NFeverGauge >= Formulas.FEVER_MAX)
+                {
+                    run.NFeverGauge = 0; run.NFeverSpins = Formulas.FEVER_SPINS; feverTriggered = true;
+                    outcomeNotes.Add($"🔥 피버 발동! 다음 {Formulas.FEVER_SPINS}스핀 EXP ×{FmtMul(Formulas.FEVER_EXP_MUL)}");
+                }
+            }
+
+            // 웹 state().lastSpin — 마지막 스핀 요약(UI 연출이 이벤트 없이도 조회).
+            run.LastSpin = new LastSpinInfo
+            {
+                kind = "spin", mode = mode, cells = new List<Cell>(res.cells), gained = gained, score = res.score, coins = res.coins,
+                feverApplied = feverApplied, feverTriggered = feverTriggered, holdUsed = new List<int>(holdUsed),
+                encoreResult = null, bigWinTier = bigWinTier,
+            };
+
+            var outcomeOut = new SpinOutcome
             {
                 rejected = false,
                 mode = mode,
@@ -1697,7 +1777,13 @@ namespace JackpotRun.Engine
                 badSpin = badSpin,
                 prayMiracle = prayMiracle,
                 cmdCost = cmdCost,
-            }.WithNotes(outcomeNotes);
+                feverApplied = feverApplied,
+                feverTriggered = feverTriggered,
+                encoreResult = null,
+                bigWinTier = bigWinTier,
+            };
+            outcomeOut.holdUsed.AddRange(holdUsed);
+            return outcomeOut.WithNotes(outcomeNotes);
         }
 
         // 주의: 거부 outcome은 result==null, quota/spins/gained==0 — 호출측(S4 포함)은 rejected 확인 후 다른 필드에 접근 금지.

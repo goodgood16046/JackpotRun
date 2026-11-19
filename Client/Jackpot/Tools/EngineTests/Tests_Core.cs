@@ -88,21 +88,38 @@ namespace JackpotRun.EngineTests
         }
     }
 
-    // ── quota(stage) — 01_engine.md §1.1 ────────────────────────────────────────
+    // ── quota(stage, deep) — 01_engine.md §1.1 + 재미 개편 R2(FUN_OVERHAUL_DESIGN §1, 웹 engine.js quota(stage, deep)) ──
     internal static class Tests_Core_Quota
     {
-        // 기대값 산출: stage 1~15는 QUOTAS 표(01_engine.md §1.1) 그대로.
-        // stage 16+는 Kotlin quota()와 동일한 "반복 곱셈" 알고리즘(755.0에서 시작해 (stage-15)번 *1.2를
-        // 순차 곱한 뒤 0-방향 절삭)을 이 코드와는 독립된 계산기(파이썬 인터프리터, IEEE754 double 연산
-        // 순서 동일)로 재구현해 산출했다. Math.Pow 같은 거듭제곱 한방 계산은 절대 쓰지 않았다 —
-        // 반복곱과 거듭제곱은 부동소수 반올림 경로가 달라 결과가 어긋날 수 있음(§11-5).
-        // 전개 예시(16~20, 이후 21~40도 동일한 규칙으로 직전 값에 계속 *1.2):
+        // 기대값 산출(재미 개편 R2, 2026-10-28): 일반 모드 stage 1~15는 개편 표
+        // [90,105,125,145,190,200,240,285,340,400,475,560,660,780,1050] (W1 튜닝 최종값 — 설계표 대비 S5 165→190,
+        // S15 920→1050, FUN_OVERHAUL_DESIGN §5.3), stage 16+는 "반복 곱셈"(1050.0에서 시작해 (stage-15)번 ×1.25를
+        // 순차 곱한 뒤 0-방향 절삭 — 웹 Math.floor 와 동일)을 이 코드와는 독립된 계산기(파이썬 인터프리터, IEEE754 double
+        // 연산 순서 동일)로 재구현해 산출했다. Math.Pow 같은 거듭제곱 한방 계산은 절대 쓰지 않았다 — 반복곱과
+        // 거듭제곱은 부동소수 반올림 경로가 달라 결과가 어긋날 수 있음(§11-5).
+        // 전개 예시(16~20, 이후 21~40도 동일한 규칙으로 직전 값에 계속 *1.25):
+        //   stage16: 1050.0   * 1.25 = 1312.5    -> 1312
+        //   stage17: 1312.5   * 1.25 = 1640.625  -> 1640
+        //   stage18: 1640.625 * 1.25 = 2050.78125-> 2050
+        private static readonly long[] Expected =
+        {
+            /*1*/ 90, /*2*/ 105, /*3*/ 125, /*4*/ 145, /*5*/ 190, /*6*/ 200, /*7*/ 240, /*8*/ 285, /*9*/ 340, /*10*/ 400,
+            /*11*/ 475, /*12*/ 560, /*13*/ 660, /*14*/ 780, /*15*/ 1050,
+            /*16*/ 1312, /*17*/ 1640, /*18*/ 2050, /*19*/ 2563, /*20*/ 3204,
+            /*21*/ 4005, /*22*/ 5006, /*23*/ 6258, /*24*/ 7823, /*25*/ 9778,
+            /*26*/ 12223, /*27*/ 15279, /*28*/ 19099, /*29*/ 23874, /*30*/ 29842,
+            /*31*/ 37303, /*32*/ 46629, /*33*/ 58286, /*34*/ 72858, /*35*/ 91072,
+            /*36*/ 113841, /*37*/ 142301, /*38*/ 177876, /*39*/ 222346, /*40*/ 277932,
+        };
+
+        // 심화 모드(deep=true)는 개편 전 표를 그대로 보존한다(심화 밸런스 기준선 보호): stage 1~15 = 개편 전 QUOTAS,
+        // stage 16+ = 755.0에서 시작해 (stage-15)번 ×1.2 반복 곱셈 후 절삭 — 기존 골든(Kotlin quota()와 동일).
         //   stage16: 755.0    * 1.2 = 906.0     -> 906
         //   stage17: 906.0    * 1.2 = 1087.2    -> 1087
         //   stage18: 1087.2   * 1.2 = 1304.64   -> 1304
         //   stage19: 1304.64  * 1.2 = 1565.568  -> 1565
         //   stage20: 1565.568 * 1.2 = 1878.6816 -> 1878
-        private static readonly long[] Expected =
+        private static readonly long[] ExpectedDeep =
         {
             /*1*/ 110, /*2*/ 120, /*3*/ 130, /*4*/ 140, /*5*/ 150, /*6*/ 170, /*7*/ 200, /*8*/ 235, /*9*/ 280, /*10*/ 330,
             /*11*/ 390, /*12*/ 460, /*13*/ 540, /*14*/ 640, /*15*/ 755,
@@ -116,11 +133,17 @@ namespace JackpotRun.EngineTests
         public static void Run(TestCtx t)
         {
             for (int stage = 1; stage <= 40; stage++)
+            {
                 t.Eq(Expected[stage - 1], Formulas.Quota(stage), $"quota(stage={stage})");
+                t.Eq(Expected[stage - 1], Formulas.Quota(stage, false), $"quota(stage={stage}, deep=false)");
+                t.Eq(ExpectedDeep[stage - 1], Formulas.Quota(stage, true), $"quota(stage={stage}, deep=true) 개편 전 표 보존");
+            }
 
-            // 경계: stage<=0 은 QUOTAS[0]=110 폴백 (01_engine.md 부록A-12, i<0 분기).
-            t.Eq(110L, Formulas.Quota(0), "quota(stage=0) fallback");
-            t.Eq(110L, Formulas.Quota(-5), "quota(stage=-5) fallback");
+            // 경계: stage<=0 은 표[0] 폴백 (01_engine.md 부록A-12, i<0 분기) — 일반 90 / 심화 110.
+            t.Eq(90L, Formulas.Quota(0), "quota(stage=0) fallback");
+            t.Eq(90L, Formulas.Quota(-5), "quota(stage=-5) fallback");
+            t.Eq(110L, Formulas.Quota(0, true), "quota(stage=0, deep) fallback");
+            t.Eq(110L, Formulas.Quota(-5, true), "quota(stage=-5, deep) fallback");
         }
     }
 
@@ -382,13 +405,13 @@ namespace JackpotRun.EngineTests
             t.Eq(4, Bosses.Count, "Bosses.Count");
             t.Eq(4, Bosses.All.Length, "Bosses.All.Length");
 
-            AssertBoss(t, 0, "finals", "📝", "기말고사", "스핀+1·요구↑ · 막스핀 EXP ×2 · 첫스핀 -10%",
-                1, 1.0, new[] { "막판형(복습·벼락치기)", "⏰최후" });
-            AssertBoss(t, 1, "strict", "👨‍🏫", "꼰대교수", "스핀+1·요구↑ · 같은심볼 3개↑ 없는 스핀 ×0.5",
+            AssertBoss(t, 0, "finals", "📝", "기말고사", "스핀+1 · 요구치 ×1.15 · 막스핀 EXP ×2 · 첫스핀 -10%",
+                1, 1.15, new[] { "막판형(복습·벼락치기)", "⏰최후" });
+            AssertBoss(t, 1, "strict", "👨‍🏫", "꼰대교수", "스핀+1 · 같은심볼 3개↑ ×1.15 / 없으면 ×0.75",
                 1, 1.0, new[] { "세트·콤보(자석·체리)", "📌고정·📑복사" });
-            AssertBoss(t, 2, "luck", "🎲", "운빨심판관", "스핀+1·요구↑ · ⭐👑🌀 있으면 ×1.8/없으면 ×0.8",
+            AssertBoss(t, 2, "luck", "🎲", "운빨심판관", "스핀+1 · ⭐👑🌀 있으면 ×1.8 / 없으면 ×0.8",
                 1, 1.0, new[] { "⭐👑🌀 등장↑", "🔮예언·🎲올인" });
-            AssertBoss(t, 3, "grad", "🎓", "졸업심사", "스핀+1·요구↑↑ (빡센 관문)",
+            AssertBoss(t, 3, "grad", "🎓", "졸업심사", "스핀+1 · 요구치 ×1.15 (빡센 관문)",
                 1, 1.15, new[] { "EXP 총량(과부하·탐욕)", "🚑응급처치·아이템" });
 
             // 순환: ((stage/5)-1) % 4 — stage 5,10,15,20 -> finals,strict,luck,grad ; 25 -> finals(순환 재시작).
@@ -406,6 +429,10 @@ namespace JackpotRun.EngineTests
             t.Eq(1, Bosses.Spins(5), "Bosses.Spins(5)");
             t.Eq(0, Bosses.Spins(4), "Bosses.Spins(4) non-boss -> 0");
             t.EqTol(1.15, Bosses.QuotaMulFor(20), "Bosses.QuotaMulFor(20) grad");
+            // 재미 개편 R1: finals(기말고사) quotaMul 1.0 → 1.15, strict/luck 는 1.0 유지.
+            t.EqTol(1.15, Bosses.QuotaMulFor(5), "Bosses.QuotaMulFor(5) finals — R1 1.15");
+            t.EqTol(1.0, Bosses.QuotaMulFor(10), "Bosses.QuotaMulFor(10) strict");
+            t.EqTol(1.0, Bosses.QuotaMulFor(15), "Bosses.QuotaMulFor(15) luck");
             t.EqTol(1.0, Bosses.QuotaMulFor(4), "Bosses.QuotaMulFor(4) non-boss -> 1.0");
         }
 

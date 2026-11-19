@@ -12,10 +12,29 @@ export const C = {
   // 특수 스핀명령 코인 비용 (engine.cmdCoinCost). 0=일반 스핀(무료) 유지·보스 +1·상한 5.
   CMD_COST_FOCUS: 1, CMD_COST_LAST: 2, CMD_COST_PRAY: 3, CMD_COST_ALLIN: 4,
   CMD_COST_BOSS_SURCHARGE: 1, CMD_COST_MAX: 5,
+  // ── 재미 개편(FUN_OVERHAUL R2~R6, 2026-10-28) — 일반 모드 전용 신규 시스템 상수(심화 모드 무영향) ──
+  //  R2 요구치 성장률(S16+): 일반 ×1.25/스테이지, 심화 ×1.2(기존 보존).
+  QUOTA_GROWTH: 1.25, QUOTA_GROWTH_DEEP: 1.2,
+  //  R3 홀드: 스테이지 시작 충전 수·동시에 잡을 수 있는 최대 칸.
+  HOLD_START_CHARGES: 1, HOLD_MAX: 2,
+  //  R4 피버 게이지(일반 모드): 스핀 bestSetCount(0~5) → 충전량. 100 도달 시 FEVER_SPINS 스핀 동안 최종 EXP ×FEVER_EXP_MUL.
+  FEVER_CHARGE: [0, 0, 5, 15, 35, 60], FEVER_MAX: 100, FEVER_SPINS: 3, FEVER_EXP_MUL: 1.5,
+  //  R5 앵콜(클리어 점수 더블업): 판돈 = 이번 스테이지 클리어 점수(고정 상수 없음)·성공 k번째 팟 배율 = 1 + STEP×k·BUST 조건(페어 미만 / 해골 N개↑).
+  ENCORE_STEP: 0.5, ENCORE_BUST_SKULLS: 2, ENCORE_MIN_SET: 2,
+  //  R6 특수스핀: 올인 배율·실패 해골 수 / 집중 하한 페이스 비율 / 누진 비용(같은 스테이지 n번째 = 기본×(1+STEP×(n-1))).
+  ALLIN_MUL: 2.5, ALLIN_FAIL_SKULLS: 1, FOCUS_FLOOR: 0.8, CMD_COST_STEP: 1,
+  //  R6 보조릴(dev_subreel) 최종 EXP 배율.
+  SUBREEL_EXP_MUL: 0.85,
+  //  F1 빅윈 티어 임계(스핀 EXP ÷ 페이스): NICE / BIG / MEGA.
+  BIGWIN_TIERS: [2, 3, 5],
 };
 
-// 스테이지별 요구 EXP. 15 이후 ×1.2.
-export const QUOTAS = [110, 120, 130, 140, 150, 170, 200, 235, 280, 330, 390, 460, 540, 640, 755];
+// 스테이지별 요구 EXP. 일반 모드(R2 개편): 15 이후 ×C.QUOTA_GROWTH(1.25).
+//  W1 튜닝(R8, FUN_OVERHAUL_DESIGN §5): 설계표 [..,165(S5),..,920(S15)] 에서 S5 165→190(입문용 첫 보스·곡선 단조 유지),
+//  S15 920→1050(졸업 보스 80~92%·졸업률 25~35%) 만 변경. 나머지 13개 값은 설계표 그대로.
+export const QUOTAS = [90, 105, 125, 145, 190, 200, 240, 285, 340, 400, 475, 560, 660, 780, 1050];
+// 심화 모드는 개편 전 표 그대로 보존(심화 밸런스·하니스 기준선 보호). 15 이후 ×C.QUOTA_GROWTH_DEEP(1.2).
+export const QUOTAS_DEEP = [110, 120, 130, 140, 150, 170, 200, 235, 280, 330, 390, 460, 540, 640, 755];
 
 // 같은 값심볼 N개 세트 보너스 (index = 개수 0~5)
 export const SET_EXP = [0, 0, 8, 18, 42, 100];
@@ -135,8 +154,8 @@ export const VALUE_IDS = new Set(["cherry", "star", "book", "gem", "crown"]);
 
 // ── 보스 (5스테이지마다 순환) ─────────────────────────────────────────
 export const BOSSES = [
-  { id: "finals", e: "📝", n: "기말고사", desc: "스핀+1 · 막스핀 EXP ×2 · 첫스핀 -10%", bonusSpins: 1, quotaMul: 1.0, counter: ["막판형(복습·벼락치기)", "⏰최후"] },
-  { id: "strict", e: "👨‍🏫", n: "꼰대교수", desc: "스핀+1 · 같은심볼 3개↑ 없으면 ×0.5", bonusSpins: 1, quotaMul: 1.0, counter: ["세트·콤보(자석·체리)", "📌고정·📑복사"] },
+  { id: "finals", e: "📝", n: "기말고사", desc: "스핀+1 · 요구치 ×1.15 · 막스핀 EXP ×2 · 첫스핀 -10%", bonusSpins: 1, quotaMul: 1.15, counter: ["막판형(복습·벼락치기)", "⏰최후"] },
+  { id: "strict", e: "👨‍🏫", n: "꼰대교수", desc: "스핀+1 · 같은심볼 3개↑ ×1.15 / 없으면 ×0.75", bonusSpins: 1, quotaMul: 1.0, counter: ["세트·콤보(자석·체리)", "📌고정·📑복사"] },
   { id: "luck", e: "🎲", n: "운빨심판관", desc: "스핀+1 · ⭐👑🌀 있으면 ×1.8 / 없으면 ×0.8", bonusSpins: 1, quotaMul: 1.0, counter: ["⭐👑🌀 등장↑", "🔮예언·🎲올인"] },
   { id: "grad", e: "🎓", n: "졸업심사", desc: "스핀+1 · 요구치 ×1.15 (빡센 관문)", bonusSpins: 1, quotaMul: 1.15, counter: ["EXP 총량(과부하·탐욕)", "🚑응급처치·아이템"] },
 ];
@@ -200,7 +219,7 @@ export const DEVICES = [
   { id: "dev_seal", e: "🔒", n: "봉인장막", cmd: null, d: "☠해골 미등장·EXP +5%", kind: "PASSIVE", needsArg: false, rare: false },
   { id: "dev_safe", e: "🦺", n: "안전벨트", cmd: null, d: "최소 EXP 보장(폭망 방지)", kind: "PASSIVE", needsArg: false, rare: false },
   { id: "dev_overheat", e: "♨️", n: "과열코어", cmd: null, d: "EXP +18%·☠해골 +1 (고위험)", kind: "PASSIVE", needsArg: false, rare: true },
-  { id: "dev_subreel", e: "➕", n: "보조릴", cmd: null, d: "항상 6칸 슬롯·최종 EXP -30%", kind: "PASSIVE", needsArg: false, rare: true },
+  { id: "dev_subreel", e: "➕", n: "보조릴", cmd: null, d: "항상 6칸 슬롯·최종 EXP -15%", kind: "PASSIVE", needsArg: false, rare: true },
   { id: "dev_coin", e: "🪙", n: "코인투입구", cmd: "투입", d: "코인5 → 다음 스핀 EXP +30%", kind: "ARMED", needsArg: false, rare: false },
   { id: "dev_reroll", e: "🔄", n: "재굴림기", cmd: "재굴림", d: "직전 스핀 다시 굴림 (점수 -10%)", kind: "MANIP", needsArg: false, rare: false },
   { id: "dev_pin", e: "📌", n: "고정핀", cmd: "고정", d: "N번 칸 유지·나머지 재굴림", kind: "MANIP", needsArg: true, rare: false },

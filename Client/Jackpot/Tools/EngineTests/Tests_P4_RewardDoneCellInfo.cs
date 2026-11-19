@@ -118,25 +118,27 @@ namespace JackpotRun.EngineTests
         public static void Run(TestCtx t)
         {
             // stage=1, novice(quotaMul×0.92), 퍽/저주/장치 없음, 보스 아님.
-            // Formulas.Quota(1)=110. QuotaMulFor(1)=1.0(비보스). prop=1.0(bsp=0). quota=(long)(110*0.92)=101.
+            // 재미 개편 R2(2026-10-28): Formulas.Quota(1)=90(개편 표). QuotaMulFor(1)=1.0(비보스).
+            // quota=(long)(90*0.92)=(long)82.8=82.
             // SpinsPerStage=5(bonusSpins=0). Bosses.Spins(1)=0. EffSpins=max(5+0+0,3)=5.
             var run1 = S4TestHelpers.NewRun(10L, "novice", "basic", "");
             run1.Stage = 1;
             var np1 = RewardDoneView.NextPreview(run1);
             t.Eq(1, np1.stage, "[preview:s1] stage");
-            t.Eq(101L, np1.quota, "[preview:s1] quota 손계산(110×0.92=101.2→101)");
+            t.Eq(82L, np1.quota, "[preview:s1] quota 손계산(90×0.92=82.8→82)");
             t.Eq(5, np1.spins, "[preview:s1] spins");
             t.Eq("", np1.bossId, "[preview:s1] 비보스 스테이지 → bossId 빈 문자열");
 
             // stage=5(보스 "finals" — (5/5-1)%4=0), novice, 퍽 없음.
-            // Formulas.Quota(5)=150. finals quotaMul=1.0. baseSpins=5, bsp=Bosses.Spins(5)=1(finals bonusSpins).
-            // prop=(5+1)/5=1.2. quota=(long)(150*0.92*1.0*1.2)=(long)165.6=165.
+            // 재미 개편 R1·R2: Formulas.Quota(5)=190(W1 튜닝 표). finals quotaMul=1.15(R1). baseSpins=5,
+            // 보스 스핀 +1(finals bonusSpins)은 요구치와 무관(2026-10-28 옛 prop=(5+1)/5 ×1.2 제거 — 웹 game.js:423 공식).
+            // quota=(long)(190*0.92*1.15)=(long)201.02=201.
             // EffSpins=max(5+0+1,3)=6.
             var run5 = S4TestHelpers.NewRun(11L, "novice", "basic", "");
             run5.Stage = 5;
             var np5 = RewardDoneView.NextPreview(run5);
             t.Eq(5, np5.stage, "[preview:s5] stage");
-            t.Eq(165L, np5.quota, "[preview:s5] quota 손계산(150×0.92×1.2=165.6→165)");
+            t.Eq(201L, np5.quota, "[preview:s5] quota 손계산(190×0.92×1.15=201.02→201)");
             t.Eq(6, np5.spins, "[preview:s5] spins(기본5+보스+1)");
             t.Eq("finals", np5.bossId, "[preview:s5] 보스 id=finals(순환 인덱스 0)");
         }

@@ -1,6 +1,7 @@
 // ── 잭팟 슬롯 — 절차적 사운드 (Web Audio, 외부 파일 없음·오프라인 OK) ──
 // 효과음(SFX)과 가벼운 배경음(BGM)을 오실레이터/노이즈로 합성. 음원 자산 불필요.
 let ctx = null, master = null, enabled = true, bgmOn = false, bgmTimer = null, bgmStep = 0, vol = 0.7;
+let feverMode = false;   // F5: 피버 중 — BGM 템포·피치 업, 효과음 피치 소폭 업
 try { const sv = localStorage.getItem("slotweb_vol"); if (sv != null) { const p = parseFloat(sv); if (p >= 0 && p <= 1) vol = p; } } catch (e) {}
 
 function init() {
@@ -17,13 +18,18 @@ export function setEnabled(on) { enabled = !!on; if (!on) bgmStop(); }
 export function isEnabled() { return enabled; }
 export function setVolume(v) { vol = Math.max(0, Math.min(1, +v || 0)); if (master) master.gain.value = vol; try { localStorage.setItem("slotweb_vol", String(vol)); } catch (e) {} }
 export function getVolume() { return vol; }
+// F5 피버 모드 on/off — 켜면 BGM 템포(230→170ms)·피치(×1.12)와 효과음 피치(×1.05)가 올라간다.
+export function setFever(on) { feverMode = !!on; }
+const sfxPitch = () => (feverMode ? 1.05 : 1);
 
+let pitchMul = 1;   // sfx()/bgm tick 이 호출 직전에 설정(피버 피치 업)
 function tone(freq, dur, type, vol, when, slideTo) {
   const c = init(); if (!c || !enabled) return; resume();
   const t = c.currentTime + (when || 0);
   const o = c.createOscillator(), g = c.createGain();
-  o.type = type || "sine"; o.frequency.setValueAtTime(freq, t);
-  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+  const pm = pitchMul;
+  o.type = type || "sine"; o.frequency.setValueAtTime(freq * pm, t);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo * pm, t + dur);
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(vol || 0.2, t + 0.008);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
@@ -43,8 +49,12 @@ function noise(dur, vol, when, filterFreq) {
 }
 
 const PENTA = [523.25, 587.33, 659.25, 783.99, 880];   // C D E G A
-export function sfx(name) {
+export function sfx(name, arg) {
   if (!enabled) return;
+  pitchMul = sfxPitch();
+  try { sfxInner(name, arg); } finally { pitchMul = 1; }
+}
+function sfxInner(name, arg) {
   switch (name) {
     case "tap": tone(660, 0.05, "triangle", 0.1); break;
     case "select": tone(587, 0.07, "triangle", 0.13); tone(880, 0.1, "triangle", 0.12, 0.05); break;
@@ -62,6 +72,19 @@ export function sfx(name) {
     case "boss": tone(110, 0.5, "sawtooth", 0.13, 0, 90); tone(165, 0.5, "sawtooth", 0.09, 0.1); break;
     case "error": tone(170, 0.16, "sawtooth", 0.12, 0, 120); break;
     case "gameover": [392, 330, 262, 196].forEach((f, i) => tone(f, 0.3, "triangle", 0.14, i * 0.16)); break;
+    // ── 재미 개편(F1~F9) 효과음 ──
+    case "hold": tone(420, 0.05, "square", 0.1); tone(300, 0.07, "square", 0.09, 0.045); break;                     // 자물쇠 철컥
+    case "antic": tone(330, 0.55, "sawtooth", 0.05, 0, 880); noise(0.5, 0.03, 0, 2400); break;                        // F7 기대감 — 상승 휘파람
+    case "nearmiss": tone(392, 0.12, "triangle", 0.1); tone(262, 0.22, "triangle", 0.1, 0.1); break;                  // F7 니어미스 — 아쉬운 하강
+    case "bigwin1": [659, 784, 988].forEach((f, i) => tone(f, 0.16, "triangle", 0.15, i * 0.07)); break;                // NICE
+    case "bigwin2": [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, 0.22, "triangle", 0.17, i * 0.07)); noise(0.3, 0.06, 0.2, 3000); break;   // BIG
+    case "bigwin3": [523, 659, 784, 1046, 1318, 1568, 2093].forEach((f, i) => tone(f, 0.3, "triangle", 0.19, i * 0.065)); tone(130.8, 0.8, "sawtooth", 0.09, 0); tone(2093, 0.6, "sine", 0.13, 0.45); noise(0.7, 0.09, 0.3, 3600); break;   // MEGA
+    case "fever": tone(196, 0.5, "sawtooth", 0.1, 0, 392); [392, 523, 659, 784, 1046].forEach((f, i) => tone(f, 0.2, "square", 0.1, 0.12 + i * 0.07)); noise(0.5, 0.1, 0.1, 1800); break;   // F5 피버 점화
+    case "clutch": tone(784, 0.1, "triangle", 0.17); tone(1046, 0.1, "triangle", 0.17, 0.08); tone(1568, 0.3, "triangle", 0.18, 0.16); tone(98, 0.3, "sawtooth", 0.09, 0); break;
+    case "lastspin": tone(98, 0.14, "sine", 0.16); tone(98, 0.14, "sine", 0.16, 0.2); noise(0.18, 0.04, 0, 300); break;   // 심장박동
+    case "encoreup": { const k = Math.max(1, Math.min(6, arg || 1)); const base = 523.25 * Math.pow(1.0595, k * 2); [0, 4, 7, 12].forEach((st, i) => tone(base * Math.pow(1.0595, st), 0.18, "triangle", 0.16, i * 0.07)); break; }   // 앵콜 성공 — k 가 클수록 높아짐
+    case "bust": noise(0.45, 0.18, 0, 400); tone(196, 0.4, "sawtooth", 0.13, 0, 55); tone(65, 0.5, "square", 0.1, 0.12, 40); break;   // 앵콜 BUST — 깨지는 소리
+    case "levelup": [523, 659, 784, 1046, 1318, 1568].forEach((f, i) => tone(f, 0.28, "triangle", 0.17, i * 0.09)); tone(2093, 0.5, "sine", 0.12, 0.5); break;
   }
 }
 
@@ -72,13 +95,17 @@ export function bgmStart() {
   const bass = [130.81, 130.81, 174.61, 196.00];   // C C F G
   const tick = () => {
     if (!bgmOn || !enabled) { bgmOn = false; return; }
-    const note = PENTA[(bgmStep * 3) % PENTA.length] / 2;
-    tone(note, 0.3, "triangle", 0.045);
-    if (bgmStep % 4 === 0) tone(bass[((bgmStep / 4) | 0) % bass.length], 0.62, "sine", 0.05);
+    pitchMul = feverMode ? 1.12 : 1;   // F5: 피버 중 BGM 피치 업(장2도)
+    try {
+      const note = PENTA[(bgmStep * 3) % PENTA.length] / 2;
+      tone(note, 0.3, "triangle", 0.045);
+      if (bgmStep % 4 === 0) tone(bass[((bgmStep / 4) | 0) % bass.length], 0.62, "sine", 0.05);
+      if (feverMode && bgmStep % 2 === 1) tone(PENTA[(bgmStep * 2 + 1) % PENTA.length], 0.12, "square", 0.025);   // 피버 중 가벼운 8분 장식음
+    } finally { pitchMul = 1; }
     bgmStep++;
-    bgmTimer = setTimeout(tick, 230);
+    bgmTimer = setTimeout(tick, feverMode ? 170 : 230);   // F5: 피버 중 템포 업
   };
   tick();
 }
-export function bgmStop() { bgmOn = false; if (bgmTimer) { clearTimeout(bgmTimer); bgmTimer = null; } }
+export function bgmStop() { bgmOn = false; feverMode = false; if (bgmTimer) { clearTimeout(bgmTimer); bgmTimer = null; } }
 export function bgmActive() { return bgmOn; }

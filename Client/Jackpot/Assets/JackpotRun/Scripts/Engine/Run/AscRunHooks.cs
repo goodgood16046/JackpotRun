@@ -28,16 +28,24 @@ namespace JackpotRun.Engine
         public static void ApplyRunAscMods(Mods mods, RunState run)
         {
             if (mods == null || run == null) return;
-            int a = run.Asc;
+            ApplyRunAscMods(mods, run.Asc, run.BannedSym);
+        }
+
+        // 재미 개편 R5 앵콜용 오버로드 — 앵콜 스핀은 "방금 클리어한 스테이지"의 금지 심볼(클리어 시점 스냅샷,
+        // RunState.EncoreBannedSym)로 굴려야 하는데 run.BannedSym 은 이미 다음 스테이지 값으로 재롤돼 있다.
+        public static void ApplyRunAscMods(Mods mods, int asc, string bannedSym)
+        {
+            if (mods == null) return;
+            int a = asc;
             if (a <= 0) return;
             if (a >= 2)
             {
                 mods.weightAdd.TryGetValue(Sym.Skull, out var cur);
                 mods.weightAdd[Sym.Skull] = cur + 0.5 * (a - 1);
             }
-            if (a >= 8 && !string.IsNullOrEmpty(run.BannedSym))
+            if (a >= 8 && !string.IsNullOrEmpty(bannedSym))
             {
-                var info = Symbols.ById(run.BannedSym);
+                var info = Symbols.ById(bannedSym);
                 if (info != null) mods.symbolWeightMul[info.sym] = 0.0;
             }
         }

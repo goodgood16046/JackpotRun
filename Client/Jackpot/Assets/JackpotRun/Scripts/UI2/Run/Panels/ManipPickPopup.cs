@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using JackpotRun.Data;
 using JackpotRun.Engine;
 using UnityEngine;
 using UnityEngine.UI;
@@ -48,7 +49,11 @@ namespace JackpotRun.UI2
 
             bool firstShow = !gameObject.activeSelf;
             gameObject.SetActive(true);
-            if (headText != null) headText.text = $"{dev.emoji} {dev.name} — 칸 선택";
+            // FUN_OVERHAUL_DESIGN §3 — 장치 그림이 있으면 제목 왼쪽 아이콘(이모지 대신), 없으면 기존 그대로.
+            var devSprite = JackpotCatalog.LoadSprite(JackpotCatalog.Get(dev.id));
+            if (headText != null)
+                headText.text = devSprite != null ? $"{dev.name} — 칸 선택" : $"{dev.emoji} {dev.name} — 칸 선택";
+            IconKit.SetHeadIcon(headText, "HeadIcon", devSprite, 72f, 40f);
             if (descText != null) descText.text = dev.desc;
 
             // Opus 2차검수 LOW③(2026-08-09) — 칸 수 소스를 LastCellsFinal(웹 r.lastCells 대응, 화면에

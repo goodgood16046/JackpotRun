@@ -38,7 +38,8 @@
 ## 밸런스 정답지 — ★2026-08-07 전환: `public/play/` 가 최신 원본
 
 **Unity 앱은 웹 단독판(`public/play/`)과 동일하게 개편 중이다** — 마스터 플랜과 페이즈별 진행
-상황은 [Docs/WEB_PARITY_DESIGN.md](Docs/WEB_PARITY_DESIGN.md). 규칙·콘텐츠·흐름이 충돌하면
+상황은 [Docs/WEB_PARITY_DESIGN.md](Docs/WEB_PARITY_DESIGN.md). **2026-10-28 재미 개편**(홀드·피버·앵콜·보스/요구치 곡선·특수스핀
+재설계, 양판 공통)은 [Docs/FUN_OVERHAUL_DESIGN.md](Docs/FUN_OVERHAUL_DESIGN.md). 규칙·콘텐츠·흐름이 충돌하면
 **웹 단독판 채택이 기본**(예외는 그 문서 §2 결정 로그에 명시).
 
 `kotlin-reference/`(구버전 v2 Kotlin 스냅샷)는 웹에 없는 세부가 모호할 때의 참고로 강등.
@@ -60,13 +61,13 @@ JackpotRun/
 ├─ public/            # 웹 클라이언트 (Firebase Hosting 배포 대상)
 │  ├─ play/           # ★ 브라우저 단독 웹게임 (JS 엔진 내장, 백엔드 불필요)
 │  ├─ jackpotpick/    # 시작 조합 선택 화면 (뷰어)
-│  ├─ jackpotdex/     # 도감/진행도 (뷰어, img/*.png ×290)
+│  ├─ jackpotdex/     # 도감/진행도 (뷰어, img/*.png ×468 — play/ 도 이 그림을 쓴다)
 │  └─ ranking/        # 글로벌 랭킹 보드 (jackpotrank 읽기)
 ├─ tools/             # 이미지 생성 스크립트 (배포 대상 아님)
 ├─ kotlin-reference/  # ★ 구버전 엔진 스냅샷 (읽기 전용 — 확률·공식의 정답지)
 └─ unity-assets/      # ★ 카탈로그·아트 원본 데이터 (배포 대상 아님)
    ├─ manifest.json   # 294건 — 이름·효과·등급·가격·해금조건·큐레이션 메타
-   ├─ prompts.json    # 290장 각각의 AI 생성 프롬프트
+   ├─ prompts.json    # 기존 290장 각각의 AI 생성 프롬프트(2026-10-28 신규 178장은 Docs/FUN_OVERHAUL_DESIGN.md §3)
    └─ Sprites/<카테고리>/*.png
 ```
 
@@ -74,9 +75,13 @@ JackpotRun/
 
 - `manifest.json` 의 `entries[]` 294건. **`id` 가 스프라이트 파일명과 1:1** → `Resources.Load<Sprite>` 키로 그대로 사용.
 - 카테고리 8개: 캐릭터16 · 슬롯머신16 · 장치16 · 증강80 · 유물61 · 저주16 · 아이템73 · 업적16
-- 이미지 **290장, 전부 256×256 PNG, 불투명 배경(누끼 아님)**. 확대하면 뭉개진다.
+- **2026-10-28 힉스필드 신규 178장**(manifest 밖): 신규 콘텐츠(캐릭3·머신3·장치16·증강9·유물12·아이템5·업적18) +
+  신규 폴더 `Symbols`(sym_ 72, **투명 배경** 릴 심볼) · `SymAugments`(symaug_<퍽id> 21) · `SymRelics`(symrel_<퍽id> 15) ·
+  `Bosses`(boss_ 4). 유니티는 `JackpotCatalog` 합성 항목의 규칙 경로(`SpritePathOf`)로, 웹은 `public/play/art_index.js`
+  (`node tools/gen_art_index.mjs` 로 재생성)로 찾는다. **그림을 추가/삭제하면 art_index 를 다시 생성할 것.**
+- 이미지 **468장, 전부 256×256 PNG**. 심볼(sym_)만 투명 배경, 나머지는 불투명(누끼 아님). 확대하면 뭉개진다.
   고해상도가 필요하면 `prompts.json` 프롬프트로 재생성(외부 요청 발생).
-- **장치 4종은 원래부터 아트가 없다**: `dev_holdfile` · `dev_major` · `dev_retake` · `dev_syllabus` → 이모지 폴백.
+- 장치 4종(`dev_holdfile` · `dev_major` · `dev_retake` · `dev_syllabus`)은 manifest 에 그림이 없었지만 2026-10-28 신규 그림이 생겼다(catalog `spritePath` 는 비어 있고 `LoadSprite` 가 규칙 경로로 폴백).
 - `Sprites/` 의 PNG 는 `public/jackpotdex/img/` 와 같은 파일이다. **한쪽만 고치면 갈라진다** — 양쪽 다 갱신할 것.
 
 ## `public/play/` — 브라우저 단독 웹게임 (★ 얇은 클라이언트 아님)

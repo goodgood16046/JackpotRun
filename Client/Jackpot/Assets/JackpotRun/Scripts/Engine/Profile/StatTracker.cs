@@ -37,7 +37,7 @@ namespace JackpotRun.Engine
     //     jackpots (bumpAch 위치인자 jackpot, 전용 컬럼)               inc 1 (jackpotSym!=null, L645/679)
     //     crownJackpots                                              inc 1 (jackpotSym=="crown", L669)
     //     wildJackpots                                               inc 1 (잭팟 && 와일드 포함, L670)
-    //     allinBusts                                                 inc 1 (ALLIN && skulls>=2, L672)
+    //     allinBusts                                                 inc 1 (ALLIN && skulls>=ALLIN_FAIL_SKULLS — 재미 개편 R6: 구 2개↑ → 1개↑)
     //     maxSkullSpin/maxCoinSpin/maxCherrySpin/maxBookSpin/         setMax(이번 스핀 등장수, n>0, L674-678)
     //       maxGemSpin
     //
@@ -439,7 +439,7 @@ namespace JackpotRun.Engine
             if (res.jackpotSym != null) p.Inc("jackpots"); // bumpAch 위치인자 jackpot (전용 컬럼, L679)
             if (res.jackpotSym == "crown") p.Inc("crownJackpots");
             if (res.jackpotSym != null && res.cells.Any(c => c.sym.special == Sp.WILD)) p.Inc("wildJackpots");
-            if (spin.mode == SpinMode.Allin && res.skulls >= 2) p.Inc("allinBusts");
+            if (spin.mode == SpinMode.Allin && res.skulls >= Formulas.ALLIN_FAIL_SKULLS) p.Inc("allinBusts"); // 올인 실패 조건과 동일(재미 개편 R6)
 
             for (int i = 0; i < MaxSpinSymbolIds.Length; i++)
             {

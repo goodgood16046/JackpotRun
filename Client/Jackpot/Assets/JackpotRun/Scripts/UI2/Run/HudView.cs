@@ -1,5 +1,6 @@
 using System.Collections;
 using JackpotRun.Core;
+using JackpotRun.Data;
 using JackpotRun.Engine;
 using UnityEngine;
 using UnityEngine.UI;
@@ -73,7 +74,18 @@ namespace JackpotRun.UI2
         // 텍스트만 비움" 관례를 쓰지만 이 바는 트랙 자체가 배경색 있는 그래픽이라 빈 칸이 더 도드라짐).
         [SerializeField] private RectTransform feverBarFill; // anchorMax.x = 게이지 비율(0~1). 발동 중엔 100% 고정.
 
-        private string _shownBossId; // 마지막으로 배너를 띄운 보스 id(null=아직 없음/보스 아님) — 재진입 배너 중복 방지
+        // FUN_OVERHAUL_DESIGN §3 — 보스 그림(Resources/.../Bosses/boss_<id>.png). 씬에 슬롯이 없어 런타임에
+        // 지연 생성한다(씬 리빌드 불필요). 그림이 없으면 아무것도 만들지 않아 기존 화면 그대로.
+        private const float BossStageIconSize = 40f;   // HUD 윗줄(높이 44) 안에 들어가는 크기
+        private const float BossBannerIconSize = 76f;  // 보스 진입 배너(높이 96) 왼쪽 아이콘
+        private Image _bossStageIcon;
+
+        private string _shownBossId; // 마지막으로 "진입 연출"(배너·비네트·셰이크)을 낸 보스 id(null=아직 없음/보스 아님) — 재진입 중복 방지
+        private string _staticBossId; // 마지막으로 "정적 표시"(불꽃 루프)를 반영한 보스 id — 진입 연출 추적과 분리
+
+        /// <summary>RunView 가 건다 — 이번 보스 진입에 전면 인트로 카드(RunFxLayer)가 뜨면 true. 그러면 HUD 상단 배너는 생략한다
+        /// (카드와 중복). 튜토리얼 중처럼 카드가 안 뜨는 경우만 HUD 배너를 유지한다.</summary>
+        public System.Func<bool> BossIntroCardWillShow;
         private int _lastCurseCount = -1; // -1=미초기화(첫 표시에는 플래시하지 않는다)
         private Coroutine _expRoutine;
         private Coroutine _expPulseRoutine;
@@ -116,6 +128,14 @@ namespace JackpotRun.UI2
             RefreshUnluckyGauge(run.UnluckyGauge, false);
             RefreshBossState(run);
             RefreshDeepStatus(run);
+        }
+
+        /// <summary>코인/점수 라벨만 즉시 갱신 — 앵콜 스핀/정산(NodePanel 안에서 처리돼 PlayRoutine 을 타지 않는다) 직후 HUD 가 실제 값을 따라가게 한다.</summary>
+        public void RefreshCurrency(RunState run)
+        {
+            if (run == null) return;
+            if (coinsText != null) coinsText.text = $"코인 {NumberFormat.Comma(run.Coins)}";
+            if (scoreText != null) scoreText.text = $"점수 {NumberFormat.Comma(run.Score)}";
         }
 
         /// <summary>스핀 등으로 EXP/코인/점수/저주/스핀수가 바뀌었을 때 — EXP 바만 0.3s 트윈, 나머지는 즉시.</summary>
@@ -439,24 +459,24 @@ namespace JackpotRun.UI2
         private void RefreshBossState(RunState run)
         {
             var boss = Bosses.For(run.Stage);
+            var bossSprite = boss != null ? JackpotCatalog.LoadBossSprite(boss.id) : null;
             if (stageText != null)
-                stageText.text = boss != null ? $"스테이지 {run.Stage} · {boss.emoji}{boss.name}" : $"스테이지 {run.Stage}";
+            {
+                // 보스 그림이 있으면 이모지(astral 은 어차피 미표시) 대신 아이콘이 이름 왼쪽에 붙는다.
+                string bossLabel = boss == null ? "" : (bossSprite != null ? boss.name : $"{boss.emoji}{boss.name}");
+                stageText.text = boss != null ? $"스테이지 {run.Stage} · {bossLabel}" : $"스테이지 {run.Stage}";
+            }
+            RefreshBossStageIcon(bossSprite);
 
             if (hudOutline != null) hudOutline.enabled = boss != null;
 
             string bossId = boss?.id;
-            if (bossId != _shownBossId)
-            {
-                _shownBossId = bossId;
-                if (boss != null)
-                {
-                    PlayBossBanner(boss);
-                    StartCoroutine(BossVignettePulse());
-                    PlayScreenShake(BossEntryShakeAmplitude, BossEntryShakeDuration);
-                }
 
-                // S7c 연출 훅: "보스 스테이지 Boss 루프(스테이지 종료 시 Stop)" — HUD 영역(자기 자신의
-                // RectTransform, hudRoot에 붙어 있다) 기준으로 재생.
+            // ── 정적 표시: 보스 스테이지 동안 유지되는 불꽃 루프(HUD 영역) — 스테이지 종료 시 Stop. 라벨/아이콘/테두리는 위에서 이미 반영.
+            if (bossId != _staticBossId)
+            {
+                _staticBossId = bossId;
+                // S7c 연출 훅: "보스 스테이지 Boss 루프(스테이지 종료 시 Stop)" — HUD 영역(자기 자신의 RectTransform, hudRoot에 붙어 있다) 기준.
                 if (boss != null && _bossFx == null) _bossFx = FxKit.I?.PlayLoop(FxId.Boss, (RectTransform)transform);
                 else if (boss == null && _bossFx != null)
                 {
@@ -464,6 +484,55 @@ namespace JackpotRun.UI2
                     _bossFx = null;
                 }
             }
+
+            // ── 진입 연출(배너·적색 비네트·셰이크): 스테이지가 실제로 시작되는 Spin/PostSpin 에서만. C# 엔진은 클리어 즉시 run.Stage 를 다음
+            //    스테이지로 올리므로(NodeSelect 동안 이미 다음 스테이지) 그 시점에 내면 클리어 스핀/클리어 보드 위에 보스 배너가 뜬다 —
+            //    Phase 가 Spin/PostSpin 으로 돌아왔을 때(ProceedToStage 이후) 한 번만 낸다. 전면 인트로 카드가 뜨면 HUD 배너는 생략한다.
+            bool playing = run.Phase == RunPhase.Spin || run.Phase == RunPhase.PostSpin;
+            if (playing && bossId != _shownBossId)
+            {
+                _shownBossId = bossId;
+                if (boss != null)
+                {
+                    bool introCard = BossIntroCardWillShow != null && BossIntroCardWillShow();
+                    if (!introCard) PlayBossBanner(boss);
+                    StartCoroutine(BossVignettePulse());
+                    PlayScreenShake(BossEntryShakeAmplitude, BossEntryShakeDuration);
+                }
+            }
+        }
+
+        // HUD 윗줄(스테이지 텍스트가 속한 HorizontalLayoutGroup) 왼쪽 끝에 보스 아이콘 1개를 둔다.
+        // 이 그룹은 childForceExpandWidth=true 라 자식으로 끼워 넣으면 폭을 균등 분배받아 아이콘 주위에
+        // 빈 공간이 생긴다 → 아이콘은 ignoreLayout 으로 레이아웃 밖에 절대 배치하고, 그 폭만큼 그룹의
+        // 왼쪽 패딩을 키워 스테이지 텍스트가 겹치지 않게 한다(보스가 아니면 패딩 0 = 기존과 동일).
+        private void RefreshBossStageIcon(Sprite sprite)
+        {
+            var row = stageText != null ? stageText.transform.parent as RectTransform : null;
+            if (row == null) return;
+
+            if (_bossStageIcon == null)
+            {
+                if (sprite == null) return; // 그림이 없으면 아무것도 만들지 않는다(기존 화면 그대로).
+                var go = new GameObject("BossIcon", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
+                var rt = (RectTransform)go.transform;
+                rt.SetParent(row, false);
+                rt.anchorMin = new Vector2(0f, 0.5f);
+                rt.anchorMax = new Vector2(0f, 0.5f);
+                rt.pivot = new Vector2(0f, 0.5f);
+                rt.sizeDelta = new Vector2(BossStageIconSize, BossStageIconSize);
+                rt.anchoredPosition = Vector2.zero;
+                go.GetComponent<LayoutElement>().ignoreLayout = true;
+                _bossStageIcon = go.GetComponent<Image>();
+                _bossStageIcon.preserveAspect = true;
+                _bossStageIcon.raycastTarget = false;
+            }
+            _bossStageIcon.sprite = sprite;
+            _bossStageIcon.enabled = sprite != null;
+            _bossStageIcon.gameObject.SetActive(sprite != null);
+
+            var group = row.GetComponent<HorizontalLayoutGroup>();
+            if (group != null) group.padding = new RectOffset(sprite != null ? Mathf.RoundToInt(BossStageIconSize + 8f) : 0, 0, 0, 0);
         }
 
         private IEnumerator BossVignettePulse()
@@ -497,7 +566,10 @@ namespace JackpotRun.UI2
         {
             if (bossBannerGroup == null || bossBannerText == null) return;
             if (_bossBannerRoutine != null) StopCoroutine(_bossBannerRoutine);
-            bossBannerText.text = $"⚠ 보스: {boss.emoji}{boss.name}";
+            var bossSprite = JackpotCatalog.LoadBossSprite(boss.id);
+            bossBannerText.text = bossSprite != null ? $"⚠ 보스: {boss.name}" : $"⚠ 보스: {boss.emoji}{boss.name}";
+            // 배너 왼쪽에 보스 그림 — 없으면 숨기고 라벨 오프셋도 원래대로(IconKit.SetLeftIcon).
+            IconKit.SetLeftIcon(bossBannerRect, "BossIcon", bossSprite, BossBannerIconSize, 14f, bossBannerText.rectTransform, 0f);
             _bossBannerRoutine = StartCoroutine(BossBannerRoutine());
         }
 
@@ -517,10 +589,12 @@ namespace JackpotRun.UI2
         public void ResetForNewRun()
         {
             _shownBossId = null;
+            _staticBossId = null;
             _lastCurseCount = -1;
             if (bossBannerGroup != null) bossBannerGroup.alpha = 0f;
             if (bossVignetteGroup != null) bossVignetteGroup.alpha = 0f;
             if (hudOutline != null) hudOutline.enabled = false;
+            RefreshBossStageIcon(null); // 보스 아이콘 숨김 + 윗줄 왼쪽 패딩 원복
             if (spinsText != null) spinsText.color = UiKit.TextSecondary;
             if (_spinsBlinkRoutine != null) { StopCoroutine(_spinsBlinkRoutine); _spinsBlinkRoutine = null; }
             if (_bossFx != null)
