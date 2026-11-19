@@ -29,7 +29,7 @@ let uiManip = null;       // 고정/복사/교체 칸 선택 대기
 let dexTab = "char";      // 도감 탭
 let selAsc = 0;           // 홈에서 선택한 심화 학기(승천) 단계
 let selDeep = false;      // 홈에서 선택한 심화모드(심볼 주머니 덱빌딩) — 일반/심화 토글
-let rankMode = "normal";  // 랭킹 화면 모드: normal | asc | deep
+let rankMode = "normal";  // 랭킹 화면 모드: normal | asc | deep | legacy(예전 기록)
 let shopTab = "buy";      // 심화모드 상점 탭: buy(증강/유물/아이템) | repair(심볼 정비). 일반모드 무시.
 let introTimer = null;    // 인트로 릴 회전
 const tut = { active: false, ti: 0, live: false, shown: {} };   // 튜토리얼
@@ -982,7 +982,7 @@ function exitIntro() {
   if (!authUser && localStorage.getItem("slotweb_seenlogin") !== "1") renderLoginGate();
   else render();
 }
-// ── 로그인 게이트 (인트로 직후 첫 1회) — 구글 로그인 / 게스트로 이용하기 ──
+// ── 로그인 게이트 (인트로 직후 첫 1회) — 모카월드 로그인 / 게스트로 이용하기 ──
 function renderLoginGate() {
   snd.bgmStop(); gearShow(false);
   const p = g.profile;
@@ -992,10 +992,10 @@ function renderLoginGate() {
       <h1 class="intro-title">🎰 <span class="g">잭팟 슬롯</span></h1>
       <div class="intro-sub">${p.runs ? `${esc(titleOf(p.bestScore))} · 최고 ${p.bestScore.toLocaleString()}점` : "시작 방법을 선택하세요"}</div>
       <div class="gate-btns">
-        <button class="gate-btn google" data-act="login"><span class="gg">G</span> Google로 로그인</button>
+        <button class="gate-btn moka" data-act="login">🌍 모카월드로 로그인 <span class="gate-sub">카카오</span></button>
         <button class="gate-btn guest" data-act="gateGuest">👤 게스트로 이용하기</button>
       </div>
-      <div class="gate-note">로그인하면 랭킹 기록이 계정에 저장돼 <b>기기를 바꿔도 유지</b>돼요.<br>게스트도 언제든 <b>설정 ⚙️</b>에서 로그인할 수 있어요.</div>
+      <div class="gate-note">모카월드(카카오)로 로그인하면 <b>모든 방이 함께하는 통합 랭킹</b>에 올라가요.<br>게스트도 그대로 플레이할 수 있고, 언제든 <b>설정 ⚙️</b>에서 로그인할 수 있어요.</div>
     </div>`;
 }
 
@@ -2445,73 +2445,83 @@ function showBuildInfo(id, el) {
 let _rank = null;
 async function rankMod() { if (!_rank) { try { _rank = await import("./rank.js"); } catch (e) { _rank = null; } } return _rank; }
 
-// ── 로그인(구글) — 게스트는 로그인 없이 그대로. 지연 로드. 애플은 콘솔 설정 후 UI 노출. ──
+// ── 로그인(모카월드 · 카카오) — 게스트는 로그인 없이 그대로. 지연 로드. ──
 let authUser = null;   // {uid,name,photo,email,provider} | null
-// ★팝업 신뢰성: auth 모듈을 미리 로드해 둔다. 로그인 버튼 클릭 핸들러 안에서 import 를 await 하면
-//   사용자 제스처 컨텍스트가 끊겨 브라우저가 signInWithPopup 을 팝업 차단할 수 있음(→ 조용한 실패/리다이렉트).
-//   미리 프리로드해 두면 클릭 시 곧바로 팝업이 떠서 차단을 피함.
+// auth 모듈은 미리 로드해 둔다(로그인 버튼을 눌렀을 때 바로 이동하도록).
 let _authModP = null;
 function authMod() { if (!_authModP) _authModP = import("./auth.js").catch(() => null); return _authModP; }
 let _authResolvedOnce = false;   // 첫 onAuthStateChanged 발화 여부(세션 복원 vs 사용자 로그인 구분)
 async function initAuth() {
   const a = await authMod(); if (!a) return;
-  try { a.completeRedirect(); } catch (e) {}   // 리다이렉트 로그인 복귀 완료(있으면)
   a.watchAuth(async (u) => {
-    // 페이지 로드 시 세션 자동복원(첫 발화)은 "방금 로그인"이 아님 → 환영 토스트/게이트 이동 안 함.
-    const silentRestore = !_authResolvedOnce;
-    const justLoggedIn = !silentRestore && !authUser && !!u;
+    const first = !_authResolvedOnce;
     _authResolvedOnce = true;
     authUser = u;
     const rank = await rankMod();
     if (rank) rank.setAuthUid(u ? u.uid : null);
-    if (u && rank) {
-      try { await rank.migrateGuestToUser(); } catch (e) {}              // 게스트 기록 → 계정으로 이전
-      if (!rank.savedNick() && u.name) rank.setNick(u.name);             // 닉 없으면 계정 이름 프리필
-      if (g.profile.bestScore > 0) { try { await rank.submitScore({ nick: rank.savedNick() || u.name || "익명", score: g.profile.bestScore, stage: g.profile.bestStage }); } catch (e) {} }
-    }
-    if (justLoggedIn) showToast(`👤 ${u.name || "로그인"} 님 환영해요!`);
+    if (first && !u && a.lastLoginError()) showAuthError(a.lastLoginError());
     if (u) localStorage.setItem("slotweb_seenlogin", "1");
-    // 로그인(사용자 액션 또는 리다이렉트 복귀)으로 게이트가 떠 있으면 홈으로. 무음복원 땐 게이트 로직이 알아서 처리.
-    if (u && !silentRestore && $("login-gate")) { st = null; render(); }
+    // 로그인으로 게이트가 떠 있으면 홈으로. 모카월드 redirect 복귀는 첫 발화(silent)지만 게이트는 그래도 닫아야 한다.
+    // 화면을 먼저 바꾸고(게이트를 오래 붙잡지 않게), 최고기록 등록은 뒤에서 한다.
+    if (u && $("login-gate")) { st = null; render(); }
     else refreshAuthUI();
+    if (first && u && a.justReturned()) {
+      showToast(`👤 ${u.name || "로그인"} 님 환영해요!`);
+      // 방금 로그인하고 돌아왔으면 기기의 최고기록을 보드별로 등록(보드는 서로 분리)
+      if (rank) {
+        const p = g.profile;
+        (async () => {
+          let expired = false;
+          const chk = (res) => { if (res && res.needLogin) expired = true; };
+          try {
+            if (p.bestScore > 0) chk(await rank.submitScore({ score: p.bestScore, stage: p.bestStage }));
+            if ((p.bestAscScore || 0) > 0) chk(await rank.submitAscScore({ score: p.bestAscScore, stage: p.bestStage, asc: p.bestAscLevel || 0 }));
+            if ((p.bestDeepScore || 0) > 0) chk(await rank.submitDeepScore({ score: p.bestDeepScore, stage: p.bestDeepStage || 0 }));
+          } catch (e) {}
+          if (expired) onAuthExpired();
+        })();
+      }
+    }
   });
 }
-function refreshAuthUI() { if ($("end-rank")) setupEndRank(); if ($("acc-row")) renderAccountRow(); }
-function provChip(pid) { if (!pid) return ""; if (pid.indexOf("google") >= 0) return ` <span class="auth-prov g">Google</span>`; if (pid.indexOf("apple") >= 0) return ` <span class="auth-prov a">Apple</span>`; return ""; }
+// 서버가 열쇠를 거절(401)했을 때 — 로그인 표시를 내리고 다시 로그인하게 안내
+function onAuthExpired() { authUser = null; rankMod().then((r) => r && r.setAuthUid(null)); refreshAuthUI(); showToast("로그인이 끝났어요. 다시 로그인해 주세요"); }
+// 진행 중인 런이 있는지(캐릭터·머신·장치 고르기 전, 그리고 런 종료 화면은 제외)
+function runInProgress() {
+  return !!(st && st.phase !== PHASE.SELECT_CHAR && st.phase !== PHASE.SELECT_MACHINE && st.phase !== PHASE.SELECT_DEVICE && st.phase !== PHASE.RUN_END);
+}
+function refreshAuthUI() {
+  if ($("end-rank")) setupEndRank();
+  if ($("acc-row")) renderAccountRow();
+  if (app.querySelector(".rank-list")) openRank();   // 랭킹 화면이 떠 있으면 로그인 표시 · 등록 버튼도 다시
+}
+function provChip(pid) { if (pid === "moka") return ` <span class="auth-prov k">모카월드</span>`; if (!pid) return ""; if (pid.indexOf("google") >= 0) return ` <span class="auth-prov g">Google</span>`; if (pid.indexOf("apple") >= 0) return ` <span class="auth-prov a">Apple</span>`; return ""; }
 function accountRowHtml() {
   if (authUser) {
     // 로그인됨: 이름/이메일 + 제공자 + 로그아웃
     const who = esc(authUser.name || authUser.email || "로그인됨");
-    const sub = authUser.email && authUser.email !== authUser.name ? `<span class="acc-mail">${esc(authUser.email)}</span>` : "";
+    const sub = authUser.roomName ? `<span class="acc-mail">${esc(authUser.roomName)}</span>` : (authUser.email && authUser.email !== authUser.name ? `<span class="acc-mail">${esc(authUser.email)}</span>` : "");
     return `<span class="set-lbl">👤 계정</span>
       <span class="acc-info"><span class="acc-who">${who}${provChip(authUser.provider)}</span>${sub}</span>
       <button class="set-tog logout-tog" data-act="logout">로그아웃</button>`;
   }
-  // 게스트(비로그인): "구글로 로그인/연동" 버튼을 바로 노출(게스트 기록은 로그인 시 계정으로 이전됨).
+  // 게스트(비로그인): "모카월드로 로그인" 버튼을 바로 노출(로그인하면 로컬 최고기록이 통합 랭킹에 등록됨).
   return `<span class="set-lbl">👤 계정</span>
-    <span class="acc-info"><span class="acc-guest">게스트로 플레이 중</span><span class="acc-hint">로그인하면 기록이 계정에 저장돼요</span></span>
-    <button class="set-tog acc-link" data-act="login"><span class="gg">G</span> 구글로 로그인</button>`;
+    <span class="acc-info"><span class="acc-guest">게스트로 플레이 중</span><span class="acc-hint">로그인하면 통합 랭킹에 올라가요</span></span>
+    <button class="set-tog acc-link" data-act="login">🌍 모카월드로 로그인</button>`;
 }
 function renderAccountRow() { const r = $("acc-row"); if (r) r.innerHTML = accountRowHtml(); }
 async function doLogin(provider) {
-  // 모듈은 initAuth 에서 이미 프리로드됨(캐시된 프라미스) → 사실상 즉시 resolve, 팝업 제스처 유지.
+  // 모듈은 initAuth 에서 이미 프리로드됨(캐시된 프라미스). 로그인은 팝업이 아니라 모카월드 로그인 문으로의 이동(redirect).
+  if (runInProgress() && !window.confirm("진행 중인 판은 저장되지 않아요. 로그인 화면으로 이동할까요?")) return;
   const a = await authMod(); if (!a) { showAuthError("로그인 모듈을 불러오지 못했어요. 네트워크(오프라인)를 확인해 주세요."); return; }
-  gateBusy(true);   // 게이트면 "로그인 중" 대기 표시(성공 시 watchAuth 가 홈으로, 리다이렉트면 페이지 이동)
+  gateBusy(true);   // 게이트면 "이동 중" 대기 표시(모카월드로 페이지가 이동하고, 돌아오면 watchAuth 가 홈으로)
   clearAuthError();
   try {
-    if (provider === "apple") await a.signInApple(); else await a.signInGoogle();
+    await a.signIn();   // 모카월드 로그인 문으로 이동(돌아오면 watchAuth 가 로그인 상태로 알린다)
   } catch (e) {
     gateBusy(false);
-    const code = (e && e.code) || "";
-    // 사용자가 직접 취소/창닫음 — 조용히 안내만
-    if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request" || code === "auth/user-cancelled") { showToast("로그인이 취소됐어요"); return; }
-    // 팝업 자체가 안 뜬 경우(차단/환경) — auth.js 가 리다이렉트로 폴백하지만, 그마저 막히면 여기로 옴
-    if (code === "auth/popup-blocked") { showAuthError("브라우저가 로그인 팝업을 차단했어요. 팝업 허용 후 다시 시도하거나, 카톡/인앱 브라우저면 크롬·사파리 등 기본 브라우저로 열어 주세요."); return; }
-    // ▼ Firebase 콘솔 설정이 필요한 경우 — 코드로는 못 고침. 사용자에게 명확히 안내.
-    if (code === "auth/operation-not-allowed") { showAuthError("구글 로그인이 아직 켜져 있지 않아요.\nFirebase 콘솔 → Authentication → 로그인 방법 → Google 을 사용 설정해야 해요.", true); return; }
-    if (code === "auth/unauthorized-domain") { showAuthError("이 주소가 로그인 허용 도메인에 없어요.\nFirebase 콘솔 → Authentication → 설정 → 승인된 도메인에 이 사이트 주소를 추가해야 해요.", true); return; }
-    if (code === "auth/network-request-failed") { showAuthError("네트워크 오류로 로그인하지 못했어요. 연결을 확인하고 다시 시도해 주세요."); return; }
-    showAuthError("로그인에 실패했어요: " + (e.message || code || "알 수 없는 오류"));
+    showAuthError("로그인 화면으로 이동하지 못했어요: " + ((e && e.message) || "알 수 없는 오류"));
   }
 }
 // 로그인 오류를 앱 톤 UI 로 표시(게이트에는 인라인 배너, 그 외 화면에서는 토스트).
@@ -2533,48 +2543,62 @@ function gateBusy(on) {
   const gate = $("login-gate"); if (!gate) return;
   gate.querySelectorAll(".gate-btn").forEach((b) => { b.disabled = on; });
   let ov = $("gate-loading");
-  if (on) { if (!ov) { ov = document.createElement("div"); ov.id = "gate-loading"; ov.className = "gate-loading"; ov.textContent = "🔄 로그인 창에서 계정을 선택하세요…"; const btns = gate.querySelector(".gate-btns"); if (btns) btns.after(ov); } }
+  if (on) { if (!ov) { ov = document.createElement("div"); ov.id = "gate-loading"; ov.className = "gate-loading"; ov.textContent = "🔄 모카월드 로그인으로 이동하고 있어요…"; const btns = gate.querySelector(".gate-btns"); if (btns) btns.after(ov); } }
   else if (ov) ov.remove();
 }
-async function doLogout() { const a = await authMod(); if (a) await a.signOutUser(); showToast("로그아웃되었어요"); }
+async function doLogout() {
+  const a = await authMod();
+  if (a) {
+    const out = a.signOutUser();   // 이 기기의 열쇠는 바로 지워지고, 서버 정리는 뒤에서
+    authUser = null;
+    (await rankMod())?.setAuthUid(null);
+    refreshAuthUI();
+    await out.catch(() => {});
+  }
+  showToast("로그아웃되었어요");
+}
 async function openRank() {
   app.innerHTML = `<div class="scr-title"><div class="step-tag">🏆 랭킹</div><h1>명예의 전당</h1><div class="sub">불러오는 중…</div></div><div class="state">⏳</div>`;
   const rank = await rankMod();
   if (!rank) { app.innerHTML = `<button class="backbtn" data-act="rankback">◀ 뒤로</button><div class="scr-title"><h1>🏆 랭킹</h1><div class="sub err">랭킹 모듈을 불러오지 못했어요.</div></div>`; return; }
   const asc = rankMode === "asc";
   const deep = rankMode === "deep";
-  const rows = await (deep ? rank.topDeepScores(50) : asc ? rank.topAscScores(50) : rank.topScores(50));
+  const legacy = rankMode === "legacy";
+  const rows = await (legacy ? rank.legacyTopScores(50) : deep ? rank.topDeepScores(50) : asc ? rank.topAscScores(50) : rank.topScores(50));
   const p = g.profile; const myKey = rank.myKey(); const nick = rank.savedNick() || (authUser && authUser.name) || "";
   let list;
   if (rows === null) list = `<div class="icard empty">랭킹을 불러오지 못했어요(네트워크). 잠시 후 다시 시도.</div>`;
-  else if (!rows.length) list = `<div class="icard empty">${deep ? "아직 심화모드 기록이 없어요 — 첫 도전자가 되어보세요!" : asc ? "아직 심화 학기 기록이 없어요 — 첫 도전자가 되어보세요!" : "아직 등록된 기록이 없어요 — 첫 주인공이 되어보세요!"}</div>`;
+  else if (!rows.length) list = `<div class="icard empty">${legacy ? "예전 기록이 없어요" : deep ? "아직 심화모드 기록이 없어요 — 첫 도전자가 되어보세요!" : asc ? "아직 심화 학기 기록이 없어요 — 첫 도전자가 되어보세요!" : "아직 등록된 기록이 없어요 — 첫 주인공이 되어보세요!"}</div>`;
   else list = rows.map((r, i) => {
-    const me = r.cid === myKey;
+    const me = !legacy && r.cid === myKey;
     const pos = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`;
-    const tail = deep ? `S${r.stage || 0}` : asc ? `심화${r.asc || 0}` : `S${r.stage || 0}`;
-    return `<div class="rankrow${me ? " me" : ""}"><div class="rk-pos">${pos}</div><div class="rk-nick">${esc(r.nick || "익명")}${me ? ` <span class="me-tag">나</span>` : ""}</div><div class="rk-score">${(r.score || 0).toLocaleString()}<span class="rk-stage">${tail}</span></div></div>`;
+    const tail = deep ? `S${Number(r.stage) || 0}` : asc ? `심화${Number(r.asc) || 0}` : `S${Number(r.stage) || 0}`;
+    return `<div class="rankrow${me ? " me" : ""}"><div class="rk-pos">${pos}</div><div class="rk-nick">${esc(r.nick || "익명")}${me ? ` <span class="me-tag">나</span>` : ""}${r.roomName ? `<span class="rk-room">${esc(r.roomName)}</span>` : ""}</div><div class="rk-score">${(r.score || 0).toLocaleString()}<span class="rk-stage">${tail}</span></div></div>`;
   }).join("");
   const myRow = rows && rows.find && rows.find((r) => r.cid === myKey);
   const authLine = authUser
     ? `<div class="auth-line"><span class="auth-who">👤 <b>${esc(authUser.name || "로그인됨")}</b>${provChip(authUser.provider)}</span><button class="auth-out" data-act="logout">로그아웃</button></div>`
-    : `<div class="auth-line"><span class="auth-guest">게스트</span><button class="auth-in" data-act="login">🔓 구글 로그인</button></div>`;
-  const toggle = `<div class="rank-toggle"><button class="rt-btn${!asc && !deep ? " on" : ""}" data-act="rankMode" data-arg="normal">일반</button><button class="rt-btn${asc ? " on" : ""}" data-act="rankMode" data-arg="asc">🎓 심화 학기</button><button class="rt-btn${deep ? " on" : ""}" data-act="rankMode" data-arg="deep">🎒 심화모드</button></div>`;
-  const reg = deep
-    ? `<div class="rank-reg">${authLine}<div class="sub">내 심화모드 최고 <b>${(p.bestDeepScore || 0).toLocaleString()}</b>점 · S${p.bestDeepStage || 0}${myRow ? ` · <span style="color:var(--gold)">등록됨</span>` : ""}</div><div class="dim" style="font-size:11px;margin-top:4px">심화모드 점수는 심볼 덱 런 종료 시 자동 등록돼요.</div></div>`
+    : `<div class="auth-line"><span class="auth-guest">게스트</span><button class="auth-in" data-act="login">🔓 모카월드 로그인</button></div>`;
+  const toggle = `<div class="rank-toggle"><button class="rt-btn${!asc && !deep && !legacy ? " on" : ""}" data-act="rankMode" data-arg="normal">일반</button><button class="rt-btn${asc ? " on" : ""}" data-act="rankMode" data-arg="asc">🎓 심화 학기</button><button class="rt-btn${deep ? " on" : ""}" data-act="rankMode" data-arg="deep">🎒 심화모드</button><button class="rt-btn${legacy ? " on" : ""}" data-act="rankMode" data-arg="legacy">📜 예전 기록</button></div>`;
+  const reg = legacy
+    ? `<div class="rank-reg"><div class="dim" style="font-size:12px">2026-11-19 이전 구글·게스트 기록과 앱 기록이에요. 새 기록은 모카월드 통합 랭킹에 올라가요.</div></div>`
+    : deep
+    ? `<div class="rank-reg">${authLine}<div class="sub">내 심화모드 최고 <b>${(p.bestDeepScore || 0).toLocaleString()}</b>점 · S${p.bestDeepStage || 0}${myRow ? ` · <span style="color:var(--gold)">등록됨</span>` : ""}</div><div class="dim" style="font-size:11px;margin-top:4px">로그인하면 심화모드 점수가 심볼 덱 런 종료 시 자동 등록돼요.</div></div>`
     : asc
-    ? `<div class="rank-reg">${authLine}<div class="sub">내 심화 최고 <b>${(p.bestAscScore || 0).toLocaleString()}</b>점 (심화 ${p.bestAscLevel || 0})${myRow ? ` · <span style="color:var(--gold)">등록됨</span>` : ""}</div><div class="dim" style="font-size:11px;margin-top:4px">심화 학기 점수는 승천 런 종료 시 자동 등록돼요.</div></div>`
-    : `<div class="rank-reg">${authLine}<div class="sub">내 최고 <b>${p.bestScore.toLocaleString()}</b>점 · S${p.bestStage}${myRow ? ` · <span style="color:var(--gold)">등록됨 ${(myRow.score || 0).toLocaleString()}</span>` : ""}</div><div class="reg-row"><input id="nickin" class="nick-input" maxlength="16" placeholder="닉네임 입력" value="${esc(nick)}" /><button class="regbtn" data-act="submitRank"${p.bestScore > 0 ? "" : " disabled"}>🏆 등록</button></div></div>`;
+    ? `<div class="rank-reg">${authLine}<div class="sub">내 심화 최고 <b>${(p.bestAscScore || 0).toLocaleString()}</b>점 (심화 ${p.bestAscLevel || 0})${myRow ? ` · <span style="color:var(--gold)">등록됨</span>` : ""}</div><div class="dim" style="font-size:11px;margin-top:4px">로그인하면 심화 학기 점수가 승천 런 종료 시 자동 등록돼요.</div></div>`
+    : `<div class="rank-reg">${authLine}<div class="sub">내 최고 <b>${p.bestScore.toLocaleString()}</b>점 · S${p.bestStage}${myRow ? ` · <span style="color:var(--gold)">등록됨 ${(myRow.score || 0).toLocaleString()}</span>` : ""}</div>${authUser ? `<div class="reg-row"><button class="regbtn" data-act="submitRank"${p.bestScore > 0 ? "" : " disabled"}>🏆 내 최고 기록 등록</button></div>` : `<div class="reg-row"><button class="regbtn" data-act="login">🌍 모카월드로 로그인하고 등록</button></div>`}</div>`;
   app.innerHTML = `<button class="backbtn" data-act="rankback">◀ 뒤로</button>
-    <div class="scr-title"><div class="step-tag">🏆 랭킹</div><h1>명예의 전당</h1><div class="sub">${deep ? "심화모드 랭킹 TOP 50" : asc ? "심화 학기 랭킹 TOP 50" : "최고 점수 TOP 50"}</div></div>
+    <div class="scr-title"><div class="step-tag">🏆 랭킹</div><h1>명예의 전당</h1><div class="sub">${legacy ? "예전 랭킹 TOP 50" : deep ? "심화모드 랭킹 TOP 50" : asc ? "심화 학기 랭킹 TOP 50" : "최고 점수 TOP 50"}</div></div>
     ${toggle}${reg}<div class="rank-list">${list}</div>`;
 }
 async function submitRank() {
   const p = g.profile; if (p.bestScore <= 0) { showToast("아직 기록이 없어요 — 한 판 먼저!"); return; }
   const rank = await rankMod(); if (!rank) { showToast("랭킹 연결 실패"); return; }
-  const nick = ($("nickin")?.value || "").trim() || "익명";
+  if (!rank.isAuthed()) { doLogin(); return; }
   showToast("등록 중…");
-  const res = await rank.submitScore({ nick, score: p.bestScore, stage: p.bestStage });
-  showToast(res.ok ? (res.rankUpdated ? "🏆 랭킹 등록 완료!" : "이미 더 높은 기록이 등록돼 있어요") : "등록 실패(네트워크)");
+  const res = await rank.submitScore({ score: p.bestScore, stage: p.bestStage });
+  if (res && res.needLogin) onAuthExpired();
+  else showToast(res.ok ? (res.rankUpdated ? "🏆 랭킹 등록 완료!" : "이미 더 높은 기록이 등록돼 있어요") : (res.err || "등록 실패(네트워크)"));
   openRank();
 }
 
@@ -2643,31 +2667,33 @@ async function setupEndRank() {
   if (g.profile.bestScore <= 0 && (g.profile.bestAscScore || 0) <= 0 && (g.profile.bestDeepScore || 0) <= 0) { box.innerHTML = ""; return; }
   const authLine = authUser
     ? `<div class="auth-line"><span class="auth-who">👤 <b>${esc(authUser.name || "로그인됨")}</b>${provChip(authUser.provider)}</span><button class="auth-out" data-act="logout">로그아웃</button></div>`
-    : `<div class="auth-line"><span class="auth-guest">게스트로 플레이 중</span><button class="auth-in" data-act="login">🔓 구글 로그인</button></div>`;
+    : `<div class="auth-line"><span class="auth-guest">게스트로 플레이 중</span><button class="auth-in" data-act="login">🔓 모카월드 로그인</button></div>`;
   const nick = rank.savedNick() || (authUser && authUser.name) || "";
   let body;
   if (nick) {
     // 일반 기록이 있을 때만 일반 보드 제출 — 심화모드만 플레이한 유저(bestScore=0)가 slotrank 에 0점 행을 만들지 않게
     const res = g.profile.bestScore > 0 ? await rank.submitScore({ nick, score: g.profile.bestScore, stage: g.profile.bestStage }) : null;
     // 방금 승천 런이었으면 심화 학기 보드에도 자동 등록(별도 랭킹)
-    let ascNote = "";
+    let ascNote = "", expired = !!(res && res.needLogin);
     if (st && st.asc > 0 && (g.profile.bestAscScore || 0) > 0) {
       const ares = await rank.submitAscScore({ nick, score: g.profile.bestAscScore, stage: g.profile.bestStage, asc: g.profile.bestAscLevel || st.asc });
-      ascNote = `<div class="er-asc">🎓 심화 학기 랭킹 · 심화 최고 <b>${(g.profile.bestAscScore || 0).toLocaleString()}</b> ${ares.rankUpdated ? `<span class="er-new">등록!</span>` : "<span class='dim'>등록됨</span>"} <button class="regbtn ghost2" data-act="rankMode" data-arg="asc">심화 랭킹</button></div>`;
+      if (ares && ares.needLogin) expired = true;
+      ascNote = `<div class="er-asc">🎓 심화 학기 랭킹 · 심화 최고 <b>${(g.profile.bestAscScore || 0).toLocaleString()}</b> ${!ares.ok ? `<span class='dim'>${esc(ares.err || "등록 실패(네트워크)")}</span>` : ares.rankUpdated ? `<span class="er-new">등록!</span>` : "<span class='dim'>등록됨</span>"} <button class="regbtn ghost2" data-act="rankMode" data-arg="asc">심화 랭킹</button></div>`;
     }
     // 방금 심화모드(심볼 덱) 런이었으면 심화모드 보드에도 자동 등록(별도 랭킹 slotrank_deep)
     let deepNote = "";
     if (st && st.deepMode && (g.profile.bestDeepScore || 0) > 0) {
       const dres = await rank.submitDeepScore({ nick, score: g.profile.bestDeepScore, stage: g.profile.bestDeepStage || 0 });
-      deepNote = `<div class="er-asc">🎒 심화모드 랭킹 · 심화모드 최고 <b>${(g.profile.bestDeepScore || 0).toLocaleString()}</b> ${dres.rankUpdated ? `<span class="er-new">등록!</span>` : "<span class='dim'>등록됨</span>"} <button class="regbtn ghost2" data-act="rankMode" data-arg="deep">심화모드 랭킹</button></div>`;
+      if (dres && dres.needLogin) expired = true;
+      deepNote = `<div class="er-asc">🎒 심화모드 랭킹 · 심화모드 최고 <b>${(g.profile.bestDeepScore || 0).toLocaleString()}</b> ${!dres.ok ? `<span class='dim'>${esc(dres.err || "등록 실패(네트워크)")}</span>` : dres.rankUpdated ? `<span class="er-new">등록!</span>` : "<span class='dim'>등록됨</span>"} <button class="regbtn ghost2" data-act="rankMode" data-arg="deep">심화모드 랭킹</button></div>`;
     }
+    if (expired) { onAuthExpired(); return; }   // 401 — onAuthExpired 가 refreshAuthUI 로 위젯을 게스트 모습으로 다시 그린다
     if (!$("end-rank")) return;   // 화면이 바뀌었으면 중단
-    body = `${res ? `<div class="er-done">${res.ok ? `<b>${esc(nick)}</b> · 최고 <b>${g.profile.bestScore.toLocaleString()}</b>점 ${res.rankUpdated ? `<span class="er-new">랭킹 등록!</span>` : "<span class='dim'>등록됨</span>"}` : "<span class='dim'>등록 실패(네트워크) — 잠시 후 자동 재시도</span>"}</div>` : ""}
+    body = `${res ? `<div class="er-done">${res.ok ? `<b>${esc(nick)}${authUser && authUser.roomName ? ` · ${esc(authUser.roomName)}` : ""}</b> · 최고 <b>${g.profile.bestScore.toLocaleString()}</b>점 ${res.rankUpdated ? `<span class="er-new">랭킹 등록!</span>` : "<span class='dim'>등록됨</span>"}` : `<span class='dim'>${esc(res.err || "등록 실패(네트워크)")}</span>`}</div>` : ""}
       ${ascNote}${deepNote}
-      <div class="er-row"><input id="endnick" class="nick-input" maxlength="16" value="${esc(nick)}" /><button class="regbtn" data-act="endRankSubmit">닉 변경</button> <button class="regbtn ghost2" data-act="rank">전체 보기</button></div>`;
+      <div class="er-row"><button class="regbtn ghost2" data-act="rank">전체 보기</button></div>`;
   } else {
-    body = `<div class="er-sub">닉네임을 정하거나 로그인하면 이 점수가 랭킹에 올라가요.</div>
-      <div class="er-row"><input id="endnick" class="nick-input" maxlength="16" placeholder="닉네임 입력" value="" /><button class="regbtn" data-act="endRankSubmit">🏆 등록</button></div>`;
+    body = `<div class="er-sub">모카월드(카카오)로 로그인하면 이 점수가 모든 방이 함께하는 통합 랭킹에 올라가요.</div><div class="er-row"><button class="regbtn" data-act="login">🌍 모카월드로 로그인</button> <button class="regbtn ghost2" data-act="rank">전체 보기</button></div>`;
   }
   box.innerHTML = `<div class="er-ttl">🏆 명예의 전당</div>${authLine}${body}`;
 }
@@ -2676,23 +2702,29 @@ async function endRankSubmit() {
   const p = g.profile;
   if (p.bestScore <= 0 && (p.bestAscScore || 0) <= 0 && (p.bestDeepScore || 0) <= 0) { showToast("아직 기록이 없어요"); return; }
   const rank = await rankMod(); if (!rank) { showToast("랭킹 연결 실패"); return; }
-  const nick = ($("endnick")?.value || "").trim() || "익명";
+  if (!rank.isAuthed()) { doLogin(); return; }
   showToast("등록 중…");
+  let expired = false;
   // 각 모드는 점수 > 0 일 때만 개별 제출(0점 행 생성 금지)
   if (p.bestScore > 0) {
-    const res = await rank.submitScore({ nick, score: p.bestScore, stage: p.bestStage });
-    showToast(res.ok ? (res.rankUpdated ? "🏆 랭킹 등록 완료!" : "닉 갱신 완료 (점수는 최고 기록 유지)") : "등록 실패(네트워크)");
+    const res = await rank.submitScore({ score: p.bestScore, stage: p.bestStage });
+    if (res && res.needLogin) expired = true;
+    else showToast(res.ok ? (res.rankUpdated ? "🏆 랭킹 등록 완료!" : "이미 더 높은 기록이 등록돼 있어요") : (res.err || "등록 실패(네트워크)"));
   }
-  if ((p.bestAscScore || 0) > 0) {
-    await rank.submitAscScore({ nick, score: p.bestAscScore, stage: p.bestStage, asc: p.bestAscLevel || 0 });
+  if (!expired && (p.bestAscScore || 0) > 0) {
+    const r2 = await rank.submitAscScore({ score: p.bestAscScore, stage: p.bestStage, asc: p.bestAscLevel || 0 });
+    if (r2 && r2.needLogin) expired = true;
   }
-  if ((p.bestDeepScore || 0) > 0) {
-    await rank.submitDeepScore({ nick, score: p.bestDeepScore, stage: p.bestDeepStage || 0 });
+  if (!expired && (p.bestDeepScore || 0) > 0) {
+    const r3 = await rank.submitDeepScore({ score: p.bestDeepScore, stage: p.bestDeepStage || 0 });
+    if (r3 && r3.needLogin) expired = true;
   }
-  if (p.bestScore <= 0) showToast("닉 갱신 완료");
+  if (expired) { onAuthExpired(); return; }
   setupEndRank();
 }
 
 // 시작 — 인트로 스플래시부터
 renderIntro();
 initAuth();   // 로그인 세션 복원/감지(비차단, 실패해도 게스트로 정상 동작)
+// 로그인 화면에서 뒤로 가기(bfcache 복원)로 돌아오면 게이트의 "이동 중" 표시를 풀어 준다
+window.addEventListener("pageshow", (e) => { if (e.persisted) gateBusy(false); });

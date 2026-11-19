@@ -62,7 +62,7 @@ JackpotRun/
 │  ├─ play/           # ★ 브라우저 단독 웹게임 (JS 엔진 내장, 백엔드 불필요)
 │  ├─ jackpotpick/    # 시작 조합 선택 화면 (뷰어)
 │  ├─ jackpotdex/     # 도감/진행도 (뷰어, img/*.png ×468 — play/ 도 이 그림을 쓴다)
-│  └─ ranking/        # 글로벌 랭킹 보드 (jackpotrank 읽기)
+│  └─ ranking/        # 글로벌 랭킹 보드 (모카월드 통합 랭킹 + 예전 slotrank)
 ├─ tools/             # 이미지 생성 스크립트 (배포 대상 아님)
 ├─ kotlin-reference/  # ★ 구버전 엔진 스냅샷 (읽기 전용 — 확률·공식의 정답지)
 └─ unity-assets/      # ★ 카탈로그·아트 원본 데이터 (배포 대상 아님)
@@ -90,7 +90,7 @@ JackpotRun/
 2026-08-07 에 모카봇(`C:\dev\KakaoOpenChatBot\web\slot`)에서 이관했고 구 경로엔 리다이렉트만 남았다.
 
 - `engine.js` = `SlotV2Engine.kt` 공식의 JS 포팅(순수함수). 저장은 localStorage `slotweb_profile`.
-- Firebase 는 랭킹(`slotrank`/`slotrank_asc`/`slotrank_deep`)과 구글 로그인에만. 둘 다 실패해도 게임은 동작.
+- 로그인 · 랭킹은 모카월드 서버(모카스카이 web-account, 2026-11-19): moka.js 가 로그인 문(/world/connect)으로 PKCE 로그인 → Bearer 로 jackpot-scores 기록, jackpot-ranking 은 누구나. Firebase slotrank 는 「예전 기록」 읽기 전용(웹의 예전 기록은 일반 보드만 보여 주고 더 쓰지 않음, 앱은 아직 씀). 둘 다 실패해도 게임은 동작.
 - 검증: `cd public/play && node _harness.mjs` → `{ok,errorCount,errors,notes}`(일반300+심화300+스트레스200런).
 - 불변식(일반모드 격리·fmt2·랭킹 분리·양판 패리티)의 단일 소스는
   `C:\dev\KakaoOpenChatBot\workflow\slotdev_rules.md` — **수정 전 반드시 읽을 것**.
@@ -102,7 +102,7 @@ JackpotRun/
 
 - 이 셋은 **자체 게임 로직이 없는 얇은 클라이언트**다 — 백엔드가 RTDB로 push한 데이터를 표시한다.
 - RTDB 노드 소유: `jackpotdex`/`jackpotcmd`/`jackpotcatalog`/`jackpothall`(카톡 봇) ·
-  `jackpotrank`(**Unity 앱** 점수 제출) · `slotrank*`(`play/`). **서로 건드리지 말 것.**
+  `jackpotrank`(폐기 — 쓰는 곳 없음) · `slotrank*`(Unity 앱이 씀 · 웹은 예전 기록으로 slotrank 만 읽기). **서로 건드리지 말 것.**
 - 배포: `firebase deploy --only hosting,database --project jackpotrun-web`
 - `unity-assets/` 와 `tools/` 는 배포되지 않는다(hosting public = `public/`).
 - 🔴 **미해결 보안 이슈**: `database.rules.json` 이 사실상 개방 상태다(일부 노드 무인증 read/write,

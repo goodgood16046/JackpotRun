@@ -13,3 +13,5 @@ header h1 { font-size: 1.35rem; margin-bottom: 4px; }
 .rs { color: #fbbf24; font-size: .85rem; white-space: nowrap; }
 .rd { color: #8b93a7; font-size: .72rem; white-space: nowrap; margin-left: 4px; }
 footer { margin-top: 16px; text-align: center; }
+.sec { margin: 18px 0 8px; font-size: 15px; font-weight: 800; }
+.rr { display: block; color: #8b93a7; font-size: .72rem; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

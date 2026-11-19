@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-11-19 - 잭팟런 웹 로그인 · 랭킹을 모카월드로
+
+- `public/play/moka.js` 신규: 모카월드 클라이언트(PKCE 로그인 · identity · submit · top).
+- `public/play/auth.js`: 구글/애플 Firebase Auth → 모카월드 로그인(같은 export 이름 유지).
+- `public/play/rank.js`: 통합 랭킹(서버) 기록·조회로 교체, Firebase 는 `legacyTop*` 읽기 전용만(쓰기 제거).
+- `public/play/ui.js`: 로그인 게이트·계정 행·랭킹 화면(예전 기록 탭·방 이름)·런 종료 위젯을 모카월드 기준으로. 게스트 플레이는 그대로.
+- `public/play/style.css`: 모카월드 버튼·칩·방 이름 스타일.
+- `public/ranking/*`: 통합 랭킹 + 예전 기록(slotrank) 두 구역.
+- `README.md`, `CLAUDE.md`: 로그인·랭킹 설명 갱신.
+- **검수 2차 반영(1~11)**: 로그인 이동 전 진행 중인 판이 있으면 확인창(`runInProgress`) · 로그아웃은 새로고침 없이 상태만 갱신 · 예전 기록 행을 숫자/문자열로 정규화(XSS 차단) · 401 이면 `onAuthExpired` 로 로그인 표시 해제 · 로그인 복귀 실패/만료 안내(`lastError`/`cameBack`, PENDING 을 localStorage 로) · 로그인 화면에서 뒤로 가기(pageshow) 시 게이트 복구 · rank.js/ranking 의 Firebase 를 예전 기록에서만 지연 로드 · 로그인 복귀 직후 일반/심화학기/심화모드 최고기록을 보드별로 등록 · 쓰지 않는 `legacyTopAscScores`/`legacyTopDeepScores` 제거 · moka.js 타임아웃 폴백(iOS 15)·점수/stage/asc 검증·top 배열 검사 · README/CLAUDE.md 낡은 문장 정정 · ui.js 낡은 주석·안내 문구 정리.
+- **최종 검수 반영**: 네트워크 오류 한글 안내(moka.js api) · 로그아웃은 이 기기 먼저 지우고 화면 즉시 갱신 · 랭킹 화면도 로그인/로그아웃 따라 다시 그림 · 로그인 복귀 뒤 게이트 먼저 닫고 최고기록 등록은 뒤에서 · 런 종료의 심화학기/심화모드 줄도 실패를 보여 줌 · 통합 랭킹 행 모양 정리 · 점수 Number.isSafeInteger 검사 · 랭킹 탭 줄바꿈(keep-all) · 서버(모카스카이)는 잭팟런 로그인 열쇠를 잭팟런 랭킹 전용으로, 공개 순위의 cid 는 계정 번호 대신 공개 표시값.
+- 배포 순서: 모카스카이(모카월드 서버 feat/mokaworld) 먼저 → 이 저장소 hosting → 모카봇 .잭팟웹
+
 ## 2026-10-28 - 재미 개편: 게임성·밸런스·연출·그래픽 전면 개선 (웹 + 유니티)
 
 설계·근거·튜닝 수치는 `Docs/FUN_OVERHAUL_DESIGN.md`. 파이프라인: 설계(메인) → Sonnet 구현 → Opus 1·2차 검수 → 최종 검수.

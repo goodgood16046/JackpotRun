@@ -6,7 +6,7 @@
 ## ▶ 지금 플레이 — <https://jackpotrun-web.web.app/play/>
 
 브라우저만 있으면 된다. 로그인·설치·서버 접속 없이 그 자리에서 시작하고, 진행 상황은 브라우저에 저장된다.
-구글 로그인은 랭킹 등록용 선택 사항이다.
+로그인은 랭킹 등록용 선택 사항이다 — 모카월드(카카오) 계정으로 로그인하면 모든 방이 함께하는 통합 랭킹에 올라간다(2026-11-19). 예전 구글·게스트 기록은 「예전 기록」으로 남아 있다.
 
 | 주소 | 무엇 |
 |---|---|
@@ -68,7 +68,7 @@ Firebase Hosting 프로젝트 `jackpotrun-web` 에 배포되며, `public/` 아�
 |---|---|---|
 | `play/` | **게임 본체** — JS 엔진 내장, 브라우저 단독 | 불필요 (랭킹·로그인만 선택적) |
 | `jackpotpick/` · `jackpotdex/` | 외부 봇 연동 **뷰어** | 봇이 RTDB 로 push 해야 함 |
-| `ranking/` | 글로벌 랭킹 보드 | RTDB `jackpotrank` 읽기 |
+| `ranking/` | 글로벌 랭킹 보드 | 모카월드 통합 랭킹(서버) + 예전 기록(RTDB `slotrank` 읽기) |
 
 - 배포: `firebase deploy --only hosting,database --project jackpotrun-web`
 - 데모(백엔드 없이 UI 확인): `/jackpotpick/?demo=1`
@@ -80,7 +80,7 @@ Firebase Hosting 프로젝트 `jackpotrun-web` 에 배포되며, `public/` 아�
 진행 상황은 브라우저 localStorage(`slotweb_profile`)에 저장된다.
 
 - `engine.js` 가 `SlotV2Engine.kt` 의 확률·점수·요구치 공식을 JS 로 포팅한 자체 엔진.
-- Firebase 는 랭킹(`slotrank`/`slotrank_asc`/`slotrank_deep`)과 구글 로그인에만 사용. 둘 다 실패해도 게임은 동작.
+- 로그인 · 랭킹은 모카월드 서버(모카스카이 web-account, 2026-11-19): moka.js 가 로그인 문(/world/connect)으로 PKCE 로그인 → Bearer 로 jackpot-scores 기록, jackpot-ranking 은 누구나. Firebase slotrank 는 「예전 기록」으로 읽기만(slotrank_asc·slotrank_deep 은 웹이 읽지도 쓰지도 않음)(웹은 더 쓰지 않음, 앱은 아직 씀). 둘 다 실패해도 게임은 동작.
 - 검증: `cd public/play && node _harness.mjs` → `{ok,errorCount,errors,notes}`. 일반300+심화300+스트레스200런.
   **배포 대상 아님**(`firebase.json` 의 `**/_harness*.mjs` ignore).
 - ⚠️ Unity 앱/Kotlin 판과 **콘텐츠가 갈라져 있다** — 캐릭터 19 · 머신 19 · 장치 24 · 증강 89 · 유물 73 ·
@@ -91,11 +91,10 @@ Firebase Hosting 프로젝트 `jackpotrun-web` 에 배포되며, `public/` 아�
 | 노드 | 쓰는 쪽 |
 |---|---|
 | `jackpotdex` · `jackpotcmd` · `jackpotcatalog` · `jackpothall` | 외부 봇 ↔ 뷰어 |
-| `jackpotrank` | **Unity 앱** 점수 제출 → `ranking/` 표시 |
-| `slotrank` · `slotrank_asc` · `slotrank_deep` | `play/` 랭킹 (일반·승천·심화) |
+| `jackpotrank` | 폐기(옛 Unity 점수 노드 — 지금은 아무도 읽거나 쓰지 않음) |
+| `slotrank` · `slotrank_asc` · `slotrank_deep` | **Unity 앱**이 씀 · 웹(`play/` · `ranking/`)은 예전 기록(일반 보드 `slotrank`)을 읽기만 |
 
-`play/` 는 구글 로그인을 쓴다(Authentication → Google provider 활성 상태, 승인 도메인 등록 완료).
-로그인 사용자 행(`u_<uid>`)은 본인만 쓸 수 있게 규칙으로 막혀 있고, 게스트 `cid` 행은 열려 있다.
+웹 랭킹은 모카월드 통합 랭킹(서버)이고, 웹 로그인은 모카월드(카카오)다 — 웹은 Firebase Authentication 을 더 쓰지 않는다. 예전 구글 로그인 행(`u_<uid>`)과 게스트 `cid` 행은 「예전 기록」으로만 남는다.
 
 ## 데이터
 
