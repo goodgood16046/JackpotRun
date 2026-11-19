@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-11-19 - 로그인 주소 /account/index.html (모카월드 빠른 길)
+
+- `public/play/moka.js`: 로그인 이동 주소를 `/world/connect` 에서 `/account/index.html` 로(쿼리 callback·challenge·state 그대로) + 2~3행 주석 정정. `README.md`·`CLAUDE.md` 의 같은 안내 문장도 맞춤. (폴더 주소 `/account/` 는 모카스카이 SPA 로 열려 NotFound 라 `index.html` 로만 연다.)
+- 이유: 모카월드 `/account/index.html` 은 이미 로그인·동의한 사람을 큰 화면(약 270KB) 없이 바로 승인해 돌려보내고, 그 밖(로그인 전·동의 필요·오류)은 같은 쿼리로 `/world/connect` 로 넘긴다.
+- 검증: `node --check`(moka.js) 통과 · `_harness.mjs` ok:true · errorCount:0.
+- 배포 순서: 모카월드 서버(2cf2f304) 배포가 빠른 길의 전제 — 이 저장소 hosting 은 먼저 올려도 안전(그 전엔 /world/connect 로 넘어감).
+
 ## 2026-11-19 - 잭팟런 웹 로그인 · 랭킹을 모카월드로
 
 - `public/play/moka.js` 신규: 모카월드 클라이언트(PKCE 로그인 · identity · submit · top).

@@ -90,7 +90,7 @@ JackpotRun/
 2026-08-07 에 모카봇(`C:\dev\KakaoOpenChatBot\web\slot`)에서 이관했고 구 경로엔 리다이렉트만 남았다.
 
 - `engine.js` = `SlotV2Engine.kt` 공식의 JS 포팅(순수함수). 저장은 localStorage `slotweb_profile`.
-- 로그인 · 랭킹은 모카월드 서버(모카스카이 web-account, 2026-11-19): moka.js 가 로그인 문(/world/connect)으로 PKCE 로그인 → Bearer 로 jackpot-scores 기록, jackpot-ranking 은 누구나. Firebase slotrank 는 「예전 기록」 읽기 전용(웹의 예전 기록은 일반 보드만 보여 주고 더 쓰지 않음, 앱은 아직 씀). 둘 다 실패해도 게임은 동작.
+- 로그인 · 랭킹은 모카월드 서버(모카스카이 web-account, 2026-11-19): moka.js 가 로그인 문(/account/index.html — 로그인·동의가 끝났으면 바로 복귀(모카월드 서버 2cf2f304 부터), 그 밖은 /world/connect)으로 PKCE 로그인 → Bearer 로 jackpot-scores 기록, jackpot-ranking 은 누구나. Firebase slotrank 는 「예전 기록」 읽기 전용(웹의 예전 기록은 일반 보드만 보여 주고 더 쓰지 않음, 앱은 아직 씀). 둘 다 실패해도 게임은 동작.
 - 검증: `cd public/play && node _harness.mjs` → `{ok,errorCount,errors,notes}`(일반300+심화300+스트레스200런).
 - 불변식(일반모드 격리·fmt2·랭킹 분리·양판 패리티)의 단일 소스는
   `C:\dev\KakaoOpenChatBot\workflow\slotdev_rules.md` — **수정 전 반드시 읽을 것**.

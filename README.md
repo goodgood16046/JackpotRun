@@ -80,7 +80,7 @@ Firebase Hosting 프로젝트 `jackpotrun-web` 에 배포되며, `public/` 아�
 진행 상황은 브라우저 localStorage(`slotweb_profile`)에 저장된다.
 
 - `engine.js` 가 `SlotV2Engine.kt` 의 확률·점수·요구치 공식을 JS 로 포팅한 자체 엔진.
-- 로그인 · 랭킹은 모카월드 서버(모카스카이 web-account, 2026-11-19): moka.js 가 로그인 문(/world/connect)으로 PKCE 로그인 → Bearer 로 jackpot-scores 기록, jackpot-ranking 은 누구나. Firebase slotrank 는 「예전 기록」으로 읽기만(slotrank_asc·slotrank_deep 은 웹이 읽지도 쓰지도 않음)(웹은 더 쓰지 않음, 앱은 아직 씀). 둘 다 실패해도 게임은 동작.
+- 로그인 · 랭킹은 모카월드 서버(모카스카이 web-account, 2026-11-19): moka.js 가 로그인 문(/account/index.html — 로그인·동의가 끝났으면 바로 복귀(모카월드 서버 2cf2f304 부터), 그 밖은 /world/connect)으로 PKCE 로그인 → Bearer 로 jackpot-scores 기록, jackpot-ranking 은 누구나. Firebase slotrank 는 「예전 기록」으로 읽기만(slotrank_asc·slotrank_deep 은 웹이 읽지도 쓰지도 않음)(웹은 더 쓰지 않음, 앱은 아직 씀). 둘 다 실패해도 게임은 동작.
 - 검증: `cd public/play && node _harness.mjs` → `{ok,errorCount,errors,notes}`. 일반300+심화300+스트레스200런.
   **배포 대상 아님**(`firebase.json` 의 `**/_harness*.mjs` ignore).
 - ⚠️ Unity 앱/Kotlin 판과 **콘텐츠가 갈라져 있다** — 캐릭터 19 · 머신 19 · 장치 24 · 증강 89 · 유물 73 ·

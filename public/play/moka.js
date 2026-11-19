@@ -1,6 +1,6 @@
 // 모카월드 계정(카카오) — 잭팟런 웹 로그인 · 통합 랭킹 (2026-11-19, 모카월드 4단계).
-// - 로그인: 모카월드 로그인 문(/world/connect)으로 보냈다가 돌아오면 #mokaCode 를 열쇠(Bearer)로 바꾼다(PKCE).
-//   이미 모카월드에 로그인돼 있으면 화면 없이 바로 돌아온다. 처음이면 거기서 카카오 로그인 · 가입을 한다(카톡방 연동 필요 없음).
+// - 로그인: 모카월드 로그인 문(/account/index.html — 로그인·동의가 끝났으면 큰 화면 없이 바로 돌아오고, 그 밖은 /world/connect 로 넘어감)으로 보냈다가 돌아오면 #mokaCode 를 열쇠(Bearer)로 바꾼다(PKCE).
+//   처음이면 거기서 카카오 로그인 · 가입을 한다(카톡방 연동 필요 없음).
 // - 랭킹: 모든 방이 함께하는 통합 보드(모카월드 서버). 순위는 누구나 보고, 기록은 로그인한 계정만(이름 · 방 이름은 서버가 붙인다).
 // - 열쇠는 이 브라우저(localStorage)에만 둔다. 게임 진행도는 지금처럼 기기에 저장된다.
 export const ACCOUNT_ORIGIN = "https://mokasky.tail8e4c01.ts.net";
@@ -58,7 +58,7 @@ export async function login() {
   const challenge = btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
   write(PENDING, { verifier, state, at: Date.now() });
   const callback = location.origin + location.pathname + location.search;
-  location.assign(ACCOUNT_ORIGIN + "/world/connect?" + new URLSearchParams({ callback, challenge, state }));
+  location.assign(ACCOUNT_ORIGIN + "/account/index.html?" + new URLSearchParams({ callback, challenge, state }));
 }
 
 /** 돌아온 #mokaCode 를 열쇠로 바꾸고, 내 표시(닉 · 방 이름)를 읽는다. 로그인 안 했으면 null. */
