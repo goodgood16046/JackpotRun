@@ -16,7 +16,7 @@ const firebaseConfig = {
   appId: "1:52817920989:web:02b32f4499f4dd4f4d6c34",
 };
 
-const MOKA_RANK_URL = "https://mokasky.tail8e4c01.ts.net/api/v1/web-account/jackpot-ranking?mode=normal&limit=100";
+const MOKA_RANK_URL = "https://mokaworld.app/api/v1/web-account/jackpot-ranking?mode=normal&limit=100";
 
 const $ = (id) => document.getElementById(id);
 

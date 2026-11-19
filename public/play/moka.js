@@ -3,7 +3,7 @@
 //   처음이면 거기서 카카오 로그인 · 가입을 한다(카톡방 연동 필요 없음).
 // - 랭킹: 모든 방이 함께하는 통합 보드(모카월드 서버). 순위는 누구나 보고, 기록은 로그인한 계정만(이름 · 방 이름은 서버가 붙인다).
 // - 열쇠는 이 브라우저(localStorage)에만 둔다. 게임 진행도는 지금처럼 기기에 저장된다.
-export const ACCOUNT_ORIGIN = "https://mokasky.tail8e4c01.ts.net";
+export const ACCOUNT_ORIGIN = "https://mokaworld.app";
 const API = ACCOUNT_ORIGIN + "/api/v1/web-account/";
 const KEY = "jackpot-moka-v1", PENDING = "jackpot-moka-pending-v1";
 

@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-11-19 - 모카월드 주소 mokaworld.app 으로
+
+- `public/play/moka.js`: `ACCOUNT_ORIGIN` 을 `https://mokaworld.app` 으로. `public/ranking/app.js`: `MOKA_RANK_URL` 의 주소를 `https://mokaworld.app` 으로(경로·쿼리 그대로). 그 밖의 옛 주소 언급은 저장소에 없었음(README·CLAUDE.md·Docs 포함).
+- 이유: Tailscale Funnel 주소가 저녁에 혼잡해 응답이 2~10초 걸림 → Cloudflare Tunnel(mokaworld.app)로 이전. 서버가 옛 주소를 별칭으로 계속 받음(API 그대로, 페이지 GET/HEAD 는 308 로 새 주소), 그래서 서버 전환 전후 어느 때 올려도 안전.
+- 검증: `node --check` moka.js·app.js 모두 통과(app.js 도 --check 가능) · `_harness.mjs` ok:true · errorCount:0.
+
 ## 2026-11-19 - 로그인 주소 /account/index.html (모카월드 빠른 길)
 
 - `public/play/moka.js`: 로그인 이동 주소를 `/world/connect` 에서 `/account/index.html` 로(쿼리 callback·challenge·state 그대로) + 2~3행 주석 정정. `README.md`·`CLAUDE.md` 의 같은 안내 문장도 맞춤. (폴더 주소 `/account/` 는 모카스카이 SPA 로 열려 NotFound 라 `index.html` 로만 연다.)
