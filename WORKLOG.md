@@ -8,7 +8,7 @@
 
 - `public/play/moka.js`: `WORLD_HOME_URL`(= 모카월드 주소 + `/world`) 내보냄.
 - `public/play/ui.js` · `style.css`: 홈 화면 맨 위에 `🌍 모카월드` 알약 링크(같은 탭) 추가, 제목 윗 여백 34→14px 로 줄여 화면 높이 유지. 설정 시트 맨 아래에도 `🌍 모카월드 홈으로` 줄 추가.
-- 검증: `node --check` 통과 · `_harness.mjs` 결과는 커밋 보고에 기록.
+- 검증: `node --check` 통과 · `node _harness.mjs` → ok:true, errorCount 0.
 
 ## 2026-11-19 - 모카월드 주소 mokaworld.app 으로
 
