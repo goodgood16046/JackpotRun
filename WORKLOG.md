@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-11-20 - 모카월드로 돌아가는 버튼
+
+- `public/play/moka.js`: `WORLD_HOME_URL`(= 모카월드 주소 + `/world`) 내보냄.
+- `public/play/ui.js` · `style.css`: 홈 화면 맨 위에 `🌍 모카월드` 알약 링크(같은 탭) 추가, 제목 윗 여백 34→14px 로 줄여 화면 높이 유지. 설정 시트 맨 아래에도 `🌍 모카월드 홈으로` 줄 추가.
+- 검증: `node --check` 통과 · `_harness.mjs` 결과는 커밋 보고에 기록.
+
 ## 2026-11-19 - 모카월드 주소 mokaworld.app 으로
 
 - `public/play/moka.js`: `ACCOUNT_ORIGIN` 을 `https://mokaworld.app` 으로. `public/ranking/app.js`: `MOKA_RANK_URL` 의 주소를 `https://mokaworld.app` 으로(경로·쿼리 그대로). 그 밖의 옛 주소 언급은 저장소에 없었음(README·CLAUDE.md·Docs 포함).

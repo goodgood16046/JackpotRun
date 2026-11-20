@@ -4,6 +4,7 @@
 // - 랭킹: 모든 방이 함께하는 통합 보드(모카월드 서버). 순위는 누구나 보고, 기록은 로그인한 계정만(이름 · 방 이름은 서버가 붙인다).
 // - 열쇠는 이 브라우저(localStorage)에만 둔다. 게임 진행도는 지금처럼 기기에 저장된다.
 export const ACCOUNT_ORIGIN = "https://mokaworld.app";
+export const WORLD_HOME_URL = ACCOUNT_ORIGIN + "/world";   // 모카월드 홈 — 각 서비스에서 돌아가는 곳 (2026-11-20)
 const API = ACCOUNT_ORIGIN + "/api/v1/web-account/";
 const KEY = "jackpot-moka-v1", PENDING = "jackpot-moka-pending-v1";
 

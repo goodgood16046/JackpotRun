@@ -4,6 +4,7 @@ import { Game, PHASE } from "./game.js";
 import * as D from "./data.js";
 import { symTierOf, symCatOf, isAutoDecayTarget } from "./engine.js";
 import * as snd from "./sound.js";
+import { WORLD_HOME_URL } from "./moka.js";
 import { ART } from "./art_index.js";   // public/jackpotdex/img 에 존재하는 그림 id 집합(tools/gen_art_index.mjs 로 생성)
 
 const g = new Game();
@@ -1050,7 +1051,8 @@ function renderHome() {
   const p = g.profile;
   const lp = g.playerProgress();
   app.innerHTML = `
-    <div class="scr-title" style="margin-top:34px">
+    <a class="world-back" href="${WORLD_HOME_URL}" data-testid="world-back">🌍 모카월드</a>
+    <div class="scr-title" style="margin-top:14px">
       <h1>🎰 <span class="g">잭팟 슬롯</span></h1>
       <div class="sub">텍스트 로그라이크 슬롯머신 · 웹 단독판</div>
     </div>
@@ -1367,6 +1369,9 @@ function openSettings() {
       <div class="set-row">
         <span class="set-lbl">📳 진동</span>
         <button class="set-tog${vibeOn ? " on" : ""}" data-act="setVibe">${vibeOn ? "켜짐" : "꺼짐"}</button>
+      </div>
+      <div class="set-row">
+        <a class="world-back" href="${WORLD_HOME_URL}" data-testid="world-back-settings" style="margin:0">🌍 모카월드 홈으로</a>
       </div>
       <div class="set-hint">🎚️ 볼륨을 움직이면 예시음이 들려요. 위쪽 [소리]로 전체 음소거, [진동]으로 터치 진동을 끌 수 있어요.</div>
     </div>`);
