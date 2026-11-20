@@ -4,7 +4,7 @@ import { Game, PHASE } from "./game.js";
 import * as D from "./data.js";
 import { symTierOf, symCatOf, isAutoDecayTarget } from "./engine.js";
 import * as snd from "./sound.js";
-import { WORLD_HOME_URL } from "./moka.js";
+import { WORLD_HOME_URL, reportRun, stars as mokaStars } from "./moka.js";
 import { ART } from "./art_index.js";   // public/jackpotdex/img 에 존재하는 그림 id 집합(tools/gen_art_index.mjs 로 생성)
 
 const g = new Game();
@@ -1046,12 +1046,17 @@ function lvlCard(lp, clickable = false) {
     </div>
   </div>`;
 }
+// 홈의 별사탕 알약(로그인했고 서버가 별사탕을 알 때만). 로그인 · 로그아웃 뒤에는 refreshAuthUI 가 다시 그린다.
+function homeStarsHtml() {
+  const s = mokaStars();
+  return s ? `<span class="home-stars" title="별사탕 — 모카월드 공통 재화">⭐ ${(Number(s.balance) || 0).toLocaleString()}</span>` : "";
+}
 function renderHome() {
   snd.bgmStop();
   const p = g.profile;
   const lp = g.playerProgress();
   app.innerHTML = `
-    <a class="world-back" href="${WORLD_HOME_URL}" data-testid="world-back">🌍 모카월드</a>
+    <a class="world-back" href="${WORLD_HOME_URL}" data-testid="world-back">🌍 모카월드</a><span id="home-stars-slot">${homeStarsHtml()}</span>
     <div class="scr-title" style="margin-top:14px">
       <h1>🎰 <span class="g">잭팟 슬롯</span></h1>
       <div class="sub">텍스트 로그라이크 슬롯머신 · 웹 단독판</div>
@@ -2496,6 +2501,7 @@ function runInProgress() {
   return !!(st && st.phase !== PHASE.SELECT_CHAR && st.phase !== PHASE.SELECT_MACHINE && st.phase !== PHASE.SELECT_DEVICE && st.phase !== PHASE.RUN_END);
 }
 function refreshAuthUI() {
+  if ($("home-stars-slot")) $("home-stars-slot").innerHTML = homeStarsHtml();
   if ($("end-rank")) setupEndRank();
   if ($("acc-row")) renderAccountRow();
   if (app.querySelector(".rank-list")) openRank();   // 랭킹 화면이 떠 있으면 로그인 표시 · 등록 버튼도 다시
@@ -2607,6 +2613,38 @@ async function submitRank() {
   openRank();
 }
 
+// ── 별사탕(모카월드 공통 재화) — 판을 끝낼 때 한 번 서버에 알리고 받은 양을 결산 화면에 보여 준다 ──
+function endStarsInner(r) {
+  const s = r.runStars;
+  if (!s) return mokaStars()?.skipped === "CLOSED" ? "" : `<div class="es-line dim">⭐ 별사탕 확인 중…</div>`;
+  if (s.needLogin) return `<div class="es-line">⭐ 모카월드에 로그인하면 판마다 <b>별사탕</b>을 받아요 <span class="dim">(넘긴 스테이지 × 5)</span></div>`;
+  if (s.failed) return `<div class="es-line dim">⭐ 별사탕 서버에 연결하지 못했어요</div>`;
+  if (s.skipped === "CLOSED") return "";
+  const run = Number(s.run) || 0, rec = Number(s.record) || 0, got = run + rec;
+  const bal = `<span class="dim">지금 ${(Number(s.balance) || 0).toLocaleString()}개</span>`;
+  if (got > 0) return `<div class="es-line got">⭐ 별사탕 <b>+${got.toLocaleString()}</b> ${bal}</div>
+      <div class="es-sub">판 보상 +${run.toLocaleString()}${rec > 0 ? ` · 🎉 신기록 +${rec.toLocaleString()}` : ""}</div>`;
+  if (s.skipped === "TOO_SOON") return `<div class="es-line dim">⭐ 방금 받은 판과 너무 가까워 이번 판은 별사탕이 없어요 ${bal}</div>`;
+  if (runCleared(r) < 1) return `<div class="es-line dim">⭐ 스테이지를 하나 넘기면 별사탕을 받아요 ${bal}</div>`;
+  return `<div class="es-line dim">⭐ 오늘 받을 수 있는 별사탕을 다 받았어요 ${bal}</div>`;
+}
+// 이 판에서 넘긴 스테이지 수(판은 늘 「지금 스테이지」에서 실패 · 포기로 끝난다 → 지금 스테이지 - 1). 시작하자마자 포기한 판은 0.
+const runCleared = (r) => Math.max(0, (Number(r.stage) || 0) - 1);
+async function reportRunStars() {
+  const r = g.run;
+  if (!r || r.phase !== PHASE.RUN_END || r.runStars || r._starsBusy) return;
+  if (!r.runStarsId) r.runStarsId = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+  r._starsBusy = true;
+  const res = await reportRun(r.deepMode ? "deep" : r.asc > 0 ? "asc" : "normal", runCleared(r), r.runStarsId);
+  r._starsBusy = false;
+  // (ok 인데 값이 없음 = 별사탕을 모르는 옛 서버 → 아무것도 그리지 않는다)
+  r.runStars = res.ok ? (res.stars || { skipped: "CLOSED" }) : res.needLogin ? { needLogin: true } : { failed: true };
+  // 서버가 열쇠를 거절했는데 화면은 아직 로그인 표시 → 내린다(손님은 authUser 가 없다)
+  if (!res.ok && res.needLogin && authUser) onAuthExpired();
+  const el = document.getElementById("end-stars");
+  if (el && g.run === r) el.innerHTML = endStarsInner(r);
+}
+
 // ── 런 종료 ──
 function renderEnd() {
   snd.bgmStop(); snd.sfx("gameover");
@@ -2656,12 +2694,14 @@ function renderEnd() {
       ${!st.deepMode && st.finalScore >= g.profile.bestScore ? `<div style="color:var(--gold);font-weight:800;margin:8px 0">🎉 최고 기록 갱신!</div>` : ""}
     </div>
     ${xpBlock}
+    <div class="end-stars" id="end-stars">${endStarsInner(g.run || st)}</div>
     <div class="end-rank" id="end-rank"><div class="er-msg">🏆 랭킹 불러오는 중…</div></div>
     <div class="choose-foot" style="display:flex;flex-direction:column;gap:8px">
       <button class="bigbtn" data-act="restart">🔄 다시 도전</button>
       <div style="display:flex;gap:8px"><button class="bigbtn ghost" data-act="dex" style="flex:1">📚 도감</button><button class="bigbtn ghost" data-act="home" style="flex:1">🏠 홈으로</button></div>
     </div>`;
   setupEndRank();
+  reportRunStars();
   maybeShowLevelUp();   // F9: 플레이어 레벨업이면 중앙 모달(토스트 대체)
 }
 // 게임 종료 시 랭킹 등록 위젯 — 닉 있으면 자동 등록·표시, 없으면 닉 입력해 바로 등록

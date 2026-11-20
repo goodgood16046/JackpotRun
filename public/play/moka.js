@@ -78,7 +78,7 @@ export function initAccount() {
     }
     const token = read(KEY)?.token;
     if (!token) return null;
-    try { _identity = await api("jackpot-me", { token }); } catch (e) {
+    try { const me = await api("jackpot-me", { token }); _identity = me ? { ...me, stars: normStars(me.stars) } : null; } catch (e) {
       _identity = null;
       if (_cameBack) _lastError = "모카월드에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.";
     }
@@ -88,6 +88,17 @@ export function initAccount() {
 
 /** 지금 로그인한 사람 { cid, nick, roomName } | null. */
 export function identity() { return _identity; }
+
+/** 서버가 준 별사탕 값을 화면에 그릴 모양으로(수는 수, 글자는 글자 — top() 과 같은 까닭). 없으면 null. */
+function normStars(s) {
+  if (!s || typeof s !== "object") return null;
+  const n = (v) => Math.max(0, Math.floor(Number(v)) || 0);
+  const skipped = s.skipped === "TOO_SOON" || s.skipped === "CLOSED" ? s.skipped : undefined;
+  return { run: n(s.run), record: n(s.record), runLeft: n(s.runLeft), recordLeft: n(s.recordLeft), balance: n(s.balance), ...(skipped ? { skipped } : {}) };
+}
+
+/** 지금 별사탕 상태 { balance, runLeft, recordLeft, … } | null(로그인 전 · 옛 서버). */
+export function stars() { return _identity?.stars ?? null; }
 
 export async function logout() {
   // 이 기기에서 먼저 지우고(화면이 바로 바뀌게), 서버의 열쇠는 그다음에 지운다
@@ -107,6 +118,23 @@ export async function submit(mode, entry) {
   try {
     const r = await api("jackpot-scores", { body: { mode, score, stage: clampInt(entry.stage), asc: clampInt(entry.asc) }, token });
     return { ok: true, ...r };
+  } catch (e) {
+    return { ok: false, needLogin: e.status === 401, err: e.message };
+  }
+}
+
+/** 판 하나를 끝냈다고 알린다(stage = 넘긴 스테이지 수) → 별사탕(모카월드 공통 재화). 같은 runId 는 서버가 한 번만 준다. */
+export async function reportRun(mode, stage, runId) {
+  const token = read(KEY)?.token;
+  if (!token || !_identity) return { ok: false, needLogin: true };
+  try {
+    // 별사탕을 모르는 옛 서버(jackpot-me 에 stars 가 없음)에는 보내지 않는다 — 화면은 아무것도 그리지 않는다
+    if (!_identity.stars) return { ok: true, stars: null };
+    const r = await api("jackpot-run", { body: { mode, stage: clampInt(stage), runId }, token });
+    const stars = normStars(r?.stars);
+    // 기다리는 동안 로그아웃했으면(다른 사람으로 다시 로그인했어도) 표시를 되살리지 않는다
+    if (stars && _identity && read(KEY)?.token === token) _identity = { ..._identity, stars };
+    return { ok: true, stars };
   } catch (e) {
     return { ok: false, needLogin: e.status === 401, err: e.message };
   }

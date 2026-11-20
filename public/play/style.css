@@ -1588,3 +1588,11 @@ body.last-spin .lastspin-vig { opacity: 1; animation: vigPulse 1.3s ease-in-out 
 .auth-prov.k { color: #191919; background: #fee500; }
 .rk-room { display: block; color: #aeb8cd; font-size: 11.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
 .rank-toggle .rt-btn { word-break: keep-all; }   /* 360px 에서 「심화모드」가 「심화모/드」로 끊기지 않게 */
+
+/* 별사탕(모카월드 공통 재화) — 결산 화면 · 홈 화면 */
+.end-stars { margin: 0 0 12px; text-align: center; zoom: var(--sc); }
+.end-stars:empty { display: none; }
+.end-stars .es-line { font-size: 14px; font-weight: 700; }
+.end-stars .es-line.got { font-size: 16px; color: var(--gold); }
+.end-stars .es-sub { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+.home-stars { display: inline-flex; align-items: center; margin: 10px 0 0 6px; padding: 6px 10px; border-radius: 999px; font-size: calc(12px * var(--sc)); font-weight: 800; color: var(--gold); background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.18); white-space: nowrap; }
