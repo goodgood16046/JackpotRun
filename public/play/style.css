@@ -1561,6 +1561,8 @@ body.last-spin .lastspin-vig { opacity: 1; animation: vigPulse 1.3s ease-in-out 
 /* 클리어 화면 하단 버튼(정산/앵콜/다음) — 긴 클리어 화면에서도 항상 손이 닿게 화면 하단에 붙인다 */
 .choose-foot.clear-foot { position: sticky; bottom: 0; z-index: 25; margin-left: -13px; margin-right: -13px; padding: 10px 13px calc(10px + env(safe-area-inset-bottom));
   background: linear-gradient(180deg, rgba(7,8,15,0), rgba(7,8,15,.92) 30%); }
+/* 작은 폰(≤360px)은 #app 좌우 여백이 9px — 클리어 하단 줄도 같은 폭만 밖으로(-13px 이면 4px 가로 넘침, 2026-11-23) */
+@media (max-width: 360px) { .choose-foot.clear-foot { margin-left: -9px; margin-right: -9px; padding-left: 9px; padding-right: 9px; } }
 .scr-title h1 .art-ico.h1-ico { width: 1.2em; height: 1.2em; vertical-align: -.22em; }
 
 /* 모카월드 로그인(2026-11-19) */
