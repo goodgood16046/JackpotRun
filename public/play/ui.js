@@ -1,4 +1,4 @@
-// ── 잭팟 슬롯 (웹 단독판) — UI 레이어 ─────────────────────────────────
+// ── 풍년런 (웹 단독판) — UI 레이어 ─────────────────────────────────
 // game.js 컨트롤러를 버튼/카드/애니메이션으로 구동. 채팅 입력 없음.
 import { Game, PHASE } from "./game.js";
 import * as D from "./data.js";
@@ -18,21 +18,21 @@ const app = document.getElementById("app");
 const toastRoot = document.getElementById("toast");
 const sheetRoot = document.getElementById("sheet-root");
 const gearBtn = document.getElementById("gearbtn");
-{ const vig = document.createElement("div"); vig.className = "lastspin-vig"; document.body.appendChild(vig); }   // F3 마지막 스핀 붉은 비네트(body.last-spin 일 때만 보임)
+{ const vig = document.createElement("div"); vig.className = "lastspin-vig"; document.body.appendChild(vig); }   // F3 마지막 심기 붉은 비네트(body.last-spin 일 때만 보임)
 // 고정 설정 기어: 인트로/플레이 화면 외 모든 화면 우상단에 표시(플레이는 HUD 내 기어 사용).
 function gearShow(on) { if (gearBtn) gearBtn.style.display = on ? "flex" : "none"; }
 
 let st = null;            // 현재 상태 스냅샷
 let busy = false;         // 애니메이션 중
 let logShown = 0;         // 토스트 표시 커서
-let lastGain = null;      // 최근 스핀 결과 표시
+let lastGain = null;      // 최근 심기 결과 표시
 let uiManip = null;       // 고정/복사/교체 칸 선택 대기
 let dexTab = "char";      // 도감 탭
 let selAsc = 0;           // 홈에서 선택한 심화 학기(승천) 단계
 let selDeep = false;      // 홈에서 선택한 심화모드(심볼 주머니 덱빌딩) — 일반/심화 토글
 let rankMode = "normal";  // 랭킹 화면 모드: normal | asc | deep | legacy(예전 기록)
 let shopTab = "buy";      // 심화모드 상점 탭: buy(증강/유물/아이템) | repair(심볼 정비). 일반모드 무시.
-let introTimer = null;    // 인트로 릴 회전
+let introTimer = null;    // 인트로 칸 회전
 const tut = { active: false, ti: 0, live: false, shown: {} };   // 튜토리얼
 
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -41,7 +41,7 @@ const fmt2 = (n) => Math.round(n * 100) / 100;
 
 // ── 그림(FUN_OVERHAUL §3) — 이모지 대신 ../jackpotdex/img/<id>.png. 존재 목록(ART)에 없으면 이모지 폴백(404 깜빡임 방지) ──
 const ART_DIR = "../jackpotdex/img/";
-// icon(id, emoji, cls) — ART 에 있으면 <img>, 없으면 이모지 텍스트. eager=true 면 lazy 미적용(릴 스트립처럼 즉시 필요한 곳).
+// icon(id, emoji, cls) — ART 에 있으면 <img>, 없으면 이모지 텍스트. eager=true 면 lazy 미적용(칸 스트립처럼 즉시 필요한 곳).
 function icon(id, emoji, cls = "", eager = false) {
   if (id && ART.has(id)) return `<img class="art-ico${cls ? " " + cls : ""}" src="${ART_DIR}${id}.png" alt="" ${eager ? "" : 'loading="lazy" '}draggable="false">`;
   return esc(emoji);
@@ -56,7 +56,7 @@ const perkInfo = (id) => D.PERK_BY_ID[id] || D.SYM_PERK_BY_ID[id] || D.DEV_BY_ID
 const iconP = (id, emoji, cls, eager) => { const k = perkKind(id); return icon(k ? artId(k, id) : "", emoji != null ? emoji : (perkInfo(id) || {}).e, cls, eager); };
 // 심볼(데이터 sym 객체 {id,e}) 아이콘 — 접두어 sym_
 const symIcon = (s, cls, eager) => iconK("sym", s && s.id, s ? s.e : "", cls, eager);
-const symIconById = (id, cls) => { const s = D.SYM_BY_ID[id]; return iconK("sym", id, s ? s.e : (id === "empty" ? "▫" : id === "random" ? "🎲" : "❔"), cls); };
+const symIconById = (id, cls) => { const s = D.SYM_BY_ID[id]; return iconK("sym", id, s ? s.e : (id === "empty" ? "▫" : id === "random" ? "🫘" : "❔"), cls); };
 // 이름 → 종류/아이디(셀 시트의 '영향 주는 항목'은 id 없이 이름만 내려옴)
 function nameToArt(name, kindLabel) {
   if (kindLabel === "캐릭터") { const c = D.CHARS.find((x) => x.n === name); return c ? artId("char", c.id) : ""; }
@@ -70,8 +70,8 @@ function archHudChip(pv) {
   const a = pv && pv.archetype; if (!a || a.tier <= 0) return "";
   return ` <span class="dh-arch t${a.tier}" title="${esc(a.n)} ${a.tier >= 2 ? "심화(2차)" : "1차"} 전공">${a.e}${a.tier >= 2 ? "★" : ""}</span>`;
 }
-// §9.1 J2: 피버 게이지 HUD — 덱 카운트 칩 옆에 인라인 배치. 기존 deep-hud/expbar 문법 재사용.
-//  피버 중(feverSpins>0): 붉은 톤 + "🔥 Nx스핀" 표기. 미진입: 게이지 채움 바 표시.
+// §9.1 J2: 풍년 바람 게이지 HUD — 덱 카운트 칩 옆에 인라인 배치. 기존 deep-hud/expbar 문법 재사용.
+//  풍년 바람 중(feverSpins>0): 붉은 톤 + "🔥 Nx심기" 표기. 미진입: 게이지 채움 바 표시.
 //  ★일반모드 호출 없음(renderBattle 내 st.deepMode 조건 분기로만 호출).
 function feverHudHtml(st) {
   const gauge = st.feverGauge || 0;
@@ -79,10 +79,10 @@ function feverHudHtml(st) {
   const max = (D.DEEP && D.DEEP.FEVER_MAX) ? D.DEEP.FEVER_MAX : 100;
   const pct = Math.min(100, Math.round(gauge / max * 100));
   if (spins > 0) {
-    // 피버 진행 중 — 붉은 톤 칩 + 잔여 스핀 수
-    return `<span class="fever-hud fever-active">🔥 ${spins}스핀</span>`;
+    // 풍년 바람 진행 중 — 붉은 톤 칩 + 잔여 심기 수
+    return `<span class="fever-hud fever-active">🔥 ${spins}심기</span>`;
   }
-  // 피버 대기 중 — 게이지 바
+  // 풍년 바람 대기 중 — 게이지 바
   return `<span class="fever-hud"><span class="fever-bar-wrap"><span class="fever-bar-fill" id="fever-fill" style="width:${pct}%"></span></span><span class="fever-label">🔥${pct}%</span></span>`;
 }
 // 배치G: 전공 게이지 — 활성/최근접 전공 + 다음 임계까지 진행("🍒과수원 23%→25%"). 시트 상단용. pct2 헬퍼 재사용.
@@ -90,7 +90,7 @@ function archGaugeHtml(pv) {
   const a = pv && pv.archetype; if (!a) return "";
   const share = Math.round(a.share * 10000) / 100;   // 현재 비중 %(fmt2)
   const lvl = a.tier >= 2 ? "심화 전공(2차)" : a.tier >= 1 ? "전공(1차)" : "전공 준비";
-  const metricTxt = a.metric === "coin" ? "코인" : a.metric === "score" ? "점수" : "EXP";
+  const metricTxt = a.metric === "coin" ? "도토리" : a.metric === "score" ? "점수" : "EXP";
   const bonus = a.metric === "coin" ? (a.tier >= 2 ? "+20%" : "+10%") : (a.tier >= 2 ? "+30%" : "+15%");
   const nextTxt = a.nextThreshold != null
     ? `<span class="arch-next">${share}% → ${Math.round(a.nextThreshold * 100)}%</span>`
@@ -102,7 +102,7 @@ function archGaugeHtml(pv) {
     <div class="arch-foot">계열 비중 <b>${share}%</b> ${nextTxt}</div>
   </div>`;
 }
-const titleOf = (best) => { const t = D.SCORE_TITLES.find((x) => best >= x.min); return t ? t.e + t.n : "🐣잭팟 새내기"; };
+const titleOf = (best) => { const t = D.SCORE_TITLES.find((x) => best >= x.min); return t ? t.e + t.n : "🐣새싹 농부"; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const $ = (id) => document.getElementById(id);
 const CLEAR_BEAT = 2000;   // 스테이지 클리어 결과 화면이 나오기 전 여운(ms) — 승리 보드를 잠시 음미
@@ -136,8 +136,8 @@ document.addEventListener("click", (e) => {
 // 모바일/인앱브라우저 오디오 잠금 해제 — 첫 포인터다운에서 컨텍스트 재개
 document.addEventListener("pointerdown", () => snd.resume(), { passive: true });
 
-// ── F4 릴 칸 롱프레스(450ms) = 셀 정보 시트 ──
-//  홀드 가능 상태(충전>0·첫 스핀 이후)에선 칸 탭 = 홀드 토글, 길게 누르면 정보. 홀드 불가 상태에선 탭도 정보(기존 동작). 손가락이 8px 넘게 움직이면(스크롤) 취소.
+// ── F4 밭 칸 롱프레스(450ms) = 셀 정보 시트 ──
+//  지키기 가능 상태(충전>0·첫 심기 이후)에선 칸 탭 = 지키기 토글, 길게 누르면 정보. 지키기 불가 상태에선 탭도 정보(기존 동작). 손가락이 8px 넘게 움직이면(스크롤) 취소.
 const LONGPRESS_MS = 450;
 let lpTimer = null, lpFired = false, lpX = 0, lpY = 0;
 function lpCancel() { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } }
@@ -199,7 +199,7 @@ function handle(act, arg, el) {
     case "deviceSheet": openDeviceSheet(); break;
     case "status": openStatusSheet(); break;
     case "cellinfo": if (!busy) openCellSheet(+arg); break;
-    case "reelTap": reelTap(+arg); break;   // F4: 홀드 가능하면 홀드 토글, 아니면 셀 정보
+    case "reelTap": reelTap(+arg); break;   // F4: 지키기 가능하면 지키기 토글, 아니면 셀 정보
     case "bossSkip": { const bi = document.querySelector(".boss-intro"); if (bi && bi._kill) bi._kill(); break; }
     case "lvlOk": { const m = document.querySelector(".lvup-modal"); if (m) { m.classList.add("out"); setTimeout(() => m.remove(), 220); } break; }
     case "encoreSpin": doEncore(); break;
@@ -212,7 +212,7 @@ function handle(act, arg, el) {
     case "manipN": { uiManip = null; const out = g.manip(arg.split(":")[0], +arg.split(":")[1]); afterManip(out); } break;
     case "giveUpAsk": giveUpAsk(); break;
     case "giveUpConfirm": closeSheet(); st = g.giveUp(true); drainToasts(); render(); break;
-    case "proceed": if (busy) break; st = g.proceedToNodes(); drainToasts(); render(); break;   // 앵콜 팟이 남아 있으면 게임이 먼저 정산
+    case "proceed": if (busy) break; st = g.proceedToNodes(); drainToasts(); render(); break;   // 덤 수확 팟이 남아 있으면 게임이 먼저 정산
     case "cleardetail": { const bd = $("clear-bd"); if (bd && el) { const open = bd.style.display === "none"; bd.style.display = open ? "block" : "none"; el.textContent = (open ? "▲" : "▼") + " 점수 상세"; } break; }
     case "proceedStage": st = g.proceedToStage(); lastGain = null; render(); break;
     case "node": { if (el) { el.classList.add("chosen"); spawnSparkle(el, "GOLD"); } st = g.selectNode(+arg); drainToasts(); setTimeout(render, 260); break; }
@@ -264,7 +264,7 @@ function handle(act, arg, el) {
     case "tutGoLive": tutGoLive(); break;
     case "tutBannerOk": tutClear(); break;
     case "resetAsk": openSheet(`<button class="sheet-close" data-act="closeSheet">◀ 취소</button><h3>⚠️ 데이터 초기화</h3>
-      <div class="sub">최고 점수 · 캐릭터/머신/장치 해금 · 도감 발견 기록이 <b style="color:var(--red)">모두 사라지고</b> 처음(초보학생+기본)부터 시작합니다.<br><span class="dim">랭킹에 등록한 기록은 그대로 유지돼요.</span></div>
+      <div class="sub">최고 점수 · 캐릭터/밭/장치 해금 · 도감 발견 기록이 <b style="color:var(--red)">모두 사라지고</b> 처음(초보학생+기본)부터 시작합니다.<br><span class="dim">랭킹에 등록한 기록은 그대로 유지돼요.</span></div>
       <div class="confirm-row"><button class="bigbtn ghost" data-act="closeSheet">취소</button><button class="bigbtn danger-btn" data-act="resetConfirm">🧹 초기화</button></div>`); break;
     case "resetConfirm": g.resetData(); closeSheet(); st = null; logShown = g.log.length; lastGain = null; render(); showToast("🧹 데이터를 초기화했어요 — 처음부터 시작!"); break;
     case "soundToggle": setSound(!soundOn); break;
@@ -311,16 +311,8 @@ function renderBeat(fallbackDelay = 0) {
   else render();
 }
 
-// ── 스핀(애니메이션 + 이펙트) ──
-// Unity ReelView(S13/S14) 노치 스크롤 이식 — jackpotpick/reel.js 와 동일 메커니즘의 게임판.
-// 반복 플레이 리듬을 위해 Unity 명시값 대비 소폭 단축(가속 .25→.22 등).
-const R_ACCEL = 0.22;                    // 0→최고속 가속
-const R_NOTCH_MAX = 0.055;               // 최고속 노치(초)
-const R_NOTCH_START = 0.14;              // 가속 시작 노치
-const R_HOLD = 0.28;                     // 스태거 시작 전 유지
-const R_STAGGER = 0.09;                  // 릴별 정지 지연
-const R_DECEL = [0.09, 0.14, 0.20];      // 감속 3노치(outCubic) — 타깃은 idx0 주입(D-3 공식)
-const R_OVERSHOOT_RATIO = 0.085, R_OVERSHOOT_DUR = 0.14; // 착지 튕김(outBack) — 오버슈트 픽셀은 슬롯 크기(S) 비례
+// ── 심기(애니메이션 + 이펙트) ──
+const R_STAGGER = 0.09;                  // 칸별 심기 간격
 
 // ── 이징/트윈(rAF 기반) — jackpotpick/reel.js 와 동일 공식 ──
 const linear = (t) => t;
@@ -346,94 +338,37 @@ const SPIN_SYMS = D.SYMS.filter((s) => s.weight > 0);
 function randSpinCell() { const s = SPIN_SYMS[Math.floor(Math.random() * SPIN_SYMS.length)]; return { sym: { id: s.id, e: s.e }, tag: "" }; }
 const reducedMotion = () => !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
-// ── F7 기대감(anticipation)·니어미스 — Unity ReelView.cs DetectAnticipation/DetectNearMiss 와 같은 조건(마지막 릴에만 적용) ──
-//  기대감: 마지막 릴을 제외한 칸에서 "세트 가능(값심볼)" 같은 심볼이 ANTIC_MIN(3)개 이상 → 마지막 릴 유지 구간 +0.6s · 감속 3→5노치 · 골드 펄스 · 살짝 줌인.
-//  니어미스: 기대감 조건 + 결과가 4매치를 못 이룸 + 마지막 릴 결과가 그 심볼이 아님(2026-10-28: ANTIC_MIN 3 상향에 맞춰 "3매치 실패"→"4매치 실패") → 마지막 감속 노치에서 그 심볼이 한 칸 중앙을 0.35s 스치고 지나감.
-const R_DECEL_ANT = [0.10, 0.14, 0.18, 0.22, 0.32];   // 기대감 감속 5노치(Unity AntDecel1~5) — 타깃은 idx(D-3)=2 에 주입
-const R_ANTIC_EXTRA = 0.6;                            // 유지 구간 연장(초)
-const R_NEARMISS_PAUSE = 0.35;                        // 니어미스 심볼이 중앙을 스치는 노치 길이(초)
-const ANTIC_MIN = 3;                                  // 앞 4칸 같은 값심볼 3개↑ (2개 기준은 스핀 절반에서 떠서 긴장감이 흐려짐 — 2026-10-28 리드 결정)
-function planReelFx(cells, bestCount, heldIdx) {
-  const plan = { antic: false, nearMiss: false, nearSym: null };
-  const last = cells.length - 1;
-  if (last < 1 || (heldIdx && heldIdx.includes(last))) return plan;   // 마지막 릴이 홀드면 돌지 않으므로 연출 없음
-  const cnt = {}; let bestId = null, best = 0;
-  for (let i = 0; i < last; i++) { const s = cells[i] && cells[i].sym; if (s && D.VALUE_IDS.has(s.id)) cnt[s.id] = (cnt[s.id] || 0) + 1; }
-  for (const id of Object.keys(cnt)) if (cnt[id] > best) { best = cnt[id]; bestId = id; }
-  plan.antic = best >= ANTIC_MIN;
-  const lastSym = cells[last] && cells[last].sym;
-  if (plan.antic && (bestCount || 0) < ANTIC_MIN + 1 && bestId && lastSym && lastSym.id !== bestId) { plan.nearMiss = true; plan.nearSym = D.SYM_BY_ID[bestId] || null; if (!plan.nearSym) plan.nearMiss = false; }
-  return plan;
-}
+// ── 심기 연출(밭 칸) — 세로 스트립 스크롤 대신: 흙 들썩(.sowing) → 가운데 칸을 결과로 → 새싹 돋기(.sprout). 니어미스·기대감 연출 없음. ──
+const R_SOW = 0.25;                      // 흙 들썩임(초)
+const R_SPROUT = 0.32;                   // 새싹 돋는 시간(초)
 const symOfSlot = (slot) => { const el = slot && slot.querySelector(".sym"); return { id: el ? (el.dataset.sid || "") : "", e: el ? (el.dataset.e || "") : "" }; };
-const REEL_FX_CLASSES = ["settle", "match", "m-2", "m-3", "m-4", "m-5", "blast", "empty", "skull-hit", "hold-keep", "antic", "nm-flash"];
+const REEL_FX_CLASSES = ["settle", "match", "m-2", "m-3", "m-4", "m-5", "blast", "empty", "skull-hit", "hold-keep", "sowing", "sprout"];
 function resetReelFx(reelEl) {
   reelEl.classList.remove(...REEL_FX_CLASSES);
   reelEl.querySelectorAll(".mshine, .mspark").forEach((n) => n.remove());
-  reelEl.querySelectorAll(".nm-gray").forEach((n) => n.classList.remove("nm-gray"));
 }
 
-// 릴 1개 시퀀스: 결과(landCell)는 이미 확정된 상태로 진입 — 연출은 그 결과에 착지할 뿐(결정론). plan 은 마지막 릴에만 전달(기대감/니어미스).
-async function spinReelOne(reelEl, idx, landCell, plan) {
+// 칸 1개 심기: 결과(landCell)는 이미 확정된 상태로 진입 — 연출은 그 결과를 보여 줄 뿐(결정론).
+async function spinReelOne(reelEl, idx, landCell) {
   const strip = reelEl.querySelector(".rstrip");
-  const S = reelEl.clientHeight / 1.5;   // 뷰포트 높이 = 1.5×슬롯(§D)
-  const BASE = -1.75 * S;
-  const overshoot = S * R_OVERSHOOT_RATIO;
-  const antic = !!(plan && plan.antic), nearMiss = !!(plan && plan.nearMiss);
-  reelEl.classList.add("spinning");
   resetReelFx(reelEl);
   [...strip.children].forEach((s) => s.classList.remove("center"));
-
-  const advance = (dur, ease, cell) => rTween(dur, ease, (p) => {
-    strip.style.transform = `translateY(${BASE + S * p}px)`;
-  }).then(() => {
-    const recycled = strip.lastElementChild;
-    strip.insertBefore(recycled, strip.firstElementChild);
-    recycled.innerHTML = reelInner(cell);
-    strip.style.transform = `translateY(${BASE}px)`;
-  });
-
-  let t = 0;
-  const stopAt = R_ACCEL + R_HOLD + idx * R_STAGGER;
-  while (true) {
-    const nd = lerp(R_NOTCH_START, R_NOTCH_MAX, outQuad(clamp01(t / R_ACCEL)));
-    if (t + nd >= stopAt) break;
-    await advance(nd, linear, randSpinCell());
-    t += nd;
-  }
-  // F7 기대감 — 마지막 릴: 유지 구간 +0.6s 연장 + 골드 펄스 + 줌인(남은 릴 1개, 이미 같은 심볼 2개↑)
-  if (antic) {
-    reelEl.classList.add("antic"); if (reelEl.parentElement) reelEl.parentElement.classList.add("antic-zoom"); snd.sfx("antic");
-    let extra = 0;
-    while (extra < R_ANTIC_EXTRA) { await advance(R_NOTCH_MAX, linear, randSpinCell()); extra += R_NOTCH_MAX; }
-  }
-  // 유지 마지막 노치 — 니어미스면 여기서 그 심볼(X)을 주입(2노치 뒤 중앙 통과)
-  await advance(R_NOTCH_MAX, linear, nearMiss ? { sym: { id: plan.nearSym.id, e: plan.nearSym.e }, tag: "" } : randSpinCell());
-
-  reelEl.classList.remove("spinning");
-  const decel = antic ? R_DECEL_ANT : R_DECEL;
-  const injectAt = decel.length - 3;   // 타깃은 (D-3)번째 노치에 주입 → 마지막 노치 종료 시 정확히 중앙 도착(D-3 공식)
-  for (let k = 0; k < decel.length; k++) {
-    const pass = nearMiss && k === 1;   // X 가 중앙에 닿는 노치 — 0.35s 로 느려졌다가 골드 플래시
-    await advance(pass ? R_NEARMISS_PAUSE : decel[k], outCubic, k === injectAt ? landCell : randSpinCell());
-    if (pass) { reelEl.classList.add("nm-flash"); snd.sfx("nearmiss"); setTimeout(() => reelEl.classList.remove("nm-flash"), 160); }
-  }
-  if (antic) { reelEl.classList.remove("antic"); if (reelEl.parentElement) reelEl.parentElement.classList.remove("antic-zoom"); }
-
-  strip.style.transform = `translateY(${BASE - overshoot}px)`;
-  await rTween(R_OVERSHOOT_DUR, outBack, (p) => {
-    strip.style.transform = `translateY(${BASE - overshoot + overshoot * p}px)`;
-  });
-
-  strip.children[2].classList.add("center");
-  if (nearMiss) strip.children[2].classList.add("nm-gray");   // 아깝게 빗나간 마지막 칸은 잠깐 회색 톤(Unity NearMissGray)
-  reelEl.classList.add("settle");
-  strip.style.transform = "";   // outBack 종료 지점(BASE)은 CSS 기본값(-35%)과 동일 지점 — 인라인 px 를 걷어내 리사이즈/브레이크포인트 전환 시 어긋남 방지
-  // 착지한 이웃 장식(0,1,3,4)을 memo 에 반영 — 다음 재렌더(setReels/renderPlay)가 지금 보이는 모습 그대로 복원(깜빡임 방지).
+  await sleep(idx * R_STAGGER * 1000);
+  reelEl.classList.add("sowing");
+  await sleep(R_SOW * 1000);
+  reelEl.classList.remove("sowing");
+  const center = strip.children[2];
+  center.classList.add("center");
+  center.innerHTML = reelInner(landCell);
+  strip.style.transform = "";
+  reelEl.classList.add("sprout");
+  snd.sfx("sprout");
+  // 이웃 장식(0,1,3,4)을 memo 에 반영 — 다음 재렌더가 지금 모습 그대로 복원(깜빡임 방지).
   stripMemo.set(idx, [0, 1, 3, 4].map((k) => symOfSlot(strip.children[k])));
-  snd.sfx("reel");
+  await sleep(R_SPROUT * 1000);
+  reelEl.classList.remove("sprout");
 }
-// F4 홀드 칸 — 회전하지 않고 그 자리에서 새 raw 값(=직전 raw 와 동일)으로 고정 표시. 잠금 펄스만.
+// F4 지키기 칸 — 회전하지 않고 그 자리에서 새 raw 값(=직전 raw 와 동일)으로 고정 표시. 잠금 펄스만.
 function holdKeepReel(reelEl, idx, landCell) {
   const strip = reelEl.querySelector(".rstrip"); if (!strip) return;
   resetReelFx(reelEl);
@@ -447,38 +382,36 @@ function holdKeepReel(reelEl, idx, landCell) {
 async function doSpin(mode) {
   if (busy || st.phase !== PHASE.SPIN) return;
   busy = true; uiManip = null; snd.sfx("spin");
-  const wasLast = st.spinIndex === st.spins - 1 && st.stageExp < st.quota;   // F3: 미클리어 마지막 스핀이었나(이 스핀으로 클리어하면 CLUTCH!)
-  bannerQ.length = 0;   // 연속 스핀 시 지난 스핀의 대기 중 배너는 버린다(뒤늦게 뜨는 것 방지)
+  const wasLast = st.spinIndex === st.spins - 1 && st.stageExp < st.quota;   // F3: 미클리어 마지막 심기였나(이 심기로 클리어하면 역전 수확!)
+  bannerQ.length = 0;   // 연속 심기 시 지난 심기의 대기 중 배너는 버린다(뒤늦게 뜨는 것 방지)
   const spinBtn = $("spinbtn"); if (spinBtn) spinBtn.disabled = true; updateExtras();
-  const holdHint = $("hold-hint"); if (holdHint) { holdHint.classList.remove("on"); holdHint.innerHTML = "&nbsp;"; }   // 스핀 중엔 홀드 안내 숨김
+  const holdHint = $("hold-hint"); if (holdHint) { holdHint.classList.remove("on"); holdHint.innerHTML = "&nbsp;"; }   // 심기 중엔 지키기 안내 숨김
   const reelsBox = $("reels");
   let reelEls = [...reelsBox.querySelectorAll(".reel")];
   reelsBox.classList.remove("win", "jackpot");
   reelsBox.classList.remove("multi-2", "multi-3", "multi-4", "multi-5");
   const out = g.spin(mode);   // 결과를 먼저 확정 — 연출은 이 결과에 착지할 뿐
-  if (!out || !out.cells) {   // 조기 반환(예: 코인 부족) — 애니 안전 복구
+  if (!out || !out.cells) {   // 조기 반환(예: 도토리 부족) — 애니 안전 복구
     st = out || g.state(); busy = false; drainToasts(); renderPlay(); return;
   }
   const finalCells = out.cells;
   const landCells = out.preCells || finalCells;   // 폭탄 폭발 전(착지) 모습
-  const heldIdx = out.holdUsed || [];             // F4: 이번 스핀에서 고정된 칸(회전 안 함)
+  const heldIdx = out.holdUsed || [];             // F4: 이번 심기에서 고정된 칸(회전 안 함)
   const reduced = reducedMotion();
   if (reduced) {
     setReels(landCells);
     reelEls = [...reelsBox.querySelectorAll(".reel")];   // setReels 가 DOM 을 새로 그렸으므로 재조회
     await sleep(150);
   } else {
-    const plan = planReelFx(finalCells, out.bestCount, heldIdx);
     try {
       await Promise.all(reelEls.map((el, i) => heldIdx.includes(i)
         ? holdKeepReel(el, i, landCells[i] || finalCells[i])
-        : spinReelOne(el, i, landCells[i] || finalCells[i], i === reelEls.length - 1 ? plan : null)));
+        : spinReelOne(el, i, landCells[i] || finalCells[i])));
     } catch (err) {
       // 연출 예외에도 결과는 반드시 반영한다(g.spin 은 이미 상태를 바꿨다) — 최종 상태로 강제 스냅
       setReels(landCells);
       reelEls = [...reelsBox.querySelectorAll(".reel")];
     }
-    reelsBox.classList.remove("antic-zoom");
   }
   await sleep(110);
   if (out.bomb) await blastBomb(reelEls, out.bomb, finalCells);   // 다 등장 후 폭발 → 비우기
@@ -486,22 +419,22 @@ async function doSpin(mode) {
   const tier = out.bigWinTier || 0;
   try {   // 순수 연출 — 예외가 나도 게임 진행(busy 해제·상태 반영)을 막지 않는다
     skullHits(reelEls, finalCells);   // F8: 해골 칸 흔들림 + 붉은 플래시
-    if (out.jackpot) { reelsBox.classList.add("jackpot"); jackpotFx(out.jackpot); shake("bg"); floatExp(out.gained, true); snd.sfx("jackpot"); }   // 잭팟이 최상위 — 빅윈 배너와 중복 금지
+    if (out.jackpot) { reelsBox.classList.add("jackpot"); jackpotFx(out.jackpot); floatExp(out.gained, true); snd.sfx("jackpot"); }   // 대풍작이 최상위 — 빅윈 배너와 중복 금지
     else {
       if (out.bestCount >= 3) reelsBox.classList.add("win");
-      if (tier > 0) bigWinFx(tier, wasLast && out.cleared);   // F1: NICE!/BIG WIN!/MEGA WIN! (CLUTCH 와 겹치면 배너는 CLUTCH 가 맡고 사운드/파티클만)
+      if (tier > 0) bigWinFx(tier, wasLast && out.cleared);   // F1: 좋은 수확!/풍성한 수확!/엄청난 수확! (CLUTCH 와 겹치면 배너는 CLUTCH 가 맡고 사운드/파티클만)
       else if (out.bestCount >= 3) { shake("sm"); snd.sfx("win"); }
     }
     if (out.feverTriggered) feverTriggerFx();     // F5: FEVER! 배너
-    if (wasLast && out.cleared) clutchFx(tier > 0 ? BIGWIN[tier].txt : "");       // F3: CLUTCH!
+    if (wasLast && out.cleared) clutchFx(tier > 0 ? BIGWIN[tier].txt : "");       // F3: 역전 수확!
   } catch (err) { console.error("spin fx", err); }
   lastGain = { gained: out.gained, notes: out.notes, jackpot: out.jackpot, banner: out.banner, bestCount: out.bestCount, setGroups: (out.setIds || []).length, score: out.score || 0, coins: out.coins || 0 };
   st = out.state; showGain(true); updateHud(); drainToasts();
-  // 잭팟 흔들림(jpShake)만 1회성으로 제거.
+  // 대풍작 흔들림(jpShake)만 1회성으로 제거.
   // ★반짝임 일회성화(CSS): 매치 펄스/빛스윕(.mshine)/반짝이(.mspark)/프리즘/컨테이너 호흡은
   // 전부 finite iteration(+both) 라 매치 직후 ~2초 터졌다가 잦아든다. 결과 화면 동안에는
   // 차분한 정적 하이라이트(.reel.match 골드 테두리 + 정적 글로우)만 남아 매치 셀을 표시.
-  // 클래스 자체(.match/m-*/multi-*)는 다음 스핀 시작 시 doSpin 상단에서 일괄 초기화한다.
+  // 클래스 자체(.match/m-*/multi-*)는 다음 심기 시작 시 doSpin 상단에서 일괄 초기화한다.
   setTimeout(() => { reelsBox.classList.remove("jackpot"); }, 1500);
   busy = false;
   if (tut.active && !tut.live) {
@@ -516,7 +449,7 @@ async function doSpin(mode) {
 // ── 이펙트 헬퍼 ──
 function shake(kind) { app.classList.remove("shk-sm", "shk-bg", "shk-xl"); void app.offsetWidth; app.classList.add(kind === "xl" ? "shk-xl" : kind === "bg" ? "shk-bg" : "shk-sm"); setTimeout(() => app.classList.remove("shk-sm", "shk-bg", "shk-xl"), 640); }
 
-// ── 중앙 대형 배너 큐(NICE!/BIG WIN!/MEGA WIN!/FEVER!/CLUTCH!/LAST SPIN!) — 겹치지 않고 순서대로 ──
+// ── 중앙 대형 배너 큐(좋은 수확!/풍성한 수확!/엄청난 수확!/FEVER!/역전 수확!/마지막 심기!) — 겹치지 않고 순서대로 ──
 const bannerQ = []; let bannerBusy = false;
 function queueBanner(text, cls, dur = 1000, sub = "") { bannerQ.push({ text, cls, dur, sub }); if (!bannerBusy) pumpBanner(); }
 async function pumpBanner() {
@@ -531,11 +464,11 @@ async function pumpBanner() {
   }
   bannerBusy = false;
 }
-// 화면 가장자리 붉은 플래시(해골·앵콜 BUST)
+// 화면 가장자리 붉은 플래시(해골·덤 수확 BUST)
 // 화면 전환(클리어/종료) 시 남은 배너는 즉시 정리 — 다음 화면 위에 겹쳐 뜨지 않게
 function flushBanners() { bannerQ.length = 0; document.querySelectorAll(".fx-banner").forEach((n) => n.remove()); }
 function redFlash() { if (reducedMotion()) return; const o = document.createElement("div"); o.className = "red-flash"; document.body.appendChild(o); setTimeout(() => o.remove(), 520); }
-// 중앙 상단에서 사방으로 튀는 파티클(이모지) — 빅윈/피버/레벨업 공용. 위치: 화면 가로 중앙·세로 top%.
+// 중앙 상단에서 사방으로 튀는 파티클(이모지) — 빅윈/풍년 바람/레벨업 공용. 위치: 화면 가로 중앙·세로 top%.
 function burstParticles(n, set, o = {}) {
   if (reducedMotion()) return;
   const root = document.createElement("div"); root.className = "fx-burst"; root.style.top = (o.top || 47) + "%";
@@ -547,27 +480,27 @@ function burstParticles(n, set, o = {}) {
   root.innerHTML = h; document.body.appendChild(root); setTimeout(() => root.remove(), o.life || 1500);
 }
 
-// ── F1 빅윈 티어(스핀 EXP ÷ 페이스 ≥2 NICE · ≥3 BIG · ≥5 MEGA) — 배너·셰이크·파티클·사운드·진동 강도 차등 ──
+// ── F1 빅윈 티어(심기 EXP ÷ 페이스 ≥2 NICE · ≥3 BIG · ≥5 MEGA) — 배너·셰이크·파티클·사운드·진동 강도 차등 ──
+const LEAF_SET = ["🍃", "🌾", "✨", "🌿"], LEAF_SET_BIG = ["🍃", "🌾", "✨", "🌿", "🌻", "🍀"];   // 떨어지는 잎 · 황금 · 풀빛
 const BIGWIN = [null,
-  { txt: "NICE!",     cls: "bw1", dur: 850,  n: 10, set: ["✨", "⭐"],                                shake: "sm", vib: 18 },
-  { txt: "BIG WIN!",  cls: "bw2", dur: 1100, n: 24, set: ["✨", "⭐", "🪙", "💫"],                    shake: "bg", vib: [30, 40, 50] },
-  { txt: "MEGA WIN!", cls: "bw3", dur: 1500, n: 48, set: ["✨", "⭐", "🪙", "💎", "🌟", "💫"],        shake: "xl", vib: [40, 40, 60, 40, 140] },
+  { txt: "좋은 수확!",     cls: "bw1", dur: 850,  n: 10, set: LEAF_SET,                                shake: "sm", vib: 18 },
+  { txt: "풍성한 수확!",  cls: "bw2", dur: 1100, n: 24, set: LEAF_SET,                    shake: "sm", vib: [30, 40, 50] },
+  { txt: "엄청난 수확!", cls: "bw3", dur: 1500, n: 48, set: LEAF_SET_BIG,        shake: "sm", vib: [40, 40, 60, 40, 140] },
 ];
 function bigWinFx(tier, noBanner) {
   const c = BIGWIN[tier]; if (!c) return;
   snd.sfx("bigwin" + tier); shake(c.shake); vibrate(c.vib);
   if (!noBanner) queueBanner(c.txt, c.cls, c.dur);
   burstParticles(c.n, c.set, { flash: tier >= 3, spread: 90 + tier * 45, life: 1100 + tier * 250 });
-  if (tier >= 3) setTimeout(() => shake("bg"), 260);
 }
-// ── F5 피버 발동 ──
+// ── F5 풍년 바람 발동 ──
 function feverTriggerFx() {
   snd.sfx("fever"); shake("bg"); vibrate([30, 30, 90]);
-  queueBanner("FEVER!", "fever", 1300, `다음 ${D.C.FEVER_SPINS}스핀 EXP ×${fmt2(D.C.FEVER_EXP_MUL)}`);
+  queueBanner("풍년 바람!", "fever", 1300, `다음 ${D.C.FEVER_SPINS}심기 EXP ×${fmt2(D.C.FEVER_EXP_MUL)}`);
   burstParticles(28, ["🔥", "✨", "🔥", "💥"], { top: 44, spread: 130, life: 1500 });
 }
-// ── F3 클러치(마지막 스핀으로 클리어) ──
-function clutchFx(bigTxt) { snd.sfx("clutch"); vibrate([25, 30, 70]); queueBanner("CLUTCH!", "clutch", 1100, "마지막 스핀으로 클리어!" + (bigTxt ? ` · ${bigTxt}` : "")); }
+// ── F3 클러치(마지막 심기로 클리어) ──
+function clutchFx(bigTxt) { snd.sfx("clutch"); vibrate([25, 30, 70]); queueBanner("역전 수확!", "clutch", 1100, "마지막 심기로 클리어!" + (bigTxt ? ` · ${bigTxt}` : "")); }
 // ── F8 해골 칸: 흔들림 + 붉은 플래시 ──
 function skullHits(reelEls, cells) {
   let n = 0;
@@ -577,7 +510,7 @@ function skullHits(reelEls, cells) {
   setTimeout(() => reelEls.forEach((el) => el.classList.remove("skull-hit")), 900);
 }
 
-// ── F3 마지막 스핀 긴장: 미클리어로 마지막 스핀 대기 중이면 LAST SPIN! 펄스 + 붉은 비네트 ──
+// ── F3 마지막 심기 긴장: 미클리어로 마지막 심기 대기 중이면 마지막 심기! 펄스 + 붉은 비네트 ──
 let lastSpinKey = "";
 function syncLastSpin() {
   const on = !!(st && st.phase === PHASE.SPIN && st.spins > 0 && st.spinIndex === st.spins - 1 && st.stageExp < st.quota && $("reels"));
@@ -585,12 +518,12 @@ function syncLastSpin() {
   const tag = $("last-tag"); if (tag) tag.classList.toggle("on", on);
   if (on) {
     const key = `${st.stage}:${st.spinIndex}:${st.spins}`;
-    if (key !== lastSpinKey) { lastSpinKey = key; if (!tut.active) { snd.sfx("lastspin"); vibrate([20, 60, 20]); queueBanner("LAST SPIN!", "lastspin", 900); } }
+    if (key !== lastSpinKey) { lastSpinKey = key; if (!tut.active) { snd.sfx("lastspin"); vibrate([20, 60, 20]); queueBanner("마지막 심기!", "lastspin", 900); } }
   } else if (!st || st.phase !== PHASE.SPIN) lastSpinKey = "";
 }
 
-// ── F4 홀드 UI ──
-// 홀드 가능: SPIN 페이즈 · 스테이지 첫 스핀 이후(직전 raw 가 있어야 함) · 충전>0. (예언 확정 등 게임이 거부하면 게임이 토스트)
+// ── F4 지키기 UI ──
+// 지키기 가능: SPIN 페이즈 · 스테이지 첫 심기 이후(직전 raw 가 있어야 함) · 충전>0. (예언 확정 등 게임이 거부하면 게임이 토스트)
 function holdCapable() { return !!(st && st.hold && st.phase === PHASE.SPIN && st.spinIndex > 0 && st.hold.charges > 0); }
 function reelTap(i) {
   if (busy || !st) return;
@@ -612,24 +545,24 @@ function syncHoldUI() {
   const chip = $("hold-chip");
   if (chip && h) {
     chip.classList.toggle("off", h.charges < 1 && !held.length);
-    chip.innerHTML = `🔒 홀드 <b>${h.charges}</b>${held.length ? `<i>(${held.length}/${h.max})</i>` : ""}`;
+    chip.innerHTML = `🔒 지키기 <b>${h.charges}</b>${held.length ? `<i>(${held.length}/${h.max})</i>` : ""}`;
   }
   const hint = $("hold-hint");
   if (hint && h) {
     const can = holdCapable();
     hint.classList.toggle("on", can && !!held.length);
     hint.innerHTML = can
-      ? (held.length ? `🔒 <b>${held.length}칸</b> 고정 — 다음 스핀에 그대로 유지돼요` : `칸을 탭해 🔒 <b>홀드</b> (최대 ${h.max}) · 길게 누르면 정보`)
-      : (st.phase === PHASE.SPIN && st.spinIndex > 0 && h.charges < 1 ? `홀드 충전 없음 · 🎯집중을 쓰면 +1` : "&nbsp;");
+      ? (held.length ? `🔒 <b>${held.length}칸</b> 고정 — 다음 심기에 그대로 유지돼요` : `칸을 탭해 🔒 <b>지키기</b> (최대 ${h.max}) · 길게 누르면 정보`)
+      : (st.phase === PHASE.SPIN && st.spinIndex > 0 && h.charges < 1 ? `지키기 충전 없음 · 🎯집중을 쓰면 +1` : "&nbsp;");
   }
 }
 
-// ── F5 피버 게이지(릴 아래) — 일반 모드 전용(st.fever != null). 심화 모드의 HUD 피버(feverHudHtml)와 별개. ──
+// ── F5 풍년 바람 게이지(칸 아래) — 일반 모드 전용(st.fever != null). 심화 모드의 HUD 풍년 바람(feverHudHtml)와 별개. ──
 function feverView() {
   const f = st.fever || { gauge: 0, spins: 0 };
   const max = D.C.FEVER_MAX || 100, active = f.spins > 0;
   const pct = active ? Math.round(f.spins / D.C.FEVER_SPINS * 100) : Math.min(100, fmt2((f.gauge || 0) / max * 100));
-  const txt = `<span>${active ? `🔥 FEVER ×${fmt2(D.C.FEVER_EXP_MUL)} · 남은 <b>${f.spins}</b>스핀` : `🔥 피버 게이지 <b>${pct}</b>%${pct >= 90 ? " · 곧 폭발!" : ""}`}</span>`;
+  const txt = `<span>${active ? `🔥 풍년 바람 ×${fmt2(D.C.FEVER_EXP_MUL)} · 남은 <b>${f.spins}</b>심기` : `🔥 풍년 바람 게이지 <b>${pct}</b>%${pct >= 90 ? " · 곧 폭발!" : ""}`}</span>`;
   return { active, pct, txt, hot: !active && pct >= 90 };
 }
 function feverBarHtml() {
@@ -665,10 +598,10 @@ function showBossIntro(b) {
 // ── F9 레벨업 모달 — 토스트 대신 중앙 모달(새 레벨 · 해금 보상 목록 · 확인) ──
 let lvUpShownKey = "";
 function unlockRowIcon(label) {
-  const m = label.match(/^(\S+)\s+(.+?)\s+\((캐릭터|슬롯|장치|증강|유물)\)$/); if (!m) return { ic: "", name: label, kind: "" };
+  const m = label.match(/^(\S+)\s+(.+?)\s+\((캐릭터|밭|슬롯|장치|증강|유물)\)$/); if (!m) return { ic: "", name: label, kind: "" };
   const [, em, name, kind] = m; let id = "";
   if (kind === "캐릭터") { const c = D.CHARS.find((x) => x.n === name); id = c ? artId("char", c.id) : ""; }
-  else if (kind === "슬롯") { const c = D.MACHINES.find((x) => x.n === name); id = c ? artId("mac", c.id) : ""; }
+  else if (kind === "밭" || kind === "슬롯") { const c = D.MACHINES.find((x) => x.n === name); id = c ? artId("mac", c.id) : ""; }
   else if (kind === "장치") { const c = D.DEVICES.find((x) => x.n === name); id = c ? artId("dev", c.id) : ""; }
   else if (kind === "증강") { const c = D.AUGMENTS.find((x) => x.n === name); id = c ? artId("aug", c.id) : ""; }
   else if (kind === "유물") { const c = D.RELICS.find((x) => x.n === name); id = c ? artId("rel", c.id) : ""; }
@@ -695,40 +628,38 @@ function maybeShowLevelUp() {
   lvUpShownKey = key; showLevelUp(st.levelBefore, st.levelAfter);
 }
 
-// ── F6 앵콜(STAGE_CLEAR 화면) ──
-//  클리어 점수(stake)를 걸고 남은 스핀으로 굴림 — 성공(페어↑·해골 <2)마다 팟 = stake×(1+0.5k), 실패(BUST)하면 팟 소멸. 정산하면 팟이 점수에 더해진다.
-let encUi = { cells: null, state: "idle", msg: "", lost: 0, settled: 0 };
+// ── F6 덤 수확(STAGE_CLEAR 화면) ──
+//  클리어 점수(stake)를 걸고 남은 심기로 굴림 — 성공(페어↑·해골 <2)마다 팟 = stake×(1+0.5k), 실패(BUST)하면 팟 소멸. 정산하면 팟이 점수에 더해진다.
+let encUi = { cells: null, state: "idle", msg: "" };
 function encCellInner(c) { return `${symIcon(c.sym, "", true)}${c.tag ? `<span class="rt">${esc(c.tag)}</span>` : ""}`; }
 function encoreInner() {
   const e = st.encore, left = Math.max(0, st.spins - st.spinIndex);
-  const active = e.active, bust = encUi.state === "bust";
-  const potLbl = active ? "팟" : bust ? "팟" : (encUi.state === "settled" ? "정산" : "판돈");
-  const potVal = active ? e.pot : bust ? 0 : (encUi.state === "settled" ? encUi.settled : e.stake);
-  const mulTxt = active && e.k > 0 ? `×${fmt2(1 + D.C.ENCORE_STEP * e.k)}` : "";
+  const potVal = e.pot || 0;
   let sub, msg = encUi.msg;
-  if (encUi.state === "idle" && !active) { sub = `남은 스핀 ${left}회 중 1회를 쓰고 판돈 <b>${e.stake.toLocaleString()}점</b>을 걸어요`; if (!msg) msg = `성공할 때마다 팟 ×${fmt2(1 + D.C.ENCORE_STEP)} → ×${fmt2(1 + D.C.ENCORE_STEP * 2)} → …  · 페어도 없거나 ☠ ${D.C.ENCORE_BUST_SKULLS}개면 <b>BUST</b>(전부 소멸)`; }
-  else if (active) { sub = `남은 스핀 ${left}회 · 다음 성공 시 <b>×${fmt2(e.nextMul || 1 + D.C.ENCORE_STEP * (e.k + 1))}</b>`; }
-  else sub = bust ? "앵콜 종료" : "정산 완료";
+  if (!e.active && !encUi.cells) {
+    sub = `남은 심기 ${left}회로 덤 수확`;
+    if (!msg) msg = `성공하면 이번 클리어 점수(<b>${(e.stake || 0).toLocaleString()}점</b>)의 ${fmt2((e.nextMul || D.C.ENCORE_STEP) * 100)}% 덤, 실패해도 잃는 건 없어요`;
+  } else sub = `남은 심기 ${left}회`;
   const tiles = encUi.cells ? encUi.cells.map((c) => `<div class="enc-cell landed">${encCellInner(c)}</div>`).join("") : Array.from({ length: g.reel() }, () => `<div class="enc-cell empty">?</div>`).join("");
-  return `<div class="enc-head"><span class="enc-ttl">🎤 앵콜</span><span class="enc-sub">${sub}</span></div>
+  return `<div class="enc-head"><span class="enc-ttl">🧺 덤 수확</span><span class="enc-sub">${sub}</span></div>
     <div class="enc-reels" id="enc-reels">${tiles}</div>
-    <div class="enc-pot-row" id="enc-pot-row"><span class="enc-pot-lbl">${potLbl}</span><span class="enc-pot-wrap" id="enc-pot-wrap"><b class="enc-pot" id="enc-pot">${potVal.toLocaleString()}</b></span><span class="enc-pot-u">점</span><span class="enc-mul" id="enc-mul">${mulTxt}</span></div>
-    <div class="enc-msg${bust ? " bad" : ""}" id="enc-msg">${msg}</div>`;
+    <div class="enc-pot-row" id="enc-pot-row"><span class="enc-pot-lbl">받은 덤</span><span class="enc-pot-wrap" id="enc-pot-wrap"><b class="enc-pot" id="enc-pot">${potVal.toLocaleString()}</b></span><span class="enc-pot-u">점</span></div>
+    <div class="enc-msg" id="enc-msg">${msg}</div>`;
 }
 function encoreBoxHtml() {
   const e = st.encore; if (!e || !e.available) return "";
-  encUi = { cells: null, state: "idle", msg: "", lost: 0, settled: 0 };
+  encUi = { cells: null, state: "idle", msg: "" };
   return `<div class="encore-box" id="encore-box">${encoreInner()}</div>`;
 }
 function clearFootHtml() {
   const e = st.encore;
   if (e && e.available) {
-    return `<div class="enc-foot"><button class="bigbtn ghost" data-act="proceed">정산하고 진행${e.active ? ` <b class="enc-plus">+${e.pot.toLocaleString()}</b>` : ""}</button>
-      <button class="bigbtn enc-go" data-act="encoreSpin">🎤 앵콜 ×${fmt2(e.nextMul)}</button></div>`;
+    return `<div class="enc-foot"><button class="bigbtn ghost" data-act="proceed">다음으로${e.active ? ` <b class="enc-plus">+${(e.pot || 0).toLocaleString()}</b>` : ""}</button>
+      <button class="bigbtn enc-go" data-act="encoreSpin">🧺 덤 수확</button></div>`;
   }
   return `<button class="bigbtn pulse" data-act="proceed">다음 → 보상 선택 ▶</button>`;
 }
-// 앵콜 후 클리어 화면 요약 수치(누적 총점수·코인·남은 스핀) + 하단 버튼 갱신
+// 덤 수확 후 클리어 화면 요약 수치(누적 총점수·도토리·남은 심기) + 하단 버튼 갱신
 function updateEncorePanel() {
   const cs = st.clearSummary;
   const tot = $("clear-total-n"); if (tot && cs) tot.textContent = (cs.total || 0).toLocaleString();
@@ -740,9 +671,9 @@ async function doEncore() {
   if (busy || !st || !st.encore || !st.encore.available) return;
   busy = true;
   const before = st.encore;
-  const potBefore = before.active ? before.pot : before.stake;   // 이번 스핀 전의 팟(첫 스핀이면 판돈)
+  const potBefore = before.pot || 0;   // 이번 덤 수확 전까지 받은 덤 합계
   const foot = $("clear-foot"); if (foot) foot.querySelectorAll("button").forEach((b) => { b.disabled = true; });
-  const bx = $("encore-box"); if (bx && bx.scrollIntoView) bx.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });   // 앵콜 굴림이 화면에 보이도록
+  const bx = $("encore-box"); if (bx && bx.scrollIntoView) bx.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });   // 덤 수확이 화면에 보이도록
   try {
     const nxt = g.encoreSpin();
     if (!nxt) return;
@@ -752,7 +683,7 @@ async function doEncore() {
     const er = ls.encoreResult;
     snd.sfx("spin");
     await encoreRoll(ls.cells);
-    if (er.bust) await encoreBustFx(er, ls.cells);
+    if (er.bust) await encoreNoBonusFx(er);
     else await encoreUpFx(er, potBefore);
     drainToasts();
   } catch (err) {
@@ -763,67 +694,48 @@ async function doEncore() {
     updateEncorePanel();
   }
 }
-// 앵콜 릴 굴림 — 타일이 심볼을 빠르게 바꾸다 왼쪽부터 차례로 착지
+// 덤 수확 심기 — 칸이 차례로 돋는다
 async function encoreRoll(cells) {
   const wrap = $("enc-reels"); if (!wrap) return;
-  const box = $("encore-box"); if (box) box.classList.remove("bust", "up");
+  const box = $("encore-box"); if (box) box.classList.remove("up");
   const msg = $("enc-msg"); if (msg) { msg.classList.remove("bad"); msg.innerHTML = "&nbsp;"; }
   wrap.innerHTML = cells.map(() => `<div class="enc-cell rolling"></div>`).join("");
   const tiles = [...wrap.children];
   const quick = reducedMotion();
-  const tick = () => tiles.forEach((t) => { if (t.classList.contains("rolling")) t.innerHTML = symIcon(randSpinCell().sym, "", true); });
-  tick(); const iv = quick ? null : setInterval(tick, 65);
-  try {
-    for (let i = 0; i < tiles.length; i++) {
-      await sleep(quick ? 0 : (i === 0 ? 480 : 190));
-      tiles[i].classList.remove("rolling"); tiles[i].classList.add("landed"); tiles[i].innerHTML = encCellInner(cells[i]);
-      if (cells[i].sym && cells[i].sym.special === "SKULL") tiles[i].classList.add("skull");
-      snd.sfx("reel");
-    }
-  } finally { if (iv) clearInterval(iv); }
+  for (let i = 0; i < tiles.length; i++) {
+    await sleep(quick ? 0 : (i === 0 ? 300 : 150));
+    tiles[i].classList.remove("rolling"); tiles[i].classList.add("landed"); tiles[i].innerHTML = encCellInner(cells[i]);
+    if (cells[i].sym && cells[i].sym.special === "SKULL") tiles[i].classList.add("skull");
+    snd.sfx("sprout");
+  }
   // 같은 값심볼 2개↑ 칸 강조
   const cnt = {}; cells.forEach((c) => { if (c.sym && D.VALUE_IDS.has(c.sym.id)) cnt[c.sym.id] = (cnt[c.sym.id] || 0) + 1; });
   cells.forEach((c, i) => { if (c.sym && cnt[c.sym.id] >= 2) tiles[i].classList.add("hit"); });
   encUi.cells = cells;
   await sleep(quick ? 0 : 220);
 }
-// 성공: 팟 카운트업 + 상승 연출
+// 성공: 받은 덤 카운트업
 async function encoreUpFx(er, potBefore) {
   const potAfter = potBefore + er.gained;
-  const box = $("encore-box"), potEl = $("enc-pot"), mulEl = $("enc-mul"), msg = $("enc-msg");
+  const box = $("encore-box"), potEl = $("enc-pot"), msg = $("enc-msg");
   if (box) { box.classList.remove("up"); void box.offsetWidth; box.classList.add("up"); }
-  const lbl = document.querySelector(".enc-pot-lbl"); if (lbl) lbl.textContent = "팟";
   if (potEl) { countUp(potEl, potAfter, "", potBefore, 750); potEl.classList.remove("pop"); void potEl.offsetWidth; potEl.classList.add("pop"); }
-  if (mulEl) { mulEl.textContent = `×${fmt2(er.mulApplied)}`; mulEl.classList.remove("pop"); void mulEl.offsetWidth; mulEl.classList.add("pop"); }
-  const kk = Math.max(1, Math.round((er.mulApplied - 1) / D.C.ENCORE_STEP));
+  const kk = Math.max(1, (st.encore && st.encore.k) || 1);
   snd.sfx("encoreup", kk); vibrate(22);
-  burstParticles(14 + kk * 3, ["✨", "⭐", "🪙"], { top: 70, min: 40, spread: 90, lift: 70, life: 1200 });
-  let m = `✅ 성공! 팟 <b>×${fmt2(er.mulApplied)}</b> · +${er.gained.toLocaleString()}점`;
-  if (er.settled) { m += ` — 남은 스핀이 없어 <b>자동 정산 +${er.settledPot.toLocaleString()}점</b>`; encUi.state = "settled"; encUi.settled = er.settledPot; snd.sfx("coin"); }
+  burstParticles(14 + Math.min(kk, 4) * 3, LEAF_SET, { top: 70, min: 40, spread: 90, lift: 70, life: 1200 });
+  const m = `🧺 <b>덤 수확 +${er.gained.toLocaleString()}점</b>`;
   if (msg) msg.innerHTML = m;
   encUi.msg = m;
   await sleep(reducedMotion() ? 0 : 800);
-  if (er.settled) { const b = $("encore-box"); if (b) b.innerHTML = encoreInner(); }
-  else { const mu = $("enc-mul"); if (mu) mu.classList.remove("pop"); }
 }
-// 실패(BUST): 팟이 반으로 깨지며 조각이 튀고 붉은 플래시 + 진동
-async function encoreBustFx(er, cells) {
-  const box = $("encore-box"), wrap = $("enc-pot-wrap"), msg = $("enc-msg");
-  const skulls = cells.filter((c) => c.sym && c.sym.special === "SKULL").length;
-  const why = skulls >= D.C.ENCORE_BUST_SKULLS ? `☠ 해골 ${skulls}개` : "페어가 하나도 없어요";
-  encUi.state = "bust"; encUi.lost = er.lostPot;
-  const m = `💥 <b>BUST!</b> ${why} — 팟 ${er.lostPot.toLocaleString()}점이 소멸했어요`;
+// 실패(덤 없음): 부드럽게 — 진동·흔들림·빨간 번쩍임 없음
+async function encoreNoBonusFx(er) {
+  const msg = $("enc-msg");
+  const m = `🌾 이번엔 덤이 없었어요 — 잃은 건 없어요`;
   encUi.msg = m;
-  snd.sfx("bust"); vibrate([60, 40, 140, 40, 60]); shake("bg"); redFlash();
-  if (box) { box.classList.remove("up"); box.classList.add("bust"); }
-  if (wrap) {
-    let shards = "";
-    for (let i = 0; i < 12; i++) { const a = Math.random() * Math.PI * 2, d = 40 + Math.random() * 70; shards += `<i class="shard" style="--dx:${(Math.cos(a) * d).toFixed(0)}px;--dy:${(Math.sin(a) * d - 10).toFixed(0)}px;--rot:${(Math.random() * 540 - 270).toFixed(0)}deg;animation-delay:${(Math.random() * 0.12).toFixed(2)}s"></i>`; }
-    wrap.innerHTML = `<b class="enc-pot half l">${er.lostPot.toLocaleString()}</b><b class="enc-pot half r">${er.lostPot.toLocaleString()}</b>${shards}`;
-  }
-  if (msg) { msg.classList.add("bad"); msg.innerHTML = m; }
-  await sleep(reducedMotion() ? 0 : 1000);
-  const b = $("encore-box"); if (b) { b.innerHTML = encoreInner(); b.classList.add("bust"); }
+  snd.sfx("nobonus");
+  if (msg) msg.innerHTML = m;
+  await sleep(reducedMotion() ? 0 : 700);
 }
 function glowMatches(reelEls, cells, setIds, bestSetId, bestCount, reelsBox) {
   if (!setIds || !setIds.length) return;
@@ -855,7 +767,7 @@ function glowMatches(reelEls, cells, setIds, bestSetId, bestCount, reelsBox) {
 // 매치 셀에 빛 스윕(.mshine) + 반짝이 입자(.mspark) 주입. 단계가 클수록 입자 多.
 // "같은 게 많을수록 더 많이 반짝" — 입자 수를 단계별로 뚜렷이 벌리고(2→3,3→6,4→9,5→13),
 // 고단계는 트윙클 주기를 짧게(더 자주 반짝)+딜레이 폭 좁게(밀집 반짝) 한다.
-// 셀 안(overflow:hidden)에서만 동작 → 레이아웃 무영향. 다음 스핀 innerHTML 리셋으로 정리.
+// 셀 안(overflow:hidden)에서만 동작 → 레이아웃 무영향. 다음 심기 innerHTML 리셋으로 정리.
 const SPARK_CNT = { 2: 3, 3: 6, 4: 9, 5: 13 };   // 단계별 입자 수(상한 13)
 function addMatchSparkle(el, n) {
   if (!el || el.querySelector(".mshine")) return;   // 중복 방지(결과 화면 동안 1회만)
@@ -894,9 +806,10 @@ function spawnExplosion(el) {
   el.appendChild(b); setTimeout(() => b.remove(), 580);
 }
 function jackpotFx(symId) {
-  const sy = D.SYM_BY_ID[symId]; const e = sy ? symIcon(sy, "jp-ico", true) : "🎰";
+  const sy = D.SYM_BY_ID[symId]; const e = sy ? symIcon(sy, "jp-ico", true) : "🌾";
   const o = document.createElement("div"); o.className = "jackpot-fx";
-  o.innerHTML = `<div class="rays"></div><div class="jptxt">${e}<span>JACKPOT!</span></div>`;
+  o.innerHTML = `<div class="rays"></div><div class="jptxt">${e}<span>대풍작!</span></div>`;
+  burstParticles(40, LEAF_SET_BIG, { top: 40, spread: 150, life: 1800, flash: true });
   document.body.appendChild(o); setTimeout(() => o.remove(), 1750);
 }
 function floatExp(amount, jp) {
@@ -954,9 +867,9 @@ function render() {
   tutLive();
 }
 
-// 타이틀/로그인 게이트 장식 릴 — 그림(sym_*)이 있으면 그림, 없으면 이모지(2026-10-28 이모지→그림 교체).
-const INTRO_SYMS = [["cherry", "🍒"], ["golden_bell", "🔔"], ["gem", "💎"], ["lucky7", "7️⃣"], ["star", "⭐"], ["coin_bag", "💰"], ["book", "📘"], ["crown", "👑"], ["wild", "🌀"]];
-const introReelsHtml = () => [["cherry", "🍒"], ["lucky7", "7️⃣"], ["gem", "💎"]].map(([id, e]) => `<span>${icon("sym_" + id, e, "", true)}</span>`).join("");
+// 타이틀/로그인 게이트 장식 칸 — 그림(sym_*)이 있으면 그림, 없으면 이모지(2026-10-28 이모지→그림 교체).
+const INTRO_SYMS = [["cherry", "🍒"], ["golden_bell", "🔔"], ["gem", "💎"], ["lucky7", "🍎"], ["star", "⭐"], ["coin_bag", "🧺"], ["book", "📘"], ["crown", "👑"], ["wild", "🌀"]];
+const introReelsHtml = () => [["cherry", "🍒"], ["lucky7", "🍎"], ["gem", "💎"]].map(([id, e]) => `<span>${icon("sym_" + id, e, "", true)}</span>`).join("");
 // ── 인트로 (타이틀 스플래시) ──
 function renderIntro() {
   snd.bgmStop();
@@ -965,15 +878,22 @@ function renderIntro() {
   app.innerHTML = `
     <div class="intro">
       <div class="intro-reels">${introReelsHtml()}</div>
-      <h1 class="intro-title">🎰 <span class="g">잭팟 슬롯</span></h1>
-      <div class="intro-sub">텍스트 로그라이크 슬롯머신 · 웹 단독판</div>
-      ${p.runs ? `<div class="intro-best">${esc(titleOf(p.bestScore))} · 최고 ${p.bestScore.toLocaleString()}점 · ${p.runs}런</div>` : `<div class="intro-best">버튼·애니로 즐기는 슬롯 로그라이크!</div>`}
+      <h1 class="intro-title">🌱 <span class="g">풍년런</span></h1>
+      <div class="intro-sub">씨앗 밭 로그라이크 · 웹 단독판</div>
+      ${p.runs ? `<div class="intro-best">${esc(titleOf(p.bestScore))} · 최고 ${p.bestScore.toLocaleString()}점 · ${p.runs}런</div>` : `<div class="intro-best">씨앗을 심고 거두는 밭 로그라이크!</div>`}
       <button class="intro-start" data-act="introStart">▶ 탭하여 시작</button>
       <div class="intro-hint">🔊 소리 ON · 첫 탭에서 활성화돼요</div>
     </div>`;
   const reels = [...app.querySelectorAll(".intro-reels span")];
   if (introTimer) clearInterval(introTimer);
-  introTimer = setInterval(() => { reels.forEach((s) => { const k = INTRO_SYMS[Math.floor(Math.random() * INTRO_SYMS.length)]; s.innerHTML = icon("sym_" + k[0], k[1], "", true); }); }, 110);
+  // 작물이 한 칸씩 차례로 돋는다(회전 없음). 모션 줄이기면 정지.
+  let introI = 0;
+  if (!reducedMotion()) introTimer = setInterval(() => {
+    const el = reels[introI % reels.length]; introI++; if (!el) return;
+    const k = INTRO_SYMS[Math.floor(Math.random() * INTRO_SYMS.length)];
+    el.innerHTML = icon("sym_" + k[0], k[1], "", true);
+    el.classList.remove("sprout"); void el.offsetWidth; el.classList.add("sprout");
+  }, 520);
 }
 
 function exitIntro() {
@@ -990,7 +910,7 @@ function renderLoginGate() {
   app.innerHTML = `
     <div class="intro login-gate" id="login-gate">
       <div class="intro-reels">${introReelsHtml()}</div>
-      <h1 class="intro-title">🎰 <span class="g">잭팟 슬롯</span></h1>
+      <h1 class="intro-title">🌱 <span class="g">풍년런</span></h1>
       <div class="intro-sub">${p.runs ? `${esc(titleOf(p.bestScore))} · 최고 ${p.bestScore.toLocaleString()}점` : "시작 방법을 선택하세요"}</div>
       <div class="gate-btns">
         <button class="gate-btn moka" data-act="login">🌍 모카월드로 로그인 <span class="gate-sub">카카오</span></button>
@@ -1007,7 +927,7 @@ function deepSelector() {
     <div class="deep-head">🎒 게임 모드</div>
     <div class="deep-modes">
       <button class="deep-mode${selDeep ? "" : " sel"}" data-act="deepToggle" ${selDeep ? "" : 'aria-pressed="true"'}>
-        <div class="dm-ico">🎰</div><div class="dm-nm">일반</div><div class="dm-ds">고정 확률 (기본)</div></button>
+        <div class="dm-ico">🌱</div><div class="dm-nm">일반</div><div class="dm-ds">고정 확률 (기본)</div></button>
       <button class="deep-mode${selDeep ? " sel" : ""}" data-act="deepToggle" ${selDeep ? 'aria-pressed="true"' : ""}>
         <div class="dm-ico">🎒</div><div class="dm-nm">심화 · 심볼 덱</div><div class="dm-ds">주머니 확률·덱빌딩</div></button>
     </div>
@@ -1058,8 +978,8 @@ function renderHome() {
   app.innerHTML = `
     <a class="world-back" href="${WORLD_HOME_URL}" data-testid="world-back">🌍 모카월드</a><span id="home-stars-slot">${homeStarsHtml()}</span>
     <div class="scr-title" style="margin-top:14px">
-      <h1>🎰 <span class="g">잭팟 슬롯</span></h1>
-      <div class="sub">텍스트 로그라이크 슬롯머신 · 웹 단독판</div>
+      <h1>🌱 <span class="g">풍년런</span></h1>
+      <div class="sub">씨앗 밭 로그라이크 · 웹 단독판</div>
     </div>
     ${lvlCard(lp, true)}
     ${deepSelector()}
@@ -1078,7 +998,7 @@ function renderHome() {
       <button class="bigbtn ghost" data-act="rank" style="flex:1">🏆 랭킹</button>
       <button class="bigbtn ghost" data-act="dex" style="flex:1">📚 도감</button>
     </div>
-    <p class="dim" style="font-size:calc(11px * var(--sc));text-align:center;margin-top:12px">캐릭터 · 슬롯머신 · 장치를 골라 스테이지를 클리어하세요.<br>증강/유물/장치로 빌드를 키워 고득점에 도전!</p>
+    <p class="dim" style="font-size:calc(11px * var(--sc));text-align:center;margin-top:12px">캐릭터 · 밭 · 장치를 골라 스테이지를 클리어하세요.<br>증강/유물/장치로 빌드를 키워 고득점에 도전!</p>
     <div style="text-align:center;margin-top:16px"><button class="reset-link sndtog withlabel" data-act="soundToggle">${sndIcon()} 소리</button> <button class="reset-link" data-act="resetAsk">⚠️ 데이터 초기화</button></div>`;
 }
 
@@ -1091,12 +1011,12 @@ function renderLevelRewards() {
   const now = road.filter((o) => o.unlocked).length;
   const roadHtml = road.map((o) => `<div class="road-row${o.unlocked ? " on" : ""}"><span class="road-lv">Lv.${o.lv}</span><span class="road-lb">${esc(o.label)}</span><span class="road-ck">${o.unlocked ? "✓" : "🔒"}</span></div>`).join("");
   app.innerHTML = `<button class="backbtn" data-act="goalsback">◀ 뒤로</button>
-    <div class="scr-title"><div class="step-tag">🎖️ 레벨 보상</div><h1>레벨 보상</h1><div class="sub">레벨을 올리면 후반 캐릭터·슬롯·장치·증강·유물이 해금돼요</div></div>
+    <div class="scr-title"><div class="step-tag">🎖️ 레벨 보상</div><h1>레벨 보상</h1><div class="sub">레벨을 올리면 후반 캐릭터·밭·장치·증강·유물이 해금돼요</div></div>
     ${lvlCard(lp)}
     <div class="goal-road-ttl">🔓 레벨 해금 보상 <span class="dim">${now}/${road.length}</span></div>
     <div class="goal-road">${roadHtml || '<div class="dim" style="padding:8px">해금 항목 없음</div>'}</div>`;
 }
-// 숙련도 별(★채움/빈) — 캐릭/슬롯/장치 카드용
+// 숙련도 별(★채움/빈) — 캐릭/밭/장치 카드용
 function masteryStars(kind, id) {
   if (!id) return "";
   const m = g.masteryOf(kind, id);
@@ -1104,7 +1024,7 @@ function masteryStars(kind, id) {
 }
 function renderSelect(kind) {
   const stepN = kind === "char" ? "1" : kind === "mac" ? "2" : "3";
-  const title = kind === "char" ? "🎭 캐릭터 선택" : kind === "mac" ? "🎰 슬롯머신 선택" : "🔧 장치 선택";
+  const title = kind === "char" ? "🎭 캐릭터 선택" : kind === "mac" ? "🌱 밭 고르기" : "🔧 장치 선택";
   const sub = kind === "char" ? "이번 런의 플레이 스타일을 정합니다." : kind === "mac" ? "심볼 등장 확률과 점수 보정이 달라집니다." : "보유 장치 중 하나를 장착하거나 없이 시작하세요.";
   const act = kind === "char" ? "selChar" : kind === "mac" ? "selMac" : "selDev";
   let cards = st.options.map((o) => {
@@ -1122,13 +1042,13 @@ function buildBadge() {
   const dev = st.device ? D.DEV_BY_ID[st.device] : null;
   return `<span>✨${st.perks.filter((id) => D.AUG_BY_ID[id] || D.REL_BY_ID[id]).length}</span>${st.curses.length ? `<span>🌑${st.curses.length}</span>` : ""}${dev ? `<span>${iconK("dev", st.device, dev.e)}</span>` : ""}`;
 }
-// 릴 칸 마크업 — 심볼 그림(sym_<id>)이 있으면 <img>(칸을 꽉 채움), 없으면 이모지. data-sid/data-e 는 착지 후 이웃 장식 memo 복원용.
+// 밭 칸 마크업 — 심볼 그림(sym_<id>)이 있으면 <img>(칸을 꽉 채움), 없으면 이모지. data-sid/data-e 는 착지 후 이웃 장식 memo 복원용.
 function reelInner(c) {
   const s = c.sym, art = !!(s.id && ART.has("sym_" + s.id));
   return `<span class="sym${art ? " art" : ""}" data-sid="${esc(s.id || "")}" data-e="${esc(s.e)}">${symIcon(s, "", true)}</span>${c.tag ? `<span class="tag">${esc(c.tag)}</span>` : ""}`;
 }
 // Unity ReelView(S13/S14) 노치 스크롤 이식 — jackpotpick/reel.js 와 동일 메커니즘의 게임판(§A).
-// 이웃 장식 캐시 — 인덱스(릴 순번)별 4칸을 최초 1회만 추첨해 재사용(재렌더할 때마다 다시 뽑으면 깜빡임).
+// 이웃 장식 캐시 — 인덱스(칸 순번)별 4칸을 최초 1회만 추첨해 재사용(재렌더할 때마다 다시 뽑으면 깜빡임).
 // spinReelOne 착지 후 실제 DOM 모습으로 갱신되어 다음 재렌더가 착지 상태 그대로를 복원한다.
 const stripMemo = new Map();
 // 셀 1개의 스트립 마크업 — center 에 실제 셀, 이웃 4칸은 무작위 이모지(정지 상태 장식, memo 캐시)
@@ -1142,7 +1062,7 @@ function reelStrip(c, i) {
     <div class="rslot">${deco(nb[2])}</div><div class="rslot">${deco(nb[3])}</div>
   </div><div class="rfade"></div>`;
 }
-// 중앙 슬롯 내용만 교체(스트립 구조 보존) — blastBomb/변형 공개용
+// 중앙 밭 내용만 교체(스트립 구조 보존) — blastBomb/변형 공개용
 function setCenterCell(reelEl, c) {
   const center = reelEl.querySelector(".rslot.center");
   if (center) center.innerHTML = reelInner(c);
@@ -1158,7 +1078,7 @@ function renderPlay() {
       <div class="hud-top">
         <span class="stage-badge">STAGE ${st.stage}</span>
         ${boss ? `<span class="boss-badge">${boss.e} ${esc(boss.n)}</span>` : ""}
-        ${st.hold ? `<span class="hold-chip" id="hold-chip" title="칸을 탭해 홀드"></span>` : ""}
+        ${st.hold ? `<span class="hold-chip" id="hold-chip" title="칸을 탭해 지키기"></span>` : ""}
         ${st.asc > 0 ? `<span class="asc-hud">🎓 심화 ${st.asc} <b>×${(st.ascScoreMul || 1).toFixed(2)}</b></span>` : ""}
         ${st.deepMode ? `<span class="deep-hud" data-act="pouch">🎒${st.pouchView ? `<b>${st.pouchView.total}</b>/${st.pouchView.totalMax ?? D.DEEP.DECK_MAX}` : "덱"}${st.pouchView && st.pouchView.penalty > 1 ? ` <span class="dh-pen">+${Math.round((st.pouchView.penalty - 1) * 100)}%</span>` : ""}${archHudChip(st.pouchView)}</span>` : ""}
         ${st.deepMode ? feverHudHtml(st) : ""}
@@ -1168,14 +1088,14 @@ function renderPlay() {
       </div>
       <div class="expbar-wrap"><div class="expbar" id="expbar"></div><div class="expbar-txt" id="expbar-txt"></div></div>
       <div class="hud-stats">
-        <div class="s"><div class="k">스핀</div><div class="v" id="spins-v"></div></div>
+        <div class="s"><div class="k">심기</div><div class="v" id="spins-v"></div></div>
         <div class="s"><div class="k">점수</div><div class="v" id="score-v"></div></div>
-        <div class="s coin-s"><div class="k">코인</div><div class="v coin" id="coins-v"></div></div>
+        <div class="s coin-s"><div class="k">도토리</div><div class="v coin" id="coins-v"></div></div>
       </div>
       <div class="unlucky" id="unlucky"></div>
     </div>
     ${boss ? `<div class="boss-rule"><b>보스 룰</b> · ${esc(boss.desc)}</div>` : ""}
-    <div class="reels-wrap"><div class="last-tag" id="last-tag">LAST SPIN!</div>
+    <div class="reels-wrap"><div class="last-tag" id="last-tag">마지막 심기!</div>
       <div class="reels" id="reels">${cells.map((c, i) => `<div class="reel" data-act="reelTap" data-arg="${i}">${reelStrip(c, i)}</div>`).join("")}</div></div>
     ${st.fever ? feverBarHtml() : ""}
     ${st.hold ? `<div class="hold-hint" id="hold-hint"></div>` : ""}
@@ -1184,7 +1104,7 @@ function renderPlay() {
     <div class="actionbar">
       <div class="ab-extra" id="ab-extra"></div>
       <div class="ab-main">
-        <button class="spinbtn" id="spinbtn" data-act="spin" data-arg="N">🎰 슬롯 돌리기</button>
+        <button class="spinbtn" id="spinbtn" data-act="spin" data-arg="N">🌱 심기</button>
         <span id="abicons" style="display:flex;gap:8px">
           <div class="iconwrap"><button class="iconbtn" data-act="item">🎒<span class="lbl">아이템</span></button>${st.items.length ? `<span class="cnt">${st.items.length}</span>` : ""}</div>
           <button class="iconbtn" data-act="deviceSheet">🔧<span class="lbl">장치</span></button>
@@ -1217,8 +1137,8 @@ function updateHud() {
   $("score-v").textContent = st.score.toLocaleString();
   $("coins-v").textContent = st.coins;
   const ug = $("unlucky"); if (ug) ug.innerHTML = `불운 게이지 <span class="dots">${"●".repeat(st.unluckyGauge)}${"○".repeat(D.C.UNLUCKY_MAX - st.unluckyGauge)}</span> <span class="dim">(가득차면 다음 보상 희귀↑)</span>`;
-  // §9.1 J2: 피버 게이지 바 동적 갱신 — fever-fill 이 DOM 에 존재할 때만(피버 대기 중인 경우).
-  //  피버 진행 중은 fever-active 칩으로 대체 렌더이므로 fever-fill 엘리먼트가 없음(그냥 스킵).
+  // §9.1 J2: 풍년 바람 게이지 바 동적 갱신 — fever-fill 이 DOM 에 존재할 때만(풍년 바람 대기 중인 경우).
+  //  풍년 바람 진행 중은 fever-active 칩으로 대체 렌더이므로 fever-fill 엘리먼트가 없음(그냥 스킵).
   if (st.deepMode) {
     const ff = $("fever-fill");
     if (ff) {
@@ -1235,13 +1155,13 @@ function updateHud() {
 }
 function showGain(animate) {
   const el = $("gain"); if (!el) return;
-  if (!lastGain) { el.innerHTML = `<span class="dim" style="font-size:12.5px">🎰 슬롯을 돌려 EXP를 모으세요</span>`; return; }
-  // F8: 획득 EXP/점수/코인 카운트업(새 스핀 결과일 때만 — 재렌더 시엔 최종값 그대로). 시작값 0 → 목표값.
+  if (!lastGain) { el.innerHTML = `<span class="dim" style="font-size:12.5px">🌱 씨앗을 심어 EXP를 모으세요</span>`; return; }
+  // F8: 획득 EXP/점수/도토리 카운트업(새 심기 결과일 때만 — 재렌더 시엔 최종값 그대로). 시작값 0 → 목표값.
   const anim = !!animate && !reducedMotion();
   const v0 = (n) => (anim ? 0 : n);
   const subs = [];
   if (lastGain.score > 0) subs.push(`<b id="gain-score">+${v0(lastGain.score)}</b>점`);
-  if (lastGain.coins > 0) subs.push(`<b id="gain-coin">+${v0(lastGain.coins)}</b>🪙`);
+  if (lastGain.coins > 0) subs.push(`<b id="gain-coin">+${v0(lastGain.coins)}</b>🌰`);
   el.innerHTML =
     (lastGain.banner ? `<div class="spin-banner pop">${esc(lastGain.banner)}</div>` : "") +
     `<div class="big pop"><span id="gain-exp">+${v0(lastGain.gained)}</span> EXP${subs.length ? `<span class="gsub">${subs.join(" · ")}</span>` : ""}</div>` +
@@ -1272,37 +1192,37 @@ function updateExtras() {
   const spinBtn = $("spinbtn");
   let html = "";
   if (post) {
-    if (spinBtn) { spinBtn.disabled = true; spinBtn.textContent = "스핀 소진 — 마지막 기회"; }
+    if (spinBtn) { spinBtn.disabled = true; spinBtn.textContent = "심기 소진 — 마지막 기회"; }
     const canG = st.charId === "gambler" && !st.usedCmds.includes("GREROLL");
     const canDevR = st.device === "dev_reroll" && !st.usedCmds.includes("재굴림");
-    if (canG || canDevR) html += `<button class="abtn dev" data-act="manipN" data-arg="재굴림:0">🔄 재굴림</button>`;
+    if (canG || canDevR) html += `<button class="abtn dev" data-act="manipN" data-arg="재굴림:0">🔄 다시 심기</button>`;
     if (st.device === "dev_bell" && st.quota - st.stageExp <= 25) html += `<button class="abtn dev" data-act="dev" data-arg="비상">🔔 비상졸업</button>`;
     html += giveUpBtn();
     box.innerHTML = html; return;
   }
-  if (spinBtn) { spinBtn.disabled = busy; spinBtn.textContent = "🎰 슬롯 돌리기"; }
-  // 특수 스핀 (R6: 스테이지당 반복 사용 가능 — 같은 스테이지 n번째는 비용 누진). 버튼에 "지금 누르면 낼 코인"(첫 사용 무료면 '무료')을 표시, 부족하면 비활성.
+  if (spinBtn) { spinBtn.disabled = busy; spinBtn.textContent = "🌱 심기"; }
+  // 특수 심기 (R6: 스테이지당 반복 사용 가능 — 같은 스테이지 n번째는 비용 누진). 버튼에 "지금 누르면 낼 도토리"(첫 사용 무료면 '무료')을 표시, 부족하면 비활성.
   const cmdBtn = (mode, label) => {
     const free = !!(st.cmdFreeUsed && st.cmdFreeUsed[mode] === false);   // 종류별 런 첫 사용 = 무료
     const cost = g.cmdCost(mode);
     const used = (st.cmdUses && st.cmdUses[mode]) || 0;
-    const tag = free ? `<span class="cmd-cost free">무료</span>` : (cost > 0 ? `<span class="cmd-cost">${cost}🪙</span>` : "");
-    const poor = !free && cost > 0 && st.coins < cost;   // 무료면 코인 0이어도 활성
+    const tag = free ? `<span class="cmd-cost free">무료</span>` : (cost > 0 ? `<span class="cmd-cost">${cost}🌰</span>` : "");
+    const poor = !free && cost > 0 && st.coins < cost;   // 무료면 도토리 0이어도 활성
     return `<button class="abtn special${poor ? " short" : ""}" data-act="spin" data-arg="${mode}"${poor ? " disabled" : ""} title="이번 스테이지 ${used}회 사용">${label}${tag}</button>`;
   };
   html += cmdBtn("FOCUS", "🎯 집중");
-  html += cmdBtn("ALLIN", "🎰 올인");
+  html += cmdBtn("ALLIN", "💧 듬뿍 물주기");
   html += cmdBtn("PRAY", "🙏 기도");
-  if (st.spinIndex === st.spins - 1) html += cmdBtn("LAST", "⏰ 최후");   // 최후는 마지막 스핀에서만 활성
+  if (st.spinIndex === st.spins - 1) html += cmdBtn("LAST", "⏰ 최후");   // 최후는 마지막 심기에서만 활성
   // 장치 액션
   const dev = st.device ? D.DEV_BY_ID[st.device] : null;
   if (dev) {
-    if (st.device === "dev_coin" && st.coins >= 5 && !st.usedCmds.includes("투입")) html += `<button class="abtn dev" data-act="dev" data-arg="투입">🪙 투입(-5)</button>`;
+    if (st.device === "dev_coin" && st.coins >= 5 && !st.usedCmds.includes("투입")) html += `<button class="abtn dev" data-act="dev" data-arg="투입">🌰 거름(-5)</button>`;
     if (st.device === "dev_oracle" && !st.usedCmds.includes("예언")) html += `<button class="abtn dev" data-act="dev" data-arg="예언">🔮 예언</button>`;
     if (st.device === "dev_bell" && st.quota - st.stageExp <= 25) html += `<button class="abtn dev" data-act="dev" data-arg="비상">🔔 비상</button>`;
     if (st.lastCells) {
       if ((st.device === "dev_reroll" && !st.usedCmds.includes("재굴림")) || (st.charId === "gambler" && !st.usedCmds.includes("GREROLL")))
-        html += `<button class="abtn dev" data-act="manipN" data-arg="재굴림:0">🔄 재굴림</button>`;
+        html += `<button class="abtn dev" data-act="manipN" data-arg="재굴림:0">🔄 다시 심기</button>`;
       if (st.device === "dev_pin" && !st.usedCmds.includes("고정")) html += manipBtn("고정", "📌");
       if (st.device === "dev_copy" && !st.usedCmds.includes("복사")) html += manipBtn("복사", "📑");
       if (st.device === "dev_swap" && !st.usedCmds.includes("교체")) html += manipBtn("교체", "🔃");
@@ -1314,29 +1234,29 @@ function updateExtras() {
       }
     }
   }
-  // gambler 무료 재굴림 (장치 없을 때도)
+  // gambler 무료 다시 심기 (장치 없을 때도)
   if (st.lastCells && st.charId === "gambler" && !st.usedCmds.includes("GREROLL") && st.device !== "dev_reroll")
-    html += `<button class="abtn dev" data-act="manipN" data-arg="재굴림:0">🎲 무료재굴림</button>`;
+    html += `<button class="abtn dev" data-act="manipN" data-arg="재굴림:0">🫘 무료 다시 심기</button>`;
   // 고정/복사/교체 칸 선택 중
   if (uiManip) {
     const n = g.reel();
     html += `<div style="flex:1 1 100%;font-size:11.5px;color:var(--dim);margin-top:2px">${uiManip} 할 칸 선택:</div>`;
     for (let i = 1; i <= n; i++) html += `<button class="abtn" data-act="manipN" data-arg="${uiManip}:${i}">${i}번</button>`;
   } else {
-    // 게임 포기(즉시 결산) — 스핀 중 언제든. 오작동 방지: 작게·구석(맨 뒤 줄바꿈)·별색.
+    // 게임 포기(즉시 결산) — 심기 중 언제든. 오작동 방지: 작게·구석(맨 뒤 줄바꿈)·별색.
     html += giveUpBtn();
   }
   box.innerHTML = html;
 }
 function manipBtn(cmd, e) { return `<button class="abtn dev" data-act="manipPick" data-arg="${cmd}">${e} ${cmd}</button>`; }
-// 즉시 결산 버튼 — 주 버튼(스핀)과 구분되게 작고 흐리게, 별도 줄(flex-basis 100%)로 구석 배치.
+// 즉시 결산 버튼 — 주 버튼(심기)과 구분되게 작고 흐리게, 별도 줄(flex-basis 100%)로 구석 배치.
 function giveUpBtn() { return `<button class="abtn giveup" data-act="giveUpAsk">🏳️ 게임 포기 (즉시 결산)</button>`; }
 
 // ── 바텀시트 ──
 function openSheet(html) { sheetRoot.innerHTML = `<div class="sheet-bg" data-act="closeSheet"><div class="sheet" data-act="noop"><div class="grab"></div>${html}</div></div>`; }
 function closeSheet() { sheetRoot.innerHTML = ""; repairSel = { serviceId: null, sel: {} }; }
 
-// 게임 포기(즉시 결산) 확인 — 오작동 방지 1회 확인(앱 톤의 커스텀 시트). 스핀 애니 중엔 무시.
+// 게임 포기(즉시 결산) 확인 — 오작동 방지 1회 확인(앱 톤의 커스텀 시트). 심기 애니 중엔 무시.
 function giveUpAsk() {
   if (busy) return;
   if (!st || ![PHASE.SPIN, PHASE.POST_SPIN].includes(st.phase)) return;
@@ -1387,10 +1307,10 @@ function openSettings() {
   }
 }
 function openItemSheet() {
-  const items = st.items.map((id, i) => { const it = D.ITEM_BY_ID[id]; const kindTxt = it.k === "NEXTSPIN" ? "다음 스핀" : it.k === "PHASE" ? "이번 스테이지" : "즉시"; return `
+  const items = st.items.map((id, i) => { const it = D.ITEM_BY_ID[id]; const kindTxt = it.k === "NEXTSPIN" ? "다음 심기" : it.k === "PHASE" ? "이번 스테이지" : "즉시"; return `
     <div class="icard"><div class="ie">${iconK("item", id, it.e)}</div><div class="ib"><div class="iname">${esc(it.n)} <span class="dim" style="font-size:10px">· ${kindTxt}</span></div><div class="idesc">${esc(it.d)}</div></div>
       <button class="iuse" data-act="useItem" data-arg="${i}">사용</button></div>`; }).join("");
-  openSheet(`<button class="sheet-close" data-act="closeSheet">◀ 닫기</button><h3>🎒 아이템</h3><div class="sub">보유 ${st.items.length}/3 · 장전한 효과는 스핀에 적용돼요.</div>
+  openSheet(`<button class="sheet-close" data-act="closeSheet">◀ 닫기</button><h3>🎒 아이템</h3><div class="sub">보유 ${st.items.length}/3 · 장전한 효과는 심기에 적용돼요.</div>
     <div class="ilist">${items || `<div class="icard empty">보유한 아이템이 없어요. 상점/이벤트에서 얻을 수 있어요.</div>`}</div>
     ${st.armItems.length ? `<div class="sub" style="margin-top:10px">🔋 장전됨: ${st.armItems.map((id) => iconK("item", id, D.ITEM_BY_ID[id]?.e || "·")).join(" ")}</div>` : ""}`);
 }
@@ -1403,23 +1323,23 @@ function openDeviceSheet() {
     body = `<div class="icard"><div class="ie">${iconK("dev", dev.id, dev.e)}</div><div class="ib"><div class="iname">${esc(dev.n)} <span class="dim" style="font-size:10px">· ${dev.kind === "PASSIVE" ? "패시브(상시)" : "능동"}</span></div><div class="idesc">${esc(dev.d)}</div><div class="idesc" style="color:var(--teal)">${usable}</div></div></div>`;
   }
   const owned = g.profile.ownedDevices.filter((id) => id !== st.device).map((id) => { const d = D.DEV_BY_ID[id]; return `<div class="icard" style="opacity:.7"><div class="ie">${iconK("dev", d.id, d.e)}</div><div class="ib"><div class="iname">${esc(d.n)}</div><div class="idesc">${esc(d.d)} · <span class="dim">보유(런 시작 시 장착 선택)</span></div></div></div>`; }).join("");
-  openSheet(`<button class="sheet-close" data-act="closeSheet">◀ 닫기</button><h3>🔧 장치</h3><div class="sub">능동 장치는 하단 액션바 버튼으로 발동해요. 패시브는 매 스핀 자동.</div>
+  openSheet(`<button class="sheet-close" data-act="closeSheet">◀ 닫기</button><h3>🔧 장치</h3><div class="sub">능동 장치는 하단 액션바 버튼으로 발동해요. 패시브는 매 심기 자동.</div>
     <div class="ilist">${body}${owned}</div>`);
 }
 function devUsableNote() {
-  if (st.device === "dev_coin") return st.usedCmds.includes("투입") ? "이번 스테이지 사용 완료" : (st.coins >= 5 ? "🪙 투입 가능 (액션바)" : "코인 5 필요");
-  if (["dev_reroll", "dev_pin", "dev_copy", "dev_swap"].includes(st.device)) return st.usedCmds.includes(D.DEV_BY_ID[st.device].cmd) ? "이번 스테이지 사용 완료" : "직전 스핀 후 액션바에서 발동";
+  if (st.device === "dev_coin") return st.usedCmds.includes("투입") ? "이번 스테이지 사용 완료" : (st.coins >= 5 ? "🌰 거름 가능 (액션바)" : "도토리 5 필요");
+  if (["dev_reroll", "dev_pin", "dev_copy", "dev_swap"].includes(st.device)) return st.usedCmds.includes(D.DEV_BY_ID[st.device].cmd) ? "이번 스테이지 사용 완료" : "직전 심기 후 액션바에서 발동";
   if (st.device === "dev_oracle") return st.usedCmds.includes("예언") ? "사용 완료" : "🔮 예언 가능 (액션바)";
   if (st.device === "dev_bell") return "부족 EXP ≤25일 때 액션바에 [비상] 표시";
   // ── Phase 5 심볼 능동장치(심화 전용) ──
   if (["dev_baton", "dev_purify_glove", "dev_pouch_shuffler"].includes(st.device)) {
     if (!st.deepMode) return "심화모드 전용 — 일반 런에서는 효과 없음";
-    return st.usedCmds.includes(D.DEV_BY_ID[st.device].cmd) ? "이번 스테이지 사용 완료" : "직전 스핀 후 액션바에서 발동";
+    return st.usedCmds.includes(D.DEV_BY_ID[st.device].cmd) ? "이번 스테이지 사용 완료" : "직전 심기 후 액션바에서 발동";
   }
   // 심화 표시형(PEEK)·심화 패시브 — 심화모드에서만 동작.
   if (["dev_tag_scanner", "dev_rare_detector"].includes(st.device)) return st.deepMode ? "표시형 — 주머니 시트/보상에 정보 표시" : "심화모드 전용";
   if (["dev_compress_gauge", "dev_expand_scale", "dev_call_bell", "dev_legend_seal"].includes(st.device)) return st.deepMode ? "심화 패시브 — 주머니 조건에 따라 자동 적용" : "심화모드 전용 — 일반 런에서는 효과 없음";
-  return "장착 시 매 스핀 자동 적용";
+  return "장착 시 매 심기 자동 적용";
 }
 function openStatusSheet() {
   const ch = D.CHAR_BY_ID[st.charId], mc = D.MAC_BY_ID[st.machineId];
@@ -1428,14 +1348,14 @@ function openStatusSheet() {
   const sets = []; // 활성 세트 표시
   openSheet(`<button class="sheet-close" data-act="closeSheet">◀ 닫기</button><h3>📊 상태</h3>
     <div class="sub inl-ic">${ch ? iconK("char", ch.id, ch.e) : ""}${esc(ch?.n || "")} + ${mc ? iconK("mac", mc.id, mc.e) : ""}${esc(mc?.n || "")}${st.device ? " + " + iconK("dev", st.device, D.DEV_BY_ID[st.device].e) + esc(D.DEV_BY_ID[st.device].n) : ""}</div>
-    <div class="hud-stats" style="margin-bottom:12px"><div class="s"><div class="k">점수</div><div class="v">${st.score.toLocaleString()}</div></div><div class="s"><div class="k">코인</div><div class="v coin">${st.coins}</div></div><div class="s"><div class="k">스테이지</div><div class="v">${st.stage}</div></div></div>
+    <div class="hud-stats" style="margin-bottom:12px"><div class="s"><div class="k">점수</div><div class="v">${st.score.toLocaleString()}</div></div><div class="s"><div class="k">도토리</div><div class="v coin">${st.coins}</div></div><div class="s"><div class="k">스테이지</div><div class="v">${st.stage}</div></div></div>
     ${augs.length ? `<div class="sub">✨ 증강 ${augs.length}</div><div class="ilist" style="margin-bottom:10px">${augs.map(perkRow).join("")}</div>` : ""}
     ${rels.length ? `<div class="sub">🛡️ 유물 ${rels.length}</div><div class="ilist" style="margin-bottom:10px">${rels.map(perkRow).join("")}</div>` : ""}
     ${st.curses.length ? `<div class="sub">🌑 저주 ${st.curses.length}</div><div class="ilist">${st.curses.map(perkRow).join("")}</div>` : ""}
     ${!augs.length && !rels.length && !st.curses.length ? `<div class="icard empty">아직 획득한 증강·유물이 없어요.</div>` : ""}`);
 }
 
-// ── 슬롯 칸 상세 분해 시트 ──
+// ── 밭 칸 상세 분해 시트 ──
 function openCellSheet(idx) {
   const info = g.cellInfo(idx); if (!info) return;
   const s = info.sym;
@@ -1462,7 +1382,7 @@ function openCellSheet(idx) {
   const affect = info.affecting.length
     ? info.affecting.map((a) => `<div class="icard"><div class="ie">${icon(nameToArt(a.n, a.kind), a.e)}</div><div class="ib"><div class="iname">${esc(a.n)} <span class="dim" style="font-size:10px">${a.tier ? `<span class="tier t-${a.tier}" style="font-size:9px">${a.tier}</span> ` : ""}${esc(a.kind)}</span></div><div class="idesc">${esc(a.effect)}</div></div></div>`).join("")
     : `<div class="icard empty">이 칸에 직접 영향 주는 항목이 아직 없어요.</div>`;
-  const sets = info.sets.length ? `<div class="sub" style="margin-top:12px">🎰 활성 세트 효과</div><div class="ilist">${info.sets.map((x) => `<div class="icard"><div class="ie">🎰</div><div class="ib"><div class="iname">${esc(x.n)}</div><div class="idesc">${esc(x.d)}</div></div></div>`).join("")}</div>` : "";
+  const sets = info.sets.length ? `<div class="sub" style="margin-top:12px">🌱 활성 세트 효과</div><div class="ilist">${info.sets.map((x) => `<div class="icard"><div class="ie">🌱</div><div class="ib"><div class="iname">${esc(x.n)}</div><div class="idesc">${esc(x.d)}</div></div></div>`).join("")}</div>` : "";
   const pos = info.isCenter ? " · 가운데 칸" : info.idx === 0 ? " · 첫 칸" : "";
   // §6.3 심화모드 심볼 티어 뱃지 — pouchInfo 존재(주머니 심볼)일 때 노출.
   const cellTierBadge = (info.pouchInfo && info.pouchInfo.total > 0 && s.id && s.id !== "empty" && s.id !== "random")
@@ -1480,7 +1400,7 @@ function openCellSheet(idx) {
     <h3>${symIcon(s, "h3-ico")} ${esc(s.n)}${cellTierBadge} <span class="dim" style="font-size:12px">${info.idx + 1}번 칸${pos}</span></h3>
     ${tags}${specials}
     <div class="cb-calc">${calc}${score}</div>
-    <div class="cb-note">⚙️ 전체 배수: 모든 칸 합계에 <b>EXP ×${Math.round(info.expMul * 100) / 100}</b>${info.flatExp ? ` · 스핀마다 <b>+${info.flatExp}</b>` : ""} 가 곱·가산되어 최종 획득 EXP가 됩니다.</div>
+    <div class="cb-note">⚙️ 전체 배수: 모든 칸 합계에 <b>EXP ×${Math.round(info.expMul * 100) / 100}</b>${info.flatExp ? ` · 심기마다 <b>+${info.flatExp}</b>` : ""} 가 곱·가산되어 최종 획득 EXP가 됩니다.</div>
     ${info.pouchInfo && info.pouchInfo.total > 0 ? `<div class="cb-note">🎒 주머니: 이 심볼 <b>${info.pouchInfo.count}개</b> / 총량 ${info.pouchInfo.total} (<b>${info.pouchInfo.biasChanged ? pct2(info.pouchInfo.effPct * 100, 100) : pct2(info.pouchInfo.count, info.pouchInfo.total)}%</b>)${info.pouchInfo.biasChanged ? ` <span class="bias-marker" title="증강·유물 효과로 드로우 확률 변동">🧪</span> <span class="dim">(기본 ${pct2(info.pouchInfo.count, info.pouchInfo.total)}%)</span>` : ""}</div>` : ""}
     ${cellDecayNote}
     <div class="cb-note">🧩 세트 보너스: <b>같은 그림을 2개 이상</b> 모으면 추가 EXP·점수! 많이 모을수록 보너스가 급격히 커져요 — <b>2개 +8 · 3개 +18 · 4개 +42 · 5개 +100 EXP</b>. (같은 칸이 여러 그룹 이뤄도 각각 적용)</div>
@@ -1493,25 +1413,25 @@ function openCellSheet(idx) {
 const NODE_INFO = {
   AUGMENT: ["✨", "증강", "강력한 증강 1개를 골라 빌드를 키웁니다."],
   RELIC: ["🛡️", "유물", "유물 1개를 골라 효과를 더합니다."],
-  SHOP: ["🛒", "상점", "코인으로 증강·유물·아이템을 구매합니다."],
-  REST: ["🛌", "휴식", "코인 +12를 받고 다음 스테이지로."],
-  GAMBLE: ["🎲", "도박장", "50% 코인 2배 / 50% 그대로."],
-  EVENT: ["🎁", "이벤트", "무작위 보상(코인·점수·아이템·장치 등)."],
-  CURSE: ["🌑", "저주", "저주 1개(단점+장점) + 코인 30."],
-  RISK: ["🎲", "위험한 거래", "프리즘 증강 + 저주 1개. 고위험 고보상."],
+  SHOP: ["🛒", "상점", "도토리로 증강·유물·아이템을 구매합니다."],
+  REST: ["🛌", "휴식", "도토리 +12를 받고 다음 스테이지로."],
+  GAMBLE: ["🫘", "요술콩 장터", "50% 도토리 2배 / 50% 그대로."],
+  EVENT: ["🎁", "이벤트", "무작위 보상(도토리·점수·아이템·장치 등)."],
+  CURSE: ["🌑", "저주", "저주 1개(단점+장점) + 도토리 30."],
+  RISK: ["🫘", "위험한 거래", "프리즘 증강 + 저주 1개. 고위험 고보상."],
   DEVICE: ["🔧", "장치", "보스 보상 장치를 영구 획득합니다."],
   AUGLEVEL: ["⬆️", "증강 강화", "보유 증강 1개를 레벨업 (10% 확률 기회!)."],
   POUCH: ["🎒", "심볼 주머니", "주머니를 편집해 확률 덱을 다듬습니다 (추가·제거·교체·업글)."],
   // [MED-1] Phase 5 심화 노드 — 미등록 시 "❔ SYMAUG" 원시 id 로 렌더되던 문제 수정.
   SYMAUG: ["✨", "심볼 증강", "주머니 빌드를 강화하는 심볼 증강 1개를 고릅니다."],
   SYMREL: ["🛡️", "심볼 유물", "주머니 관련 효과의 심볼 유물 1개를 고릅니다."],
-  // §9.2 J3: 잭팟 노드 — 최다 태그 기반 심볼 패키지 3택 + 스킵
-  JACKPOT: ["🎰", "잭팟 노드", "현재 최다 태그 심볼 3종 중 하나를 선택해 주머니에 추가합니다."],
+  // §9.2 J3: 풍년 노드 — 최다 태그 기반 심볼 패키지 3택 + 스킵
+  JACKPOT: ["🌱", "풍년 노드", "현재 최다 태그 심볼 3종 중 하나를 선택해 주머니에 추가합니다."],
 };
 function renderNode() {
   app.innerHTML = `
     <div class="scr-title"><div class="step-tag">스테이지 ${st.stage - 1} 클리어!</div><h1>보상 선택</h1><div class="sub">하나를 골라 다음 스테이지로 진행합니다.</div></div>
-    <div class="coins-line">🪙 보유 코인 ${st.coins}</div>
+    <div class="coins-line">🌰 보유 도토리 ${st.coins}</div>
     <div class="cards-col">${st.nodes.map((nd, i) => { const [e, n, d] = NODE_INFO[nd] || ["❔", nd, ""]; return `
       <button class="bigcard node-card nd-${esc(nd)}" data-act="node" data-arg="${i}"><div class="be">${e}</div><div class="bn">${esc(n)}</div><div class="bd">${esc(d)}</div></button>`; }).join("")}</div>`;
 }
@@ -1535,12 +1455,12 @@ function renderPerk() {
   //  🎒심볼 뱃지/sym-perk 클래스는 per-card SYM_PERK_BY_ID 멤버십 판별(sa_/sp_/sr_ 접두 판별 금지) — 일반 퍽 오표기 방지.
   //  deep:2(부분적용) 퍽은 심화 런에서 dDesc(유효 파트만) 우선 표시 + 🎒부분적용 뱃지(기존 badge sym 문법 재사용).
   const deepPerk = !!(st.offerMeta && st.offerMeta.deepPerk);
-  // §3 배치 C: 심화 도박/휴식 선택지 헤더 — 카드 렌더링은 아래 기존 경로 공유(옵션 {id,e,n,d,t} 호환).
+  // §3 배치 C: 심화 요술콩/휴식 선택지 헤더 — 카드 렌더링은 아래 기존 경로 공유(옵션 {id,e,n,d,t} 호환).
   let stepTag, titleTxt, subTxt;
   if (st.pickKind === "GAMBLE_DEEP") {
-    stepTag = "🎲 도박"; titleTxt = "선택지 1개 선택"; subTxt = "운에 맡겨보세요 — 심볼 도박은 주머니가 바뀝니다";
+    stepTag = "🫘 요술콩"; titleTxt = "선택지 1개 선택"; subTxt = "운에 맡겨보세요 — 심볼 요술콩은 주머니가 바뀝니다";
   } else if (st.pickKind === "REST_DEEP") {
-    stepTag = "🛌 휴식"; titleTxt = "선택지 1개 선택"; subTxt = "코인을 받거나 주머니를 정화해요";
+    stepTag = "🛌 휴식"; titleTxt = "선택지 1개 선택"; subTxt = "도토리를 받거나 주머니를 정화해요";
   } else {
     const kind = st.pickKind === "REL" ? "유물" : "증강";
     const dk = deepPerk ? "심화 " + kind : kind;
@@ -1562,7 +1482,7 @@ function renderPerk() {
 const POUCH_RW = {   // 보상 타입별 표기(라벨·클래스·기호)
   // V3P2 신규 타입
   special:     { lb: "특수",    cls: "rw-special", sign: "✨" },  // V3P2: 특수 심볼 카드
-  skip:        { lb: "건너뛰기", cls: "rw-skip",    sign: "⏭" },  // V3P2: 스킵 카드 (코인+5)
+  skip:        { lb: "건너뛰기", cls: "rw-skip",    sign: "⏭" },  // V3P2: 스킵 카드 (도토리+5)
   cost_remove: { lb: "제거",    cls: "rw-cost-rm",  sign: "🗑️" },  // V3P2: 프리즘 비용 선택(기본 제거)
   cost_curse:  { lb: "저주추가", cls: "rw-cost-curse", sign: "☠" },  // V3P2: 프리즘 비용 선택(저주+1)
   // v2 dormant 타입 (정비소 커버·보존)
@@ -1571,9 +1491,9 @@ const POUCH_RW = {   // 보상 타입별 표기(라벨·클래스·기호)
   swap:    { lb: "교체",  cls: "rw-swap", sign: "⇄" },
   upgrade: { lb: "업그레이드", cls: "rw-up", sign: "▲" },
   package: { lb: "패키지", cls: "rw-pkg", sign: "📦" },   // 배치 H dormant
-  randpack: { lb: "랜덤팩", cls: "rw-pack", sign: "🎲" },  // 배치 E §6.1 dormant
+  randpack: { lb: "랜덤팩", cls: "rw-pack", sign: "🫘" },  // 배치 E §6.1 dormant
 };
-function symE(id) { const s = D.SYM_BY_ID[id]; return s ? s.e : (id === "empty" ? "▫" : id === "random" ? "🎲" : "❔"); }
+function symE(id) { const s = D.SYM_BY_ID[id]; return s ? s.e : (id === "empty" ? "▫" : id === "random" ? "🫘" : "❔"); }
 function symN(id) { const s = D.SYM_BY_ID[id]; return s ? s.n : (id === "empty" ? "빈칸" : id === "random" ? "랜덤칸" : id); }
 // 비용 설명 헬퍼(V3P2 특수 카드용)
 function costDesc(p) {
@@ -1593,7 +1513,7 @@ function pouchRewardTitle(p) {
   // v2 dormant 타입
   const m = POUCH_RW[p.type] || { lb: p.type };
   if (p.type === "package") return p.title || "패키지";   // 배치 H dormant
-  if (p.type === "randpack") return `🎲 ×${p.n ?? 2}`;    // 배치 E §6.1 dormant
+  if (p.type === "randpack") return `🫘 ×${p.n ?? 2}`;    // 배치 E §6.1 dormant
   if (p.type === "swap") return `${symE(p.from)} → ${symE(p.to)}`;
   if (p.type === "upgrade") return `${symE(p.id)} ▲`;
   return `${symE(p.id)} ${m.sign || ""}${p.n || ""}`;
@@ -1609,7 +1529,7 @@ function pouchRewardTitleHtml(p) {
 function pouchRewardDesc(p) {
   // V3P2 타입
   if (p.type === "special") return costDesc(p);
-  if (p.type === "skip") return "코인 +5 획득";
+  if (p.type === "skip") return "도토리 +5 획득";
   if (p.type === "cost_remove") return `기본 이득 심볼 ${p.removeN || 1}개 제거 선택`;
   if (p.type === "cost_curse") return "해골 +1 추가 — 특수 심볼 비용 면제";
   // v2 dormant 타입
@@ -1629,7 +1549,7 @@ function pouchCelebrateData(p) {
     const tone = p.tier === "PRISM" ? "PRISM" : p.tier === "GOLD" ? "GOLD" : p.tier === "CURSE" ? "CURSE" : "SILVER";
     return { e: p.e || symE(p.id), art: artId("sym", p.id), n: `${p.n || symN(p.id)} 획득 (${p.tier || "SILVER"})`, t: tone, d: costDesc(p) };
   }
-  if (p.type === "skip")        return { e: "⏭", n: "건너뛰기 — 코인 +5", t: "SILVER", d: "코인 +5 획득" };
+  if (p.type === "skip")        return { e: "⏭", n: "건너뛰기 — 도토리 +5", t: "SILVER", d: "도토리 +5 획득" };
   if (p.type === "cost_remove") return { e: "🗑️", n: `기본 심볼 ${p.removeN || 1}개 제거`, t: "SILVER", d: "기본 이득 심볼 제거" };
   if (p.type === "cost_curse")  return { e: "☠", n: "저주 심볼 +1 추가", t: "CURSE", d: "해골 +1 추가" };
   const m = POUCH_RW[p.type] || { lb: p.type };
@@ -1640,7 +1560,7 @@ function pouchCelebrateData(p) {
     return { e: p.repId ? symE(p.repId) : "📦", art: p.repId ? artId("sym", p.repId) : "", n: `${m.lb} · ${p.title || ""}`, t: "PRISM", d: (p.desc || "") + totalTxt0 };
   }
   if (p.type === "randpack") {
-    return { e: "🎲", n: `랜덤팩 · ${p.n ?? 2}개`, t: p.tier || "GOLD", d: randpackDesc(p) };
+    return { e: "🫘", n: `랜덤팩 · ${p.n ?? 2}개`, t: p.tier || "GOLD", d: randpackDesc(p) };
   }
   const iconId = p.type === "swap" ? p.to : p.id;
   const pv = p.preview || {};
@@ -1669,9 +1589,9 @@ function pouchPreviewHtml(p) {
 function randpackDesc(p) {
   const n = p.n ?? 2;
   const d = p.dist;
-  if (!d || d.length < 3) return `🎲 랜덤 ${n}개 · 골드 이상 1개 보장`;
+  if (!d || d.length < 3) return `🫘 랜덤 ${n}개 · 골드 이상 1개 보장`;
   const sp = Math.round(d[0] * 100), gp = Math.round(d[1] * 100), pp = Math.round(d[2] * 100);
-  return `🎲 랜덤 ${n}개 · 실버 ${sp}% / 골드 ${gp}% / 프리즘 ${pp}% · 골드 이상 1개 보장`;
+  return `🫘 랜덤 ${n}개 · 실버 ${sp}% / 골드 ${gp}% / 프리즘 ${pp}% · 골드 이상 1개 보장`;
 }
 function renderPouchReward() {
   // V3P2: POUCH_REMOVE 서브상태 — 제거할 기본 심볼 선택 시트
@@ -1688,7 +1608,7 @@ function renderPouchReward() {
     }).join("");
     app.innerHTML = `
       <div class="scr-title"><div class="step-tag">🗑️ 제거할 심볼 선택</div><h1>${sym} 획득</h1>
-      <div class="sub">덱 추가 비용: 기본 이득 심볼 ${removeN}개를 제거하세요.<br>기본 이득 심볼(체리·책·별·보석·코인·불꽃·자석·폭탄)만 선택 가능합니다.</div></div>
+      <div class="sub">덱 추가 비용: 기본 이득 심볼 ${removeN}개를 제거하세요.<br>기본 이득 심볼(체리·책·별·보석·도토리·불꽃·자석·폭탄)만 선택 가능합니다.</div></div>
       <div class="cards-col">${cards || `<div class="icard empty">제거할 기본 심볼이 없습니다.</div>`}</div>`;
     return;
   }
@@ -1729,10 +1649,10 @@ function renderPouchReward() {
   // V3P4: 3스테이지 증강 연계 미니오퍼 — 제목/설명만 교체(카드 계약·렌더 경로는 동일).
   // §9.2 J3 v1: JACKPOT 노드도 제목/설명만 교체(카드 렌더는 동일한 special/skip 5경로 재사용).
   const head = meta.synergyBonus
-    ? `<div class="scr-title"><div class="step-tag">🔗 연계 보너스</div><h1>증강 연계 심볼</h1><div class="sub">3스테이지 증강 연계! 태그 일치 특수 심볼 1개를 <b>무료로</b> 덱에 추가하거나, 건너뛰고 코인 +5.</div></div>`
+    ? `<div class="scr-title"><div class="step-tag">🔗 연계 보너스</div><h1>증강 연계 심볼</h1><div class="sub">3스테이지 증강 연계! 태그 일치 특수 심볼 1개를 <b>무료로</b> 덱에 추가하거나, 건너뛰고 도토리 +5.</div></div>`
     : meta.kind === "JACKPOT_NODE"
-    ? `<div class="scr-title"><div class="step-tag">🎰 잭팟 노드</div><h1>태그 심볼 선택</h1><div class="sub">${esc(meta.topTag ? `최다 태그: ${meta.topTag}` : "태그 심볼")} — 특수 심볼 1개를 덱에 추가하세요. 기본 심볼 제거 비용이 발생합니다. 건너뛰면 코인 +5.</div></div>`
-    : `<div class="scr-title"><div class="step-tag">🎒 심볼 주머니</div><h1>주머니 보상 선택</h1><div class="sub">특수 심볼 카드 1개를 덱에 추가하세요. 기본 심볼 제거 비용이 발생합니다. 건너뛰면 코인 +5.</div></div>`;
+    ? `<div class="scr-title"><div class="step-tag">🌱 풍년 노드</div><h1>태그 심볼 선택</h1><div class="sub">${esc(meta.topTag ? `최다 태그: ${tagLbl(meta.topTag)}` : "태그 심볼")} — 특수 심볼 1개를 덱에 추가하세요. 기본 심볼 제거 비용이 발생합니다. 건너뛰면 도토리 +5.</div></div>`
+    : `<div class="scr-title"><div class="step-tag">🎒 심볼 주머니</div><h1>주머니 보상 선택</h1><div class="sub">특수 심볼 카드 1개를 덱에 추가하세요. 기본 심볼 제거 비용이 발생합니다. 건너뛰면 도토리 +5.</div></div>`;
   app.innerHTML = `
     ${head}
     <div class="pouch-topbar">
@@ -1742,15 +1662,17 @@ function renderPouchReward() {
     <div class="cards-col">${cards || `<div class="icard empty">고를 수 있는 보상이 없어요.</div>`}</div>`;
 }
 
-// ── §10 V3: 덱 보드(심볼 카드 그리드) — 잭팟 태그 이모지(밀도 섹션과 별도 소형 칩·기존 TAG_LABEL 이모지값 재사용). ──
-const TAG_EMOJI = { crown: "👑", seven: "7️⃣", coin: "🪙", prism: "🌈", curse: "💀", bell: "🔔" };
-// 카테고리 뱃지(슬롯1, 항상 1개) — pouchView.cat 소비. 기존 cat-badge/cat-* CSS 문법 재사용(신규 색 없음).
+// ── §10 V3: 덱 보드(심볼 카드 그리드) — 풍년 태그 이모지(밀도 섹션과 별도 소형 칩·기존 TAG_LABEL 이모지값 재사용). ──
+const TAG_LABEL = { "잭팟": "풍년", "리치": "두근", "코인": "도토리", coin: "도토리", seven: "황금사과" };   // 보이는 글자만 — 태그 값 자체는 그대로
+const tagLbl = (t) => TAG_LABEL[t] || t;
+const TAG_EMOJI = { crown: "👑", seven: "🍎", coin: "🌰", prism: "🌈", curse: "💀", bell: "🔔" };
+// 카테고리 뱃지(밭1, 항상 1개) — pouchView.cat 소비. 기존 cat-badge/cat-* CSS 문법 재사용(신규 색 없음).
 const DECK_CAT_BADGE = {
   base:    { cls: "cat-base",    lb: "기본·소멸대상",  title: "자동 소멸 대상 — 15라운드부터 매 클리어 무작위 1개 제거" },
   harmful: { cls: "cat-harmful", lb: "해로운·소멸제외", title: "자동 소멸 제외 — 직접 정화해야 해요" },
   special: { cls: "cat-special", lb: "특수",           title: "보상·상점·이벤트로만 획득하는 특수 심볼" },
 };
-// 소모 속성 뱃지(슬롯2, use 있을 때만) — pouchView.use 소비.
+// 소모 속성 뱃지(밭2, use 있을 때만) — pouchView.use 소비.
 const DECK_USE_BADGE = {
   instant: { cls: "cat-instant", lb: "일회용", title: "등장 즉시 발동 후 제거" },
   fuse:    { cls: "cat-fuse",    lb: "소모형", title: "조건 충족 시 발동 후 제거" },
@@ -1767,13 +1689,13 @@ function deckSortEntries(entries) {
   });
 }
 // 심볼 1종 → 덱 보드 카드. .pcard(기존 선택카드 grid 문법) 재사용 — 이모지 크게(.ico)·이름(.nm)·개수·티어 테두리(t-*)·
-//  뱃지 최대 2([기본·소멸대상]/[해로운·소멸제외]/[특수] 1개 + [일회용]/[소모형] 1개)·잭팟 태그 칩·효과 1줄(.ds, pouchView.desc).
+//  뱃지 최대 2([기본·소멸대상]/[해로운·소멸제외]/[특수] 1개 + [일회용]/[소모형] 1개)·풍년 태그 칩·효과 1줄(.ds, pouchView.desc).
 function deckCardHtml(en, pv) {
   const tier = en.tier || "SILVER";
   const cb = DECK_CAT_BADGE[en.cat] || DECK_CAT_BADGE.special;
   const ub = en.use ? DECK_USE_BADGE[en.use] : null;
   const badges = `<span class="badge cat-badge ${cb.cls}" title="${esc(cb.title)}">${cb.lb}</span>${ub ? ` <span class="badge cat-badge ${ub.cls}" title="${esc(ub.title)}">${ub.lb}</span>` : ""}`;
-  const tagChip = en.jackpotTag ? ` <span class="deck-tag-chip" title="잭팟 태그: ${esc(en.jackpotTag)}">${TAG_EMOJI[en.jackpotTag] || "🏷️"}</span>` : "";
+  const tagChip = en.jackpotTag ? ` <span class="deck-tag-chip" title="풍년 태그: ${esc(tagLbl(en.jackpotTag))}">${TAG_EMOJI[en.jackpotTag] || "🏷️"}</span>` : "";
   // 개수 옆 확률 — 🧪 bias 유효%(우선) → [MED-4] 통계표 실효% → 기본 비중%(기존 pouch-row 우선순위 그대로 유지).
   let pctTxt;
   if (en.biasChanged && en.effRatioBias != null) pctTxt = `${pct2(en.effRatioBias * 100, 100)}% 🧪`;
@@ -1803,7 +1725,7 @@ function openDeckCardDetail(id) {
     + row("분류", catLabel)
     + row("등급", en.rarity)
     + (useLabel ? row("속성", useLabel) : "")
-    + (en.jackpotTag ? row("잭팟 태그", `${TAG_EMOJI[en.jackpotTag] || ""} ${en.jackpotTag}`) : "")
+    + (en.jackpotTag ? row("풍년 태그", `${TAG_EMOJI[en.jackpotTag] || ""} ${esc(tagLbl(en.jackpotTag))}`) : "")
     + row("효과", en.desc);
   openSheet(`<button class="sheet-close" data-act="pouch">◀ 뒤로</button>
     <h3 style="font-size:calc(20px * var(--sc))">${iconK("sym", en.id, en.e, "h3-ico")} ${esc(en.nm)}${tierChip}</h3>
@@ -1826,7 +1748,7 @@ function openPouchSheet() {
   if (di && di.tagScanner) peek += `<div class="pouch-peek">🔎 태그스캐너 · 최강 <b>#${esc(di.tagScanner.strongest.tag)}</b> ${di.tagScanner.strongest.pct}% · 최약 <b>#${esc(di.tagScanner.weakest.tag)}</b> ${di.tagScanner.weakest.pct}%</div>`;
   if (di && di.rareDetector) peek += `<div class="pouch-peek">📡 희귀탐지기 · 다음 보상 희귀 심볼 ${di.rareDetector.possible ? "<b>가능</b>" : "없음"} <span class="dim">(오퍼는 무작위·가능성 표시)</span></div>`;
   // [MED-4] 낡은통계표(sr_stat_table) 보유 시 실효 확률 안내 배너.
-  if (pv.statTable) peek += `<div class="pouch-peek">📊 낡은통계표 · 🎲랜덤칸 재분배를 반영한 <b>실효 등장확률</b>을 각 심볼에 표시 중</div>`;
+  if (pv.statTable) peek += `<div class="pouch-peek">📊 낡은통계표 · 🫘랜덤칸 재분배를 반영한 <b>실효 등장확률</b>을 각 심볼에 표시 중</div>`;
   // 보유 심볼 증강/유물(심화 빌드 확인) — 정비 탭과 동일 칩.
   const symPerks = (pv.symPerks || []);
   const symLine = symPerks.length
@@ -1862,7 +1784,7 @@ function openPouchSheet() {
     decayInfoLine = `<div class="ps-decay preview">15라운드부터 기본 이득 심볼이 매 클리어 1개씩 사라집니다</div>`;
   }
 
-  // §9.2 J3: 잭팟 태그 밀도 섹션 — 태그별 심볼 개수 + 최다 태그 강조
+  // §9.2 J3: 풍년 태그 밀도 섹션 — 태그별 심볼 개수 + 최다 태그 강조
   let tagDensityHtml = "";
   if (pv && pv.entries && D.JACKPOT_TAG) {
     const tagCount = {};
@@ -1879,12 +1801,12 @@ function openPouchSheet() {
         const total = pv.total || 1;
         const pct = Math.round((n / total) * 100);
         const topMark = isTop ? " 🔥" : "";
-        return `<span class="jd-chip${isTop ? " jd-top" : ""}" title="${t}태그 ${n}개 (${pct}%)">${t} ${n}${topMark}</span>`;
+        return `<span class="jd-chip${isTop ? " jd-top" : ""}" title="${tagLbl(t)} 태그 ${n}개 (${pct}%)">${tagLbl(t)} ${n}${topMark}</span>`;
       }).join("");
       const comment = tagEntries.length === 1
         ? "태그 1종 집중!" : maxN >= 5
-        ? `🎰 ${tagEntries[0][0]} 잭팟 근접!` : `최다 태그: ${tagEntries[0][0]}`;
-      tagDensityHtml = `<div class="jd-section"><span class="jd-label">🎰 잭팟 태그 밀도</span> ${jdChips} <span class="jd-comment dim">${comment}</span></div>`;
+        ? `🌱 ${tagLbl(tagEntries[0][0])} 풍년 근접!` : `최다 태그: ${tagLbl(tagEntries[0][0])}`;
+      tagDensityHtml = `<div class="jd-section"><span class="jd-label">🌱 풍년 태그 밀도</span> ${jdChips} <span class="jd-comment dim">${comment}</span></div>`;
     }
   }
 
@@ -1916,11 +1838,11 @@ function renderShop() {
     </div>` : "";
   const body = (deep && shopTab === "repair") ? repairTabHtml() : shopBuyHtml();
   app.innerHTML = `
-    <div class="scr-title"><div class="step-tag">🛒 상점</div><h1>상점</h1><div class="sub">${deep && shopTab === "repair" ? "코인으로 주머니(심볼 덱)를 정비하세요." : "상품을 눌러 구매하세요. 나가기 전까지 머무릅니다."}</div></div>
-    <div class="coins-line">🪙 보유 코인 ${st.coins}</div>
+    <div class="scr-title"><div class="step-tag">🛒 상점</div><h1>상점</h1><div class="sub">${deep && shopTab === "repair" ? "도토리로 주머니(심볼 덱)를 정비하세요." : "상품을 눌러 구매하세요. 나가기 전까지 머무릅니다."}</div></div>
+    <div class="coins-line">🌰 보유 도토리 ${st.coins}</div>
     ${tabs}
     ${body}
-    <div class="shop-foot">${deep && shopTab === "repair" ? "" : `<button class="bigbtn ghost" data-act="shopReroll">🔄 새로고침 (6🪙)</button>`}<button class="bigbtn" data-act="shopExit">나가기 ▶</button></div>`;
+    <div class="shop-foot">${deep && shopTab === "repair" ? "" : `<button class="bigbtn ghost" data-act="shopReroll">🔄 새로고침 (6🌰)</button>`}<button class="bigbtn" data-act="shopExit">나가기 ▶</button></div>`;
 }
 // 기존 상점(증강/유물/아이템) 목록 마크업 — 일반/심화 공용(buy 탭).
 function shopBuyHtml() {
@@ -1930,7 +1852,7 @@ function shopBuyHtml() {
       return `<div class="bigcard shop-item${afford ? "" : " short"}" data-act="shopBuyAsk" data-arg="${i}" style="display:flex;align-items:center;gap:11px">
         <span class="shop-ic" style="font-size:calc(28px * var(--sc))">${iconP(o.id, o.e)}</span>
         <div style="flex:1;min-width:0"><div class="bn" style="font-size:calc(15px * var(--sc))">${esc(o.n)} <span class="tier t-${o.t || "GOLD"}" style="position:static;font-size:9px">${kindTxt}</span>${st.deepMode && o.deep === 2 ? `<span class="badge sym">🎒부분적용</span>` : ""}${o.couponTag ? `<span class="badge up">🎟쿠폰 -15%</span>` : o.setTag ? `<span class="badge set">🧩세트</span>` : o.tierUp ? `<span class="badge up">🍀등급업</span>` : ""}</div><div class="bd">${esc(st.deepMode && o.dDesc ? o.dDesc : o.d)}</div></div>
-        <div class="shop-price${afford ? "" : " short"}">${o.price}🪙</div>
+        <div class="shop-price${afford ? "" : " short"}">${o.price}🌰</div>
       </div>`; }).join("")}</div>`;
 }
 
@@ -1958,8 +1880,8 @@ function repairTabHtml() {
     const afford = st.coins >= sv.price;
     // 심볼증강 할인(discounted) 시 원가 취소선 + 실가격 표시.
     const priceHtml = sv.discounted
-      ? `<span class="price-was">${sv.basePrice}</span> ${sv.price}🪙`
-      : `${sv.price}🪙`;
+      ? `<span class="price-was">${sv.basePrice}</span> ${sv.price}🌰`
+      : `${sv.price}🌰`;
     return `<div class="bigcard shop-item repair-item${afford ? "" : " short"}${sv.discounted ? " discounted" : ""}" data-act="repairAsk" data-arg="${sv.id}" style="display:flex;align-items:center;gap:11px">
       <span style="font-size:calc(26px * var(--sc))">${sv.e}</span>
       <div style="flex:1;min-width:0"><div class="bn" style="font-size:14.5px">${esc(sv.n)}${sv.targetPick ? ` <span class="tier t-SILVER" style="position:static;font-size:9px">선택</span>` : ""}</div><div class="bd">${esc(sv.desc)}</div></div>
@@ -1970,11 +1892,11 @@ function repairTabHtml() {
 }
 function shopBuyAsk(i) {
   const o = st.shopItems[i]; if (!o) return;
-  if (st.coins < o.price) { showToast(`🪙 코인 ${o.price - st.coins} 부족 — 살 수 없어요`); return; }
+  if (st.coins < o.price) { showToast(`🌰 도토리 ${o.price - st.coins} 부족 — 살 수 없어요`); return; }
   const kindTxt = o.kind === "A" ? "증강" : o.kind === "R" ? "유물" : "아이템";
   openSheet(`<button class="sheet-close" data-act="closeSheet">◀ 취소</button><h3>🛒 구매할까요?</h3>
     <div class="ilist"><div class="icard"><div class="ie">${iconP(o.id, o.e)}</div><div class="ib"><div class="iname">${esc(o.n)} <span class="tier t-${o.t || "GOLD"}" style="font-size:9px">${kindTxt}</span></div><div class="idesc">${esc(o.d)}</div></div></div></div>
-    <div class="buy-confirm">가격 <b>${o.price}🪙</b> · 보유 ${st.coins}🪙 → 구매 후 <b>${st.coins - o.price}🪙</b></div>
+    <div class="buy-confirm">가격 <b>${o.price}🌰</b> · 보유 ${st.coins}🌰 → 구매 후 <b>${st.coins - o.price}🌰</b></div>
     <div class="confirm-row"><button class="bigbtn ghost" data-act="closeSheet">취소</button><button class="bigbtn" data-act="shopBuyConfirm" data-arg="${i}">🛒 구매</button></div>`);
 }
 
@@ -1995,7 +1917,7 @@ function repairSymRow(en, act, picked) {
 // 정비 서비스 진입 — 대상 선택 필요 여부로 분기.
 function repairAsk(serviceId) {
   const sv = svcById(serviceId); if (!sv) return;
-  if (st.coins < sv.price) { showToast(`🪙 코인 ${sv.price - st.coins} 부족 — 살 수 없어요`); return; }
+  if (st.coins < sv.price) { showToast(`🌰 도토리 ${sv.price - st.coins} 부족 — 살 수 없어요`); return; }
   repairSel = { serviceId, sel: {} };
   if (!sv.targetPick) { repairConfirm(); return; }         // 대상 없음(정화/확장/압축) → 바로 확인
   if (sv.kind === "tagbuff") { repairPickTag(); return; }  // 태그 선택
@@ -2078,7 +2000,7 @@ function repairConfirm() {
     <div class="ilist"><div class="icard"><div class="ie">${sv.e}</div><div class="ib"><div class="iname">${esc(sv.n)}${target ? ` <span class="dim">${target}</span>` : ""}</div><div class="idesc">${esc(sv.desc)}</div></div></div></div>
     ${previewHtml}
     ${warn}
-    <div class="buy-confirm">가격 <b>${sv.price}🪙</b> · 보유 ${st.coins}🪙 → 정비 후 <b>${st.coins - sv.price}🪙</b></div>
+    <div class="buy-confirm">가격 <b>${sv.price}🌰</b> · 보유 ${st.coins}🌰 → 정비 후 <b>${st.coins - sv.price}🌰</b></div>
     <div class="confirm-row"><button class="bigbtn ghost" data-act="repairCancel">취소</button><button class="bigbtn${canBuy ? "" : " ghost"}" data-act="${canBuy ? "repairConfirmBuy" : "noop"}"${canBuy ? "" : " disabled"}>🔧 정비</button></div>`);
 }
 function repairDoBuy() {
@@ -2094,9 +2016,9 @@ function repairCancel() { repairSel = { serviceId: null, sel: {} }; closeSheet()
 function renderDeviceNode() {
   const d = st.drop || st.options[0];
   app.innerHTML = `
-    <div class="scr-title"><div class="step-tag">🔧 보스 보상</div><h1>장치 획득</h1><div class="sub">영구 보유 장치입니다. 지금 장착하거나, 코인을 받으세요.</div></div>
+    <div class="scr-title"><div class="step-tag">🔧 보스 보상</div><h1>장치 획득</h1><div class="sub">영구 보유 장치입니다. 지금 장착하거나, 도토리를 받으세요.</div></div>
     <div class="cards-col"><div class="bigcard"><div class="be">${iconK("dev", d.id, d.e)}</div><div class="bn">${esc(d.n)}</div><div class="bd">${esc(d.d)} · <span class="dim">${d.kind === "PASSIVE" ? "패시브" : "능동(" + (d.cmd || "") + ")"}</span></div></div></div>
-    <div class="shop-foot"><button class="bigbtn" data-act="devnode" data-arg="equip">장착하기</button><button class="bigbtn ghost" data-act="devnode" data-arg="coin">코인 +15 받기</button></div>`;
+    <div class="shop-foot"><button class="bigbtn" data-act="devnode" data-arg="equip">장착하기</button><button class="bigbtn ghost" data-act="devnode" data-arg="coin">도토리 +15 받기</button></div>`;
 }
 
 // ── 스테이지 클리어 화면 (큰 연출) ──
@@ -2106,13 +2028,13 @@ function renderStageClear() {
   const row = (label, val, cls) => `<div class="cb-row${cls ? " " + cls : ""}"><span>${esc(label)}</span><b>${esc(val)}</b></div>`;
   let bd = row(`스테이지 보너스 (${cs.stage}×50)`, "+" + cs.sBase);
   if (cs.sLeft) bd += row(`초과 EXP (${cs.leftover}×2)`, "+" + cs.sLeft);
-  if (cs.sSpins) bd += row(`남은 스핀 (${cs.leftSpins}×100)`, "+" + cs.sSpins);
+  if (cs.sSpins) bd += row(`남은 심기 (${cs.leftSpins}×100)`, "+" + cs.sSpins);
   if (cs.sBoss) bd += row(`보스 보너스 (${cs.bossName})`, "+" + cs.sBoss);
   if (cs.curses && cs.curseMul !== 1) bd += row(`저주 배수 (저주 ${cs.curses})`, "×" + f2(cs.curseMul));
   if (cs.streak) bd += row("연승 보너스", "+" + cs.streak);
   bd += row("= 클리어 점수", cs.debt ? "0 (빚문서)" : "+" + cs.gain, "total");
 
-  // ── 성공 지표: 2개 바(달성 EXP / 사용 슬롯) + 마지막 5칸 심볼 + 획득내역 ──
+  // ── 성공 지표: 2개 바(달성 EXP / 사용 밭) + 마지막 5칸 심볼 + 획득내역 ──
   const pct = cs.quota > 0 ? Math.round(cs.stageExp / cs.quota * 100) : 100;
   const expFill = Math.min(100, pct);
   const spinFill = cs.totalSpins > 0 ? Math.min(100, Math.round(cs.usedSpins / cs.totalSpins * 100)) : 100;
@@ -2121,19 +2043,19 @@ function renderStageClear() {
   // 성공 요약 칩: 등급(초과 EXP 기반) + 초과/초고속/아슬아슬/보스 — 3번째 카드 대신 감정선 유지
   const chips = [`<span class="cchip grade ${grade.cls}">${grade.icon} ${grade.label}</span>`];
   if (!cs.exact && cs.leftover > 0) chips.push(`<span class="cchip over">✨ 초과 EXP +${cs.leftover.toLocaleString()}</span>`);
-  if (fast) chips.push(`<span class="cchip fast">⚡ ${cs.leftSpins}스핀 남기고 초고속</span>`);
+  if (fast) chips.push(`<span class="cchip fast">⚡ ${cs.leftSpins}심기 남기고 초고속</span>`);
   else if (cs.bySpin && cs.leftSpins === 0) chips.push(`<span class="cchip close">😮‍💨 아슬아슬 클리어</span>`);
   if (cs.boss) chips.push(`<span class="cchip boss">👑 보스 격파</span>`);
   const chipRow = chips.length ? `<div class="clear-chips">${chips.join("")}</div>` : "";
-  // 마지막 스핀 5칸 + 어떻게 EXP를 얻어 성공했는지
+  // 마지막 심기 5칸 + 어떻게 EXP를 얻어 성공했는지
   const cells = cs.lastCells || [];
   const clearReels = cells.length ? `
-      <div class="rd-last-ttl">🎰 마지막 스핀 5칸${cs.bySpin ? " — 이렇게 성공!" : ""}</div>
+      <div class="rd-last-ttl">🌱 마지막 심기 5칸${cs.bySpin ? " — 이렇게 성공!" : ""}</div>
       <div class="rd-reels">${cellsWithArt(cells).map((c) => `<div class="rd-reel">${symIcon({ id: c.id, e: c.e })}${c.tag ? `<span class="rt">${esc(c.tag)}</span>` : ""}</div>`).join("")}</div>
-      <div class="rd-gained">🎁 이 스핀에서 <b>+${(cs.lastSpinExp || 0).toLocaleString()}</b> EXP 획득</div>
-      <div class="rd-notes-ttl">${cs.bySpin ? "이렇게 EXP를 얻어 요구치를 채웠어요" : "직전 스핀 결과"}</div>
+      <div class="rd-gained">🎁 이 심기에서 <b>+${(cs.lastSpinExp || 0).toLocaleString()}</b> EXP 획득</div>
+      <div class="rd-notes-ttl">${cs.bySpin ? "이렇게 EXP를 얻어 요구치를 채웠어요" : "직전 심기 결과"}</div>
       <div class="rd-notes">${(cs.lastNotes && cs.lastNotes.length) ? cs.lastNotes.map((n) => `<span class="rd-note">${esc(n)}</span>`).join("") : `<span class="rd-note dim">기본 심볼 EXP만 · 특수 효과 없음</span>`}</div>` : "";
-  const instNote = !cs.bySpin ? `<div class="rd-inst">${cs.via === "bell" ? "🔔 비상졸업벨로" : "🎁 아이템으로"} 요구 EXP 즉시 달성 · ${cs.usedSpins}스핀 사용</div>` : "";
+  const instNote = !cs.bySpin ? `<div class="rd-inst">${cs.via === "bell" ? "🔔 비상졸업벨로" : "🎁 아이템으로"} 요구 EXP 즉시 달성 · ${cs.usedSpins}심기 사용</div>` : "";
   // §3 V3P3: 자동 소멸 배너 — decayBanner 있으면 클리어 배너 하단에 병합(없으면 빈 문자열).
   const decayNote = cs.decayBanner ? `<div class="rd-decay">${esc(cs.decayBanner)}</div>` : "";
 
@@ -2146,14 +2068,14 @@ function renderStageClear() {
         <div class="rd-ttl ok">✅ 이렇게 클리어했어요</div>
         <div class="rd-bars">
           <div class="rdb"><div class="rdb-head"><span class="rdb-k">🎯 총 경험치 / 요구</span><span class="rdb-v">${cs.stageExp.toLocaleString()} / ${cs.quota.toLocaleString()} (${pct}%)</span></div><div class="rdb-bar"><div class="rdb-fill exp" style="width:${expFill}%"></div></div></div>
-          <div class="rdb"><div class="rdb-head"><span class="rdb-k">🎰 사용 슬롯 / 최대</span><span class="rdb-v">${cs.usedSpins} / ${cs.totalSpins}${fast ? " ⚡" : ""}</span></div><div class="rdb-bar"><div class="rdb-fill spin" style="width:${spinFill}%"></div></div></div>
+          <div class="rdb"><div class="rdb-head"><span class="rdb-k">🌱 사용한 심기 / 최대</span><span class="rdb-v">${cs.usedSpins} / ${cs.totalSpins}${fast ? " ⚡" : ""}</span></div><div class="rdb-bar"><div class="rdb-fill spin" style="width:${spinFill}%"></div></div></div>
         </div>
         ${instNote}
         ${clearReels}
       </div>
       <div class="clear-gain">획득 점수 <span class="gn" id="clear-gain">+0</span></div>
       <div class="clear-total">누적 총점수 <b id="clear-total-n">${(cs.total || 0).toLocaleString()}</b></div>
-      <div class="clear-sub">🪙 코인 <span id="clear-coins-n">${cs.coinsNow != null ? cs.coinsNow : "?"}</span> (+${cs.coin}) · 남은 스핀 <span id="clear-left-n">${cs.leftSpins}</span> · 다음 STAGE ${cs.nextStage}</div>
+      <div class="clear-sub">🌰 도토리 <span id="clear-coins-n">${cs.coinsNow != null ? cs.coinsNow : "?"}</span> (+${cs.coin}) · 남은 심기 <span id="clear-left-n">${cs.leftSpins}</span> · 다음 STAGE ${cs.nextStage}</div>
       ${decayNote}
       ${encoreBoxHtml()}
       <button class="clear-detail-tog" data-act="cleardetail">▼ 점수 상세</button>
@@ -2193,7 +2115,7 @@ function clearGrade(cs) {
   return { tier: t, key: "g" + t, cls: "g" + t, icon: M[t].icon, label: M[t].label, sub: M[t].sub };
 }
 
-// 스테이지 클리어 연출 — 등급별 escalation(색종이·불꽃·코인비·플래시·수렴링·랭크배너·사운드·흔들림).
+// 스테이지 클리어 연출 — 등급별 escalation(색종이·불꽃·도토리비·플래시·수렴링·랭크배너·사운드·흔들림).
 function stageClearFx(grade, boss) {
   const tier = grade.tier;               // 1..5, 6=perfect
   const perfect = grade.key === "perfect";
@@ -2219,7 +2141,7 @@ function stageClearFx(grade, boss) {
   }
   if (tier >= 3) { const fw = tier >= 5 ? 6 : tier === 4 ? 4 : 2; for (let i = 0; i < fw; i++) html += fireworkHtml(cols[i % cols.length], i); }
   if (tier >= 4) {
-    const rain = ["🪙", "⭐", "💎", "🌟"]; const rn = tier >= 5 ? 22 : 14;
+    const rain = ["🌰", "⭐", "💎", "🌟"]; const rn = tier >= 5 ? 22 : 14;
     for (let i = 0; i < rn; i++) html += `<div class="cf-coin" style="left:${(Math.random() * 100).toFixed(0)}%;animation-delay:${(Math.random() * 0.6).toFixed(2)}s;animation-duration:${(1.3 + Math.random() * 0.7).toFixed(2)}s;font-size:${(16 + Math.random() * 15).toFixed(0)}px">${rain[i % rain.length]}</div>`;
   }
   if (perfect) html += `<div class="cf-ring"></div><div class="cf-ring d2"></div><div class="cf-burst">🎯</div>`;
@@ -2234,14 +2156,14 @@ function fireworkHtml(color, i) {
   return `<div class="cf-fw" style="left:${x.toFixed(0)}%;top:${y.toFixed(0)}%;color:${color};animation-delay:${delay.toFixed(2)}s">${spokes}</div>`;
 }
 
-// ── 튜토리얼 (첫 플레이: UI 가이드 → 직접 스핀·결과 해설 → 클리어/보상/증강/상점 안내 → 자유플레이) ──
+// ── 튜토리얼 (첫 플레이: UI 가이드 → 직접 심기·결과 해설 → 클리어/보상/증강/상점 안내 → 자유플레이) ──
 const TOUR = [
-  { sel: ".hud", t: "📊 상태 정보", b: "스테이지·점수·코인과 EXP 바예요. <b>스핀(현재/최대) 안에 EXP 바를 요구치까지</b> 채우면 클리어! 동시에 <b>점수를 최대한 많이</b> 모으는 게 목표예요." },
-  { sel: "#reels", t: "🎰 슬롯 5칸", b: "한 줄 슬롯이에요. 같은 값심볼 2개↑면 세트 보너스! <b>칸을 길게 누르면</b> 그 심볼의 효과·영향을 볼 수 있고, 첫 스핀 뒤엔 <b>칸을 탭해 🔒홀드</b>(다음 스핀에 그대로 유지, 스테이지당 1회)할 수 있어요." },
-  { sel: "#spinbtn", t: "🕹️ 슬롯 돌리기", b: "이 버튼으로 돌려 EXP를 모아요. <b>정해진 스핀(현재/최대) 안에</b> 요구치를 채우면 클리어! <b>빨리 클리어할수록(남은 스핀·초과 EXP) 점수가 더 올라가요.</b>" },
-  { sel: "#ab-extra", t: "✨ 특수 스핀", b: "집중(안정+홀드 충전)·올인(2.5배 도박)·기도(역전)·최후(막스핀↑) — 모험 스핀! <b>한 판에서 종류별 첫 사용은 무료(코인 0이어도 OK)</b>, 이후엔 <b>코인 비용(🎯1·⏰2·🙏3·🎰4, 보스 +1)</b>이 들고 <b>같은 스테이지에서 또 쓸수록 비용이 올라가요</b>. 버튼에 지금 가격이 표시돼요." },
+  { sel: ".hud", t: "📊 상태 정보", b: "스테이지·점수·도토리와 EXP 바예요. <b>심기(현재/최대) 안에 EXP 바를 요구치까지</b> 채우면 클리어! 동시에 <b>점수를 최대한 많이</b> 모으는 게 목표예요." },
+  { sel: "#reels", t: "🌱 밭 5칸", b: "한 줄 밭이에요. 같은 값심볼 2개↑면 세트 보너스! <b>칸을 길게 누르면</b> 그 심볼의 효과·영향을 볼 수 있고, 첫 심기 뒤엔 <b>칸을 탭해 🔒지키기</b>(다음 심기에 그대로 유지, 스테이지당 1회)할 수 있어요." },
+  { sel: "#spinbtn", t: "🕹️ 심기 버튼", b: "이 버튼으로 돌려 EXP를 모아요. <b>정해진 심기(현재/최대) 안에</b> 요구치를 채우면 클리어! <b>빨리 클리어할수록(남은 심기·초과 EXP) 점수가 더 올라가요.</b>" },
+  { sel: "#ab-extra", t: "✨ 특수 심기", b: "집중(안정+지키기 충전)·듬뿍 물주기(×1.5, 실패 없음)·기도(역전)·최후(마지막 심기↑) — 모험 심기! <b>한 판에서 종류별 첫 사용은 무료(도토리 0이어도 OK)</b>, 이후엔 <b>도토리 비용(🎯1·⏰2·🙏3·🌱4, 보스 +1)</b>이 들고 <b>같은 스테이지에서 또 쓸수록 비용이 올라가요</b>. 버튼에 지금 가격이 표시돼요." },
   { sel: "#abicons", t: "🎒 아이템·장치·상태", b: "아이템 사용 · 장치 발동 · <b>내 빌드(능력치)</b> 확인을 여기서 해요." },
-  { sel: "#spinbtn", t: "🎮 직접 돌려보세요!", b: "이제 <b>[🎰 슬롯 돌리기]</b>를 눌러 첫 스핀! 어떤 효과가 났는지 바로 알려드릴게요.", action: true },
+  { sel: "#spinbtn", t: "🎮 직접 돌려보세요!", b: "이제 <b>[🌱 심기]</b>를 눌러 첫 심기! 어떤 효과가 났는지 바로 알려드칸게요.", action: true },
 ];
 function startTutorial() {
   if (!st || (st.phase !== PHASE.SPIN && st.phase !== PHASE.POST_SPIN)) return;
@@ -2287,23 +2209,23 @@ function tutExplainSpin() {
   const gained = lastGain ? lastGain.gained : 0;
   const used = Math.min(st.spinIndex, st.spins), left = Math.max(0, st.spins - st.spinIndex);
   const cleared = st.stageExp >= st.quota;
-  tutSpot("#reels", { title: "💡 방금 스핀 결과", step: "튜토리얼 · 결과 해설", block: true,
-    body: `<b>${cells}</b> 가 나왔어요.<br>${notes ? `효과: <b>${esc(notes)}</b><br>` : ""}이번 스핀 <b>+${gained} EXP</b> → 현재 <b>${Math.floor(st.stageExp)}/${st.quota} EXP</b><br>스핀 <b>${used}/${st.spins}</b> 사용 · <b>남은 ${left}회</b>${cleared ? "<br>🎉 <b>EXP를 다 채웠어요 — 스핀이 남아도 바로 클리어!</b>" : ""}`,
+  tutSpot("#reels", { title: "💡 방금 심기 결과", step: "튜토리얼 · 결과 해설", block: true,
+    body: `<b>${cells}</b> 가 나왔어요.<br>${notes ? `효과: <b>${esc(notes)}</b><br>` : ""}이번 심기 <b>+${gained} EXP</b> → 현재 <b>${Math.floor(st.stageExp)}/${st.quota} EXP</b><br>심기 <b>${used}/${st.spins}</b> 사용 · <b>남은 ${left}회</b>${cleared ? "<br>🎉 <b>EXP를 다 채웠어요 — 심기가 남아도 바로 클리어!</b>" : ""}`,
     buttons: `<button class="tut-next" data-act="tutToFree" style="flex:1">알겠어요 ▶</button>` });
 }
 function tutToFree() {
   tut.live = true;   // 이제부터 게임 진행에 맞춰 자동 안내(클리어→증강→상점)
-  tutBanner("🎯 <b>정해진 스핀(현재/최대) 안에 EXP 바를 채워 클리어</b>! 스핀이 남아도 다 채우면 바로 클리어돼요.<br>🏆 <b>남은 스핀·초과 EXP·💎보석·👑왕관이 점수가 되니, 빨리·많이 모아 최대 점수에 도전!</b><br>💡 일반 말고 <b>특수 스핀(🎯집중·🎰올인·🙏기도·⏰최후)</b> 으로도 돌릴 수 있어요 — 아래 보라색 버튼! 종류별 첫 사용은 무료, 이후 <b>코인 비용(🎯1·⏰2·🙏3·🎰4, 보스 +1)</b>이 들어요. 직접 채워보세요.", "tutBannerOk");
+  tutBanner("🎯 <b>정해진 심기(현재/최대) 안에 EXP 바를 채워 클리어</b>! 심기가 남아도 다 채우면 바로 클리어돼요.<br>🏆 <b>남은 심기·초과 EXP·💎보석·👑왕관이 점수가 되니, 빨리·많이 모아 최대 점수에 도전!</b><br>💡 일반 말고 <b>특수 심기(🎯집중·🌱듬뿍 물주기·🙏기도·⏰최후)</b> 으로도 돌칸 수 있어요 — 아래 보라색 버튼! 종류별 첫 사용은 무료, 이후 <b>도토리 비용(🎯1·⏰2·🙏3·🌱4, 보스 +1)</b>이 들어요. 직접 채워보세요.", "tutBannerOk");
 }
 function tutGoLive() { tut.live = true; tutClear(); }
 function tutLive() {
   if (!tut.active || !tut.live || !st) return;
   const map = {
-    [PHASE.STAGE_CLEAR]: ["clear", "🎉 <b>스테이지 클리어!</b> 초과 EXP·남은 스핀·연승이 점수로 환산되고 코인도 받았어요. 누적 총점수도 확인! 아래 [다음]으로 보상 선택."],
-    [PHASE.NODE_SELECT]: ["node", "🎁 <b>보상 선택</b> — ✨증강(영구 강화) · 🛡️유물(추가효과) · 🛒<b>상점</b>(코인으로 구매) · 🌑저주(위험+보상). 처음엔 ✨<b>증강</b> 추천!"],
+    [PHASE.STAGE_CLEAR]: ["clear", "🎉 <b>스테이지 클리어!</b> 초과 EXP·남은 심기·연승이 점수로 환산되고 도토리도 받았어요. 누적 총점수도 확인! 아래 [다음]으로 보상 선택."],
+    [PHASE.NODE_SELECT]: ["node", "🎁 <b>보상 선택</b> — ✨증강(영구 강화) · 🛡️유물(추가효과) · 🛒<b>상점</b>(도토리로 구매) · 🌑저주(위험+보상). 처음엔 ✨<b>증강</b> 추천!"],
     [PHASE.PERK_PICK]: ["perk", "✨ <b>증강 카드</b> — 등급이 <b>🥈실버 < 🥇골드 < 🌈프리즘</b> 순으로 강력! 빌드에 맞게 하나 골라요."],
-    [PHASE.SHOP]: ["shop", "🛒 <b>상점</b> — 코인으로 증강·유물·아이템 구매. 항목을 누르면 구매 확인! 다 보면 [나가기]."],
-    [PHASE.REWARD_DONE]: ["stats", "📊 고른 보상이 <b>능력치</b>에 반영됐어요. 다음 스테이지 정보 확인 후 [시작]!<br><b>이대로 계속 진행해 더 깊은 스테이지에 도전하세요!</b> 🎰"],
+    [PHASE.SHOP]: ["shop", "🛒 <b>상점</b> — 도토리로 증강·유물·아이템 구매. 항목을 누르면 구매 확인! 다 보면 [나가기]."],
+    [PHASE.REWARD_DONE]: ["stats", "📊 고른 보상이 <b>능력치</b>에 반영됐어요. 다음 스테이지 정보 확인 후 [시작]!<br><b>이대로 계속 진행해 더 깊은 스테이지에 도전하세요!</b> 🌱"],
   };
   const L = map[st.phase]; if (!L || tut.shown[L[0]]) return;
   tut.shown[L[0]] = true; tutBanner(L[1], "tutBannerOk");
@@ -2315,7 +2237,7 @@ function tutLive() {
 // 도감 탭 → 그림 종류(없음 = 이모지): 세트·빌드는 그림이 없다.
 const DEX_ART_KIND = { char: "char", mac: "mac", dev: "dev", aug: "aug", rel: "rel", cur: "cur", item: "item", sym: "sym", deepSym: "sym", symAug: "symaug", symRel: "symrel", ach: "ach" };
 const dexIcon = (cat, x) => (DEX_ART_KIND[cat] ? iconK(DEX_ART_KIND[cat], x.id, x.e) : esc(x.e));
-const DEX_CATS = [["char", "🎭 캐릭터"], ["mac", "🎰 머신"], ["dev", "🔧 장치"], ["aug", "✨ 증강"], ["rel", "🛡️ 유물"], ["cur", "🌑 저주"], ["set", "🎲 세트"], ["item", "🎒 아이템"], ["sym", "🔣 심볼"], ["deepSym", "🎒 심화심볼"], ["symAug", "✨ 심볼증강"], ["symRel", "🛡️ 심볼유물"], ["bld", "🏗️ 빌드"], ["ach", "🏆 업적"]];
+const DEX_CATS = [["char", "🎭 캐릭터"], ["mac", "🌱 밭"], ["dev", "🔧 장치"], ["aug", "✨ 증강"], ["rel", "🛡️ 유물"], ["cur", "🌑 저주"], ["set", "🫘 세트"], ["item", "🎒 아이템"], ["sym", "🔣 심볼"], ["deepSym", "🎒 심화심볼"], ["symAug", "✨ 심볼증강"], ["symRel", "🛡️ 심볼유물"], ["bld", "🏗️ 빌드"], ["ach", "🏆 업적"]];
 function renderDex() {
   const d = g.dex(); const cat = dexTab; const list = d[cat] || []; const isAch = cat === "ach"; const isBld = cat === "bld";
   const doneOrSeen = (l, k) => (k === "ach" || k === "bld") ? l.filter((x) => x.done).length : l.filter((x) => x.seen).length;
@@ -2346,7 +2268,7 @@ function renderDex() {
   const subLabel = (isAch || isBld) ? `완성 ${cnt}/${list.length}` : `발견 ${cnt}/${list.length}`;
   app.innerHTML = `
     <button class="backbtn" data-act="dexback">◀ 뒤로</button>
-    <div class="scr-title"><div class="step-tag">📚 도감</div><h1>슬롯 도감</h1><div class="sub">${subLabel} · ${isBld ? "플레이스타일을 완성하면 도감에 새겨져요" : "사용·발견한 항목만 공개됩니다"}</div></div>
+    <div class="scr-title"><div class="step-tag">📚 도감</div><h1>밭 도감</h1><div class="sub">${subLabel} · ${isBld ? "플레이스타일을 완성하면 도감에 새겨져요" : "사용·발견한 항목만 공개됩니다"}</div></div>
     <div class="dex-tabs">${tabs}</div>
     <div class="dex-grid">${cards}</div>`;
 }
@@ -2364,23 +2286,23 @@ function dexUnlockText(o, withStage) {
 function openDexInfo(cat, id) {
   const f2 = (n) => Math.round(n * 100) / 100;
   const row = (k, v) => (v != null && v !== "") ? `<div class="cb-row"><span>${esc(k)}</span><b>${esc(String(v))}</b></div>` : "";
-  const SP = { BOMB: "양옆 칸 제거 → 칸당 +" + D.C.BOMB_EXP_PER + " EXP", MAGNET: "한쪽 옆 심볼 복사", SKULL: "기본 무페널티 · 해골빌드면 EXP/점수 가산", FLAME: "이번 스핀 전체 +50% (다음 스핀 -50%)", DICE: "1~12 무작위 EXP", WILD: "최다 심볼 그룹에 합류 (세트·잭팟)", SEED: "다음 스핀에 책/별/왕관으로 성장", COIN: "코인 획득 (코인 배수 적용)", KEY: "보물 코인 +" + D.C.KEY_COIN_PER + "🪙 (열쇠 1개당)", NONE: "" };
+  const SP = { BOMB: "양옆 칸 제거 → 칸당 +" + D.C.BOMB_EXP_PER + " EXP", MAGNET: "한쪽 옆 심볼 복사", SKULL: "기본 무페널티 · 해골빌드면 EXP/점수 가산", FLAME: "이번 심기 전체 +50% (다음 심기 -50%)", DICE: "1~12 무작위 EXP", WILD: "최다 심볼 그룹에 합류 (세트·대풍작)", SEED: "다음 심기에 책/별/왕관으로 성장", COIN: "도토리 획득 (도토리 배수 적용)", KEY: "보물 도토리 +" + D.C.KEY_COIN_PER + "🌰 (열쇠 1개당)", NONE: "" };
   let e = "", n = "", tier = "", rows = "";
-  if (cat === "sym") { const s = D.SYM_BY_ID[id]; if (!s) return; e = s.e; n = s.n; rows = row("기본 EXP", s.exp) + (s.score ? row("점수", "+" + s.score) : "") + (s.coin ? row("코인", "+" + s.coin) : "") + row("등장 가중치", s.weight > 0 ? s.weight : "휴면(머신·증강으로 등장)") + (SP[s.special] ? row("특수 효과", SP[s.special]) : "") + (s.rare ? row("희귀", "✦ 희귀 심볼") : "") + (s.tags.length ? row("태그", s.tags.map((t) => "#" + t).join(" ")) : ""); }
+  if (cat === "sym") { const s = D.SYM_BY_ID[id]; if (!s) return; e = s.e; n = s.n; rows = row("기본 EXP", s.exp) + (s.score ? row("점수", "+" + s.score) : "") + (s.coin ? row("도토리", "+" + s.coin) : "") + row("등장 가중치", s.weight > 0 ? s.weight : "휴면(밭·증강으로 등장)") + (SP[s.special] ? row("특수 효과", SP[s.special]) : "") + (s.rare ? row("희귀", "✦ 희귀 심볼") : "") + (s.tags.length ? row("태그", s.tags.map((t) => "#" + t).join(" ")) : ""); }
   else if (cat === "deepSym") { const s = D.SYM_BY_ID[id]; if (!s) return; e = s.e; n = s.n; tier = symTierOf(id); const dsc = (g.dex().deepSym || []).find((x) => x.id === id); rows = row("등급", D.POUCH_RARITY[id] || "기본") + row("티어", tier) + row("효과", (dsc && dsc.detail) ? dsc.detail.split(" · #")[0] : "특수 효과") + (s.exp ? row("기본 EXP", s.exp) : "") + (s.tags.length ? row("태그", s.tags.map((t) => "#" + t).join(" ")) : "") + row("등장", "심화모드 주머니 전용"); }
   else if (cat === "dev") { const d = D.DEV_BY_ID[id]; if (!d) return; e = d.e; n = d.n; rows = row("유형", d.kind === "PASSIVE" ? "패시브 (상시 자동)" : "능동") + (d.cmd ? row("발동", d.cmd) : "") + row("효과", d.d) + row("쿨다운", d.kind === "PASSIVE" ? "상시" : "스테이지당 1회") + (d.rare ? row("희귀", "✦ 희귀 장치") : ""); }
-  else if (cat === "rel") { const r = D.REL_BY_ID[id]; if (!r) return; e = r.e; n = r.n; tier = r.t; rows = row("효과", r.d) + row("상점가", r.price + "🪙"); }
-  else if (cat === "item") { const it = D.ITEM_BY_ID[id]; if (!it) return; e = it.e; n = it.n; rows = row("종류", { NEXTSPIN: "다음 스핀 1회", PHASE: "이번 스테이지 내내", INSTANT: "즉시 발동" }[it.k]) + row("효과", it.d) + row("코인가", it.cost + "🪙"); }
+  else if (cat === "rel") { const r = D.REL_BY_ID[id]; if (!r) return; e = r.e; n = r.n; tier = r.t; rows = row("효과", r.d) + row("상점가", r.price + "🌰"); }
+  else if (cat === "item") { const it = D.ITEM_BY_ID[id]; if (!it) return; e = it.e; n = it.n; rows = row("종류", { NEXTSPIN: "다음 심기 1회", PHASE: "이번 스테이지 내내", INSTANT: "즉시 발동" }[it.k]) + row("효과", it.d) + row("도토리가", it.cost + "🌰"); }
   else if (cat === "aug") { const a = D.AUG_BY_ID[id]; if (!a) return; e = a.e; n = a.n; tier = a.t; rows = row("등급", a.t) + row("효과", a.d); }
   // [LOW-5] 심화 심볼 증강/유물 상세 — SYM_PERK_BY_ID 통합 조회(sa_/sp_/sr_ 전역 유일).
   else if (cat === "symAug" || cat === "symRel") { const a = D.SYM_PERK_BY_ID[id]; if (!a) return; e = a.e; n = a.n; tier = a.t; rows = row("등급", a.t) + row("효과", a.d) + row("등장", cat === "symAug" ? "심화모드 심볼 증강 노드" : "심화모드 심볼 유물 노드") + (D.isSymAugLevelable(id) ? row("레벨업", "가능 (Lv.1~3 · 증강 강화 노드)") : ""); }
   else if (cat === "cur") { const c = D.CUR_BY_ID[id]; if (!c) return; e = c.e; n = c.n; rows = row("효과 (단점 / 장점)", c.d); }
-  else if (cat === "set") { const s = D.SET_BY_ID[id]; if (!s) return; e = "🎰"; n = s.n; let req = s.req.map((pid) => { const p = D.PERK_BY_ID[pid]; return p ? p.e + p.n : pid; }).join(" + "); if (s.reqChar) req += " + " + ((D.CHAR_BY_ID[s.reqChar] || {}).e || "") + ((D.CHAR_BY_ID[s.reqChar] || {}).n || s.reqChar); if (s.reqMachine) req += " + " + ((D.MAC_BY_ID[s.reqMachine] || {}).e || "") + "머신"; if (s.reqDevice) req += " + " + ((D.DEV_BY_ID[s.reqDevice] || {}).e || ""); rows = row("필요 조합", req) + row("발동 효과", s.d); }
-  else if (cat === "char") { const c = D.CHAR_BY_ID[id]; if (!c) return; e = c.e; n = c.n; rows = row("효과", c.d) + row("점수 보정", "×" + f2(c.scoreMod)) + (c.startCoins ? row("시작 코인", "+" + c.startCoins) : "") + row("해금 조건", dexUnlockText(c, true)); }
+  else if (cat === "set") { const s = D.SET_BY_ID[id]; if (!s) return; e = "🌱"; n = s.n; let req = s.req.map((pid) => { const p = D.PERK_BY_ID[pid]; return p ? p.e + p.n : pid; }).join(" + "); if (s.reqChar) req += " + " + ((D.CHAR_BY_ID[s.reqChar] || {}).e || "") + ((D.CHAR_BY_ID[s.reqChar] || {}).n || s.reqChar); if (s.reqMachine) req += " + " + ((D.MAC_BY_ID[s.reqMachine] || {}).e || "") + "밭"; if (s.reqDevice) req += " + " + ((D.DEV_BY_ID[s.reqDevice] || {}).e || ""); rows = row("필요 조합", req) + row("발동 효과", s.d); }
+  else if (cat === "char") { const c = D.CHAR_BY_ID[id]; if (!c) return; e = c.e; n = c.n; rows = row("효과", c.d) + row("점수 보정", "×" + f2(c.scoreMod)) + (c.startCoins ? row("시작 도토리", "+" + c.startCoins) : "") + row("해금 조건", dexUnlockText(c, true)); }
   else if (cat === "mac") { const m = D.MAC_BY_ID[id]; if (!m) return; e = m.e; n = m.n; const w = Object.entries(m.wmul || {}).map(([k, v]) => `${(D.SYM_BY_ID[k] || {}).e || k}×${f2(v)}`).concat(Object.entries(m.wadd || {}).map(([k]) => `${(D.SYM_BY_ID[k] || {}).e || k} 등장`)).join("  "); rows = row("효과", m.d) + row("점수 보정", "×" + f2(m.scoreMod)) + (w ? row("심볼 가중", w) : "") + row("해금 조건", dexUnlockText(m, false)); }
   else if (cat === "ach") { const a = D.ACHIEVEMENTS.find((x) => x.id === id); if (!a) return; e = a.e; n = a.n; const dv = D.DEV_BY_ID[D.ACH_DEVICE_REWARD[a.id]]; rows = row("달성 조건", a.d) + row("상태", g.profile.unlocked.includes(a.id) ? "✓ 달성" : "미달성") + (dv ? row("보상 장치", dv.e + dv.n) : ""); }
   else if (cat === "bld") { const b = D.TBUILD_BY_ID[id]; if (!b) return; e = b.e; n = b.n; rows = row("분류", b.cat) + row("완성 조건", b.cond) + row("상태", (g.profile.counters[b.id] || 0) > 0 ? "✓ 완성" : "미완성"); }
-  // 숙련도(캐릭/슬롯/장치)
+  // 숙련도(캐릭/밭/장치)
   if (cat === "char" || cat === "mac" || cat === "dev") {
     const m = g.masteryOf(cat, id);
     rows += row("숙련도", `Lv.${m.lv}/${m.total}  ${"★".repeat(m.lv)}${"☆".repeat(Math.max(0, m.total - m.lv))}`);
@@ -2430,7 +2352,7 @@ function renderRewardDone() {
       <div class="rd-next${np.boss ? " boss" : ""}">
         <div class="rd-next-ttl">${np.boss ? `${np.boss.e} 보스 — ${esc(np.boss.n)}` : `다음 STAGE ${np.stage || ""}`}</div>
         ${np.boss ? `<div class="rd-boss">${esc(np.boss.desc)}</div>` : ""}
-        <div class="rd-next-sub">요구 EXP <b>${np.quota || "?"}</b> · 스핀 <b>${np.spins || "?"}</b></div>
+        <div class="rd-next-sub">요구 EXP <b>${np.quota || "?"}</b> · 심기 <b>${np.spins || "?"}</b></div>
       </div>
     </div>
     <div class="choose-foot"><button class="bigbtn tapstart" data-act="proceedStage"><span class="ts-arrow">▶</span> 스테이지 ${np.stage || ""} 시작 <span class="ts-hint">— 탭해서 시작</span></button></div>`;
@@ -2496,7 +2418,7 @@ async function initAuth() {
 }
 // 서버가 열쇠를 거절(401)했을 때 — 로그인 표시를 내리고 다시 로그인하게 안내
 function onAuthExpired() { authUser = null; rankMod().then((r) => r && r.setAuthUid(null)); refreshAuthUI(); showToast("로그인이 끝났어요. 다시 로그인해 주세요"); }
-// 진행 중인 런이 있는지(캐릭터·머신·장치 고르기 전, 그리고 런 종료 화면은 제외)
+// 진행 중인 런이 있는지(캐릭터·밭·장치 고르기 전, 그리고 런 종료 화면은 제외)
 function runInProgress() {
   return !!(st && st.phase !== PHASE.SELECT_CHAR && st.phase !== PHASE.SELECT_MACHINE && st.phase !== PHASE.SELECT_DEVICE && st.phase !== PHASE.RUN_END);
 }
@@ -2656,9 +2578,9 @@ function renderEnd() {
   const spinPct = fi && fi.spins ? Math.min(100, Math.round(fi.usedSpins / fi.spins * 100)) : 0;
   const lastCells = (fi && fi.lastCells) || [];
   const lastReels = lastCells.length ? `
-      <div class="rd-last-ttl">🎰 마지막 스핀 5칸</div>
+      <div class="rd-last-ttl">🌱 마지막 심기 5칸</div>
       <div class="rd-reels">${cellsWithArt(lastCells).map((c) => `<div class="rd-reel">${symIcon({ id: c.id, e: c.e })}${c.tag ? `<span class="rt">${esc(c.tag)}</span>` : ""}</div>`).join("")}</div>
-      <div class="rd-gained">🎁 이 스핀에서 <b>+${(fi.lastGained || 0).toLocaleString()}</b> EXP 획득</div>
+      <div class="rd-gained">🎁 이 심기에서 <b>+${(fi.lastGained || 0).toLocaleString()}</b> EXP 획득</div>
       <div class="rd-notes-ttl">이렇게 EXP를 얻었어요</div>
       <div class="rd-notes">${(fi.lastNotes && fi.lastNotes.length) ? fi.lastNotes.map((n) => `<span class="rd-note">${esc(n)}</span>`).join("") : `<span class="rd-note dim">기본 심볼 EXP만 · 특수 효과 없음</span>`}</div>` : "";
   const failBanner = fi ? `
@@ -2666,11 +2588,11 @@ function renderEnd() {
       <div class="rd-ttl${fi.shortBy > 0 ? " fail" : ""}">${fi.shortBy > 0 ? `💥 STAGE ${fi.stage} 실패` : fi.voluntary ? `🏁 STAGE ${fi.stage}에서 종료` : `STAGE ${fi.stage} 도달`}</div>
       <div class="rd-bars">
         <div class="rdb"><div class="rdb-head"><span class="rdb-k">🎯 총 경험치 / 요구</span><span class="rdb-v">${fi.exp} / ${fi.quota} (${fpct}%)</span></div><div class="rdb-bar"><div class="rdb-fill exp" style="width:${fpct}%"></div></div></div>
-        <div class="rdb"><div class="rdb-head"><span class="rdb-k">🎰 사용 슬롯 / 최대</span><span class="rdb-v">${fi.usedSpins} / ${fi.spins}</span></div><div class="rdb-bar"><div class="rdb-fill spin" style="width:${spinPct}%"></div></div></div>
+        <div class="rdb"><div class="rdb-head"><span class="rdb-k">🌱 사용한 심기 / 최대</span><span class="rdb-v">${fi.usedSpins} / ${fi.spins}</span></div><div class="rdb-bar"><div class="rdb-fill spin" style="width:${spinPct}%"></div></div></div>
       </div>
-      ${fi.shortBy > 0 ? `<div class="fail-short">요구 EXP까지 <b>${fi.shortBy}</b> 부족 — 정해진 슬롯 안에 못 채웠어요</div>` : ""}
+      ${fi.shortBy > 0 ? `<div class="fail-short">요구 EXP까지 <b>${fi.shortBy}</b> 부족 — 정해진 밭 안에 못 채웠어요</div>` : ""}
       ${lastReels}
-      <div class="fail-tip">💡 증강·유물로 EXP를 키우거나, 막판에 <b>특수 스핀(🎯집중·🙏기도)</b>·<b>아이템</b>으로 부족분을 채워보세요.</div>
+      <div class="fail-tip">💡 증강·유물로 EXP를 키우거나, 막판에 <b>특수 심기(🎯집중·🙏기도)</b>·<b>아이템</b>으로 부족분을 채워보세요.</div>
     </div>` : "";
   const lp = g.playerProgress();
   const leveled = (st.levelAfter || 0) > (st.levelBefore || 0);

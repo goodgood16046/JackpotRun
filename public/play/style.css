@@ -1,9 +1,9 @@
-/* 잭팟 슬롯 (웹 단독판) — 모바일 게임 UI v2 (네온 아케이드 + 글래스 + 로그라이크).
+/* 풍년런 (웹 단독판) — 모바일 게임 UI v2 (밤 들판 + 글래스 + 로그라이크).
    ★ 모든 글씨는 밝게(=--txt). <button> 은 color:inherit 로 기본 검정 방지. */
 :root {
-  --bg0: #07080f; --bg1: #0e1020; --bg2: #141833;
-  --panel: #161a2c; --panel2: #1c2238; --panel3: #252c46;
-  --bd: #2c3454; --bd2: #3f4a76;
+  --bg0: #08110c; --bg1: #0e1a13; --bg2: #13241a;
+  --panel: #152219; --panel2: #1b2c20; --panel3: #24392a;
+  --bd: #2c4634; --bd2: #41644b;
   --txt: #eef1fb; --txt2: #c3cae3; --dim: #8b93b5; --dim2: #6a7299;
   --gold: #ffd23f; --gold2: #ffb300; --amber: #f59e0b;
   --pink: #ff6ec7; --teal: #2ee6c8; --blue: #5b9bff; --purple: #b07bff; --red: #ff5d6c; --green: #4ade80;
@@ -50,10 +50,10 @@ body {
 body::before {
   content: ""; position: fixed; inset: -20%; z-index: -2; pointer-events: none;
   background:
-    radial-gradient(40% 30% at 22% 8%, rgba(176,123,255,.28), transparent 60%),
-    radial-gradient(42% 32% at 82% 4%, rgba(255,110,199,.22), transparent 60%),
-    radial-gradient(50% 40% at 50% 102%, rgba(46,230,200,.16), transparent 60%),
-    radial-gradient(60% 50% at 50% 40%, rgba(91,155,255,.10), transparent 70%),
+    radial-gradient(40% 30% at 22% 8%, rgba(120,200,110,.20), transparent 60%),
+    radial-gradient(42% 32% at 82% 4%, rgba(255,210,63,.14), transparent 60%),
+    radial-gradient(50% 40% at 50% 102%, rgba(95,143,62,.20), transparent 60%),
+    radial-gradient(60% 50% at 50% 40%, rgba(46,230,200,.06), transparent 70%),
     linear-gradient(180deg, var(--bg1), var(--bg0) 60%);
   animation: aurora 16s ease-in-out infinite alternate;
 }
@@ -154,8 +154,8 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
 .reels { display: flex; gap: calc(8px * var(--sc)); justify-content: center; margin: calc(16px * var(--sc)) 2px; perspective: 600px;
   contain: layout; }
 .reel { flex: 1 1 0; max-width: calc(94px * var(--sc)); aspect-ratio: 2 / 3; position: relative; border-radius: var(--r-xl); overflow: hidden;
-  background: linear-gradient(165deg, #2a3354 0%, #1a2038 48%, #10162a 100%);
-  border: 2px solid var(--bd2); display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(180deg, #6b4527, #45291a);   /* 흙 칸 */
+  border: 2px solid #5f8f3e; display: flex; align-items: center; justify-content: center;
   box-shadow: inset 0 3px 10px rgba(0,0,0,.6), inset 0 -2px 8px rgba(0,0,0,.5), 0 4px 14px rgba(0,0,0,.4); }
 .reel::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 42%;
   background: linear-gradient(180deg, rgba(255,255,255,.14), transparent); pointer-events: none; }
@@ -177,7 +177,12 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
    하이라이트로 사용 중이라 실요소로 도입). 위/아래 33.33%씩만 덮어 이웃 심볼이 경계에서 딱 잘리지
    않고 자연스럽게 스며들게 한다. 색은 .reel 배경 그라디언트의 가장 어두운 끝(#10162a)에 맞춤. */
 .rfade { position: absolute; inset: 0; pointer-events: none; z-index: 2;
-  background: linear-gradient(180deg, rgba(16,22,42,.85), transparent 26%, transparent 74%, rgba(16,22,42,.85)); }
+  background: linear-gradient(180deg, rgba(69,41,26,.85), transparent 26%, transparent 74%, rgba(69,41,26,.85)); }
+/* 심기: 흙이 들썩(.sowing) → 새싹이 돋음(.sprout) — 세로 스크롤 회전 없음 */
+.reel.sowing { animation: sow .25s ease-in-out; }
+@keyframes sow { 0%,100% { transform: translateY(0) rotate(0); } 25% { transform: translateY(2px) rotate(-1.6deg); } 50% { transform: translateY(-2px) rotate(1.6deg); } 75% { transform: translateY(1px) rotate(-.8deg); } }
+.reel.sprout .rslot.center .sym, .intro-reels span.sprout > * { animation: sprout .32s ease-out both; transform-origin: 50% 90%; }
+@keyframes sprout { 0% { transform: scale(.2) translateY(10px); opacity: 0; } 70% { transform: scale(1.12) translateY(-1px); opacity: 1; } 100% { transform: scale(1) translateY(0); opacity: 1; } }
 .reel.settle { animation: settle .34s cubic-bezier(.18,1.5,.4,1); }
 @keyframes settle { 0% { transform: translateY(-14px) scale(.7); } 60% { transform: translateY(2px) scale(1.06); } 100% { transform: translateY(0) scale(1); } }
 /* 다중 매치 발광 — ★일회성화: 매치 직후 ~2초 동안 화려하게 "터졌다가" 잦아든다.
@@ -265,8 +270,8 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
 .reel.empty { background: linear-gradient(165deg, #1a1224, #120e1c); border-color: #2a2238; }
 .reel.empty .rslot.center .sym { opacity: .5; filter: grayscale(.4); }
 .reels.win .reel { border-color: rgba(255,210,63,.6); }
-.reels.jackpot { animation: jpShake .5s ease; }
-.reels.jackpot .reel { border-color: var(--pink); box-shadow: 0 0 26px rgba(255,110,199,.7), inset 0 0 22px rgba(255,110,199,.4); }
+.reels.jackpot { animation: none; }
+.reels.jackpot .reel { border-color: var(--gold); box-shadow: 0 0 26px rgba(255,210,63,.65), 0 0 40px rgba(120,200,110,.35), inset 0 0 22px rgba(255,210,63,.3); }
 @keyframes jpShake { 0%,100% { transform: translateY(0); } 25% { transform: translateY(-8px) scale(1.02); } 60% { transform: translateY(3px); } }
 
 /* 폭발 파티클(JS 가 reel 안에 추가) */
@@ -484,8 +489,8 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
   animation: rays 2.2s linear; }
 @keyframes rays { from { transform: rotate(0); opacity: .9; } to { transform: rotate(60deg); opacity: 0; } }
 .jackpot-fx .jptxt { position: relative; font-size: clamp(34px,11vw,60px); font-weight: 900; color: #fff; text-align: center;
-  text-shadow: 0 0 24px var(--pink), 0 4px 30px #000; animation: jptxt 1.6s cubic-bezier(.2,1.4,.3,1) forwards; }
-.jackpot-fx .jptxt span { display: block; font-size: 44%; background: var(--prism); background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: prism 1.5s linear infinite; }
+  text-shadow: 0 0 24px #ffd23f, 0 0 36px rgba(120,200,110,.7), 0 4px 30px #000; animation: jptxt 1.6s cubic-bezier(.2,1.4,.3,1) forwards; }
+.jackpot-fx .jptxt span { display: block; font-size: 44%; background: linear-gradient(100deg, #ffd23f, #9be36a, #ffd23f, #7fcf5a, #ffd23f); background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: prism 1.5s linear infinite; }
 @keyframes jptxt { 0% { transform: scale(.3); opacity: 0; } 30% { transform: scale(1.15); opacity: 1; } 80% { transform: scale(1); opacity: 1; } 100% { opacity: 0; transform: scale(1.05); } }
 
 .celebrate { position: fixed; inset: 0; z-index: 75; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
@@ -817,7 +822,7 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
 @keyframes introFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .intro-reels { display: flex; gap: calc(10px * var(--sc)); }
 .intro-reels span { position: relative; overflow: hidden; width: calc(62px * var(--sc)); height: calc(80px * var(--sc)); display: flex; align-items: center; justify-content: center; font-size: calc(38px * var(--sc));
-  background: linear-gradient(180deg, #2a3354, #10162a); border: 2px solid var(--gold); border-radius: 14px;
+  background: linear-gradient(180deg, #6b4527, #45291a); border: 2px solid var(--gold); border-radius: 14px;
   box-shadow: inset 0 3px 10px #0008, 0 0 24px rgba(255,210,63,.4); animation: introReel 1.6s ease-in-out infinite; }
 /* 릴 상단 광택(--gloss) — 토큰 질감(신규 리터럴 없음) */
 .intro-reels span .art-ico { width: 1.25em; height: 1.25em; vertical-align: middle; border-radius: 0; }
@@ -1420,15 +1425,15 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
 .fxb-txt { display: inline-block; font-weight: 900; letter-spacing: 1px; line-height: 1.05; font-size: clamp(34px, 11vw, 56px); color: #fff;
   -webkit-text-stroke: 1px rgba(0,0,0,.3); text-shadow: 0 4px 0 rgba(0,0,0,.35), 0 0 28px var(--glow, rgba(255,210,63,.85)); }
 .fxb-sub { margin-top: 6px; font-size: calc(15px * var(--sc)); font-weight: 800; color: #fff; text-shadow: 0 2px 10px #000, 0 0 12px #000; }
-.fx-banner.bw1 .fxb-txt { --glow: rgba(120,200,255,.9); color: #cdeaff; font-size: clamp(30px, 9.5vw, 46px); }
+.fx-banner.bw1 .fxb-txt { --glow: rgba(140,220,110,.9); color: #e3ffd0; font-size: clamp(30px, 9.5vw, 46px); }
 .fx-banner.bw2 { top: 33%; }
 .fx-banner.bw2 .fxb-txt { background: linear-gradient(180deg, #fff6c0, #ffb300 70%); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-stroke: 0;
-  text-shadow: none; filter: drop-shadow(0 4px 0 rgba(120,60,0,.55)) drop-shadow(0 0 14px rgba(255,160,0,.85)); font-size: clamp(38px, 12.5vw, 62px); }
+  text-shadow: none; filter: drop-shadow(0 4px 0 rgba(120,60,0,.55)) drop-shadow(0 0 14px rgba(255,160,0,.85)); font-size: clamp(34px, 11.5vw, 60px); }
 .fx-banner.bw3 { top: 31%; }
-.fx-banner.bw3 .fxb-txt { background: var(--prism); background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-stroke: 0;
-  text-shadow: none; animation: prism 1.1s linear infinite; filter: drop-shadow(0 5px 0 rgba(60,0,60,.6)) drop-shadow(0 0 20px rgba(255,110,199,.95)); font-size: clamp(42px, 14vw, 74px); }
+.fx-banner.bw3 .fxb-txt { background: linear-gradient(100deg, #ffd23f, #9be36a, #fff3b0, #7fcf5a, #ffd23f); background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-stroke: 0;
+  text-shadow: none; animation: prism 1.1s linear infinite; filter: drop-shadow(0 5px 0 rgba(20,50,10,.6)) drop-shadow(0 0 20px rgba(255,210,63,.9)); font-size: clamp(36px, 12.5vw, 68px); }
 .fx-banner.fever .fxb-txt { background: linear-gradient(180deg, #fff2a8 0%, #ff9d00 50%, #ff3d00 100%); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-stroke: 0;
-  text-shadow: none; filter: drop-shadow(0 4px 0 rgba(110,20,0,.65)) drop-shadow(0 0 20px rgba(255,100,0,.95)); font-size: clamp(44px, 15vw, 78px); }
+  text-shadow: none; filter: drop-shadow(0 4px 0 rgba(110,20,0,.65)) drop-shadow(0 0 20px rgba(255,100,0,.95)); font-size: clamp(38px, 13vw, 70px); }
 .fx-banner.fever { top: 30%; animation: fxbIn .34s cubic-bezier(.2,1.5,.35,1) both, fxFeverBeat .3s ease-in-out .35s 3; }
 @keyframes fxFeverBeat { 50% { transform: scale(1.08); } }
 .fx-banner.clutch .fxb-txt { background: linear-gradient(180deg, #fff, #ffd23f 55%, #ff5d6c); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-stroke: 0;
@@ -1455,13 +1460,7 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
 @keyframes skullShake { 0%,100% { transform: translateX(0) rotate(0); } 12% { transform: translateX(-6px) rotate(-3deg); } 28% { transform: translateX(6px) rotate(3deg); }
   44% { transform: translateX(-5px) rotate(-2deg); } 60% { transform: translateX(4px) rotate(2deg); } 78% { transform: translateX(-2px); } }
 
-/* ── F7 기대감·니어미스 ── */
-.reel.antic { border-color: var(--gold); animation: anticPulse .32s ease-in-out infinite alternate; }
-@keyframes anticPulse { from { box-shadow: 0 0 6px rgba(255,210,63,.45), inset 0 3px 10px rgba(0,0,0,.6); } to { box-shadow: 0 0 26px rgba(255,210,63,.95), inset 0 0 14px rgba(255,210,63,.35); } }
-.reels.antic-zoom { transform: scale(1.02); }
-.reel.nm-flash { border-color: var(--gold); box-shadow: 0 0 28px rgba(255,210,63,.95), inset 0 0 16px rgba(255,210,63,.45); }
-.rslot.nm-gray .sym { animation: nmGray .3s ease-out forwards; }
-@keyframes nmGray { from { filter: grayscale(0) brightness(1); } to { filter: grayscale(.95) brightness(.7); } }
+/* (기대감·니어미스 연출은 풍년런에서 없앰) */
 
 /* ── F3 마지막 스핀 긴장: LAST SPIN! 펄스 + 붉은 비네트 ── */
 .last-tag { position: absolute; left: 50%; top: 0; transform: translate(-50%, -50%) scale(.7); opacity: 0; z-index: 7; pointer-events: none;
@@ -1520,14 +1519,15 @@ body.last-spin .lastspin-vig { opacity: 1; animation: vigPulse 1.3s ease-in-out 
 .lu-kind { flex: 0 0 auto; font-size: 10.5px; color: var(--dim); }
 .lu-none { color: var(--txt2); font-size: 13px; margin: 8px 0 14px; }
 
-/* ── F6 앵콜 ── */
+/* ── F6 덤 수확 ── */
 .encore-box { position: relative; overflow: hidden; margin: 14px 0 6px; padding: 12px 12px 10px; border-radius: 16px; text-align: center;
-  border: 1.5px solid rgba(176,123,255,.6); background: linear-gradient(180deg, rgba(176,123,255,.17), rgba(255,110,199,.06)); }
+  border: 1.5px solid rgba(120,200,110,.6); background: linear-gradient(180deg, rgba(120,200,110,.15), rgba(255,210,63,.05)); }
 .enc-head { display: flex; align-items: baseline; justify-content: center; gap: 8px; flex-wrap: wrap; }
 .enc-ttl { font-weight: 900; font-size: calc(16px * var(--sc)); color: #fff; }
 .enc-sub { font-size: calc(11.5px * var(--sc)); color: var(--txt2); }
 .enc-sub b { color: var(--gold); }
 .enc-reels { display: flex; gap: calc(6px * var(--sc)); justify-content: center; margin: 10px 0 8px; }
+.enc-cell.rolling { background: linear-gradient(180deg, #6b4527, #45291a); }
 .enc-cell { position: relative; width: calc(50px * var(--sc)); height: calc(50px * var(--sc)); border-radius: 12px; display: flex; align-items: center; justify-content: center;
   font-size: calc(24px * var(--sc)); color: var(--dim2); background: linear-gradient(165deg, #2a3354, #10162a); border: 1.5px solid var(--bd2); box-shadow: inset 0 2px 6px #0008; }
 .enc-cell.empty { opacity: .6; }
@@ -1565,14 +1565,14 @@ body.last-spin .lastspin-vig { opacity: 1; animation: vigPulse 1.3s ease-in-out 
 .enc-foot { display: flex; gap: 8px; }
 .enc-foot .bigbtn { flex: 1; padding: calc(14px * var(--sc)) calc(8px * var(--sc)); font-size: calc(15px * var(--sc)); }
 .enc-foot .bigbtn.ghost b { color: var(--gold); }
-.enc-foot .enc-go { background: linear-gradient(180deg, #d9b6ff, #8b5cf6); color: #fff; box-shadow: 0 7px 22px rgba(139,92,246,.45), inset 0 1px 0 rgba(255,255,255,.4); }
+.enc-foot .enc-go { background: linear-gradient(180deg, #b9ea8a, #5f8f3e); color: #fff; box-shadow: 0 7px 22px rgba(95,143,62,.45), inset 0 1px 0 rgba(255,255,255,.4); }
 .enc-foot .bigbtn:disabled { opacity: .5; filter: saturate(.5); }
 
 /* 애니메이션 줄이기(OS 설정) — 대형 배너/파티클/플래시/루프 연출은 끄고 정보(텍스트·테두리 표시)만 남긴다. */
 @media (prefers-reduced-motion: reduce) {
   .fx-banner, .fx-banner.out, .fx-banner.fever, .fx-banner .fxb-txt, .fxp, .fxb-flash, .red-flash, .last-tag.on, body.last-spin .lastspin-vig, .bi-vig, .boss-intro, .bi-card,
   .lvup-modal, .lu-card, .lu-burst, .lu-to, .reels.fever-on::before, .reels.fever-on::after, .fever-wrap.hot .fv-track, .fever-wrap.hot .fv-track::after, .fever-wrap.active .fv-fill,
-  .reel.antic, .reel.skull-hit, .enc-cell.skull, .enc-cell.landed, .encore-box.up, .encore-box.bust, .shard, .hold-lock, .reels .reel.hold-keep { animation: none; }
+  .reel.sowing, .reel.sprout .rslot.center .sym, .intro-reels span.sprout > *, .reel.skull-hit, .enc-cell.skull, .enc-cell.landed, .encore-box.up, .encore-box.bust, .shard, .hold-lock, .reels .reel.hold-keep { animation: none; }
   .fv-fill { transition: none; }
   .reels, .reels.antic-zoom { transform: none; transition: none; }
 }

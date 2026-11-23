@@ -696,7 +696,7 @@ export function evaluate(rng, raw, mods, spinIndex, spinsPerStage, flamePenalty 
     score += cellScore;
     // 배치 G — 아키타입 코인 곱(조폐국🪙 계열).
     const acm = archMul(mods.deepFamilyCoinMul, s.id); coins += acm ? s.coin * (1 + acm) : s.coin;
-    if (s.special === "DICE") { const d = rng.int(1, 13); exp += d; notes.push(`🎲 +${d}`); }
+    if (s.special === "DICE") { const d = rng.int(1, 13); exp += d; notes.push(`🫘 +${d}`); }
     // 강령학파☠ — 해골 EXP 분기에도 아키타입 곱 적용(skull 계열 base=skull). skullPenaltyMul 은 quota 경로 별도.
     else if (s.special === "SKULL") { const se = mods.skullExp + (mods.perSkullExp || 0); const ase = archMul(mods.deepFamilyExpMul, s.id); exp += ase ? se * (1 + ase) : se; score += mods.skullScoreBonus; }   // 해골빌드 가산 + skull_watch(perSkullExp) + 해골스티커 점수
   });
@@ -736,7 +736,7 @@ export function evaluate(rng, raw, mods, spinIndex, spinsPerStage, flamePenalty 
 
   // 🗝 열쇠(KEY) — 금고머신(vault) 테마: 셀당 보물 코인 +KEY_COIN_PER. (구 keyBoost 死플래그 폐지 — 실효과 부여)
   const keyCount = cells.filter((c) => c.sym.special === "KEY").length;
-  if (keyCount > 0) { const keyCoins = keyCount * C.KEY_COIN_PER; coins += keyCoins; notes.push(`🗝 보물 +${keyCoins}🪙`); }
+  if (keyCount > 0) { const keyCoins = keyCount * C.KEY_COIN_PER; coins += keyCoins; notes.push(`🗝 보물 +${keyCoins}🌰`); }
 
   // 세트 — 2개 이상인 모든 값심볼 그룹이 각각 보너스 (와일드는 최다 그룹에 합류됨)
   const setIds = [];
@@ -768,7 +768,7 @@ export function evaluate(rng, raw, mods, spinIndex, spinsPerStage, flamePenalty 
     jackpotSym = bestId;
     const jb = { cherry: 120, book: 320, star: 360, gem: 160, crown: 520 }[bestId] ?? 200;
     exp += jb; score += jb * 5;
-    notes.push(`🎰${SYM_BY_ID[bestId].e}×${bestCount} 잭팟! +${jb}EXP·+${jb * 5}점`);
+    notes.push(`🌾${SYM_BY_ID[bestId].e}×${bestCount} 대풍작! +${jb}EXP·+${jb * 5}점`);
   }
   // ── §9.0 V3 J1: 잭팟 태그 판정(심화모드 deepMode 게이팅) ───────────────────────────────────
   //  ★일반모드 완전격리: mods.deepMode 는 심화 _mods() 심화블록에서만 true 로 주입 → 일반경로 무회귀.
@@ -802,13 +802,13 @@ export function evaluate(rng, raw, mods, spinIndex, spinsPerStage, flamePenalty 
       for (const t in tagCount) if (tagCount[t] > curBestN) { curBestN = tagCount[t]; curBest = t; }
       if (hasSlotShard && curBest) {
         tagCount[curBest] = (tagCount[curBest] || 0) + 1;
-        notes.push(`🎰 슬롯조각 — ${curBest} 태그 +1`);
+        notes.push(`🧩 밭조각 — ${curBest} 태그 +1`);
       }
       if (hasJpWand) {
         // 잭팟마법봉: prism 태그 제외한 최다 태그
         let wpBest = null, wpBestN = 0;
         for (const t in tagCount) { if (t === "prism") continue; if (tagCount[t] > wpBestN) { wpBestN = tagCount[t]; wpBest = t; } }
-        if (wpBest) { tagCount[wpBest] = (tagCount[wpBest] || 0) + 1; notes.push(`🪄 잭팟마법봉 — ${wpBest} 태그 +1 (prism 제외)`); }
+        if (wpBest) { tagCount[wpBest] = (tagCount[wpBest] || 0) + 1; notes.push(`🪄 풍년지팡이 — ${wpBest} 태그 +1 (prism 제외)`); }
       }
     }
     // 최다 태그 선택
@@ -832,7 +832,7 @@ export function evaluate(rng, raw, mods, spinIndex, spinsPerStage, flamePenalty 
     const hasJpCrown = cells.some((c) => c.sym.special === "JACKPOT_CROWN");
 
     // 태그 이모지+한글명 맵
-    const TAG_EMOJI = { crown: "👑 왕관", seven: "7️⃣ 럭키7", coin: "🪙 코인", prism: "🌈 프리즘", curse: "💀 저주", bell: "🔔 종" };
+    const TAG_EMOJI = { crown: "👑 왕관", seven: "🍎 황금사과", coin: "🌰 도토리", prism: "🌈 프리즘", curse: "💀 저주", bell: "🔔 종" };
     const tLabel = jackpotTagHit ? (TAG_EMOJI[jackpotTagHit] || jackpotTagHit) : "";
     // 단계별 보상 — 동일 심볼 잭팟(jackpotSym)과 공존 시 중복 지급 금지(태그잭팟 보상 스킵).
     if (jackpotStage === "combo") {
@@ -846,15 +846,15 @@ export function evaluate(rng, raw, mods, spinIndex, spinsPerStage, flamePenalty 
       if (!jackpotSym) { score += Math.floor(300 * cheerMul); }   // 동일심볼잭팟 공존 시 점수 중복 지급 금지
       feverDelta = 25;
       // § 9.2 J3: 울림종(BELL_ECHO) — 종 태그 리치 시 점수+200
-      if (jackpotTagHit === "bell") { echoTriggered = cells.some((c) => c.sym.special === "BELL_ECHO"); if (echoTriggered) { score += 200; notes.push("🔔 울림종 — 종 리치! 점수+200"); } }
-      notes.push(`🎯 ${tLabel} 리치! (태그 ${bestJcount}개)${jackpotSym ? "" : ` 점수+${Math.floor(300 * cheerMul)}`}${hasCheer ? " 🎉×1.25" : ""} — 1개만 더!`);
+      if (jackpotTagHit === "bell") { echoTriggered = cells.some((c) => c.sym.special === "BELL_ECHO"); if (echoTriggered) { score += 200; notes.push("🔔 울림종 — 종 두근! 점수+200"); } }
+      notes.push(`🎯 ${tLabel} 두근! (태그 ${bestJcount}개)${jackpotSym ? "" : ` 점수+${Math.floor(300 * cheerMul)}`}${hasCheer ? " 🎉×1.25" : ""} — 1개만 더!`);
     } else if (jackpotStage === "jackpot") {
       if (!jackpotSym) { exp += Math.floor(30 * cheerMul); score += Math.floor(1500 * cheerMul); }   // 동일심볼잭팟 공존 시 중복 지급 금지
       feverDelta = 50;
       const boomBonus2 = hasBigBoom ? Math.floor(2000 * cheerMul) : 0;
-      if (boomBonus2) { score += boomBonus2; notes.push(`💥 대폭죽 잭팟 점수+${boomBonus2}`); }
-      if (hasJpCrown) { jackpotCrownSignal = true; notes.push("👑 잭팟왕관 — 보상등급+1 (스테이지 1회)"); }
-      notes.push(`🎰 ${tLabel} 잭팟!! (태그 ${bestJcount}개)${jackpotSym ? "" : ` EXP+${Math.floor(30 * cheerMul)}·점수+${Math.floor(1500 * cheerMul)}`}${hasCheer ? " 🎉×1.25" : ""}`);
+      if (boomBonus2) { score += boomBonus2; notes.push(`💥 대폭죽 대풍작 점수+${boomBonus2}`); }
+      if (hasJpCrown) { jackpotCrownSignal = true; notes.push("👑 풍년왕관 — 보상등급+1 (스테이지 1회)"); }
+      notes.push(`🌾 ${tLabel} 대풍작!! (태그 ${bestJcount}개)${jackpotSym ? "" : ` EXP+${Math.floor(30 * cheerMul)}·점수+${Math.floor(1500 * cheerMul)}`}${hasCheer ? " 🎉×1.25" : ""}`);
     }
 
     // § 9.2 J3: 종 세트 피버 충전(피버 게이지 충전 — feverDelta 추가, J2 경로와 동일)
@@ -864,8 +864,8 @@ export function evaluate(rng, raw, mods, spinIndex, spinsPerStage, flamePenalty 
     if (bellCount >= 3) {
       const hasSmallBell  = cells.some((c) => c.sym.special === "BELL_SMALL");
       const hasGoldenBell = cells.some((c) => c.sym.special === "BELL_GOLD");
-      if (hasSmallBell) { feverDelta += 15; notes.push(`🔔 작은종 — 종 ${bellCount}개 피버+15`); }
-      if (hasGoldenBell) { feverDelta += 30; notes.push(`🔔 황금종 — 종 ${bellCount}개 피버+30`); }
+      if (hasSmallBell) { feverDelta += 15; notes.push(`🔔 작은종 — 종 ${bellCount}개 풍년 바람+15`); }
+      if (hasGoldenBell) { feverDelta += 30; notes.push(`🔔 황금종 — 종 ${bellCount}개 풍년 바람+30`); }
     }
   }
   // 인접 쌍
@@ -962,9 +962,9 @@ export function evaluate(rng, raw, mods, spinIndex, spinsPerStage, flamePenalty 
   if (hasKnot && reel >= 2 && cells[0].sym.id !== "empty" && cells[0].sym.id === cells[reel - 1].sym.id) {
     exp += 20; notes.push(`🪢 매듭 — 양끝 동일(${cells[0].sym.e}) EXP +20`);
   }
-  //  🧃에너지팩(ENERGYPACK·instant): 이번 스핀 EXP +30%(specialMul 에 가산).
+  //  🧃에너지팩(ENERGYPACK·instant): 이번 심기 EXP +30%(specialMul 에 가산).
   const hasEnergyPack = cells.some((c) => c.sym.special === "ENERGYPACK");
-  if (hasEnergyPack) { specialMul *= 1.30; notes.push("🧃 에너지팩 — 이번 스핀 EXP +30%"); }
+  if (hasEnergyPack) { specialMul *= 1.30; notes.push("🧃 에너지팩 — 이번 심기 EXP +30%"); }
   //  👑가짜왕관(FAKECROWN·instant): 이번 스핀에서 왕관 취급 처리(업적 카운트 제외 플래그 fakeCrownActive).
   //   왕관 exp/score 는 evaluate 내 crown 심볼 경로로 추가 처리 — 여기선 신호만.
   const hasFakeCrown = cells.some((c) => c.sym.special === "FAKECROWN");
@@ -1006,7 +1006,7 @@ export function evaluate(rng, raw, mods, spinIndex, spinsPerStage, flamePenalty 
     switch (pick) {
       case 0: exp += 40;   notes.push("🌈 프리즘 — EXP +40"); break;
       case 1: score += 120; notes.push("🌈 프리즘 — 점수 +120"); break;
-      case 2: coins += 3;  notes.push("🌈 프리즘 — 코인 +3"); break;
+      case 2: coins += 3;  notes.push("🌈 프리즘 — 도토리 +3"); break;
       default: specialMul *= 1.5; notes.push(`🌈 프리즘 — EXP ×1.5${mods.legendStable ? " 🔏안정" : ""}`); break;
     }
   }
@@ -1094,8 +1094,8 @@ export function applyBossExp(exp, boss, spinIndex, spins, result) {
   if (!boss) return { exp, note: "" };
   switch (boss.id) {
     case "finals": {
-      if (spinIndex === 0) return { exp: Math.floor(exp * 0.9), note: "📝 첫스핀 -10%" };
-      if (spinIndex === spins - 1) return { exp: Math.floor(exp * 2.0), note: "📝 막스핀 ×2" };
+      if (spinIndex === 0) return { exp: Math.floor(exp * 0.9), note: "📝 첫 심기 -10%" };
+      if (spinIndex === spins - 1) return { exp: Math.floor(exp * 2.0), note: "📝 마지막 심기 ×2" };
       return { exp, note: "" };
     }
     case "strict":
@@ -1104,7 +1104,7 @@ export function applyBossExp(exp, boss, spinIndex, spins, result) {
       return { exp: mulFloor(exp, 0.75), note: "👨‍🏫 3매치 없음 ×0.75" };
     case "luck": {
       const has = result.cells.some((c) => c.sym.id === "star" || c.sym.id === "crown" || c.sym.special === "WILD");
-      return has ? { exp: Math.floor(exp * 1.8), note: "🎲 ⭐👑🌀 ×1.8" } : { exp: Math.floor(exp * 0.8), note: "🎲 없음 ×0.8" };
+      return has ? { exp: Math.floor(exp * 1.8), note: "🍀 ⭐👑🌀 ×1.8" } : { exp: Math.floor(exp * 0.8), note: "🍀 없음 ×0.8" };
     }
     default: return { exp, note: "" };
   }
@@ -1133,10 +1133,10 @@ export function cmdCoinCost(mode, boss, n = 1) {
 // 특수 스핀명령 효과 설명 한 줄. FOCUS/ALLIN/PRAY/LAST 외에는 빈 문자열.
 export function cmdEffectDesc(mode) {
   switch (mode) {
-    case "FOCUS": return "최소 EXP 보장(페이스 80%) + 홀드 +1";
-    case "ALLIN": return `EXP ×${fmtMul(C.ALLIN_MUL)} (☠ ${C.ALLIN_FAIL_SKULLS}개라도 나오면 0)`;
+    case "FOCUS": return "최소 EXP 보장(페이스 80%) + 지키기 +1";
+    case "ALLIN": return `EXP ×${fmtMul(C.ALLIN_MUL)} (실패 없음)`;
     case "PRAY":  return "불운 보정 + 낮은 확률로 기적 (×3)";
-    case "LAST":  return "막판 스핀 EXP ×1.75";
+    case "LAST":  return "막판 심기 EXP ×1.75";
     default:      return "";
   }
 }
@@ -1148,13 +1148,13 @@ export function applySpecialSpin(mode, exp, ctx) {
   const per = quotaVal / spins;
   switch (mode) {
     case "FOCUS": return { exp: Math.max(exp, mulFloor(per, C.FOCUS_FLOOR)), note: "🎯 집중(하한 보장)" };
-    case "ALLIN": return skulls < C.ALLIN_FAIL_SKULLS ? { exp: exp * C.ALLIN_MUL, note: `🎰 올인 성공 ×${fmtMul(C.ALLIN_MUL)}` } : { exp: 0, note: `🎰 올인 실패 (해골 ${C.ALLIN_FAIL_SKULLS}개↑)` };
+    case "ALLIN": return { exp: exp * C.ALLIN_MUL, note: `💧 듬뿍 물주기 ×${fmtMul(C.ALLIN_MUL)}` };   // 풍년런: 실패 없음
     case "PRAY": {
       if (rng.double() < 0.08) return { exp: exp * 3, note: "🙏 기적! ×3" };
       if (exp < per) return { exp: exp + 25, note: "🙏 기도 +25" };
       return { exp, note: "🙏 기도(무응답)" };
     }
-    case "LAST": return { exp: Math.floor(exp * 1.75), note: "⏰ 최후의 스핀 ×1.75" };
+    case "LAST": return { exp: Math.floor(exp * 1.75), note: "⏰ 마지막 심기 ×1.75" };
     default: return { exp, note: "" };
   }
 }
@@ -1334,7 +1334,7 @@ export function evalThemeBuilds(ctx = {}) {
   const nCurses = curses.length;
   const cherryPerks = perkDescCount(perks, (d) => d.includes("🍒"));
   const bookPerks = perkDescCount(perks, (d) => d.includes("📘"));
-  const lastSpinPerks = perkDescCount(perks, (d) => d.includes("마지막 스핀") || d.includes("막스핀") || d.includes("막 스핀"));
+  const lastSpinPerks = perkDescCount(perks, (d) => d.includes("마지막 스핀") || d.includes("막스핀") || d.includes("막 스핀") || d.includes("마지막 심기") || d.includes("막 심기"));
   const prismPerks = perks.filter((id) => isPrismPerk(id)).length;
   const stage = ctx.stage || 0;
   const dev = (id) => ctx.deviceId === id || ctx.device2Id === id;
@@ -1475,7 +1475,7 @@ export function pouchValidate(pouch, opts = {}) {
     }
     for (const jt in byJtag) {
       if (byJtag[jt] > JACKPOT_TAG_DECK_MAX) {
-        errors.push(`잭팟태그 #${jt} 특수심볼 ${byJtag[jt]} > 상한 ${JACKPOT_TAG_DECK_MAX}`);
+        errors.push(`풍년태그 #${jt} 특수심볼 ${byJtag[jt]} > 상한 ${JACKPOT_TAG_DECK_MAX}`);
       }
     }
   }
@@ -1498,8 +1498,8 @@ function pouchDrawOne(id, rng, pouch) {
     if (!pool.length) return cell(EMPTY_SYM);
     const t = pool.reduce((s, [, n]) => s + n, 0);
     let r = rng.double() * t;
-    for (const [k, n] of pool) { r -= n; if (r <= 0) return cell(SYM_BY_ID[k] || EMPTY_SYM, "🎲칸"); }
-    return cell(SYM_BY_ID[pool[0][0]] || EMPTY_SYM, "🎲칸");
+    for (const [k, n] of pool) { r -= n; if (r <= 0) return cell(SYM_BY_ID[k] || EMPTY_SYM, "🫘칸"); }
+    return cell(SYM_BY_ID[pool[0][0]] || EMPTY_SYM, "🫘칸");
   }
   return cell(SYM_BY_ID[id] || EMPTY_SYM);
 }
@@ -1923,7 +1923,7 @@ function _offerSymbolRewards_v2_DORMANT(rng, pouch, stage = 0, n = DEEP.REWARD_O
   const totalNow = pouchTotal(p);
   const slot2 = (totalNow + 1 <= tMax) ? {
     type: "randpack", tier: "GOLD", n: packCount, dist: randpackDist,
-    d: `🎲 랜덤 ${packCount}개 · 골드 이상 1개 보장`,
+    d: `🫘 랜덤 ${packCount}개 · 골드 이상 1개 보장`,
     preview: {
       totalBefore: totalNow, totalAfter: totalNow + packCount,
       penBefore: totalNow > 0 ? compressionPenalty(totalNow) : 1,
@@ -2022,7 +2022,7 @@ export const ARCHETYPES = [
   { family: "book",   ref: "tag:학습", e: "📘", n: "도서관장", metric: "exp" },
   { family: "gem",    ref: "gem",      e: "💎", n: "보석상",   metric: "score" },
   { family: "skull",  ref: "skull",    e: "☠", n: "강령학파", metric: "exp" },
-  { family: "coin",   ref: "coin",     e: "🪙", n: "조폐국",   metric: "coin" },
+  { family: "coin",   ref: "coin",     e: "🌰", n: "조폐국",   metric: "coin" },
   { family: "flame",  ref: "flame",    e: "🔥", n: "화력발전", metric: "exp" },
 ];
 export const ARCH_BY_FAMILY = Object.fromEntries(ARCHETYPES.map((a) => [a.family, a]));

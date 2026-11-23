@@ -34,54 +34,54 @@ const PHASE = {
 };
 export { PHASE };
 
-const SPECIAL_LABEL = { FOCUS: "🎯집중", ALLIN: "🎰올인", PRAY: "🙏기도", LAST: "⏰최후" };
+const SPECIAL_LABEL = { FOCUS: "🎯집중", ALLIN: "💧듬뿍 물주기", PRAY: "🙏기도", LAST: "⏰최후" };
 // 조작 장치(manip) 배너용 라벨/설명
-const MANIP_LABEL = { "재굴림": "🔄재굴림", "고정": "📌고정", "복사": "📑복사", "교체": "🔃교체",
+const MANIP_LABEL = { "재굴림": "🔄다시 심기", "고정": "📌고정", "복사": "📑복사", "교체": "🔃교체",
   "지휘": "🎯지휘", "정화": "🧤정화", "셔플": "🔀셔플" };
 const MANIP_DESC = {
-  "재굴림": "직전 스핀을 다시 굴립니다 (도박꾼=무료·재굴림기=점수 -10%)",
+  "재굴림": "직전 심기을 다시 굴립니다 (모험 농부=무료·다시 심기기=점수 -10%)",
   "고정": "선택한 칸만 남기고 나머지를 다시 굴립니다",
   "복사": "선택한 칸을 옆 칸에 복사합니다",
   "교체": "선택한 칸을 최다 심볼로 바꿉니다 (점수 -10%)",
   // Phase 5 심볼 장치(심화 전용)
   "지휘": "선택한 칸을 같은 등급의 다른 심볼로 바꿉니다 (심볼지휘봉)",
   "정화": "☠해골 1칸을 ▫빈칸으로 정화합니다 (정화장갑)",
-  "셔플": "이번 스핀을 주머니 확률표로 다시 추출합니다 (주머니셔플러)",
+  "셔플": "이번 심기을 주머니 확률표로 다시 추출합니다 (주머니셔플러)",
 };
 
 // 특수심볼 한 줄 설명(도감 카드 detail용) — raw enum 노출 대신 읽기 쉬운 효과로. dead 심볼 없음.
 const SP_DESC = {
-  COIN: "코인 획득", SKULL: "기본 무페널티·해골빌드면 EXP가산", FLAME: "스핀 전체 EXP+50%(다음-50%)",
+  COIN: "도토리 획득", SKULL: "기본 무페널티·해골빌드면 EXP가산", FLAME: "심기 전체 EXP+50%(다음-50%)",
   MAGNET: "옆 심볼 복사", BOMB: `양옆 제거+칸당 EXP`, KEY: `보물코인 +${C.KEY_COIN_PER}🪙/개`,
-  DICE: "1~12 무작위 EXP", SEED: "다음 스핀 성장", WILD: "최다 그룹 합류(세트·잭팟)",
+  DICE: "1~12 무작위 EXP", SEED: "다음 심기 성장", WILD: "최다 그룹 합류(세트·대풍작)",
   // ── Phase 4 심화모드 특수심볼(주머니 전용) 설명 — 도감 카드 detail 용. 근사 항목은 명시. ──
-  SEED_ANY: "다음 스핀 무작위 기본심볼로 성장", SEED_HIGH: "다음 스핀 체리/책/별로 성장",
+  SEED_ANY: "다음 심기 무작위 기본심볼로 성장", SEED_HIGH: "다음 심기 체리/책/별로 성장",
   CATALYST: "최저등급 심볼 1개 한 단계 강화", PURIFY: "해골 1개를 빈칸으로 정화",
   WANDWILD: "무작위 1심볼 와일드 취급(세트·양끝 보조)", MIRROR: "양끝(1·마지막) 칸 서로 복사",
   TARGET: "최고 EXP 값심볼 칸 효과 +50%", PUZZLE5: "서로 다른 값심볼 4종+150·5종+300점",
-  ALARM: "다음 스핀 EXP +10%", HOURGLASS: "이번 스핀 EXP 30%를 다음 스핀으로 이월",
+  ALARM: "다음 심기 EXP +10%", HOURGLASS: "이번 심기 EXP 30%를 다음 심기으로 이월",
   RECEIPT: "다음 상점 전체 가격 -10%", COUPON: "다음 상점 상품 1개 할인", CART: "다음 상점 상품칸 +1",
-  GEAR: "다음 스핀 EXP +10%(근사)", DEVCD: "능동장치 재사용 1회 허용(근사)",
-  SETFRAG: "세트 형성 시 코인 소량 보상(근사)",
+  GEAR: "다음 심기 EXP +10%(근사)", DEVCD: "능동장치 재사용 1회 허용(근사)",
+  SETFRAG: "세트 형성 시 도토리 소량 보상(근사)",
   // ── Phase 5 부활 심볼(심화 증강노드 전제) ──
   AUGCHANCE: "다음 증강 레벨업 발생 확률 +15%", AUGLEVEL: "보유 증강 1개 즉시 레벨업",
   KIT: "능동장치 재사용 1회 허용(근사) 또는 다음 상점 정비소 등장",
   SHIELD: "다음 보스 패널티 1회 방어", EXEMPT: "다음 보스 감점룰 1회 무시",
   CURSE_BLOOD: "EXP +10 · 불운게이지 상승", CURSE_CANDLE: "해골 수만큼 배율·해골없으면 EXP 0",
   CURSE_BOOM: "50% 대폭발(×2) · 50% EXP 0", CURSE_EYE: "다음 주머니 보상 후보 +1 · 불운게이지↑",
-  LUCKY7: "3개+이면 EXP/점수/코인 7배", PRISM_SYM: "무작위 프리즘급 미니효과",
+  LUCKY7: "3개+이면 EXP/점수/도토리 7배", PRISM_SYM: "무작위 프리즘급 미니효과",
   // ── V3P4 신규 심볼 설명(소모형/일회용) ──
   BANDAGE: "일회용 — 해골 패널티 1회 상쇄 후 제거",
   KNOT: "일회용 — 양끝 동일 시 EXP +20 후 제거",
   SAFEPIN: "소모형 — AUGLEVEL 미발생 시 확률 +1%p 누적 후 제거",
-  ENERGYPACK: "일회용 — 이번 스핀 특수심볼 EXP 배율 ×1.3 후 제거",
+  ENERGYPACK: "일회용 — 이번 심기 특수심볼 EXP 배율 ×1.3 후 제거",
   CRYSTAL: "소모형 — 등장 시 다음 주머니 보상 후보 +1 예약 후 제거",
-  TEMPWILD: "소모형 — 이번 스핀 와일드 칸 1개 주입 후 제거",
-  FAKECROWN: "일회용 — 이번 스핀 왕관 취급(업적 카운트 제외) 후 제거",
-  FATEVORTEX: "소모형 — 스테이지당 1회: 스핀 2회 굴려 더 좋은 결과 선택 후 제거",
+  TEMPWILD: "소모형 — 이번 심기 와일드 칸 1개 주입 후 제거",
+  FAKECROWN: "일회용 — 이번 심기 왕관 취급(업적 카운트 제외) 후 제거",
+  FATEVORTEX: "소모형 — 스테이지당 1회: 심기 2회 굴려 더 좋은 결과 선택 후 제거",
   EVOCORE: "일회용 — 기본 이득 심볼 1개를 SILVER 특수로 변환 후 제거",
   BLACKCARD: "소모형 — 불운게이지+1, 다음 상점 1개 무료 후 제거",
-  SHACKLE: "영구 저주 — 보스 스핀 -1, 보스 클리어 코인 +4",
+  SHACKLE: "영구 저주 — 보스 심기 -1, 보스 클리어 도토리 +4",
 };
 
 // §10 V3: 심볼 1줄 효과 설명(덱 보드 카드용) — dex() 의 sym/deepSym detail 생성 규칙과 동일(SP_DESC 우선,
@@ -136,7 +136,7 @@ function ascMods(asc) {
 // 승천 단계별 "이번에 추가되는 규칙" 안내(누적). UI 표기용.
 const ASC_RULE = {
   1: "요구 EXP +8%", 2: "요구 EXP 추가 +", 3: "상점 가격 상승", 4: "보스 요구 EXP 상승",
-  5: "아이템 보유칸 -1", 6: "요구·상점 더 상승", 7: "시작 코인 감소", 8: "전 구간 난이도 상승",
+  5: "아이템 보유칸 -1", 6: "요구·상점 더 상승", 7: "시작 도토리 감소", 8: "전 구간 난이도 상승",
   9: "고점 요구", 10: "극한 난이도",
 };
 // ── 숙련도(캐릭터/슬롯/장치를 많이·잘 쓰면 오름) ── 보상=칭호·변형 해금(Phase 4). 레벨=충족 마일스톤 수(0~5).
@@ -364,7 +364,7 @@ export class Game {
     // 첫 판은 선택 없이 바로 시작 (초보학생 + 기본 슬롯) — 입문 친화
     if (this.profile.runs === 0) {
       this.run.charId = "novice"; this.run.machineId = "basic"; this.run.device = "";
-      this.toast("🎮 첫 판은 바로 시작! (초보학생 🎒 + 기본 슬롯 🎰) — 다음 판부터 직접 선택해요");
+      this.toast("🎮 첫 판은 바로 시작! (초보학생 🎒 + 기본 밭 🌱) — 다음 판부터 직접 선택해요");
       this._launch();
       return this.state();
     }
@@ -781,8 +781,8 @@ export class Game {
     // 🌱씨앗/🌿새싹 — 다음 스핀 성장 예약(_growNextRoll 이 다음 굴림 때 소비). HIGH(새싹) 우선.
     if (res.growNext) r.growNext = res.growNext;
     // ⏰알람 / ⚙톱니(근사) — 다음 스핀 EXP +10%(pendingNextExpMul 누적곱, spin()이 자동 소비).
-    if (res.alarmNext) { r.pendingNextExpMul *= 1.1; this.toast("⏰ 알람 — 다음 스핀 EXP +10%"); }
-    if (res.gearNext) { r.pendingNextExpMul *= 1.1; this.toast("⚙ 톱니 — 다음 스핀 EXP +10% (근사)"); }
+    if (res.alarmNext) { r.pendingNextExpMul *= 1.1; this.toast("⏰ 알람 — 다음 심기 EXP +10%"); }
+    if (res.gearNext) { r.pendingNextExpMul *= 1.1; this.toast("⚙ 톱니 — 다음 심기 EXP +10% (근사)"); }
     // ⏳모래시계 — 이번 스핀의 30%를 다음 스핀으로 이월(carryExp 는 evaluate 산출, 다음 spin 게이지에 가산).
     if (res.carryExp > 0) { r.carryOverExp += res.carryExp; this.toast(`⏳ 모래시계 — EXP ${res.carryExp} 다음 스핀 이월`); }
     // 🧾영수증 / 🎟쿠폰 / 🛒장바구니 — 다음 상점 1회 적용 플래그(_freshShop 에서 소진).
@@ -817,7 +817,7 @@ export class Game {
     }
     // 🧩세트조각(근사) — 심화모드엔 증강 오퍼(세트조각 주입 훅)가 없음. 근사: 이번 스핀 세트 보너스가 있었다면
     //  소량 코인 환급으로 "세트 관련 보상" 느낌만(설계상 근사). 세트 미형성이면 무효.
-    if (res.setFrag && (res.setIds && res.setIds.length)) { r.coins += 2; this.toast("🧩 세트조각 — 세트 보상 +2🪙 (근사)"); }
+    if (res.setFrag && (res.setIds && res.setIds.length)) { r.coins += 2; this.toast("🧩 세트조각 — 세트 보상 +2🌰 (근사)"); }
     // 🩸피방울 / 🧿저주눈 — 저주게이지(web/slot 은 별도 '저주게이지' 없음 → 불운게이지 근사) 가산.
     if (res.curseGaugeUp > 0) r.unluckyGauge = Math.min(C.UNLUCKY_MAX, r.unluckyGauge + res.curseGaugeUp);
     // 🧿저주눈 — "다음 보상등급 상승"은 심화 POUCH 보상에 등급개념이 약함 → 근사: 다음 주머니 보상 후보 +1.
@@ -886,15 +886,15 @@ export class Game {
   //  스핀 후 홀드 표시는 해제되고 충전이 1 소모된다(스테이지당 충전 1, 집중 특수스핀이 +1). 예언 확정 중·심화·첫 스핀 전엔 불가.
   toggleHold(i) {
     const r = this.run; if (!r) return null;
-    if (r.deepMode) { this.toast("🔒 홀드는 일반 모드에서만 쓸 수 있어요"); return this.state(); }
+    if (r.deepMode) { this.toast("🔒 지키기는 일반 모드에서만 쓸 수 있어요"); return this.state(); }
     if (r.phase !== PHASE.SPIN) return this.state();
-    if (r.lockedNext) { this.toast("🔮 예언이 확정된 스핀에는 홀드를 쓸 수 없어요"); return this.state(); }
-    if (!r.lastRaw) { this.toast("🔒 첫 스핀 전에는 홀드할 수 없어요 (직전 결과가 있어야 해요)"); return this.state(); }
+    if (r.lockedNext) { this.toast("🔮 예언이 확정된 심기에는 지키기를 쓸 수 없어요"); return this.state(); }
+    if (!r.lastRaw) { this.toast("🔒 첫 심기 전에는 지키기할 수 없어요 (직전 결과가 있어야 해요)"); return this.state(); }
     const idx = Math.floor(Number(i));
     if (!(idx >= 0 && idx < r.lastRaw.length)) return this.state();
     const pos = r.held.indexOf(idx);
     if (pos >= 0) { r.held.splice(pos, 1); return this.state(); }   // 이미 잡은 칸 → 해제(충전 소모는 스핀 시점)
-    if (r.holdCharges < 1) { this.toast("🔒 홀드 충전이 없어요 (스테이지마다 1회 · 🎯집중 사용 시 +1)"); return this.state(); }
+    if (r.holdCharges < 1) { this.toast("🔒 지키기 충전이 없어요 (스테이지마다 1회 · 🎯집중 사용 시 +1)"); return this.state(); }
     if (r.held.length >= C.HOLD_MAX) { this.toast(`🔒 홀드는 최대 ${C.HOLD_MAX}칸까지만 잡을 수 있어요`); return this.state(); }
     r.held.push(idx); r.held.sort((a, b) => a - b);
     return this.state();
@@ -936,8 +936,8 @@ export class Game {
     const isFree = special && !(r.cmdFreeUsed && r.cmdFreeUsed[mode]);
     const cmdCost = special ? this.cmdCost(mode) : 0;
     if (special) {
-      if (mode === "LAST" && r.spinIndex !== r.spins - 1) { this.toast("⏰ 최후는 마지막 스핀에서만 쓸 수 있어요"); return this.state(); }
-      if (cmdCost > 0 && r.coins < cmdCost) { this.toast(`${SPECIAL_LABEL[mode] || "특수스핀"} 발동에 코인 ${cmdCost}🪙 필요 (보유 ${r.coins}🪙)`); return this.state(); }
+      if (mode === "LAST" && r.spinIndex !== r.spins - 1) { this.toast("⏰ 최후는 마지막 심기에서만 쓸 수 있어요"); return this.state(); }
+      if (cmdCost > 0 && r.coins < cmdCost) { this.toast(`${SPECIAL_LABEL[mode] || "특수 심기"} 발동에 코인 ${cmdCost}🪙 필요 (보유 ${r.coins}🪙)`); return this.state(); }
     }
     // V3P4: 🧲임시와일드(temp_wild·fuse) — 덱에 있으면 이번 스핀에 wild_temp cellOp 자동 주입.
     //  소비(덱 제거)는 _applyDeepSpinMeta(hasTempWild 신호) 에서. armItems 는 이번 스핀만(spin() 후 리셋).
@@ -987,7 +987,7 @@ export class Game {
       const sp = E.applySpecialSpin(mode, exp, { quotaVal: r.quota, spins: r.spins, skulls: res.skulls, rng: this.rng });
       exp = Math.floor(sp.exp); if (sp.note) res.notes.push(sp.note);
       r.cmdUses[mode] = (r.cmdUses[mode] || 0) + 1;   // R6: 스테이지당 1회 제한 폐지 → 사용 횟수만 기록(usedCmds 에는 넣지 않음)
-      if (mode === "FOCUS" && !r.deepMode) { r.holdCharges += 1; res.notes.push("🎯 집중 — 홀드 +1"); }   // R6: 집중 발동 시 홀드 충전 +1
+      if (mode === "FOCUS" && !r.deepMode) { r.holdCharges += 1; res.notes.push("🎯 집중 — 지키기 +1"); }   // R6: 집중 발동 시 홀드 충전 +1
       if (isFree && r.cmdFreeUsed) r.cmdFreeUsed[mode] = true;   // 무료로 실제 발동 성공 시에만 무료권 소진(코인부족 차단은 위에서 이미 return → 미소진)
     }
     if (r.device === "dev_safe") { const floor = Math.floor(r.quota / r.spins * 0.35); if (exp < floor) { exp = floor; res.notes.push("🦺 안전벨트 하한"); } }
@@ -1075,7 +1075,7 @@ export class Game {
     //  스테이지 1회 제한: r._reachBias/r._jackpotPrismPending 은 다음 스핀·오퍼에서 소진(단회성).
     let jtBanner = "";
     if (r.deepMode && res.jackpotStage) {
-      const TAG_LABEL = { crown: "👑 왕관", seven: "7️⃣ 럭키7", coin: "🪙 코인", prism: "🌈 프리즘", curse: "💀 저주", bell: "🔔 종" };
+      const TAG_LABEL = { crown: "👑 왕관", seven: "7️⃣ 황금사과", coin: "🌰 도토리", prism: "🌈 프리즘", curse: "💀 저주", bell: "🔔 종" };
       const tLabel = TAG_LABEL[res.jackpotTagHit] || res.jackpotTagHit || "태그";
       if (res.jackpotStage === "combo") {
         jtBanner = `🎯 ${tLabel} 콤보! — EXP+8`;
@@ -1129,7 +1129,7 @@ export class Game {
       //  다음 스핀에 1칸 re-roll 신호 저장(_retryReelPending). game._roll 에서 소비.
       if (res.jackpotStage === "reach" && res.hasRetryReel && !r._retryReelUsed) {
         r._retryReelPending = true; r._retryReelUsed = true;
-        jtBanner = (jtBanner ? jtBanner + " · " : "") + "🔁 재도전릴 — 다음 스핀 1칸 재굴림 예약";
+        jtBanner = (jtBanner ? jtBanner + " · " : "") + "🔁 다시심기 — 다음 심기 1칸 다시 심기 예약";
       }
       // 잭팟왕관(JACKPOT_CROWN): 잭팟 시 보상등급+1, 스테이지 1회
       if (res.jackpotCrownSignal && !r._jackpotCrownUsed) {
@@ -1184,14 +1184,14 @@ export class Game {
           const fjScoreBonus = Math.floor(res.score * (DEEP.FEVER_JACKPOT_SCORE_MUL - 1));
           if (fjScoreBonus > 0) r.score += fjScoreBonus;
           if (!r._feverJackpotPrism) r._feverJackpotPrism = true;
-          jtBanner = (jtBanner ? jtBanner + " · " : "") + "🔥 피버잭팟!! — 점수×2 추가 · 오퍼 프리즘+1";
+          jtBanner = (jtBanner ? jtBanner + " · " : "") + "🔥 풍년 바람 대풍작!! — 점수×2 추가 · 오퍼 프리즘+1";
         }
         // feverReachFix: mods 필드 노출(J3 리치보정 심볼이 참조)
         if (r.lastMods) r.lastMods.feverReachFix = DEEP.FEVER_REACH_FIX;
         r.feverSpins -= 1;
         if (r.feverSpins <= 0) {
           r.feverSpins = 0;
-          feverBanner = (feverBanner ? feverBanner + " · " : "") + "🔥 피버 종료!";
+          feverBanner = (feverBanner ? feverBanner + " · " : "") + "🔥 풍년 바람 종료!";
           if (r.lastMods) r.lastMods.feverReachFix = 0;
         } else if (!feverBanner) {
           feverBanner = `🔥 피버 ${r.feverSpins}스핀 남음`;
@@ -1213,22 +1213,22 @@ export class Game {
     const out = { kind: "spin", mode, cells: res.cells, preCells: res.preCells, bomb: res.bomb, bestSetId: res.bestSetId, bestCount: res.bestSetCount, setIds: res.setIds, gained: exp, score: res.score, coins: res.coins, notes: res.notes, jackpot: res.jackpotSym,
       feverApplied, feverTriggered, holdUsed, encoreResult: null, bigWinTier };   // 재미 개편 필드(UI 연출용)
     r.lastSpinInfo = { kind: "spin", mode, cells: res.cells, gained: exp, score: res.score, coins: res.coins, feverApplied, feverTriggered, holdUsed: holdUsed.slice(), encoreResult: null, bigWinTier };
-    if (special) out.banner = `${SPECIAL_LABEL[mode] || "특수스핀"} 발동! — ${E.cmdEffectDesc(mode)}${isFree ? " · 🆓첫 사용 무료" : (cmdCost > 0 ? ` · -${cmdCost}🪙` : "")}`;
+    if (special) out.banner = `${SPECIAL_LABEL[mode] || "특수 심기"} 발동! — ${E.cmdEffectDesc(mode)}${isFree ? " · 🆓첫 사용 무료" : (cmdCost > 0 ? ` · -${cmdCost}🪙` : "")}`;
     if (feverTriggered) out.banner = (out.banner ? out.banner + " · " : "") + `🔥 피버 발동! 다음 ${C.FEVER_SPINS}스핀 EXP ×${fmt2(C.FEVER_EXP_MUL)}`;   // R4: 일반 모드 피버(심화 피버 배너와 별개 — 심화에선 feverTriggered 항상 false)
     if (pdBanner) out.banner = (out.banner ? out.banner + " · " : "") + pdBanner;   // 배치F P6: special 배너와 병합(덮어쓰기 금지)
     if (jtBanner) out.banner = (out.banner ? out.banner + " · " : "") + jtBanner;  // §9.0 J1: 잭팟 태그 배너 병합
     if (feverBanner) out.banner = (out.banner ? out.banner + " · " : "") + feverBanner; // §9.1 J2: 피버 배너 병합
     if (r.stageExp >= r.quota) { if (r.spinIndex - 1 === r.spins - 1) { r.stats.lastClears += 1; r.tb.lastSpinClear = true; } if (r.stageExp === r.quota) r.stats.exactClears += 1; r._clearVia = "spin"; this._clearStage(); out.cleared = true; }
     else if (r.spinIndex >= r.spins) {
-      if (r.survive) { r.survive = false; r.spins += 2; this.toast("📋 보험증서 발동 — 생존(스핀+2)"); }
+      if (r.survive) { r.survive = false; r.spins += 2; this.toast("📋 보험증서 발동 — 생존(심기+2)"); }
       else if (this._canRecover()) { r.phase = PHASE.POST_SPIN; out.postSpin = true; }
       else if (r.perks.includes("fate_bell") && !r.fateBellUsed && r.stageExp < r.quota && (r.quota - Math.floor(r.stageExp)) <= 15) {
         // 운명의종: 스핀 소진 & 쿼터 부족 ≤15 실패 직전 1회 자동 추가스핀(런당 1회 게이트).
         //  판정식 = Kotlin 캐논(SlotV2Service fate_bell 분기: newExp<quota && quota-newExp<=15) 동일 —
         //  부족분은 _gameOver shortBy 와 같은 Math.floor(stageExp) 기준(캐논은 정수 EXP라 floor 항등).
         r.spins += 1; r.fateBellUsed = 1;
-        out.banner = (out.banner ? out.banner + " · " : "") + "🔔 운명의종 발동! — 추가 스핀 +1";
-        this.toast("🔔 운명의종 발동 — 추가 스핀 +1");
+        out.banner = (out.banner ? out.banner + " · " : "") + "🔔 운명의종 발동! — 추가 심기 +1";
+        this.toast("🔔 운명의종 발동 — 추가 심기 +1");
       }
       else { this._gameOver(); out.gameOver = true; }
     }
@@ -1311,7 +1311,7 @@ export class Game {
   // ── 재굴림/조작 장치 (직전 스핀 결과 조작, 스핀 미소모) ──
   manip(cmd, arg = 0) {
     const r = this.run;
-    if (![PHASE.SPIN, PHASE.POST_SPIN].includes(r.phase) || !r.lastCells) { this.toast("직전 스핀 결과가 없어요"); return this.state(); }
+    if (![PHASE.SPIN, PHASE.POST_SPIN].includes(r.phase) || !r.lastCells) { this.toast("직전 심기 결과가 없어요"); return this.state(); }
     let scorePenalty = 1;
     let cells = r.lastCells.map((c) => ({ ...c }));
     const mods = this._mods();
@@ -1319,7 +1319,7 @@ export class Game {
       // 도박꾼 무료 재굴림 우선, 없으면 재굴림기(점수 -10%). 둘 다 없으면 불가.
       if (r.charId === "gambler" && !r.usedCmds.includes("GREROLL")) { r.usedCmds.push("GREROLL"); }
       else if (r.device === "dev_reroll" && !r.usedCmds.includes("재굴림")) { scorePenalty = 0.9; r.usedCmds.push("재굴림"); }
-      else { this.toast("재굴림 불가"); return this.state(); }
+      else { this.toast("다시 심기 불가"); return this.state(); }
       cells = this._roll(mods, false);
     } else if (cmd === "고정") {
       if (r.device !== "dev_pin" || r.usedCmds.includes("고정")) { this.toast("고정 불가"); return this.state(); }
@@ -1384,8 +1384,8 @@ export class Game {
   insertCoin() {
     const r = this.run;
     if ((r.asc || 0) >= 9 && r.stage < (r._devCdUntil || 0)) { this.toast("♨️ 심화 규칙 — 장치 쿨다운(다음 스테이지에 사용)"); return this.state(); }
-    if (r.device !== "dev_coin" || r.coins < 5 || r.usedCmds.includes("투입")) { this.toast("코인투입 불가"); return this.state(); }
-    r.coins -= 5; r.pendingNextExpMul *= 1.3; r.usedCmds.push("투입"); this.toast("🪙 코인투입 — 다음 스핀 EXP +30%");
+    if (r.device !== "dev_coin" || r.coins < 5 || r.usedCmds.includes("투입")) { this.toast("거름 불가"); return this.state(); }
+    r.coins -= 5; r.pendingNextExpMul *= 1.3; r.usedCmds.push("투입"); this.toast("🪣 거름 — 다음 심기 EXP +30%");
     if ((r.asc || 0) >= 9) r._devCdUntil = r.stage + 2;   // A9 쿨다운 +1
     return this.state();
   }
@@ -1397,7 +1397,7 @@ export class Game {
     if ((r.asc || 0) >= 9) r._devCdUntil = r.stage + 2;   // A9 쿨다운 +1
     const mods = this._mods(r.armItems.filter((id) => !["eraser_old", "eraser_fine", "eraser_god", "wild_temp", "fake_crown"].includes(id)));
     // 심화모드 씨앗/새싹 성장은 예언이 확정하는 이 굴림에서 소비(preview 와 실제 스핀이 일치·중복 성장 방지).
-    if (r.held && r.held.length) { r.held = []; this.toast("🔒 예언이 확정되어 홀드가 해제됐어요"); }   // R3: 예언 확정 스핀엔 홀드 불가
+    if (r.held && r.held.length) { r.held = []; this.toast("🔒 예언이 확정되어 지키기가 해제됐어요"); }   // R3: 예언 확정 스핀엔 홀드 불가
     r.lockedNext = this._pityRoll(this._growNextRoll(this._roll(mods, r.seedNext))); r.usedCmds.push("예언"); if (r.tb) r.tb.oracleUsed = true;   // 배치F P2: 예언이 확정하는 굴림에서 pity 소비(preview=실스핀 일치)
     const preview = E.evaluate(this.rng, r.lockedNext.map((c) => ({ ...c })), mods, r.spinIndex, r.spins, r.flameNext);
     this.toast(`🔮 예언: ${r.lockedNext.map((c) => c.sym.e).join("")} (확정)`);
@@ -1450,7 +1450,7 @@ export class Game {
       case "aug_catalyst": r._augLevelBoost = (r._augLevelBoost || 0) + 0.15; this.toast("🧪 증강 촉매 — 다음 증강 레벨업 확률 +15%"); break;
       case "gold_marker": { const ids = this._levelableHeld().filter((x) => this._augInfo(x)?.t === "GOLD"); if (ids.length) { ids.sort((x, y) => (r.perkLevels[x] || 1) - (r.perkLevels[y] || 1)); const t = ids[0]; r.perkLevels[t] = Math.min(3, (r.perkLevels[t] || 1) + 1); const a = this._augInfo(t); this.toast(`📙 골드형광펜 — ${a.e}${a.n} Lv.${r.perkLevels[t]} 강화!`); } else this.toast("📙 골드형광펜 — 강화할 골드 증강이 없어요"); break; }
       case "prism_ink": r._prismInk = true; this.toast("💧 프리즘 잉크 — 다음 증강 선택이 프리즘 등급으로!"); break;
-      case "overcharge": r.pendingNextExpMul *= 1.5; r.score = Math.max(0, r.score - 200); this.toast("⚡ 과충전 — 다음 스핀 EXP +50% (점수 -200)"); break;
+      case "overcharge": r.pendingNextExpMul *= 1.5; r.score = Math.max(0, r.score - 200); this.toast("⚡ 과충전 — 다음 심기 EXP +50% (점수 -200)"); break;
       // §3(g) 깨진프리즘/검은복권/악마계약 — 심화(deepMode)는 퍽 지급 풀을 deepCompatPool 경유(D계열 누출 봉쇄).
       //  빈 풀 폴백=코인 +25(악마계약 기존 +25 와 동일 스케일·실질 도달 불가 방어용). 일반모드=원문 풀 그대로(무회귀).
       //  저주 branch(r.curses)는 기존 심화 동작 그대로 무수정(퍽 카탈로그 필터와 별개 시스템).
@@ -1458,11 +1458,11 @@ export class Game {
         const pr = AUGMENTS.filter((a) => a.t === "PRISM" && !r.perks.includes(a.id));
         let base = pr.length ? pr : AUGMENTS;   // 기존 폴백 순서 보존(프리즘 소진 시 전체)
         if (r.deepMode) base = E.deepCompatPool(base, r.pouch);
-        if (!base.length) { r.coins += 25; this.toast("🔮 깨진프리즘 — 맞는 증강이 없어 코인 +25"); break; }
+        if (!base.length) { r.coins += 25; this.toast("🔮 깨진프리즘 — 맞는 증강이 없어 도토리 +25"); break; }
         const p = this.rng.pick(base); r.perks.push(p.id); r.stats.prismPicks += 1; this.toast(`🔮 깨진프리즘 — ${p.e}${p.n}`); break;
       }
-      case "black_lottery": if (this.rng.double() < 0.5) { let pool = RELICS.filter((x) => x.t === "GOLD"); if (r.deepMode) pool = E.deepCompatPool(pool, r.pouch); if (!pool.length) { r.coins += 25; this.toast("🎫 검은복권 — 코인 +25"); } else { const rel = this.rng.pick(pool); r.perks.push(rel.id); this.toast(`🎫 ${rel.e}${rel.n}`); } } else { const cu = this.rng.pick(CURSES); r.curses.push(cu.id); this.toast(`🎫 저주 ${cu.e}${cu.n} — ${cu.d}`); } break;
-      case "devil_contract": { const pool = r.deepMode ? E.deepCompatPool(RELICS, r.pouch) : RELICS; if (!pool.length) { r.coins += 25; this.toast("😈 계약 무산 — 코인 +25"); break; } const rel = this.rng.pick(pool); const cu = this.rng.pick(CURSES); r.perks.push(rel.id); r.curses.push(cu.id); r.coins += 25; this.toast(`😈 ${rel.e}${rel.n} + 저주 ${cu.e}${cu.n}(${cu.d}) · 코인 +25`); break; }
+      case "black_lottery": if (this.rng.double() < 0.5) { let pool = RELICS.filter((x) => x.t === "GOLD"); if (r.deepMode) pool = E.deepCompatPool(pool, r.pouch); if (!pool.length) { r.coins += 25; this.toast("🎫 검은복권 — 도토리 +25"); } else { const rel = this.rng.pick(pool); r.perks.push(rel.id); this.toast(`🎫 ${rel.e}${rel.n}`); } } else { const cu = this.rng.pick(CURSES); r.curses.push(cu.id); this.toast(`🎫 저주 ${cu.e}${cu.n} — ${cu.d}`); } break;
+      case "devil_contract": { const pool = r.deepMode ? E.deepCompatPool(RELICS, r.pouch) : RELICS; if (!pool.length) { r.coins += 25; this.toast("😈 계약 무산 — 도토리 +25"); break; } const rel = this.rng.pick(pool); const cu = this.rng.pick(CURSES); r.perks.push(rel.id); r.curses.push(cu.id); r.coins += 25; this.toast(`😈 ${rel.e}${rel.n} + 저주 ${cu.e}${cu.n}(${cu.d}) · 코인 +25`); break; }
       default: this.toast("아이템 사용"); break;
     }
   }
@@ -1659,63 +1659,58 @@ export class Game {
     return this.state();
   }
 
-  // ── R5 앵콜(일반 모드 전용·STAGE_CLEAR 페이즈) — "클리어 점수 더블업" ──
-  //  남은 스핀이 있고 이번 클리어 점수(stake)가 0 보다 크면, 노드로 가기 전에 [정산] 또는 [앵콜 스핀].
-  //  첫 앵콜 스핀 시작 때 stake 를 run 점수에서 빼 팟(pot)으로 건다. 앵콜 스핀 1회 = 남은 스핀 1개 소모 + 일반 굴림.
-  //  성공(페어 이상 AND 해골 N개 미만) → k+=1, pot = floor(stake × (1 + ENCORE_STEP×k)). 스핀의 EXP·점수는 버리고 코인 수입만 지급.
-  //  BUST(페어 없음 또는 해골 N개↑) → pot=0(판돈 포함 소멸)·앵콜 종료. 정산(encoreCashOut/proceedToNodes) 또는 남은 스핀 0 → 점수 += pot.
+  // ── R5 덤 수확(앵콜, 일반 모드 전용·STAGE_CLEAR 페이즈) — 잃는 것 없는 보너스 ──
+  //  남은 심기가 있고 이번 클리어 점수(stake)가 0 보다 크면, 노드로 가기 전에 [덤 수확] 을 할 수 있다. 1회 = 남은 심기 1개 소모 + 일반 굴림.
+  //  성공(페어 이상 AND 해골 N개 미만) → 덤 = floor(stake × ENCORE_STEP) 을 바로 점수에 더함(k+=1, pot=받은 덤 합계).
+  //  실패 → 덤 0, 잃는 것 없음(남은 심기가 있으면 계속). 점수 차감·정산 없음.
   //  업적/해골/심볼 통계(_trackSpin 등)는 일절 건드리지 않는다(업적 인플레이션 방지).
-  _encoreMul(k) { return Math.round((1 + C.ENCORE_STEP * k) * 100) / 100; }
   _encoreLeft() { const r = this.run; return Math.max(0, r.spins - r.spinIndex); }
   _encoreAvailable() {
     const r = this.run;
-    return !!r && !r.deepMode && r.phase === PHASE.STAGE_CLEAR && !r.encoreDone && this._encoreLeft() >= 1
-      && r.encoreStake > 0 && (r.encoreActive || r.score >= r.encoreStake);
+    return !!r && !r.deepMode && r.phase === PHASE.STAGE_CLEAR && !r.encoreDone && this._encoreLeft() >= 1 && r.encoreStake > 0;
   }
   _encoreSyncSummary() { const r = this.run; if (r.clearSummary) { r.clearSummary.total = r.score; r.clearSummary.coinsNow = r.coins; } }
-  // 팟을 점수에 더하고 앵콜 종료. 가산한 점수 반환.
+  // 덤은 이미 점수에 들어가 있다 — 상태만 정리하고 덤 수확 종료.
   _encoreSettle() {
-    const r = this.run; const pot = r.encorePot;
-    r.score += pot; r.encorePot = 0; r.encoreActive = false; r.encoreDone = true;
-    if (pot > 0) this.toast(`🎤 앵콜 정산 — 팟 ${pot}점 획득 (판돈 ${r.encoreStake}점 대비 ×${fmt2(pot / r.encoreStake)})`);
+    const r = this.run;
+    r.encoreActive = false; r.encoreDone = true;
     this._encoreSyncSummary();
-    return pot;
+    return 0;
   }
   encoreSpin() {
     const r = this.run; if (!r) return null;
     if (r.deepMode || r.phase !== PHASE.STAGE_CLEAR) return this.state();
-    if (r.encoreDone) { this.toast("🎤 이번 클리어의 앵콜은 이미 끝났어요"); return this.state(); }
-    if (this._encoreLeft() < 1) { this.toast("🎤 남은 스핀이 없어 앵콜을 할 수 없어요"); return this.state(); }
-    if (!(r.encoreStake > 0)) { this.toast("🎤 이번 클리어 점수가 없어 앵콜을 할 수 없어요"); return this.state(); }
-    if (!r.encoreActive && r.score < r.encoreStake) { this.toast(`🎤 판돈 ${r.encoreStake}점이 부족해요 (보유 ${r.score}점)`); return this.state(); }
-    // 첫 앵콜 스핀: 클리어 점수(stake)를 run 점수에서 빼 팟으로 건다.
-    if (!r.encoreActive) { r.score -= r.encoreStake; r.encorePot = r.encoreStake; r.encoreActive = true; }
-    const potBefore = r.encorePot;
-    const kNew = r.encoreK + 1; const mulApplied = this._encoreMul(kNew);
-    // 남은 스핀 1개 소모. mods 는 방금 클리어한 스테이지 기준(r.stage 는 _clearStage 에서 이미 +1 된 상태라 잠시 되돌림).
+    if (r.encoreDone) { this.toast("🧺 이번 클리어의 덤 수확은 이미 끝났어요"); return this.state(); }
+    if (this._encoreLeft() < 1) { this.toast("🧺 남은 심기가 없어 덤 수확을 할 수 없어요"); return this.state(); }
+    if (!(r.encoreStake > 0)) { this.toast("🧺 이번 클리어 점수가 없어 덤 수확을 할 수 없어요"); return this.state(); }
+    r.encoreActive = true;
+    const mulApplied = C.ENCORE_STEP;
+    // 남은 심기 1개 소모. mods 는 방금 클리어한 스테이지 기준(r.stage 는 _clearStage 에서 이미 +1 된 상태라 잠시 되돌림).
     const stageNext = r.stage; r.stage = stageNext - 1;
     let mods; try { mods = this._mods(); } finally { r.stage = stageNext; }
     const idx = r.spinIndex; r.spinIndex += 1;
     const raw = this._roll(mods, false);
     const res = E.evaluate(this.rng, raw, mods, idx, r.spins, false);
-    r.coins += res.coins;   // 코인 심볼 수입은 정상 지급(EXP·점수는 버림)
-    const bust = (res.bestSetCount || 0) < C.ENCORE_MIN_SET || (res.skulls || 0) >= C.ENCORE_BUST_SKULLS;
-    let gained = 0, lostPot = 0, settled = false, settledPot = 0;
+    r.coins += res.coins;   // 도토리 심볼 수입은 정상 지급(EXP·점수는 버림)
+    const bust = (res.bestSetCount || 0) < C.ENCORE_MIN_SET || (res.skulls || 0) >= C.ENCORE_BUST_SKULLS;   // bust = 이번 덤 수확 실패(잃는 것 없음)
+    let gained = 0;
     if (bust) {
-      lostPot = potBefore; r.encorePot = 0; r.encoreActive = false; r.encoreDone = true; r.encoreLastBust = true;
-      this.toast(`💥 앵콜 BUST! — 팟 ${lostPot}점 소멸`);
+      r.encoreLastBust = true;
+      this.toast("🌾 이번엔 덤이 없었어요 — 잃은 건 없어요");
     } else {
-      r.encoreK = kNew; r.encoreLastBust = false;
-      r.encorePot = E.mulFloor(r.encoreStake, mulApplied); gained = r.encorePot - potBefore;
-      if (this._encoreLeft() <= 0) { settledPot = this._encoreSettle(); settled = true; }   // 남은 스핀 0 → 자동 정산
+      r.encoreK += 1; r.encoreLastBust = false;
+      gained = E.mulFloor(r.encoreStake, C.ENCORE_STEP);
+      r.score += gained; r.encorePot += gained;
+      this.toast(`🧺 덤 수확 +${gained}점`);
     }
+    if (this._encoreLeft() <= 0) this._encoreSettle();   // 남은 심기 0 → 덤 수확 종료(상태 정리만)
     this._encoreSyncSummary();
-    const encoreResult = { mulApplied, gained, bust, settled, settledPot, lostPot };
+    const encoreResult = { mulApplied, gained, bust, settled: false, settledPot: 0, lostPot: 0 };
     r.lastSpinInfo = { kind: "encore", mode: "ENCORE", cells: res.cells, gained: 0, score: res.score, coins: res.coins,
       feverApplied: false, feverTriggered: false, holdUsed: [], encoreResult, bigWinTier: 0 };
     return this.state();
   }
-  // 앵콜 정산: 팟을 점수에 더하고 앵콜 종료(이후 proceedToNodes 로 노드 선택). 진행 중인 앵콜이 없으면 아무 일도 하지 않는다.
+  // 덤 수확 마치기: 상태만 정리하고 끝(이후 proceedToNodes 로 노드 선택). 진행 중인 덤 수확이 없으면 아무 일도 하지 않는다.
   encoreCashOut() {
     const r = this.run; if (!r) return null;
     if (r.deepMode || r.phase !== PHASE.STAGE_CLEAR || !r.encoreActive) return this.state();
@@ -1746,20 +1741,20 @@ export class Game {
     const mul = (k, v, lo) => { if (v !== 1) rows.push({ k, v: "×" + (Math.round(v * 100) / 100), up: lo ? v < 1 : v > 1 }); };
     const add = (k, v, suf) => { if (v) rows.push({ k, v: (v > 0 ? "+" : "") + v + (suf || ""), up: v > 0 }); };
     mul("모든 EXP", m.expMul);
-    add("스핀당 EXP", m.flatExp);
+    add("심기당 EXP", m.flatExp);
     mul("점수", m.scoreMul);
-    mul("코인", m.coinMul);
-    mul("첫 스핀 EXP", m.firstSpinExpMul);
-    mul("막 스핀 EXP", m.lastSpinExpMul);
+    mul("도토리", m.coinMul);
+    mul("첫 심기 EXP", m.firstSpinExpMul);
+    mul("마지막 심기 EXP", m.lastSpinExpMul);
     mul("세트 보너스", m.setExpMul);
     mul("가운데 칸 EXP", m.centerExpMul);
     mul("양끝 일치 EXP", m.endsMatchExpMul);
     add("인접쌍 EXP", m.adjacentSameExp, "/쌍");
     mul("희귀 등장", m.rareWeightMul);
     add("☠해골 EXP", m.skullExp);
-    add("스테이지 스핀", m.bonusSpins);
+    add("스테이지 심기", m.bonusSpins);
     mul("요구 EXP", m.quotaMul, true);   // 낮을수록 이득
-    add("클리어 코인", m.clearCoinBonus);
+    add("클리어 도토리", m.clearCoinBonus);
     const e = (id) => (SYM_BY_ID[id] ? SYM_BY_ID[id].e : id);
     const symExp = Object.entries(m.perSymbolExp).filter(([, v]) => v).map(([id, v]) => `${e(id)}${v > 0 ? "+" : ""}${v}`);
     const symScore = Object.entries(m.perSymbolScore).filter(([, v]) => v).map(([id, v]) => `${e(id)}${v > 0 ? "+" : ""}${v}`);
@@ -1781,10 +1776,10 @@ export class Game {
         if (r.deepMode && r.pouch && (r.pouch.skull || 0) + (r.pouch.skull_black || 0) > 0) {
           r.phase = PHASE.PERK_PICK; r._pickKind = "REST_DEEP"; r.offerMeta = null;   // 직전 SYMAUG deepPerk 메타 잔존 → 헤더 오염 방지
           r.options = [
-            { id: "rest_coin",  e: "🪙", n: "코인 보충",   d: "코인 +12", t: "SILVER" },
+            { id: "rest_coin",  e: "🪙", n: "도토리 보충",   d: "도토리 +12", t: "SILVER" },
             { id: "rest_purify", e: "🕊️", n: "해골 정화", d: "주머니 ☠해골 1개 제거", t: "GOLD" },
           ];
-        } else { r.coins += 12; this._enterRewardDone("🛌 휴식 — 코인 +12 획득"); }
+        } else { r.coins += 12; this._enterRewardDone("🛌 휴식 — 도토리 +12 획득"); }
         break;
       }
       case "GAMBLE": {
@@ -1803,15 +1798,15 @@ export class Game {
           }
           r.phase = PHASE.PERK_PICK; r._pickKind = "GAMBLE_DEEP"; r.offerMeta = null;   // 직전 SYMAUG deepPerk 메타 잔존 → 헤더 오염 방지
           const opts = [
-            { id: "gamble_coin",   e: "🎲", n: "코인 도박",   d: "50% 코인 2배 / 50% 코인 유지", t: "SILVER" },
+            { id: "gamble_coin",   e: "🎲", n: "도토리 모험",   d: "50% 도토리 2배 / 50% 도토리 유지", t: "SILVER" },
           ];
           if (symGambleOk) {
-            opts.push({ id: "gamble_sym", e: "🎰", n: "심볼 도박",
+            opts.push({ id: "gamble_sym", e: "🌱", n: "심볼 모험",
               d: "50% 보유 기본 심볼 +1 / 50% ☠해골 +1", t: "GOLD" });
           }
           r.options = opts;
         } else {
-          let msg; if (this.rng.double() < 0.5) { r.coins *= 2; msg = "🎲 도박 성공 — 코인 2배!"; } else { msg = "🎲 도박 실패 — 코인 유지"; }
+          let msg; if (this.rng.double() < 0.5) { r.coins *= 2; msg = "🫘 모험 성공 — 도토리 2배!"; } else { msg = "🫘 모험 실패 — 도토리 유지"; }
           this._enterRewardDone(msg);
         }
         break;
@@ -1883,7 +1878,7 @@ export class Game {
         jtCards.push({ type: "skip", tier: "SILVER", coinBonus: 5, e: "⏭", n: "선택하지 않기" });
         r.options = jtCards;
         r.offerMeta = { kind: "JACKPOT_NODE", topTag, topTagN, total: E.pouchTotal(r.pouch) };
-        if (!jtPicked.length) { r.coins += 5; this._enterRewardDone("🎰 잭팟 노드 — 해당 태그 심볼 없음, 코인 +5"); }
+        if (!jtPicked.length) { r.coins += 5; this._enterRewardDone("🌱 대풍작 노드 — 해당 태그 심볼 없음, 도토리 +5"); }
         break;
       }
       case "POUCH": {   // 심화모드: 주머니(심볼 덱) 편집 보상 — 추가/제거/교체/업그레이드 카드
@@ -1901,7 +1896,7 @@ export class Game {
         const useFeverPrism = !!r._feverJackpotPrism;
         if (useFeverPrism) r._feverJackpotPrism = false;
         const useJpCrownPrism = !!r._jackpotCrownPending;
-        if (useJpCrownPrism) { r._jackpotCrownPending = false; this.toast("👑 잭팟왕관 — 다음 주머니 오퍼 보상등급 +1!"); }
+        if (useJpCrownPrism) { r._jackpotCrownPending = false; this.toast("👑 풍년왕관 — 다음 주머니 오퍼 보상등급 +1!"); }
         r.options = E.offerSymbolRewards(this.rng, r.pouch, r.stage - 1, {
           bounds: E.repairBounds(this._repairState()),
           symUnlocked: this._symUnlockedSet(),
@@ -2000,8 +1995,8 @@ export class Game {
     // §3 Step 2: 심화 도박 선택지 처리.
     if (r._pickKind === "GAMBLE_DEEP") {
       if (p.id === "gamble_coin") {
-        if (this.rng.double() < 0.5) { r.coins *= 2; this._enterRewardDone("🎲 도박 성공 — 코인 2배!"); }
-        else { this._enterRewardDone("🎲 도박 실패 — 코인 유지"); }
+        if (this.rng.double() < 0.5) { r.coins *= 2; this._enterRewardDone("🫘 모험 성공 — 도토리 2배!"); }
+        else { this._enterRewardDone("🫘 모험 실패 — 도토리 유지"); }
       } else if (p.id === "gamble_sym" && r.pouch) {
         // 심볼 도박: 50% 보유 기본계열 랜덤 +1 / 50% 해골 +1 (applySymbolReward 재사용).
         const baseFamilies = ["cherry", "book", "star", "gem", "coin", "flame", "magnet", "bomb"];
@@ -2012,19 +2007,19 @@ export class Game {
           const rw = { type: "add", id: chosen, n: 1 };
           const next = E.applySymbolReward(r.pouch, rw);
           if (E.pouchValidate(next, bounds).ok) { r.pouch = next; this._checkArchetype(); this._enterRewardDone(`🎰 심볼 도박 성공 — ${sym ? sym.e + sym.n : chosen} +1`); }
-          else { this._enterRewardDone("🎰 심볼 도박 — 총량 초과로 실패"); }
+          else { this._enterRewardDone("🌱 심볼 모험 — 총량 초과로 실패"); }
         } else {
           const rw = { type: "add", id: "skull", n: 1 };
           const next = E.applySymbolReward(r.pouch, rw);
-          if (E.pouchValidate(next, bounds).ok) { r.pouch = next; this._checkArchetype(); this._enterRewardDone("🎰 심볼 도박 실패 — ☠해골 +1"); }
-          else { this._enterRewardDone("🎰 심볼 도박 — 총량 초과로 해골 추가 불가"); }
+          if (E.pouchValidate(next, bounds).ok) { r.pouch = next; this._checkArchetype(); this._enterRewardDone("🌱 심볼 모험 실패 — ☠해골 +1"); }
+          else { this._enterRewardDone("🌱 심볼 모험 — 총량 초과로 해골 추가 불가"); }
         }
       }
       return this.state();
     }
     // §3 Step 3: 심화 휴식 선택지 처리.
     if (r._pickKind === "REST_DEEP") {
-      if (p.id === "rest_coin") { r.coins += 12; this._enterRewardDone("🛌 휴식 — 코인 +12 획득"); }
+      if (p.id === "rest_coin") { r.coins += 12; this._enterRewardDone("🛌 휴식 — 도토리 +12 획득"); }
       else if (p.id === "rest_purify" && r.pouch) {
         // 해골 계열(skull 우선, 없으면 skull_black) 1개 제거.
         const bounds = E.repairBounds(this._repairState());
@@ -2036,8 +2031,8 @@ export class Game {
             r.pouch = next; this._checkArchetype();
             const sym = SYM_BY_ID[target];
             this._enterRewardDone(`🕊️ 정화 — ${sym ? sym.e + sym.n : target} 1개 제거`);
-          } else { r.coins += 12; this._enterRewardDone("🛌 정화 실패(총량 하한) — 코인 +12 대신 지급"); }
-        } else { r.coins += 12; this._enterRewardDone("🛌 해골 없음 — 코인 +12 대신 지급"); }
+          } else { r.coins += 12; this._enterRewardDone("🛌 정화 실패(총량 하한) — 도토리 +12 대신 지급"); }
+        } else { r.coins += 12; this._enterRewardDone("🛌 해골 없음 — 도토리 +12 대신 지급"); }
       }
       return this.state();
     }
@@ -2126,7 +2121,7 @@ export class Game {
       if (p.type === "skip") {
         r.coins = (r.coins || 0) + 5;
         if (r.deepStats) r.deepStats.rewardsPicked += 1;
-        this._enterRewardDone("⏭ 건너뛰기 — 코인 +5");
+        this._enterRewardDone("⏭ 건너뛰기 — 도토리 +5");
         return this.state();
       }
       // ── V3P2: 특수 심볼 카드 픽 — 2-step 교체 플로우 ──
@@ -2348,7 +2343,7 @@ export class Game {
     switch (rw.type) {
       // V3P2 신규 타입
       case "special": return `${rw.e || e(rw.id)}${rw.n || nm(rw.id)} 획득 (${rw.tier || "SILVER"})`;
-      case "skip": return "⏭ 건너뛰기 — 코인 +5";
+      case "skip": return "⏭ 건너뛰기 — 도토리 +5";
       case "cost_remove": return `기본 심볼 ${rw.removeN || 1}개 제거 선택`;
       case "cost_curse": return "☠ 저주 심볼 +1 추가";
       // v2 dormant 타입 (정비소 커버)
@@ -2437,19 +2432,19 @@ export class Game {
 
   _randomEvent() {
     const r = this.run; const c = this.rng.n(10); let msg;
-    if (c === 0) { r.coins += 15; msg = "🎁 이벤트 — 코인 +15"; }
+    if (c === 0) { r.coins += 15; msg = "🎁 이벤트 — 도토리 +15"; }
     else if (c === 1) { r.score += 200; msg = "🎁 이벤트 — 점수 +200"; }
-    else if (c === 2) { r.coins += 30; msg = "🎁 이벤트 — 코인 +30"; }
-    else if (c === 3) { r.score += 100; r.coins += 12; msg = "🎁 이벤트 — 점수 +100·코인 +12"; }
-    else if (c === 4) { r.coins += 20; msg = "🎁 이벤트 — 코인 +20"; }
+    else if (c === 2) { r.coins += 30; msg = "🎁 이벤트 — 도토리 +30"; }
+    else if (c === 3) { r.score += 100; r.coins += 12; msg = "🎁 이벤트 — 점수 +100·도토리 +12"; }
+    else if (c === 4) { r.coins += 20; msg = "🎁 이벤트 — 도토리 +20"; }
     else if (c === 5) { const it = this.rng.pick(ITEMS_NEXTSPIN); this._giveItem(it.id); msg = `🎁 이벤트 — 아이템 ${it.e}${it.n}`; }
     else if (c === 6) { const d = E.pickDevices(this.rng, r.stage, new Set(r.curses), 1)[0]; if (d && !this.profile.ownedDevices.includes(d.id)) { this.profile.ownedDevices.push(d.id); this._saveProfile(); } if (d && !r.device) r.device = d.id; msg = `🎁 이벤트 — 장치 ${d ? d.e + d.n : "?"} 획득`; }
     // c=7/8: 심화(deepMode)는 관련성 필터(deepCompatPool) 통과분에서 pick — 빈 풀이면 c=2형 코인 지급 폴백(§3e).
     //  기준풀은 일반과 동일 raw 카탈로그(unlockLevel·보유중복 미적용 기존 quirk 보존·스코프 확대 금지).
     //  일반모드는 pool=원본 배열 그대로 rng.pick(소비 순서 포함 원문 동작·무회귀).
-    else if (c === 7) { const pool = r.deepMode ? E.deepCompatPool(RELICS, r.pouch) : RELICS; if (!pool.length) { r.coins += 30; msg = "🎁 이벤트 — 코인 +30"; } else { const rel = this.rng.pick(pool); r.perks.push(rel.id); msg = `🎁 이벤트 — 유물 ${rel.e}${rel.n}`; } }
-    else if (c === 8) { const pool = r.deepMode ? E.deepCompatPool(AUGMENTS, r.pouch) : AUGMENTS; if (!pool.length) { r.coins += 30; msg = "🎁 이벤트 — 코인 +30"; } else { const a = this.rng.pick(pool); r.perks.push(a.id); msg = `🎁 이벤트 — 증강 ${a.e}${a.n}`; } }
-    else { if (r.curses.length) { r.curses.pop(); msg = "🎁 이벤트 — 저주 1개 정화"; } else { r.coins += 10; msg = "🎁 이벤트 — 코인 +10"; } }
+    else if (c === 7) { const pool = r.deepMode ? E.deepCompatPool(RELICS, r.pouch) : RELICS; if (!pool.length) { r.coins += 30; msg = "🎁 이벤트 — 도토리 +30"; } else { const rel = this.rng.pick(pool); r.perks.push(rel.id); msg = `🎁 이벤트 — 유물 ${rel.e}${rel.n}`; } }
+    else if (c === 8) { const pool = r.deepMode ? E.deepCompatPool(AUGMENTS, r.pouch) : AUGMENTS; if (!pool.length) { r.coins += 30; msg = "🎁 이벤트 — 도토리 +30"; } else { const a = this.rng.pick(pool); r.perks.push(a.id); msg = `🎁 이벤트 — 증강 ${a.e}${a.n}`; } }
+    else { if (r.curses.length) { r.curses.pop(); msg = "🎁 이벤트 — 저주 1개 정화"; } else { r.coins += 10; msg = "🎁 이벤트 — 도토리 +10"; } }
     this._enterRewardDone(msg);
   }
   _giveItem(id) { const r = this.run; r.seenItems.add(id); const cap = 3 + ascMods(r.asc).itemCapDelta + (this._mods().itemCapBonus || 0); if (r.items.length < cap) r.items.push(id); else r.coins += 5; }
@@ -2814,7 +2809,7 @@ export class Game {
     const achName = (id) => { const a = ACHIEVEMENTS.find((x) => x.id === id); return a ? a.n : id; };
     const charCond = (c) => sn("char", c.id) ? "" : (this.charUnlocked(c) ? "해금됨 — 이 캐릭터로 플레이하면 공개"
       : "해금: " + ([c.unlockRuns && `${c.unlockRuns}런`, c.unlockScore && `${f(c.unlockScore)}점`, c.unlockStage && `S${c.unlockStage} 도달`, c.unlockAch && `업적 [${achName(c.unlockAch)}]`].filter(Boolean).join(" 또는 ") || "기본 제공"));
-    const macCond = (m) => sn("mac", m.id) ? "" : (this.machineUnlocked(m) ? "해금됨 — 이 머신으로 플레이하면 공개"
+    const macCond = (m) => sn("mac", m.id) ? "" : (this.machineUnlocked(m) ? "해금됨 — 이 밭으로 플레이하면 공개"
       : "해금: " + ([m.unlockRuns && `${m.unlockRuns}런`, m.unlockScore && `${f(m.unlockScore)}점`, m.unlockAch && `업적 [${achName(m.unlockAch)}]`].filter(Boolean).join(" 또는 ") || "기본 제공"));
     const devCond = (d) => { if (p.ownedDevices.includes(d.id)) return "보유 중 — 장착하면 공개"; const k = Object.keys(ACH_DEVICE_REWARD).find((x) => ACH_DEVICE_REWARD[x] === d.id); if (d.deepOnly) return k ? `심화 업적 [${achName(k)}] 달성 시 영구 획득 (심화 전용 장치)` : "심화 업적으로 획득 (심화 전용 장치)"; return k ? `업적 [${achName(k)}] 달성 시 영구 획득 · 또는 런 중 장치 노드` : "런 중 장치 노드에서 획득"; };
     const setCond = (s) => { const parts = s.req.map((id) => PERK_BY_ID[id] ? PERK_BY_ID[id].e + PERK_BY_ID[id].n : id); let ex = ""; if (s.reqChar) ex += ` +${CHAR_BY_ID[s.reqChar] ? CHAR_BY_ID[s.reqChar].e + CHAR_BY_ID[s.reqChar].n : s.reqChar}`; if (s.reqMachine) ex += ` +${MAC_BY_ID[s.reqMachine] ? MAC_BY_ID[s.reqMachine].e : s.reqMachine}머신`; if (s.reqDevice) ex += ` +${DEV_BY_ID[s.reqDevice] ? DEV_BY_ID[s.reqDevice].e : s.reqDevice}`; return "필요 조합: " + parts.join(" + ") + ex; };
@@ -2826,7 +2821,7 @@ export class Game {
     const symOpen = (id) => !symUnlockedSet || symUnlockedSet.has(id) || id === "empty" || id === "random";
     return {
       // 심화모드(주머니) 전용 상위/변형/특수(Phase4) 심볼은 일반 도감에서 제외 — 일반모드 완전 격리(표시측).
-      sym: SYMS.filter((s) => !DEEP_ONLY_SYMS.has(s.id)).map((s) => ({ id: s.id, e: s.e, n: s.n, seen: sn("sym", s.id), detail: `EXP ${s.exp}${s.score ? ` · 점수 ${s.score}` : ""}${s.coin ? ` · 코인 ${s.coin}` : ""}${s.special !== "NONE" && SP_DESC[s.special] ? ` · ${SP_DESC[s.special]}` : ""}${s.tags.length ? ` · #${s.tags.join(" #")}` : ""}`, cond: s.weight > 0 ? "스핀에서 등장하면 공개" : "머신·증강으로 등장하면 공개" })),
+      sym: SYMS.filter((s) => !DEEP_ONLY_SYMS.has(s.id)).map((s) => ({ id: s.id, e: s.e, n: s.n, seen: sn("sym", s.id), detail: `EXP ${s.exp}${s.score ? ` · 점수 ${s.score}` : ""}${s.coin ? ` · 코인 ${s.coin}` : ""}${s.special !== "NONE" && SP_DESC[s.special] ? ` · ${SP_DESC[s.special]}` : ""}${s.tags.length ? ` · #${s.tags.join(" #")}` : ""}`, cond: s.weight > 0 ? "심기에서 등장하면 공개" : "밭·증강으로 등장하면 공개" })),
       // 심화모드 전용 특수심볼 도감(Phase4) — 별도 섹션(deepSym). 주머니에서 등장/획득하면 공개. 일반 sym 탭과 분리(격리).
       // deepSym: 심화 전용 심볼 도감 + Phase5 해금 상태(locked=업적 잠금·기본해금은 항상 개방). locked 면 해금 업적 안내.
       deepSym: SYMS.filter((s) => DEEP_ONLY_SYMS.has(s.id) && POUCH_SYMBOLS.includes(s.id)).map((s) => {
@@ -2845,7 +2840,7 @@ export class Game {
       aug: AUGMENTS.map((a) => ({ id: a.id, e: a.e, n: a.n, seen: sn("aug", a.id), detail: a.d, tier: a.t, cond: "증강 보상·상점에서 얻으면 공개" })),
       rel: RELICS.map((a) => ({ id: a.id, e: a.e, n: a.n, seen: sn("rel", a.id), detail: a.d, tier: a.t, cond: "상점·유물 노드에서 얻으면 공개" })),
       cur: CURSES.map((a) => ({ id: a.id, e: a.e, n: a.n, seen: sn("cur", a.id), detail: a.d, cond: "저주 노드·위험거래에서 얻으면 공개" })),
-      set: SETS.map((s) => ({ id: s.id, e: "🎰", n: s.n, seen: sn("set", s.id), detail: s.d, cond: setCond(s) })),
+      set: SETS.map((s) => ({ id: s.id, e: "🌱", n: s.n, seen: sn("set", s.id), detail: s.d, cond: setCond(s) })),
       item: ITEMS.map((it) => ({ id: it.id, e: it.e, n: it.n, seen: sn("item", it.id), detail: `${it.d} · ${it.k}`, cond: "상점·이벤트에서 얻거나 쓰면 공개" })),
       // ach: 일반+심화(deep). 심화 업적은 deep:true + 해금 심볼 표기(symReward). 장치/심볼 보상 모두 노출.
       ach: ACHIEVEMENTS.map((a) => ({ id: a.id, e: a.e, n: a.n, done: p.unlocked.includes(a.id), detail: a.d, reward: dn(a.id), deep: !!a.deep, symReward: symRewardOf(a.id) })),
@@ -2879,7 +2874,7 @@ export class Game {
     const skullScore = s.special === "SKULL" ? (mods.skullScoreBonus || 0) : 0;
     const cellScore = baseScore + perSymScore + skullScore;
 
-    const SP = { COIN: `코인 +${s.coin || 1} 획득 (코인 배수 적용)`, BOMB: `양옆 칸을 제거하고 칸당 +${C.BOMB_EXP_PER} EXP`, MAGNET: "한쪽 옆 심볼을 복사", SKULL: "기본 무페널티 · 해골빌드면 EXP/점수 가산", FLAME: "이번 스핀 전체 EXP +50% (다음 스핀 -50%)", DICE: "1~12 무작위 EXP 추가", WILD: "최다 심볼 그룹에 합류(세트·잭팟 기여)", SEED: "다음 스핀에 책/별/왕관으로 성장", KEY: `보물 코인 +${C.KEY_COIN_PER}🪙 (열쇠 1개당)` };
+    const SP = { COIN: `코인 +${s.coin || 1} 획득 (코인 배수 적용)`, BOMB: `양옆 칸을 제거하고 칸당 +${C.BOMB_EXP_PER} EXP`, MAGNET: "한쪽 옆 심볼을 복사", SKULL: "기본 무페널티 · 해골빌드면 EXP/점수 가산", FLAME: "이번 심기 전체 EXP +50% (다음 심기 -50%)", DICE: "1~12 무작위 EXP 추가", WILD: "최다 심볼 그룹에 합류(세트·대풍작 기여)", SEED: "다음 심기에 책/별/왕관으로 성장", KEY: `보물 코인 +${C.KEY_COIN_PER}🪙 (열쇠 1개당)` };
     const specials = [];
     if (SP[s.special]) specials.push(SP[s.special]);
     if (c.tag === "🧲") specials.push("자석으로 복사된 칸");
@@ -2957,7 +2952,7 @@ export class Game {
       fever: r.deepMode ? null : { gauge: r.nFeverGauge, spins: r.nFeverSpins },
       encore: r.deepMode ? null : {
         available: this._encoreAvailable(), active: !!r.encoreActive, k: r.encoreK, pot: r.encorePot, stake: r.encoreStake, lastBust: !!r.encoreLastBust,
-        nextMul: this._encoreAvailable() ? this._encoreMul(r.encoreK + 1) : null,
+        nextMul: this._encoreAvailable() ? C.ENCORE_STEP : null,
       },
       lastSpin: r.lastSpinInfo,   // 마지막 스핀(또는 앵콜 스핀) 결과 요약: {kind,cells,gained,feverApplied,feverTriggered,holdUsed,encoreResult,bigWinTier,...}
       clearSummary: r.clearSummary, rewardMsg: r.rewardMsg, nextPreview: r.nextPreview, statsView: r.statsView, failInfo: r.failInfo,

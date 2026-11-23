@@ -1,7 +1,7 @@
-// ── 잭팟 슬롯 — 절차적 사운드 (Web Audio, 외부 파일 없음·오프라인 OK) ──
+// ── 풍년런 — 절차적 사운드 (Web Audio, 외부 파일 없음·오프라인 OK) ──
 // 효과음(SFX)과 가벼운 배경음(BGM)을 오실레이터/노이즈로 합성. 음원 자산 불필요.
 let ctx = null, master = null, enabled = true, bgmOn = false, bgmTimer = null, bgmStep = 0, vol = 0.7;
-let feverMode = false;   // F5: 피버 중 — BGM 템포·피치 업, 효과음 피치 소폭 업
+let feverMode = false;   // F5: 풍년 바람 중 — BGM 템포·피치 업, 효과음 피치 소폭 업
 try { const sv = localStorage.getItem("slotweb_vol"); if (sv != null) { const p = parseFloat(sv); if (p >= 0 && p <= 1) vol = p; } } catch (e) {}
 
 function init() {
@@ -58,11 +58,13 @@ function sfxInner(name, arg) {
   switch (name) {
     case "tap": tone(660, 0.05, "triangle", 0.1); break;
     case "select": tone(587, 0.07, "triangle", 0.13); tone(880, 0.1, "triangle", 0.12, 0.05); break;
-    case "spin": noise(0.42, 0.06, 0, 900); tone(200, 0.42, "sawtooth", 0.05, 0, 340); break;
-    case "reel": tone(840, 0.035, "square", 0.07); break;
+    case "spin": noise(0.14, 0.05, 0, 600); break;   // 흙 사각 — 짧은 노이즈(톱니파 상승음 없음)
+    case "reel": tone(520, 0.1, "sine", 0.12, 0, 780); break;   // sprout 와 같은 소리
     case "win": [0, 0.08, 0.16].forEach((d, i) => tone(PENTA[i + 1], 0.18, "triangle", 0.15, d)); break;
     case "jackpot": [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.3, "triangle", 0.2, i * 0.1)); noise(0.5, 0.08, 0, 2200); break;
-    case "coin": tone(988, 0.06, "square", 0.11); tone(1318, 0.1, "square", 0.11, 0.05); break;
+    case "sprout": tone(520, 0.1, "sine", 0.12, 0, 780); break;   // 새싹 돋는 「퐁」
+    case "nobonus": tone(440, 0.14, "triangle", 0.07, 0, 330); tone(330, 0.16, "triangle", 0.06, 0.12); break;   // 덤 없음 — 부드러운 하강
+    case "coin": tone(700, 0.06, "triangle", 0.12); break;   // 나무 「톡」
     case "buy": tone(660, 0.08, "square", 0.12); tone(988, 0.12, "square", 0.12, 0.06); break;
     case "clear": [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, 0.26, "triangle", 0.17, i * 0.09)); break;
     case "perfect": tone(1046, 0.1, "triangle", 0.2); tone(1568, 0.2, "triangle", 0.17, 0.08); tone(2093, 0.34, "sine", 0.13, 0.17); noise(0.3, 0.05, 0.16, 4200); break;
