@@ -11,6 +11,9 @@ import {
 } from "./data.js";
 
 const fmt2 = (n) => (Math.round(n * 100) / 100).toString();
+// 태그 값은 그대로 두고 화면에 보일 때만 풍년런 말로 바꾼다(잭팟→풍년 · 리치→두근 · 코인→도토리).
+const TAG_SHOW = { "잭팟": "풍년", "리치": "두근", "코인": "도토리", jackpot: "풍년", reach: "두근", coin: "도토리" };
+const tagShow = (t) => TAG_SHOW[t] || t;
 // 심화모드(주머니) 전용 상위 심볼 id 집합(일반 도감 노출 제외용).
 const POUCH_UPGRADE_VALUES = new Set(Object.values(POUCH_UPGRADE));
 // 일반모드 evaluate 가 인식하는 기존 special enum(이 밖의 special = Phase4 심화 전용 특수심볼).
@@ -39,27 +42,27 @@ const SPECIAL_LABEL = { FOCUS: "🎯집중", ALLIN: "💧듬뿍 물주기", PRAY
 const MANIP_LABEL = { "재굴림": "🔄다시 심기", "고정": "📌고정", "복사": "📑복사", "교체": "🔃교체",
   "지휘": "🎯지휘", "정화": "🧤정화", "셔플": "🔀셔플" };
 const MANIP_DESC = {
-  "재굴림": "직전 심기을 다시 굴립니다 (모험 농부=무료·다시 심기기=점수 -10%)",
+  "재굴림": "직전 심기를 다시 심습니다 (모험 농부=무료·다시심기 호미=점수 -10%)",
   "고정": "선택한 칸만 남기고 나머지를 다시 굴립니다",
   "복사": "선택한 칸을 옆 칸에 복사합니다",
   "교체": "선택한 칸을 최다 심볼로 바꿉니다 (점수 -10%)",
   // Phase 5 심볼 장치(심화 전용)
   "지휘": "선택한 칸을 같은 등급의 다른 심볼로 바꿉니다 (심볼지휘봉)",
   "정화": "☠해골 1칸을 ▫빈칸으로 정화합니다 (정화장갑)",
-  "셔플": "이번 심기을 주머니 확률표로 다시 추출합니다 (주머니셔플러)",
+  "셔플": "이번 심기를 주머니 확률표로 다시 추출합니다 (주머니셔플러)",
 };
 
 // 특수심볼 한 줄 설명(도감 카드 detail용) — raw enum 노출 대신 읽기 쉬운 효과로. dead 심볼 없음.
 const SP_DESC = {
   COIN: "도토리 획득", SKULL: "기본 무페널티·해골빌드면 EXP가산", FLAME: "심기 전체 EXP+50%(다음-50%)",
-  MAGNET: "옆 심볼 복사", BOMB: `양옆 제거+칸당 EXP`, KEY: `보물코인 +${C.KEY_COIN_PER}🪙/개`,
+  MAGNET: "옆 심볼 복사", BOMB: `양옆 제거+칸당 EXP`, KEY: `보물 도토리 +${C.KEY_COIN_PER}🌰/개`,
   DICE: "1~12 무작위 EXP", SEED: "다음 심기 성장", WILD: "최다 그룹 합류(세트·대풍작)",
   // ── Phase 4 심화모드 특수심볼(주머니 전용) 설명 — 도감 카드 detail 용. 근사 항목은 명시. ──
   SEED_ANY: "다음 심기 무작위 기본심볼로 성장", SEED_HIGH: "다음 심기 체리/책/별로 성장",
   CATALYST: "최저등급 심볼 1개 한 단계 강화", PURIFY: "해골 1개를 빈칸으로 정화",
   WANDWILD: "무작위 1심볼 와일드 취급(세트·양끝 보조)", MIRROR: "양끝(1·마지막) 칸 서로 복사",
   TARGET: "최고 EXP 값심볼 칸 효과 +50%", PUZZLE5: "서로 다른 값심볼 4종+150·5종+300점",
-  ALARM: "다음 심기 EXP +10%", HOURGLASS: "이번 심기 EXP 30%를 다음 심기으로 이월",
+  ALARM: "다음 심기 EXP +10%", HOURGLASS: "이번 심기 EXP 30%를 다음 심기로 이월",
   RECEIPT: "다음 상점 전체 가격 -10%", COUPON: "다음 상점 상품 1개 할인", CART: "다음 상점 상품칸 +1",
   GEAR: "다음 심기 EXP +10%(근사)", DEVCD: "능동장치 재사용 1회 허용(근사)",
   SETFRAG: "세트 형성 시 도토리 소량 보상(근사)",
@@ -89,13 +92,13 @@ const SP_DESC = {
 function symDeckDesc(s) {
   if (!s) return "";
   if (s.special && s.special !== "NONE" && SP_DESC[s.special]) {
-    return SP_DESC[s.special] + (s.tags && s.tags.length ? ` · #${s.tags.join(" #")}` : "");
+    return SP_DESC[s.special] + (s.tags && s.tags.length ? ` · #${s.tags.map(tagShow).join(" #")}` : "");
   }
   const parts = [];
   if (s.exp) parts.push(`EXP ${s.exp}`);
   if (s.score) parts.push(`점수 ${s.score}`);
-  if (s.coin) parts.push(`코인 ${s.coin}`);
-  if (s.tags && s.tags.length) parts.push(`#${s.tags.join(" #")}`);
+  if (s.coin) parts.push(`도토리 ${s.coin}`);
+  if (s.tags && s.tags.length) parts.push(`#${s.tags.map(tagShow).join(" #")}`);
   return parts.length ? parts.join(" · ") : "특수 효과";
 }
 
@@ -202,7 +205,7 @@ export class Game {
   levelUnlocks() {
     const lvl = this.profile.playerLevel || 1; const out = [];
     for (const c of CHARS) if (c.unlockLevel) out.push({ lv: c.unlockLevel, label: `🎭 ${c.n} (캐릭터)` });
-    for (const mc of MACHINES) if (mc.unlockLevel) out.push({ lv: mc.unlockLevel, label: `🎰 ${mc.n} (슬롯)` });
+    for (const mc of MACHINES) if (mc.unlockLevel) out.push({ lv: mc.unlockLevel, label: `🌱 ${mc.n} (밭)` });
     for (const k of Object.keys(LEVEL_DEVICE_REWARD)) { const d = DEV_BY_ID[LEVEL_DEVICE_REWARD[k]]; if (d) out.push({ lv: +k, label: `🔧 ${d.n} (장치)` }); }
     for (const a of AUGMENTS) if (a.unlockLevel) out.push({ lv: a.unlockLevel, label: `✨ ${a.n} (증강)` });
     for (const r of RELICS) if (r.unlockLevel) out.push({ lv: r.unlockLevel, label: `📜 ${r.n} (유물)` });
@@ -655,7 +658,7 @@ export class Game {
     const bounds = E.repairBounds(this._repairState());
     let added = 0;
     for (let k = 0; k < n; k++) { if (E.pouchTotal(r.pouch) >= bounds.totalMax) break; r.pouch[id] = (r.pouch[id] || 0) + 1; added++; }
-    if (added > 0) { const s = SYM_BY_ID[id]; this.toast(`📑 심볼복사판 — ${s ? s.e + s.n : id} +${added} (최다 #${tag})`); }
+    if (added > 0) { const s = SYM_BY_ID[id]; this.toast(`📑 심볼복사판 — ${s ? s.e + s.n : id} +${added} (최다 #${tagShow(tag)})`); }
   }
 
   reel() { return this.run.device === "dev_subreel" ? 6 : 5; }
@@ -784,7 +787,7 @@ export class Game {
     if (res.alarmNext) { r.pendingNextExpMul *= 1.1; this.toast("⏰ 알람 — 다음 심기 EXP +10%"); }
     if (res.gearNext) { r.pendingNextExpMul *= 1.1; this.toast("⚙ 톱니 — 다음 심기 EXP +10% (근사)"); }
     // ⏳모래시계 — 이번 스핀의 30%를 다음 스핀으로 이월(carryExp 는 evaluate 산출, 다음 spin 게이지에 가산).
-    if (res.carryExp > 0) { r.carryOverExp += res.carryExp; this.toast(`⏳ 모래시계 — EXP ${res.carryExp} 다음 스핀 이월`); }
+    if (res.carryExp > 0) { r.carryOverExp += res.carryExp; this.toast(`⏳ 모래시계 — EXP ${res.carryExp} 다음 심기로 이월`); }
     // 🧾영수증 / 🎟쿠폰 / 🛒장바구니 — 다음 상점 1회 적용 플래그(_freshShop 에서 소진).
     if (res.receiptNext) { r.deepShopDiscount = true; this.toast("🧾 영수증 — 다음 상점 전체 -10%"); }
     if (res.couponNext) { r.deepShopCoupon = true; this.toast("🎟 쿠폰 — 다음 상점 상품 1개 할인"); }
@@ -895,7 +898,7 @@ export class Game {
     const pos = r.held.indexOf(idx);
     if (pos >= 0) { r.held.splice(pos, 1); return this.state(); }   // 이미 잡은 칸 → 해제(충전 소모는 스핀 시점)
     if (r.holdCharges < 1) { this.toast("🔒 지키기 충전이 없어요 (스테이지마다 1회 · 🎯집중 사용 시 +1)"); return this.state(); }
-    if (r.held.length >= C.HOLD_MAX) { this.toast(`🔒 홀드는 최대 ${C.HOLD_MAX}칸까지만 잡을 수 있어요`); return this.state(); }
+    if (r.held.length >= C.HOLD_MAX) { this.toast(`🔒 지키기는 최대 ${C.HOLD_MAX}칸까지만 할 수 있어요`); return this.state(); }
     r.held.push(idx); r.held.sort((a, b) => a - b);
     return this.state();
   }
@@ -937,7 +940,7 @@ export class Game {
     const cmdCost = special ? this.cmdCost(mode) : 0;
     if (special) {
       if (mode === "LAST" && r.spinIndex !== r.spins - 1) { this.toast("⏰ 최후는 마지막 심기에서만 쓸 수 있어요"); return this.state(); }
-      if (cmdCost > 0 && r.coins < cmdCost) { this.toast(`${SPECIAL_LABEL[mode] || "특수 심기"} 발동에 코인 ${cmdCost}🪙 필요 (보유 ${r.coins}🪙)`); return this.state(); }
+      if (cmdCost > 0 && r.coins < cmdCost) { this.toast(`${SPECIAL_LABEL[mode] || "특수 심기"} 도토리 ${cmdCost}🌰 필요 (보유 ${r.coins}🌰)`); return this.state(); }
     }
     // V3P4: 🧲임시와일드(temp_wild·fuse) — 덱에 있으면 이번 스핀에 wild_temp cellOp 자동 주입.
     //  소비(덱 제거)는 _applyDeepSpinMeta(hasTempWild 신호) 에서. armItems 는 이번 스핀만(spin() 후 리셋).
@@ -995,7 +998,7 @@ export class Game {
     let feverApplied = false, feverTriggered = false;
     if (!r.deepMode && r.nFeverSpins > 0) {
       exp = E.mulFloor(exp, C.FEVER_EXP_MUL); r.nFeverSpins -= 1; feverApplied = true;
-      res.notes.push(`🔥 피버 ×${fmt2(C.FEVER_EXP_MUL)} (남은 ${r.nFeverSpins})`);
+      res.notes.push(`🌾 풍년 바람 ×${fmt2(C.FEVER_EXP_MUL)} (남은 ${r.nFeverSpins})`);
     }
     // F1 빅윈 티어: 스핀 최종 EXP ÷ 페이스(quota/spins) — 1 NICE · 2 BIG · 3 MEGA
     const bigWinTier = this._bigWinTier(exp);
@@ -1011,7 +1014,7 @@ export class Game {
       r.nFeverGauge += C.FEVER_CHARGE[Math.max(0, Math.min(C.FEVER_CHARGE.length - 1, res.bestSetCount || 0))] || 0;
       if (r.nFeverGauge >= C.FEVER_MAX) {
         r.nFeverGauge = 0; r.nFeverSpins = C.FEVER_SPINS; feverTriggered = true;
-        res.notes.push(`🔥 피버 발동! 다음 ${C.FEVER_SPINS}스핀 EXP ×${fmt2(C.FEVER_EXP_MUL)}`);
+        res.notes.push(`🌾 풍년 바람! 다음 ${C.FEVER_SPINS}번 심기 EXP ×${fmt2(C.FEVER_EXP_MUL)}`);
       }
     }
     // ── Phase 5 심볼유물 per-spin 점수 보너스(심화 전용·additive) — 압축계약서/균형저울/희귀표본상자 ──
@@ -1065,7 +1068,7 @@ export class Game {
       if (res.cells.every((c) => famBase(c.sym.id) === f0)) {
         r.coins += 1; r.perfectDrawStage = r.stage;
         const fs = SYM_BY_ID[f0];
-        pdBanner = `🎯 퍼펙트 드로우! 5칸 모두 ${fs ? fs.e + fs.n : f0} 계열 — 코인 +1`;
+        pdBanner = `🎯 퍼펙트 드로우! 5칸 모두 ${fs ? fs.e + fs.n : f0} 계열 — 도토리 +1`;
         res.notes.push(pdBanner);
       }
     }
@@ -1075,18 +1078,18 @@ export class Game {
     //  스테이지 1회 제한: r._reachBias/r._jackpotPrismPending 은 다음 스핀·오퍼에서 소진(단회성).
     let jtBanner = "";
     if (r.deepMode && res.jackpotStage) {
-      const TAG_LABEL = { crown: "👑 왕관", seven: "7️⃣ 황금사과", coin: "🌰 도토리", prism: "🌈 프리즘", curse: "💀 저주", bell: "🔔 종" };
+      const TAG_LABEL = { crown: "👑 왕관", seven: "🍎 황금사과", coin: "🌰 도토리", prism: "🌈 프리즘", curse: "💀 저주", bell: "🔔 종" };
       const tLabel = TAG_LABEL[res.jackpotTagHit] || res.jackpotTagHit || "태그";
       if (res.jackpotStage === "combo") {
         jtBanner = `🎯 ${tLabel} 콤보! — EXP+8`;
       } else if (res.jackpotStage === "reach") {
         // 다음 스핀 해당 태그 bias ×1.5 (1스핀). 이미 r._reachBias 가 있으면 덮어쓰기(최신 우선).
         r._reachBias = { tag: res.jackpotTagHit, spinsLeft: 1 };
-        jtBanner = `🎯 ${tLabel} 리치! — 다음 스핀 해당 태그 ×1.5`;
+        jtBanner = `🎯 ${tLabel} 두근! — 다음 심기 해당 태그 ×1.5`;
       } else if (res.jackpotStage === "jackpot") {
         // 다음 POUCH 오퍼 프리즘 후보 1장 보장
         r._jackpotPrismPending = true;
-        jtBanner = `🎰 ${tLabel} 잭팟!! — 다음 주머니 오퍼 프리즘 보장`;
+        jtBanner = `🌾 ${tLabel} 대풍작!! — 다음 주머니 오퍼 프리즘 보장`;
       }
     }
     // §9.2 J3: 승격/보정 심볼 소모 처리 (심화 전용 — r.deepMode 게이팅)
@@ -1101,7 +1104,7 @@ export class Game {
           r.stageExp += 30; r.score += 1500; r._bellTicketUses = bellUses + 1;
           r.pouch["bell_ticket"] = bellTicketN - 1; if (r.pouch["bell_ticket"] <= 0) delete r.pouch["bell_ticket"];
           r._jackpotPrismPending = true;
-          jtBanner = (jtBanner ? jtBanner + " · " : "") + `🎟 종소리티켓 — 종 4개 잭팟 승격! (런 ${r._bellTicketUses}/2)`;
+          jtBanner = (jtBanner ? jtBanner + " · " : "") + `🎫 종소리티켓 — 종 4개 대풍작 승격! (런 ${r._bellTicketUses}/2)`;
         }
       }
       // 잭팟티켓(JACKPOT_TICKET·fuse): 리치 → 잭팟 승격 후 제거(런 2회 공유 카운터 _jpTicketUses)
@@ -1112,7 +1115,7 @@ export class Game {
           r.stageExp += 30; r.score += 1500; r._jpTicketUses = jpUses + 1;
           r.pouch["jackpot_ticket"] = jpTicketN - 1; if (r.pouch["jackpot_ticket"] <= 0) delete r.pouch["jackpot_ticket"];
           r._jackpotPrismPending = true;
-          jtBanner = (jtBanner ? jtBanner + " · " : "") + `🎟 잭팟티켓 — 리치 → 잭팟 승격! (런 ${r._jpTicketUses}/2)`;
+          jtBanner = (jtBanner ? jtBanner + " · " : "") + `🎫 풍년표 — 두근 → 대풍작 승격! (런 ${r._jpTicketUses}/2)`;
         }
       }
       // 리치표식(REACH_MARK): 태그 4개 리치 시 30%+feverReachFix 확률로 부족 1칸 보정(잭팟 승격), 스테이지 1회
@@ -1121,7 +1124,7 @@ export class Game {
         if (this.rng.double() < baseProb) {
           r.stageExp += 30; r.score += 1500; r._reachMarkUsed = true;
           r._jackpotPrismPending = true;
-          jtBanner = (jtBanner ? jtBanner + " · " : "") + `🎯 리치표식 — 부족 1칸 보정 잭팟 승격! (확률 ${Math.round(baseProb * 100)}%)`;
+          jtBanner = (jtBanner ? jtBanner + " · " : "") + `🎯 두근표식 — 부족 1칸 보정 대풍작 승격! (확률 ${Math.round(baseProb * 100)}%)`;
         }
       }
       // 재도전릴(RETRY_REEL): 리치 시 1칸 재굴림(spinsLeft 소비 없이, 단 스테이지 1회)
@@ -1129,7 +1132,7 @@ export class Game {
       //  다음 스핀에 1칸 re-roll 신호 저장(_retryReelPending). game._roll 에서 소비.
       if (res.jackpotStage === "reach" && res.hasRetryReel && !r._retryReelUsed) {
         r._retryReelPending = true; r._retryReelUsed = true;
-        jtBanner = (jtBanner ? jtBanner + " · " : "") + "🔁 다시심기 — 다음 심기 1칸 다시 심기 예약";
+        jtBanner = (jtBanner ? jtBanner + " · " : "") + "🔁 재도전 물뿌리개 — 다음 심기 1칸 다시 심기 예약";
       }
       // 잭팟왕관(JACKPOT_CROWN): 잭팟 시 보상등급+1, 스테이지 1회
       if (res.jackpotCrownSignal && !r._jackpotCrownUsed) {
@@ -1194,7 +1197,7 @@ export class Game {
           feverBanner = (feverBanner ? feverBanner + " · " : "") + "🔥 풍년 바람 종료!";
           if (r.lastMods) r.lastMods.feverReachFix = 0;
         } else if (!feverBanner) {
-          feverBanner = `🔥 피버 ${r.feverSpins}스핀 남음`;
+          feverBanner = `🌾 풍년 바람 ${r.feverSpins}번 남음`;
         }
       }
       // (B) 피버 게이지 충전(이번 스핀 feverDelta — 피버 효과 적용 후 충전, 축제종 보정 반영된 feverDeltaEff 사용)
@@ -1204,7 +1207,7 @@ export class Game {
         if (r.feverGauge >= DEEP.FEVER_MAX) {
           r.feverGauge = 0;
           r.feverSpins = DEEP.FEVER_SPINS;
-          feverBanner = `🔥 피버 타임! ${DEEP.FEVER_SPINS}스핀`;
+          feverBanner = `🌾 풍년 바람! ${DEEP.FEVER_SPINS}번`;
           if (r.lastMods) r.lastMods.feverReachFix = DEEP.FEVER_REACH_FIX;
         }
       }
@@ -1213,8 +1216,8 @@ export class Game {
     const out = { kind: "spin", mode, cells: res.cells, preCells: res.preCells, bomb: res.bomb, bestSetId: res.bestSetId, bestCount: res.bestSetCount, setIds: res.setIds, gained: exp, score: res.score, coins: res.coins, notes: res.notes, jackpot: res.jackpotSym,
       feverApplied, feverTriggered, holdUsed, encoreResult: null, bigWinTier };   // 재미 개편 필드(UI 연출용)
     r.lastSpinInfo = { kind: "spin", mode, cells: res.cells, gained: exp, score: res.score, coins: res.coins, feverApplied, feverTriggered, holdUsed: holdUsed.slice(), encoreResult: null, bigWinTier };
-    if (special) out.banner = `${SPECIAL_LABEL[mode] || "특수 심기"} 발동! — ${E.cmdEffectDesc(mode)}${isFree ? " · 🆓첫 사용 무료" : (cmdCost > 0 ? ` · -${cmdCost}🪙` : "")}`;
-    if (feverTriggered) out.banner = (out.banner ? out.banner + " · " : "") + `🔥 피버 발동! 다음 ${C.FEVER_SPINS}스핀 EXP ×${fmt2(C.FEVER_EXP_MUL)}`;   // R4: 일반 모드 피버(심화 피버 배너와 별개 — 심화에선 feverTriggered 항상 false)
+    if (special) out.banner = `${SPECIAL_LABEL[mode] || "특수 심기"} 발동! — ${E.cmdEffectDesc(mode)}${isFree ? " · 🆓첫 사용 무료" : (cmdCost > 0 ? ` · -${cmdCost}🌰` : "")}`;
+    if (feverTriggered) out.banner = (out.banner ? out.banner + " · " : "") + `🌾 풍년 바람! 다음 ${C.FEVER_SPINS}번 심기 EXP ×${fmt2(C.FEVER_EXP_MUL)}`;   // R4: 일반 모드 피버(심화 피버 배너와 별개 — 심화에선 feverTriggered 항상 false)
     if (pdBanner) out.banner = (out.banner ? out.banner + " · " : "") + pdBanner;   // 배치F P6: special 배너와 병합(덮어쓰기 금지)
     if (jtBanner) out.banner = (out.banner ? out.banner + " · " : "") + jtBanner;  // §9.0 J1: 잭팟 태그 배너 병합
     if (feverBanner) out.banner = (out.banner ? out.banner + " · " : "") + feverBanner; // §9.1 J2: 피버 배너 병합
@@ -1416,7 +1419,7 @@ export class Game {
     const r = this.run; const id = r.items[idx]; if (!id) return this.state();
     const it = ITEM_BY_ID[id]; if (!it) return this.state();
     const keep = r.perks.includes("refund") && this.rng.double() < 0.3;   // 환불 정책: 30% 확률 미소모
-    if (it.k === "NEXTSPIN") { r.armItems.push(id); this.toast(`${it.e} ${it.n} 장전(다음 스핀)`); }
+    if (it.k === "NEXTSPIN") { r.armItems.push(id); this.toast(`${it.e} ${it.n} 준비(다음 심기)`); }
     else if (it.k === "PHASE") { r.phaseItems.push(id); this.toast(`${it.e} ${it.n} 발동(이번 스테이지)`); }
     else this._instant(id);
     if (keep) this.toast("🧾 환불 정책 — 아이템이 사라지지 않았어요!");
@@ -1461,8 +1464,8 @@ export class Game {
         if (!base.length) { r.coins += 25; this.toast("🔮 깨진프리즘 — 맞는 증강이 없어 도토리 +25"); break; }
         const p = this.rng.pick(base); r.perks.push(p.id); r.stats.prismPicks += 1; this.toast(`🔮 깨진프리즘 — ${p.e}${p.n}`); break;
       }
-      case "black_lottery": if (this.rng.double() < 0.5) { let pool = RELICS.filter((x) => x.t === "GOLD"); if (r.deepMode) pool = E.deepCompatPool(pool, r.pouch); if (!pool.length) { r.coins += 25; this.toast("🎫 검은복권 — 도토리 +25"); } else { const rel = this.rng.pick(pool); r.perks.push(rel.id); this.toast(`🎫 ${rel.e}${rel.n}`); } } else { const cu = this.rng.pick(CURSES); r.curses.push(cu.id); this.toast(`🎫 저주 ${cu.e}${cu.n} — ${cu.d}`); } break;
-      case "devil_contract": { const pool = r.deepMode ? E.deepCompatPool(RELICS, r.pouch) : RELICS; if (!pool.length) { r.coins += 25; this.toast("😈 계약 무산 — 도토리 +25"); break; } const rel = this.rng.pick(pool); const cu = this.rng.pick(CURSES); r.perks.push(rel.id); r.curses.push(cu.id); r.coins += 25; this.toast(`😈 ${rel.e}${rel.n} + 저주 ${cu.e}${cu.n}(${cu.d}) · 코인 +25`); break; }
+      case "black_lottery": if (this.rng.double() < 0.5) { let pool = RELICS.filter((x) => x.t === "GOLD"); if (r.deepMode) pool = E.deepCompatPool(pool, r.pouch); if (!pool.length) { r.coins += 25; this.toast("🎁 수상한 씨앗봉투 — 도토리 +25"); } else { const rel = this.rng.pick(pool); r.perks.push(rel.id); this.toast(`🎁 ${rel.e}${rel.n}`); } } else { const cu = this.rng.pick(CURSES); r.curses.push(cu.id); this.toast(`🎁 저주 ${cu.e}${cu.n} — ${cu.d}`); } break;
+      case "devil_contract": { const pool = r.deepMode ? E.deepCompatPool(RELICS, r.pouch) : RELICS; if (!pool.length) { r.coins += 25; this.toast("😈 계약 무산 — 도토리 +25"); break; } const rel = this.rng.pick(pool); const cu = this.rng.pick(CURSES); r.perks.push(rel.id); r.curses.push(cu.id); r.coins += 25; this.toast(`😈 ${rel.e}${rel.n} + 저주 ${cu.e}${cu.n}(${cu.d}) · 도토리 +25`); break; }
       default: this.toast("아이템 사용"); break;
     }
   }
@@ -1495,7 +1498,7 @@ export class Game {
     const afterCurse = sBase + sLeft + sSpins + sBoss;
     const streak = E.streakBonus(stage);
     let gain = afterCurse + streak; let debt = false;
-    if (r.debtStages > 0) { gain = 0; r.debtStages -= 1; debt = true; this.toast("🧾 빚문서 — 이번 클리어 보상 0"); }
+    if (r.debtStages > 0) { gain = 0; r.debtStages -= 1; debt = true; this.toast("🧾 외상 장부 — 이번 클리어 보상 0"); }
     r.score += gain;
     const clearCoin = C.CLEAR_COIN + (boss ? C.BOSS_COIN : 0) + (this._mods().clearCoinBonus || 0);
     r.coins += clearCoin;
@@ -1512,7 +1515,7 @@ export class Game {
     }
     // Phase 5 심볼유물: 심볼복사판(sr_copier) — 보스 클리어 시 최다 태그 심볼 +N(주머니).
     if (r.deepMode && boss) { const sp = this._symMods(); if (sp && sp.bossCopyN > 0) this._bossCopy(sp.bossCopyN); }
-    this.toast(`✅ 스테이지 ${stage} 클리어! +${gain}점 · +${clearCoin}코인`);
+    this.toast(`✅ 스테이지 ${stage} 클리어! +${gain}점 · +${clearCoin}🌰`);
 
     // 보스 클리어 → 장치 드랍 + 보상 노드 3개(증강1 확정 + 랜덤2) 미리 생성
     const drops = [];
@@ -1758,7 +1761,7 @@ export class Game {
     const e = (id) => (SYM_BY_ID[id] ? SYM_BY_ID[id].e : id);
     const symExp = Object.entries(m.perSymbolExp).filter(([, v]) => v).map(([id, v]) => `${e(id)}${v > 0 ? "+" : ""}${v}`);
     const symScore = Object.entries(m.perSymbolScore).filter(([, v]) => v).map(([id, v]) => `${e(id)}${v > 0 ? "+" : ""}${v}`);
-    const tags = Object.entries(m.tagExpBonus).filter(([, v]) => v).map(([t, v]) => `#${t}${v > 0 ? "+" : ""}${v}`);
+    const tags = Object.entries(m.tagExpBonus).filter(([, v]) => v).map(([t, v]) => `#${tagShow(t)}${v > 0 ? "+" : ""}${v}`);
     return { rows, symExp, symScore, tags };
   }
 
@@ -1776,7 +1779,7 @@ export class Game {
         if (r.deepMode && r.pouch && (r.pouch.skull || 0) + (r.pouch.skull_black || 0) > 0) {
           r.phase = PHASE.PERK_PICK; r._pickKind = "REST_DEEP"; r.offerMeta = null;   // 직전 SYMAUG deepPerk 메타 잔존 → 헤더 오염 방지
           r.options = [
-            { id: "rest_coin",  e: "🪙", n: "도토리 보충",   d: "도토리 +12", t: "SILVER" },
+            { id: "rest_coin",  e: "🌰", n: "도토리 보충",   d: "도토리 +12", t: "SILVER" },
             { id: "rest_purify", e: "🕊️", n: "해골 정화", d: "주머니 ☠해골 1개 제거", t: "GOLD" },
           ];
         } else { r.coins += 12; this._enterRewardDone("🛌 휴식 — 도토리 +12 획득"); }
@@ -1798,7 +1801,7 @@ export class Game {
           }
           r.phase = PHASE.PERK_PICK; r._pickKind = "GAMBLE_DEEP"; r.offerMeta = null;   // 직전 SYMAUG deepPerk 메타 잔존 → 헤더 오염 방지
           const opts = [
-            { id: "gamble_coin",   e: "🎲", n: "도토리 모험",   d: "50% 도토리 2배 / 50% 도토리 유지", t: "SILVER" },
+            { id: "gamble_coin",   e: "🫘", n: "도토리 모험",   d: "50% 도토리 2배 / 50% 도토리 유지", t: "SILVER" },
           ];
           if (symGambleOk) {
             opts.push({ id: "gamble_sym", e: "🌱", n: "심볼 모험",
@@ -1806,7 +1809,7 @@ export class Game {
           }
           r.options = opts;
         } else {
-          let msg; if (this.rng.double() < 0.5) { r.coins *= 2; msg = "🫘 모험 성공 — 도토리 2배!"; } else { msg = "🫘 모험 실패 — 도토리 유지"; }
+          let msg; if (this.rng.double() < 0.5) { r.coins *= 2; msg = "🫘 요술콩 장터 — 도토리 2배!"; } else { msg = "🫘 요술콩 장터 — 도토리 그대로"; }
           this._enterRewardDone(msg);
         }
         break;
@@ -1820,7 +1823,7 @@ export class Game {
         const cFallback = r.deepMode ? CURSES.filter((c) => c.deep >= 1) : CURSES;
         const cPick = this.rng.pick(cursePool.length ? cursePool : (cFallback.length ? cFallback : CURSES));
         r.curses.push(cPick.id); r.coins += 30;
-        this._enterRewardDone(`🌑 저주 ${cPick.e}${cPick.n} 획득 — ${r.deepMode ? (cPick.dDesc || cPick.d) : cPick.d} · 코인 +30`);
+        this._enterRewardDone(`🌑 저주 ${cPick.e}${cPick.n} 획득 — ${r.deepMode ? (cPick.dDesc || cPick.d) : cPick.d} · 도토리 +30`);
         break;
       }
       case "RISK": {
@@ -1839,7 +1842,7 @@ export class Game {
         const riskCursePool = r.deepMode ? CURSES.filter((c) => c.deep >= 1) : CURSES;
         const riskCurse = this.rng.pick(riskCursePool.length ? riskCursePool : CURSES);
         r.curses.push(riskCurse.id);
-        this._enterRewardDone(`🎲 위험거래 — ${riskPerk.e}${riskPerk.n}(${riskPerk.d}) + 저주 ${riskCurse.e}${riskCurse.n}(${r.deepMode ? (riskCurse.dDesc || riskCurse.d) : riskCurse.d})`);
+        this._enterRewardDone(`🌪 위험한 거래 — ${riskPerk.e}${riskPerk.n}(${riskPerk.d}) + 저주 ${riskCurse.e}${riskCurse.n}(${r.deepMode ? (riskCurse.dDesc || riskCurse.d) : riskCurse.d})`);
         break;
       }
       case "DEVICE": r.phase = PHASE.DEVICE_NODE; r.options = [r._drop]; break;
@@ -1878,7 +1881,7 @@ export class Game {
         jtCards.push({ type: "skip", tier: "SILVER", coinBonus: 5, e: "⏭", n: "선택하지 않기" });
         r.options = jtCards;
         r.offerMeta = { kind: "JACKPOT_NODE", topTag, topTagN, total: E.pouchTotal(r.pouch) };
-        if (!jtPicked.length) { r.coins += 5; this._enterRewardDone("🌱 대풍작 노드 — 해당 태그 심볼 없음, 도토리 +5"); }
+        if (!jtPicked.length) { r.coins += 5; this._enterRewardDone("🌾 풍년 노드 — 해당 태그 심볼 없음, 도토리 +5"); }
         break;
       }
       case "POUCH": {   // 심화모드: 주머니(심볼 덱) 편집 보상 — 추가/제거/교체/업그레이드 카드
@@ -1978,7 +1981,7 @@ export class Game {
     // V3P4: 3스테이지 증강 연계 보너스 심볼 선택 처리.
     if (r._pickKind === "SYNAUG_BONUS") {
       r._synergyBonusPending = false;
-      if (p.type === "skip") { r.coins += 5; this._enterRewardDone(`⏭ 연계 보너스 건너뜀 — 코인 +5`); return this.state(); }
+      if (p.type === "skip") { r.coins += 5; this._enterRewardDone(`⏭ 연계 보너스 건너뜀 — 도토리 +5`); return this.state(); }
       if (p.type === "special" && p.id) {
         // 심볼 추가(비용 없음 — 연계 선물). 덱 최대치 초과 시 코인으로 환원.
         const bounds = E.repairBounds(this._repairState());
@@ -1987,7 +1990,7 @@ export class Game {
           r.pouch = next; this._checkArchetype();
           this._enterRewardDone(`🔗 연계 심볼 획득: ${p.e}${p.n}!`);
         } else {
-          r.coins += 5; this._enterRewardDone(`🔗 덱 초과 — 코인 +5`);
+          r.coins += 5; this._enterRewardDone(`🔗 덱 초과 — 도토리 +5`);
         }
       } else { this._enterRewardDone("연계 처리 완료"); }
       return this.state();
@@ -1995,8 +1998,8 @@ export class Game {
     // §3 Step 2: 심화 도박 선택지 처리.
     if (r._pickKind === "GAMBLE_DEEP") {
       if (p.id === "gamble_coin") {
-        if (this.rng.double() < 0.5) { r.coins *= 2; this._enterRewardDone("🫘 모험 성공 — 도토리 2배!"); }
-        else { this._enterRewardDone("🫘 모험 실패 — 도토리 유지"); }
+        if (this.rng.double() < 0.5) { r.coins *= 2; this._enterRewardDone("🫘 요술콩 장터 — 도토리 2배!"); }
+        else { this._enterRewardDone("🫘 요술콩 장터 — 도토리 그대로"); }
       } else if (p.id === "gamble_sym" && r.pouch) {
         // 심볼 도박: 50% 보유 기본계열 랜덤 +1 / 50% 해골 +1 (applySymbolReward 재사용).
         const baseFamilies = ["cherry", "book", "star", "gem", "coin", "flame", "magnet", "bomb"];
@@ -2006,7 +2009,7 @@ export class Game {
           const chosen = this.rng.pick(heldBase); const sym = SYM_BY_ID[chosen];
           const rw = { type: "add", id: chosen, n: 1 };
           const next = E.applySymbolReward(r.pouch, rw);
-          if (E.pouchValidate(next, bounds).ok) { r.pouch = next; this._checkArchetype(); this._enterRewardDone(`🎰 심볼 도박 성공 — ${sym ? sym.e + sym.n : chosen} +1`); }
+          if (E.pouchValidate(next, bounds).ok) { r.pouch = next; this._checkArchetype(); this._enterRewardDone(`🌱 심볼 모험 성공 — ${sym ? sym.e + sym.n : chosen} +1`); }
           else { this._enterRewardDone("🌱 심볼 모험 — 총량 초과로 실패"); }
         } else {
           const rw = { type: "add", id: "skull", n: 1 };
@@ -2258,7 +2261,7 @@ export class Game {
         // deepPity 연동 통보 + 결과 공개 토스트(심볼명 나열)
         const resultNames = picked.map((id) => `${SYM_BY_ID[id] ? SYM_BY_ID[id].e + SYM_BY_ID[id].n : id}`).join(" · ");
         if (r.deepStats) r.deepStats.rewardsPicked += 1;
-        this._enterRewardDone(`🎲 랜덤팩 — ${resultNames || "빈 결과"}`);
+        this._enterRewardDone(`🫘 랜덤팩 — ${resultNames || "빈 결과"}`);
         return this.state();
       }
       // 배치 H — 패키지 카드(type:"package") 는 ops 를 원자적 적용(applySymbolPackage). 사전검증 통과분만 오퍼됐으나
@@ -2337,7 +2340,7 @@ export class Game {
 
   // 심화모드 주머니 보상 1건의 짧은 요약 라벨(토스트/인트로 메시지용).
   _pouchRewardLabel(rw) {
-    const e = (id) => (SYM_BY_ID[id] ? SYM_BY_ID[id].e : (id === "empty" ? "▫" : id === "random" ? "🎲" : id));
+    const e = (id) => (SYM_BY_ID[id] ? SYM_BY_ID[id].e : (id === "empty" ? "▫" : id === "random" ? "🫘" : id));
     const nm = (id) => (SYM_BY_ID[id] ? SYM_BY_ID[id].n : (id === "empty" ? "빈칸" : id === "random" ? "랜덤칸" : id));
     if (!rw) return "";
     switch (rw.type) {
@@ -2385,7 +2388,7 @@ export class Game {
           id, n, ratio: total > 0 ? n / total : 0,
           effRatioBias: eff,           // 영구 perk bias 반영 유효비중(UI 확률% 표시)
           biasChanged: biasChanged.has(id),  // 🧪 마커 여부
-          e: s ? s.e : (id === "empty" ? "▫" : id === "random" ? "🎲" : "❔"),
+          e: s ? s.e : (id === "empty" ? "▫" : id === "random" ? "🫘" : "❔"),
           nm: s ? s.n : (id === "empty" ? "빈칸" : id === "random" ? "랜덤칸" : id),
           rarity: POUCH_RARITY[id] || "기본",
           tags: s ? (s.tags || []) : [],
@@ -2499,7 +2502,7 @@ export class Game {
     if (o.id === "prism_ink" && r._prismInkBought) { this.toast("💧 프리즘 잉크는 런당 1회만 구매할 수 있어요"); return this.state(); }
     // V3P4: 검은카드(black_card·fuse) — 첫 번째 구매 무료(r._blackCardShopFree 플래그).
     const isFree = r._blackCardShopFree && r.deepMode;
-    if (!isFree && r.coins < o.price) { this.toast(`코인 ${o.price - r.coins} 부족`); return this.state(); }
+    if (!isFree && r.coins < o.price) { this.toast(`도토리 ${o.price - r.coins} 부족`); return this.state(); }
     if (!isFree) r.coins -= o.price;
     else { r._blackCardShopFree = false; this.toast("💳 검은카드 효과 — 무료 구매!"); }
     if (o.id === "prism_ink") r._prismInkBought = true;
@@ -2509,7 +2512,7 @@ export class Game {
     r.shopItems.splice(idx, 1);   // 구매한 항목은 목록에서 제거
     return this.state();
   }
-  shopReroll() { const r = this.run; const cost = Math.max(2, 6 + (this._mods().shopRerollDelta || 0)); if (r.coins < cost) { this.toast(`코인 ${cost} 부족`); return this.state(); } r.coins -= cost; r.shopItems = this._freshShop(); return this.state(); }
+  shopReroll() { const r = this.run; const cost = Math.max(2, 6 + (this._mods().shopRerollDelta || 0)); if (r.coins < cost) { this.toast(`도토리 ${cost} 부족`); return this.state(); } r.coins -= cost; r.shopItems = this._freshShop(); return this.state(); }
 
   // ── Phase 3: 심화모드 상점 '심볼 정비' 탭 ──────────────────────────────
   //  ★심화모드에서만 노출(UI 게이팅). 일반모드 상점 무영향. 코인 경제 shopBuy 와 동일 관례.
@@ -2557,7 +2560,7 @@ export class Game {
     const heldSet = new Set(held);
     const symInfo = (id) => ({
       id, n: r.pouch[id] || 0,
-      e: SYM_BY_ID[id] ? SYM_BY_ID[id].e : (id === "empty" ? "▫" : id === "random" ? "🎲" : "❔"),
+      e: SYM_BY_ID[id] ? SYM_BY_ID[id].e : (id === "empty" ? "▫" : id === "random" ? "🫘" : "❔"),
       nm: SYM_BY_ID[id] ? SYM_BY_ID[id].n : (id === "empty" ? "빈칸" : id === "random" ? "랜덤칸" : id),
       rarity: POUCH_RARITY[id] || "기본",
     });
@@ -2602,7 +2605,7 @@ export class Game {
     const sv = DEEP.REPAIR_SERVICES.find((x) => x.id === serviceId);
     if (!sv) { this.toast("알 수 없는 서비스"); return this.state(); }
     const price = this._repairPrice(sv);
-    if (r.coins < price) { this.toast(`🪙 코인 ${price - r.coins} 부족 — 살 수 없어요`); return this.state(); }
+    if (r.coins < price) { this.toast(`🌰 도토리 ${price - r.coins} 부족 — 살 수 없어요`); return this.state(); }
     const res = E.applyShopService(sv, this._repairState(), sel);
     if (!res.ok) { this.toast(`❌ ${res.error || "정비 실패"}`); return this.state(); }   // 규칙 위반=미차감 거부
     // 커밋: 코인 차감 + 정비 상태 반영(pouch/확장/압축/태그/저주).
@@ -2625,11 +2628,11 @@ export class Game {
     const sp = this._symMods();
     if (sp) {
       if (sv.kind === "swap") {
-        if (sp.swapCoin) { r.coins += sp.swapCoin; this.toast(`🔁 교체전문가 — 코인 +${sp.swapCoin}`); }
-        if (sp.repairRefundFrac) { const rb = Math.round(price * sp.repairRefundFrac); if (rb) { r.coins += rb; this.toast(`🧾 교체영수증 — ${Math.round(sp.repairRefundFrac * 100)}% 환급 +${rb}🪙`); } }
+        if (sp.swapCoin) { r.coins += sp.swapCoin; this.toast(`🔁 교체전문가 — 도토리 +${sp.swapCoin}`); }
+        if (sp.repairRefundFrac) { const rb = Math.round(price * sp.repairRefundFrac); if (rb) { r.coins += rb; this.toast(`🧾 교체영수증 — ${Math.round(sp.repairRefundFrac * 100)}% 환급 +${rb}🌰`); } }
       }
       if (sv.kind === "purify") {
-        if (sp.purifyCoin) { r.coins += sp.purifyCoin; this.toast(`🖌️ 정화붓 — 코인 +${sp.purifyCoin}`); }
+        if (sp.purifyCoin) { r.coins += sp.purifyCoin; this.toast(`🖌️ 정화붓 — 도토리 +${sp.purifyCoin}`); }
         // 정화전문가/정화된세계(purifyToBasic): 정화로 생긴 빈칸(empty)을 랜덤 기본심볼로 승격(총량 유지).
         if (sp.purifyToBasic) {
           const purified = (res.changes || []).find((c) => c.id === "skull");
@@ -2673,7 +2676,7 @@ export class Game {
     const r = this.run; const d = r._drop; if (!d) { this._beginStage(); return this.state(); }
     if (!this.profile.ownedDevices.includes(d.id)) { this.profile.ownedDevices.push(d.id); this._saveProfile(); }
     if (equip) { r.device = d.id; this.toast(`🔧 ${d.e}${d.n} 장착·영구 획득`); }
-    else { r.coins += 15; this.toast(`🔧 ${d.e}${d.n} 영구 획득(미장착)·코인 +15`); }
+    else { r.coins += 15; this.toast(`🔧 ${d.e}${d.n} 영구 획득(미장착)·도토리 +15`); }
     r._drop = null; this._beginStage(); return this.state();
   }
 
@@ -2812,7 +2815,7 @@ export class Game {
     const macCond = (m) => sn("mac", m.id) ? "" : (this.machineUnlocked(m) ? "해금됨 — 이 밭으로 플레이하면 공개"
       : "해금: " + ([m.unlockRuns && `${m.unlockRuns}런`, m.unlockScore && `${f(m.unlockScore)}점`, m.unlockAch && `업적 [${achName(m.unlockAch)}]`].filter(Boolean).join(" 또는 ") || "기본 제공"));
     const devCond = (d) => { if (p.ownedDevices.includes(d.id)) return "보유 중 — 장착하면 공개"; const k = Object.keys(ACH_DEVICE_REWARD).find((x) => ACH_DEVICE_REWARD[x] === d.id); if (d.deepOnly) return k ? `심화 업적 [${achName(k)}] 달성 시 영구 획득 (심화 전용 장치)` : "심화 업적으로 획득 (심화 전용 장치)"; return k ? `업적 [${achName(k)}] 달성 시 영구 획득 · 또는 런 중 장치 노드` : "런 중 장치 노드에서 획득"; };
-    const setCond = (s) => { const parts = s.req.map((id) => PERK_BY_ID[id] ? PERK_BY_ID[id].e + PERK_BY_ID[id].n : id); let ex = ""; if (s.reqChar) ex += ` +${CHAR_BY_ID[s.reqChar] ? CHAR_BY_ID[s.reqChar].e + CHAR_BY_ID[s.reqChar].n : s.reqChar}`; if (s.reqMachine) ex += ` +${MAC_BY_ID[s.reqMachine] ? MAC_BY_ID[s.reqMachine].e : s.reqMachine}머신`; if (s.reqDevice) ex += ` +${DEV_BY_ID[s.reqDevice] ? DEV_BY_ID[s.reqDevice].e : s.reqDevice}`; return "필요 조합: " + parts.join(" + ") + ex; };
+    const setCond = (s) => { const parts = s.req.map((id) => PERK_BY_ID[id] ? PERK_BY_ID[id].e + PERK_BY_ID[id].n : id); let ex = ""; if (s.reqChar) ex += ` +${CHAR_BY_ID[s.reqChar] ? CHAR_BY_ID[s.reqChar].e + CHAR_BY_ID[s.reqChar].n : s.reqChar}`; if (s.reqMachine) ex += ` +${MAC_BY_ID[s.reqMachine] ? MAC_BY_ID[s.reqMachine].e : s.reqMachine}밭`; if (s.reqDevice) ex += ` +${DEV_BY_ID[s.reqDevice] ? DEV_BY_ID[s.reqDevice].e : s.reqDevice}`; return "필요 조합: " + parts.join(" + ") + ex; };
     const dn = (id) => { const d = DEV_BY_ID[ACH_DEVICE_REWARD[id]]; return d ? d.e + d.n : ""; };
     // Phase 5: 업적이 해금하는 심볼 라벨(도감 업적 카드 보상 표기) + 심볼→해금업적 역맵(심볼 도감 조건).
     const symRewardOf = (achId) => { const id = ACH_SYMBOL_UNLOCK[achId]; if (!id) return ""; const s = SYM_BY_ID[id]; return s ? s.e + s.n : id; };
@@ -2821,13 +2824,13 @@ export class Game {
     const symOpen = (id) => !symUnlockedSet || symUnlockedSet.has(id) || id === "empty" || id === "random";
     return {
       // 심화모드(주머니) 전용 상위/변형/특수(Phase4) 심볼은 일반 도감에서 제외 — 일반모드 완전 격리(표시측).
-      sym: SYMS.filter((s) => !DEEP_ONLY_SYMS.has(s.id)).map((s) => ({ id: s.id, e: s.e, n: s.n, seen: sn("sym", s.id), detail: `EXP ${s.exp}${s.score ? ` · 점수 ${s.score}` : ""}${s.coin ? ` · 코인 ${s.coin}` : ""}${s.special !== "NONE" && SP_DESC[s.special] ? ` · ${SP_DESC[s.special]}` : ""}${s.tags.length ? ` · #${s.tags.join(" #")}` : ""}`, cond: s.weight > 0 ? "심기에서 등장하면 공개" : "밭·증강으로 등장하면 공개" })),
+      sym: SYMS.filter((s) => !DEEP_ONLY_SYMS.has(s.id)).map((s) => ({ id: s.id, e: s.e, n: s.n, seen: sn("sym", s.id), detail: `EXP ${s.exp}${s.score ? ` · 점수 ${s.score}` : ""}${s.coin ? ` · 도토리 ${s.coin}` : ""}${s.special !== "NONE" && SP_DESC[s.special] ? ` · ${SP_DESC[s.special]}` : ""}${s.tags.length ? ` · #${s.tags.map(tagShow).join(" #")}` : ""}`, cond: s.weight > 0 ? "심기에서 등장하면 공개" : "밭·증강으로 등장하면 공개" })),
       // 심화모드 전용 특수심볼 도감(Phase4) — 별도 섹션(deepSym). 주머니에서 등장/획득하면 공개. 일반 sym 탭과 분리(격리).
       // deepSym: 심화 전용 심볼 도감 + Phase5 해금 상태(locked=업적 잠금·기본해금은 항상 개방). locked 면 해금 업적 안내.
       deepSym: SYMS.filter((s) => DEEP_ONLY_SYMS.has(s.id) && POUCH_SYMBOLS.includes(s.id)).map((s) => {
         const locked = !symOpen(s.id); const ach = achForSym(s.id);
         return { id: s.id, e: s.e, n: s.n, seen: sn("sym", s.id), locked,
-          detail: `${SP_DESC[s.special] || (s.exp ? `EXP ${s.exp}` : "특수 효과")}${s.tags.length ? ` · #${s.tags.join(" #")}` : ""}`,
+          detail: `${SP_DESC[s.special] || (s.exp ? `EXP ${s.exp}` : "특수 효과")}${s.tags.length ? ` · #${s.tags.map(tagShow).join(" #")}` : ""}`,
           rarity: POUCH_RARITY[s.id] || "기본",
           cond: locked ? (ach ? `🔒 잠김 — 업적 [${ach}] 달성 시 해금` : "🔒 잠김") : "심화모드 주머니에서 등장하면 공개" };
       }),
@@ -2874,7 +2877,7 @@ export class Game {
     const skullScore = s.special === "SKULL" ? (mods.skullScoreBonus || 0) : 0;
     const cellScore = baseScore + perSymScore + skullScore;
 
-    const SP = { COIN: `코인 +${s.coin || 1} 획득 (코인 배수 적용)`, BOMB: `양옆 칸을 제거하고 칸당 +${C.BOMB_EXP_PER} EXP`, MAGNET: "한쪽 옆 심볼을 복사", SKULL: "기본 무페널티 · 해골빌드면 EXP/점수 가산", FLAME: "이번 심기 전체 EXP +50% (다음 심기 -50%)", DICE: "1~12 무작위 EXP 추가", WILD: "최다 심볼 그룹에 합류(세트·대풍작 기여)", SEED: "다음 심기에 책/별/왕관으로 성장", KEY: `보물 코인 +${C.KEY_COIN_PER}🪙 (열쇠 1개당)` };
+    const SP = { COIN: `도토리 +${s.coin || 1} 획득 (도토리 배수 적용)`, BOMB: `양옆 칸을 제거하고 칸당 +${C.BOMB_EXP_PER} EXP`, MAGNET: "한쪽 옆 심볼을 복사", SKULL: "기본 무페널티 · 해골빌드면 EXP/점수 가산", FLAME: "이번 심기 전체 EXP +50% (다음 심기 -50%)", DICE: "1~12 무작위 EXP 추가", WILD: "최다 심볼 그룹에 합류(세트·대풍작 기여)", SEED: "다음 심기에 책/별/왕관으로 성장", KEY: `보물 도토리 +${C.KEY_COIN_PER}🌰 (열쇠 1개당)` };
     const specials = [];
     if (SP[s.special]) specials.push(SP[s.special]);
     if (c.tag === "🧲") specials.push("자석으로 복사된 칸");
@@ -2886,15 +2889,15 @@ export class Game {
       const out = []; const d = (a, b) => (a || 0) - (b || 0);
       const de = d(m.perSymbolExp[s.id], baseM.perSymbolExp[s.id]); if (de) out.push(`${s.e}EXP ${de > 0 ? "+" : ""}${de}`);
       const ds = d(m.perSymbolScore[s.id], baseM.perSymbolScore[s.id]); if (ds) out.push(`${s.e}점수 ${ds > 0 ? "+" : ""}${ds}`);
-      (s.tags || []).forEach((t) => { const dv = d(m.tagExpBonus[t], baseM.tagExpBonus[t]); if (dv) out.push(`${t}태그 EXP ${dv > 0 ? "+" : ""}${dv}`); });
+      (s.tags || []).forEach((t) => { const dv = d(m.tagExpBonus[t], baseM.tagExpBonus[t]); if (dv) out.push(`${tagShow(t)}태그 EXP ${dv > 0 ? "+" : ""}${dv}`); });
       if (isCenter && m.centerExpMul !== baseM.centerExpMul) out.push(`가운데 칸 ×${fmt2(m.centerExpMul)}`);
       if (s.special === "SKULL" && m.skullExp !== baseM.skullExp) out.push(`해골EXP ${m.skullExp - baseM.skullExp > 0 ? "+" : ""}${m.skullExp - baseM.skullExp}`);
       if (m.expMul !== baseM.expMul) out.push(`전체EXP ×${fmt2(m.expMul)}`);
-      if (m.flatExp !== baseM.flatExp) out.push(`스핀마다 ${m.flatExp - baseM.flatExp > 0 ? "+" : ""}${m.flatExp - baseM.flatExp}`);
-      if (isFirst && m.firstSpinExpMul !== baseM.firstSpinExpMul) out.push(`첫스핀 ×${fmt2(m.firstSpinExpMul)}`);
-      if (isLast && m.lastSpinExpMul !== baseM.lastSpinExpMul) out.push(`막스핀 ×${fmt2(m.lastSpinExpMul)}`);
+      if (m.flatExp !== baseM.flatExp) out.push(`심기마다 ${m.flatExp - baseM.flatExp > 0 ? "+" : ""}${m.flatExp - baseM.flatExp}`);
+      if (isFirst && m.firstSpinExpMul !== baseM.firstSpinExpMul) out.push(`첫 심기 ×${fmt2(m.firstSpinExpMul)}`);
+      if (isLast && m.lastSpinExpMul !== baseM.lastSpinExpMul) out.push(`마지막 심기 ×${fmt2(m.lastSpinExpMul)}`);
       if (s.rare && m.rareWeightMul !== baseM.rareWeightMul) out.push(`희귀등장 ×${fmt2(m.rareWeightMul)}`);
-      if (s.special === "COIN" && m.coinMul !== baseM.coinMul) out.push(`코인 ×${fmt2(m.coinMul)}`);
+      if (s.special === "COIN" && m.coinMul !== baseM.coinMul) out.push(`도토리 ×${fmt2(m.coinMul)}`);
       return out;
     };
     const affecting = [];

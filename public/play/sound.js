@@ -59,7 +59,6 @@ function sfxInner(name, arg) {
     case "tap": tone(660, 0.05, "triangle", 0.1); break;
     case "select": tone(587, 0.07, "triangle", 0.13); tone(880, 0.1, "triangle", 0.12, 0.05); break;
     case "spin": noise(0.14, 0.05, 0, 600); break;   // 흙 사각 — 짧은 노이즈(톱니파 상승음 없음)
-    case "reel": tone(520, 0.1, "sine", 0.12, 0, 780); break;   // sprout 와 같은 소리
     case "win": [0, 0.08, 0.16].forEach((d, i) => tone(PENTA[i + 1], 0.18, "triangle", 0.15, d)); break;
     case "jackpot": [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.3, "triangle", 0.2, i * 0.1)); noise(0.5, 0.08, 0, 2200); break;
     case "sprout": tone(520, 0.1, "sine", 0.12, 0, 780); break;   // 새싹 돋는 「퐁」
@@ -76,8 +75,6 @@ function sfxInner(name, arg) {
     case "gameover": [392, 330, 262, 196].forEach((f, i) => tone(f, 0.3, "triangle", 0.14, i * 0.16)); break;
     // ── 재미 개편(F1~F9) 효과음 ──
     case "hold": tone(420, 0.05, "square", 0.1); tone(300, 0.07, "square", 0.09, 0.045); break;                     // 자물쇠 철컥
-    case "antic": tone(330, 0.55, "sawtooth", 0.05, 0, 880); noise(0.5, 0.03, 0, 2400); break;                        // F7 기대감 — 상승 휘파람
-    case "nearmiss": tone(392, 0.12, "triangle", 0.1); tone(262, 0.22, "triangle", 0.1, 0.1); break;                  // F7 니어미스 — 아쉬운 하강
     case "bigwin1": [659, 784, 988].forEach((f, i) => tone(f, 0.16, "triangle", 0.15, i * 0.07)); break;                // NICE
     case "bigwin2": [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, 0.22, "triangle", 0.17, i * 0.07)); noise(0.3, 0.06, 0.2, 3000); break;   // BIG
     case "bigwin3": [523, 659, 784, 1046, 1318, 1568, 2093].forEach((f, i) => tone(f, 0.3, "triangle", 0.19, i * 0.065)); tone(130.8, 0.8, "sawtooth", 0.09, 0); tone(2093, 0.6, "sine", 0.13, 0.45); noise(0.7, 0.09, 0.3, 3600); break;   // MEGA
@@ -85,7 +82,6 @@ function sfxInner(name, arg) {
     case "clutch": tone(784, 0.1, "triangle", 0.17); tone(1046, 0.1, "triangle", 0.17, 0.08); tone(1568, 0.3, "triangle", 0.18, 0.16); tone(98, 0.3, "sawtooth", 0.09, 0); break;
     case "lastspin": tone(98, 0.14, "sine", 0.16); tone(98, 0.14, "sine", 0.16, 0.2); noise(0.18, 0.04, 0, 300); break;   // 심장박동
     case "encoreup": { const k = Math.max(1, Math.min(6, arg || 1)); const base = 523.25 * Math.pow(1.0595, k * 2); [0, 4, 7, 12].forEach((st, i) => tone(base * Math.pow(1.0595, st), 0.18, "triangle", 0.16, i * 0.07)); break; }   // 앵콜 성공 — k 가 클수록 높아짐
-    case "bust": noise(0.45, 0.18, 0, 400); tone(196, 0.4, "sawtooth", 0.13, 0, 55); tone(65, 0.5, "square", 0.1, 0.12, 40); break;   // 앵콜 BUST — 깨지는 소리
     case "levelup": [523, 659, 784, 1046, 1318, 1568].forEach((f, i) => tone(f, 0.28, "triangle", 0.17, i * 0.09)); tone(2093, 0.5, "sine", 0.12, 0.5); break;
   }
 }

@@ -118,7 +118,7 @@ testSpecial("candle-noskull", ["black_candle_sym","cherry","star","book","gem"],
 // lucky7 x3 -> 7x, capped by MAX_SPIN_EXP_MUL
 testSpecial("lucky7", ["lucky7","lucky7","lucky7","crown","crown"], (res) => {
   if (!res.lucky7) fail("lucky7 flag not set with 3");
-  if (!res.notes.some(n => n.includes("럭키7"))) fail("lucky7 note missing");
+  if (!res.notes.some(n => n.includes("황금사과"))) fail("lucky7 note missing");
 });
 // lucky7 only 2 -> no trigger
 testSpecial("lucky7x2", ["lucky7","lucky7","crown","cherry","star"], (res) => {
@@ -4600,7 +4600,7 @@ try {
   const oT = g.spin("N");
   funEq("R4 트리거 feverTriggered", oT.feverTriggered, true); funEq("R4 트리거 스핀엔 feverApplied=false", oT.feverApplied, false);
   funDeep("R4 트리거 후 fever {gauge:0, spins:3}", g.state().fever, { gauge: 0, spins: 3 });
-  funOk("R4 트리거 배너", /피버 발동/.test(oT.banner || ""), oT.banner);
+  funOk("R4 트리거 배너", /풍년 바람!/.test(oT.banner || ""), oT.banner);
   // (c) 피버 중: 최종 EXP ×1.5(floor) · 게이지 불충전 · 스핀 차감 · 3스핀 후 종료 후 재충전
   const ref = funGame(73010); funRoomy(ref); funRoll(ref, sets[3]);   // 동일 seed/롤 → 비피버 기준값
   const refOut = ref.spin("N");
@@ -4609,7 +4609,7 @@ try {
   funEq("R4 피버 스핀 gained = floor(기준×1.5)", fOut.gained, Math.floor(refOut.gained * 1.5));
   funEq("R4 feverApplied", fOut.feverApplied, true); funEq("R4 feverTriggered(피버 중엔 false)", fOut.feverTriggered, false);
   funDeep("R4 피버 스핀: 게이지 불변(40)·잔여 2", fv.state().fever, { gauge: 40, spins: 2 });
-  funOk("R4 노트 포맷(fmt2: ×1.5)", fOut.notes.some((n) => n === "🔥 피버 ×1.5 (남은 2)"), JSON.stringify(fOut.notes));
+  funOk("R4 노트 포맷(fmt2: ×1.5)", fOut.notes.some((n) => n === "🌾 풍년 바람 ×1.5 (남은 2)"), JSON.stringify(fOut.notes));
   funOk("R4 노트 fmt2 위반(×1.50) 없음", !fOut.notes.some((n) => /×1\.50/.test(n)));
   fv.spin("N"); fv.spin("N");
   funDeep("R4 3피버 스핀 후 fever {40,0}", fv.state().fever, { gauge: 40, spins: 0 });
@@ -4667,24 +4667,25 @@ try {
   funEq("R5 stake = clearSummary.gain(클리어 점수 합계)", g.state().clearSummary.gain, stake);
   funEq("R5 stake 구성: 50 + 초과EXP×2 + 남은스핀×100", stake, 50 + g.state().clearSummary.leftover * 2 + left0 * 100);
   funOk("R5 C.ENCORE_STAKE 상수 삭제", !("ENCORE_STAKE" in C));
-  funEq("R5 C.ENCORE_STEP = 0.25", C.ENCORE_STEP, 0.25);
-  const dum = Math.floor(stake * 0.25 + 1e-9);
-  funDeep("R5 초기 encore", g.state().encore, { available: true, active: false, k: 0, pot: 0, stake, lastBust: false, nextMul: 0.25 });
+  funOk("R5 C.ENCORE_STEP 양수·1 이하", C.ENCORE_STEP > 0 && C.ENCORE_STEP <= 1);
+  const dum = Math.floor(stake * C.ENCORE_STEP + 1e-9);
+  funDeep("R5 초기 encore", g.state().encore, { available: true, active: false, k: 0, pot: 0, stake, lastBust: false, nextMul: C.ENCORE_STEP });
   funDeep("R5 encore 키 순서", Object.keys(g.state().encore), ["available", "active", "k", "pot", "stake", "lastBust", "nextMul"]);
   // 덤 수확 1: 성공 → 덤 = floor(stake×0.25) 이 바로 점수에 더해짐(차감 없음)
   funRoll(g, ["cherry", "cherry", "cherry", "book", "star"]);
-  const coinsB = g.state().coins;
+  const coinsB = g.state().coins, expB = g.state().stageExp, quotaB = g.state().quota;
   const s1 = g.encoreSpin();
   const ls1 = s1.lastSpin, er1 = ls1.encoreResult;
   funEq("R5 lastSpin.kind", ls1.kind, "encore");
   funDeep("R5 encoreResult 키", Object.keys(er1), ["mulApplied", "gained", "bust", "settled", "settledPot", "lostPot"]);
-  funEq("R5 덤1 mulApplied = 0.25", er1.mulApplied, 0.25);
+  funEq("R5 덤1 mulApplied = C.ENCORE_STEP", er1.mulApplied, C.ENCORE_STEP);
   funEq("R5 덤1 bust=false", er1.bust, false);
-  funEq("R5 덤1 gained = floor(stake×0.25)", er1.gained, dum);
+  funEq("R5 덤1 gained = floor(stake×STEP)", er1.gained, dum);
   funEq("R5 덤1 점수 = 이전 + 덤(차감 없음)", s1.score, S0 + dum);
   funEq("R5 덤1 settled=false · settledPot=0 · lostPot=0", [er1.settled, er1.settledPot, er1.lostPot].join(), "false,0,0");
   funEq("R5 덤1 pot = 덤 합계", s1.encore.pot, dum);
-  funDeep("R5 덤1 후 encore", s1.encore, { available: true, active: true, k: 1, pot: dum, stake, lastBust: false, nextMul: 0.25 });
+  funDeep("R5 덤1 후 encore", s1.encore, { available: true, active: true, k: 1, pot: dum, stake, lastBust: false, nextMul: C.ENCORE_STEP });
+  funEq("R5 덤 수확 EXP 버림(stageExp 불변)", s1.stageExp, expB); funEq("R5 덤 수확 quota 불변", s1.quota, quotaB);
   funEq("R5 덤 수확 bigWinTier=0", ls1.bigWinTier, 0);
   funEq("R5 덤 수확 phase 유지", s1.phase, PHASE.STAGE_CLEAR);
   funEq("R5 덤 수확 도토리 정상 지급", s1.coins, coinsB + ls1.coins);
@@ -4694,7 +4695,7 @@ try {
   funRoll(g, ["cherry", "cherry", "cherry", "book", "star"]);
   const s2 = g.encoreSpin(); const er2 = s2.lastSpin.encoreResult;
   funEq("R5 덤2 gained = 같은 크기", er2.gained, dum); funEq("R5 덤2 pot = 2×덤", s2.encore.pot, dum * 2);
-  funEq("R5 덤2 점수", s2.score, S0 + dum * 2); funEq("R5 덤2 k=2", s2.encore.k, 2); funEq("R5 덤2 nextMul=0.25", s2.encore.nextMul, 0.25);
+  funEq("R5 덤2 점수", s2.score, S0 + dum * 2); funEq("R5 덤2 k=2", s2.encore.k, 2); funEq("R5 덤2 nextMul=STEP", s2.encore.nextMul, C.ENCORE_STEP);
   // 실패(페어 없음): 잃는 것 없음 · 계속 가능
   funRoll(g, ["cherry", "book", "star", "gem", "crown"]);
   const sf = g.encoreSpin(); const erf = sf.lastSpin.encoreResult;
@@ -4726,8 +4727,11 @@ try {
   // 마지막 남은 심기: 성공해도 실패해도 덤 수확 종료(상태 정리)
   const ga = mkClear(74006); const sta = stakeOf(ga); const Sa = ga.state().score; ga.run.spinIndex = ga.run.spins - 1; funRoll(ga, ["cherry", "cherry", "cherry", "book", "star"]);
   const sa = ga.encoreSpin(); const era = sa.lastSpin.encoreResult;
-  funEq("R5 마지막 심기 성공 점수 = +덤", sa.score, Sa + Math.floor(sta * 0.25 + 1e-9)); funEq("R5 마지막 심기 settled=false(계약)", era.settled, false);
-  funDeep("R5 마지막 심기 후 encore", sa.encore, { available: false, active: false, k: 1, pot: Math.floor(sta * 0.25 + 1e-9), stake: sta, lastBust: false, nextMul: null });
+  funEq("R5 마지막 심기 성공 점수 = +덤", sa.score, Sa + Math.floor(sta * C.ENCORE_STEP + 1e-9)); funEq("R5 마지막 심기 settled=false(계약)", era.settled, false);
+  funDeep("R5 마지막 심기 후 encore", sa.encore, { available: false, active: false, k: 1, pot: Math.floor(sta * C.ENCORE_STEP + 1e-9), stake: sta, lastBust: false, nextMul: null });
+  // 마지막 남은 심기에서 실패해도 끝남(available=false, 점수 불변)
+  { const gl = mkClear(74020); const Sl = gl.state().score; gl.run.spinIndex = gl.run.spins - 1; funRoll(gl, ["cherry", "book", "star", "gem", "crown"]);
+    const sl = gl.encoreSpin(); funEq("R5 마지막 심기 실패 bust", sl.lastSpin.encoreResult.bust, true); funEq("R5 마지막 심기 실패 available=false", sl.encore.available, false); funEq("R5 마지막 심기 실패 점수 불변", sl.score, Sl); }
   // 남은 심기 2: 1회 후 계속 가능, 2회 후 끝
   const ga2 = mkClear(74012); ga2.run.spinIndex = ga2.run.spins - 2; funRoll(ga2, ["cherry", "cherry", "cherry", "book", "star"]);
   const sa2a = ga2.encoreSpin(); funEq("R5 남은 2: 1회 후 active", sa2a.encore.active, true); funEq("R5 남은 2: 1회 후 available", sa2a.encore.available, true);
@@ -4735,7 +4739,8 @@ try {
   // proceedToNodes: 점수 그대로 넘어감(받은 덤은 이미 점수에)
   const gn = mkClear(74007); const Sn = gn.state().score, stn = stakeOf(gn); funRoll(gn, ["cherry", "cherry", "cherry", "book", "star"]); gn.encoreSpin();
   const nn = gn.proceedToNodes();
-  funEq("R5 proceedToNodes 점수 = 덤 포함 그대로", nn.score, Sn + Math.floor(stn * 0.25 + 1e-9)); funEq("R5 NODE_SELECT", nn.phase, PHASE.NODE_SELECT);
+  funEq("R5 proceedToNodes 점수 = 덤 포함 그대로", nn.score, Sn + Math.floor(stn * C.ENCORE_STEP + 1e-9)); funEq("R5 NODE_SELECT", nn.phase, PHASE.NODE_SELECT);
+  funEq("R5 clearSummary.total 이 점수와 동기화", nn.clearSummary.total, nn.score);
   const gm = mkClear(74008); const Sm = gm.state().score; funEq("R5 덤 수확 안 하고 진행: 점수 불변", gm.proceedToNodes().score, Sm);
   // 조건 미충족 → available=false: 남은 심기 0 · 클리어 점수 0(빚문서) · 심화
   const g0 = mkClear(74009, { lastSpin: true });
@@ -4748,7 +4753,7 @@ try {
   // 점수 < stake 여도 가능(판돈 조건 없음)
   const gf = mkClear(74010); const stf = stakeOf(gf); gf.run.score = 0; funRoll(gf, ["cherry", "cherry", "cherry", "book", "star"]);
   funEq("R5 점수<기준이어도 available(조건 없음)", gf.state().encore.available, true);
-  funEq("R5 점수 0 에서 덤 수확 → 점수 = 덤", gf.encoreSpin().score, Math.floor(stf * 0.25 + 1e-9));
+  funEq("R5 점수 0 에서 덤 수확 → 점수 = 덤", gf.encoreSpin().score, Math.floor(stf * C.ENCORE_STEP + 1e-9));
   // 보스 클리어 점수(보스 +500·연승 보너스)도 판돈에 포함
   const gbs = mkClear(74019, { stage: 5 });
   funEq("R5 보스 클리어 sBoss=500 포함", gbs.state().clearSummary.sBoss, 500);
@@ -4775,16 +4780,17 @@ try {
 } catch (e) { fail("FUN-R5 threw: " + e.stack); }
 
 // ── R6 특수스핀 재설계 ──
+const _fm = (v) => v.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 try {
-  funEq("R6 ALLIN_MUL", C.ALLIN_MUL, 1.5); funEq("R6 FOCUS_FLOOR", C.FOCUS_FLOOR, 0.8);
+  funOk("R6 ALLIN_MUL > 1", C.ALLIN_MUL > 1); funEq("R6 FOCUS_FLOOR", C.FOCUS_FLOOR, 0.8);
   funEq("R6 SUBREEL_EXP_MUL", C.SUBREEL_EXP_MUL, 0.85);
   // (a) 듬뿍 물주기 엔진: 항상 ×1.5(해골이 있어도 0 이 아님, 실패 없음)
   const ctxA = (skulls) => ({ quotaVal: 100, spins: 5, skulls, rng: E.makeRng(1) });
-  funEq("R6 applySpecialSpin 듬뿍 물주기 해골0 ×1.5", E.applySpecialSpin("ALLIN", 40, ctxA(0)).exp, 60);
-  funEq("R6 applySpecialSpin 듬뿍 물주기 해골1 ×1.5(0 아님)", E.applySpecialSpin("ALLIN", 40, ctxA(1)).exp, 60);
-  funEq("R6 applySpecialSpin 듬뿍 물주기 해골3 ×1.5", E.applySpecialSpin("ALLIN", 40, ctxA(3)).exp, 60);
-  funEq("R6 듬뿍 물주기 노트", E.applySpecialSpin("ALLIN", 40, ctxA(0)).note, "💧 듬뿍 물주기 ×1.5");
-  funEq("R6 듬뿍 물주기 설명", E.cmdEffectDesc("ALLIN"), "EXP ×1.5 (실패 없음)");
+  funEq("R6 applySpecialSpin 듬뿍 물주기 해골0 ×1.5", E.applySpecialSpin("ALLIN", 40, ctxA(0)).exp, 40 * C.ALLIN_MUL);
+  funEq("R6 applySpecialSpin 듬뿍 물주기 해골1 ×1.5(0 아님)", E.applySpecialSpin("ALLIN", 40, ctxA(1)).exp, 40 * C.ALLIN_MUL);
+  funEq("R6 applySpecialSpin 듬뿍 물주기 해골3 ×1.5", E.applySpecialSpin("ALLIN", 40, ctxA(3)).exp, 40 * C.ALLIN_MUL);
+  funEq("R6 듬뿍 물주기 노트", E.applySpecialSpin("ALLIN", 40, ctxA(0)).note, `💧 듬뿍 물주기 ×${_fm(C.ALLIN_MUL)}`);
+  funEq("R6 듬뿍 물주기 설명", E.cmdEffectDesc("ALLIN"), `EXP ×${_fm(C.ALLIN_MUL)} (실패 없음)`);
   funEq("R6 집중 설명", E.cmdEffectDesc("FOCUS"), "최소 EXP 보장(페이스 80%) + 지키기 +1");
   // (b) 집중 엔진: 하한 = floor(per×0.8)
   funEq("R6 applySpecialSpin 집중 하한(per=20 → 16)", E.applySpecialSpin("FOCUS", 0, { quotaVal: 100, spins: 5, skulls: 0, rng: E.makeRng(1) }).exp, 16);
@@ -4792,10 +4798,10 @@ try {
   // (c) 게임 경유 듬뿍 물주기: 해골 유무와 관계없이 기준 ×1.5
   const runAllin = (ids, mode) => { const x = funGame(75001); funRoomy(x); funRoll(x, ids); return x.spin(mode); };
   const nBase = runAllin(["cherry", "cherry", "cherry", "cherry", "book"], "N"), nAll = runAllin(["cherry", "cherry", "cherry", "cherry", "book"], "ALLIN");
-  funEq("R6 듬뿍 물주기 gained = floor(기준×1.5)", nAll.gained, Math.floor(nBase.gained * 1.5));
+  funEq("R6 듬뿍 물주기 gained = floor(기준×1.5)", nAll.gained, Math.floor(nBase.gained * C.ALLIN_MUL + 1e-9));
   const sk1N = runAllin(["cherry", "cherry", "cherry", "cherry", "skull"], "N"), sk1A = runAllin(["cherry", "cherry", "cherry", "cherry", "skull"], "ALLIN");
   funOk("R6 듬뿍 물주기 해골1개여도 0 아님", sk1A.gained > 0 || sk1N.gained <= 0, `N=${sk1N.gained} A=${sk1A.gained}`);
-  funEq("R6 듬뿍 물주기 해골1개 gained = floor(기준×1.5)", sk1A.gained, Math.floor(sk1N.gained * 1.5));
+  funEq("R6 듬뿍 물주기 해골1개 gained = floor(기준×1.5)", sk1A.gained, Math.floor(sk1N.gained * C.ALLIN_MUL + 1e-9));
   funOk("R6 듬뿍 물주기 실패 노트 없음", !sk1A.notes.some((n) => /실패|해골 1개↑/.test(n)));
   // (d) 집중 (게임 경유): 하한 0.8 + rareWeightMul ×0.5 패널티 삭제
   const gf = funGame(75002); funRoomy(gf, 1000, 5); funRoll(gf, ["skull", "skull", "skull", "skull", "skull"]);
@@ -4841,7 +4847,7 @@ try {
   const gp = funGame(75005); funRoomy(gp); funRoll(gp, ["cherry", "book", "star", "gem", "crown"]); gp.spin("ALLIN");
   gp.run.coins = 7; const idxB = gp.run.spinIndex; gp.spin("ALLIN");
   funEq("R6 코인 부족 시 발동 차단(스핀 진행 없음)", gp.run.spinIndex, idxB);
-  funOk("R6 코인 부족 토스트", /8🪙 필요/.test(lastToast(gp)), lastToast(gp));
+  funOk("R6 코인 부족 토스트", /8🌰 필요/.test(lastToast(gp)), lastToast(gp));
   gp.run.coins = 8; gp.spin("ALLIN"); funEq("R6 코인 8이면 발동(코인 0)", gp.run.coins, 0);
   // 최후(LAST): 마지막 스핀에서만
   const gl = funGame(75006); funRoomy(gl); funRoll(gl, ["cherry", "book", "star", "gem", "crown"]); const iL = gl.run.spinIndex; gl.spin("LAST");

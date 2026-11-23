@@ -171,8 +171,6 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
 .rslot.center { opacity: 1; transform: scale(1); }
 /* 이웃 슬롯은 drop-shadow 를 끈다(성능) — 항상 5개×릴수 만큼 상주하던 필터를 중앙 1개로 축소. */
 .rslot:not(.center) .sym { filter: none; }
-.reel.spinning .rslot { opacity: .8; transform: scale(1.02); }
-.reel.spinning .rstrip { filter: blur(1px); }
 /* 이웃 슬롯 상하단 페이드 — jackpotpick .reel::before/::after 와 동일 취지(여기선 ::before 가 이미
    하이라이트로 사용 중이라 실요소로 도입). 위/아래 33.33%씩만 덮어 이웃 심볼이 경계에서 딱 잘리지
    않고 자연스럽게 스며들게 한다. 색은 .reel 배경 그라디언트의 가장 어두운 끝(#10162a)에 맞춤. */
@@ -267,12 +265,11 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
 .reel.blast .rslot.center .sym { animation: blastS .42s ease; }
 @keyframes blastF { 0% { box-shadow: inset 0 0 8px #000; } 30% { box-shadow: inset 0 0 30px #ffcf6e, 0 0 34px #ff7a2d; border-color: #fff; } 100% { box-shadow: inset 0 0 8px #000; } }
 @keyframes blastS { 30% { transform: scale(1.4); filter: brightness(2.2); } 100% { transform: scale(1); } }
-.reel.empty { background: linear-gradient(165deg, #1a1224, #120e1c); border-color: #2a2238; }
+.reel.empty { background: linear-gradient(180deg, #4a2f1b, #2e1b10); border-color: #4a6b32; }
 .reel.empty .rslot.center .sym { opacity: .5; filter: grayscale(.4); }
 .reels.win .reel { border-color: rgba(255,210,63,.6); }
 .reels.jackpot { animation: none; }
 .reels.jackpot .reel { border-color: var(--gold); box-shadow: 0 0 26px rgba(255,210,63,.65), 0 0 40px rgba(120,200,110,.35), inset 0 0 22px rgba(255,210,63,.3); }
-@keyframes jpShake { 0%,100% { transform: translateY(0); } 25% { transform: translateY(-8px) scale(1.02); } 60% { transform: translateY(3px); } }
 
 /* 폭발 파티클(JS 가 reel 안에 추가) */
 .boom { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; pointer-events: none; }
@@ -677,10 +674,8 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
   .tier.t-PRISM, .bigcard.t-PRISM::before, .deck-card.t-PRISM::before, .jackpot-fx .jptxt span,
   .tut-spot, .tut-spot.action, .tut-hl, .tut-finger { animation: none; }
   /* .tut-spot 은 animation 만 정지(box-shadow 오버레이·left/top transition 은 존치 → 하이라이트 추적 유지).
-     클리어(clear-fx)·매치(mshine/mspark) 연출은 기능이므로 불변. 릴 스핀 자체(JS 노치 트윈)는 doSpin 이
-     reduced-motion 감지 시 건너뛰므로(§C) 여기선 정지 상태의 잔여 트랜지션/블러 + 착지 바운스(.settle)만 끈다. */
+     클리어(clear-fx)·매치(mshine/mspark) 연출은 기능이므로 불변. 정지 상태의 잔여 트랜지션 + 착지 바운스(.settle)만 끈다. */
   .rslot { transition: none; }
-  .reel.spinning .rstrip { filter: none; }
   .reel.settle { animation: none; }
 }
 
@@ -822,15 +817,11 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
 @keyframes introFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .intro-reels { display: flex; gap: calc(10px * var(--sc)); }
 .intro-reels span { position: relative; overflow: hidden; width: calc(62px * var(--sc)); height: calc(80px * var(--sc)); display: flex; align-items: center; justify-content: center; font-size: calc(38px * var(--sc));
-  background: linear-gradient(180deg, #6b4527, #45291a); border: 2px solid var(--gold); border-radius: 14px;
-  box-shadow: inset 0 3px 10px #0008, 0 0 24px rgba(255,210,63,.4); animation: introReel 1.6s ease-in-out infinite; }
+  background: linear-gradient(180deg, #6b4527, #45291a); border: 2px solid #5f8f3e; border-radius: 14px;
+  box-shadow: inset 0 3px 10px rgba(0,0,0,.6), inset 0 -2px 8px rgba(0,0,0,.5), 0 4px 14px rgba(0,0,0,.4); }
 /* 릴 상단 광택(--gloss) — 토큰 질감(신규 리터럴 없음) */
 .intro-reels span .art-ico { width: 1.25em; height: 1.25em; vertical-align: middle; border-radius: 0; }
 .intro-reels span::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 42%; background: var(--gloss); pointer-events: none; }
-.intro-reels span:nth-child(2) { animation-delay: .2s; }
-.intro-reels span:nth-child(3) { animation-delay: .4s; }
-@keyframes introReel { 0%, 100% { transform: translateY(0); box-shadow: inset 0 3px 10px #0008, 0 0 22px rgba(255,210,63,.35); }
-  50% { transform: translateY(-7px); box-shadow: inset 0 3px 10px #0008, 0 0 36px rgba(255,210,63,.85); } }
 .intro-title { font-size: clamp(30px, 9vw, calc(48px * var(--sc))); font-weight: 900; color: #fff; text-shadow: 0 3px 28px rgba(255,210,63,.45); margin-top: 6px; letter-spacing: -1px; }
 .intro-title .g { background: linear-gradient(180deg, #ffe87a, var(--gold2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .intro-sub { color: var(--txt2); font-size: 13.5px; }
@@ -890,7 +881,7 @@ button { font-family: inherit; cursor: pointer; color: inherit; border: none; ba
 .rd-last-ttl { font-size: calc(12px * var(--sc)); font-weight: 800; color: var(--gold); margin: 14px 0 7px; }
 .rd-reels { display: flex; gap: calc(5px * var(--sc)); justify-content: center; }
 .rd-reel { flex: 1 1 0; max-width: calc(54px * var(--sc)); aspect-ratio: 1; display: flex; align-items: center; justify-content: center; position: relative;
-  font-size: clamp(20px, 8vw, calc(30px * var(--sc))); background: linear-gradient(165deg, #2a3354, #10162a); border: 1.5px solid var(--bd2); border-radius: 11px; box-shadow: inset 0 2px 6px #0008; }
+  font-size: clamp(20px, 8vw, calc(30px * var(--sc))); background: linear-gradient(180deg, #6b4527, #45291a); border: 1.5px solid #5f8f3e; border-radius: 11px; box-shadow: inset 0 2px 6px #0008; }
 .rd-reel .rt { position: absolute; bottom: 1px; right: 3px; font-size: 9px; }
 .rd-notes-ttl { font-size: calc(11.5px * var(--sc)); color: var(--txt2); margin: 12px 0 6px; }
 .rd-notes { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -1529,7 +1520,7 @@ body.last-spin .lastspin-vig { opacity: 1; animation: vigPulse 1.3s ease-in-out 
 .enc-reels { display: flex; gap: calc(6px * var(--sc)); justify-content: center; margin: 10px 0 8px; }
 .enc-cell.rolling { background: linear-gradient(180deg, #6b4527, #45291a); }
 .enc-cell { position: relative; width: calc(50px * var(--sc)); height: calc(50px * var(--sc)); border-radius: 12px; display: flex; align-items: center; justify-content: center;
-  font-size: calc(24px * var(--sc)); color: var(--dim2); background: linear-gradient(165deg, #2a3354, #10162a); border: 1.5px solid var(--bd2); box-shadow: inset 0 2px 6px #0008; }
+  font-size: calc(24px * var(--sc)); color: var(--dim2); background: linear-gradient(180deg, #6b4527, #45291a); border: 1.5px solid #5f8f3e; box-shadow: inset 0 2px 6px #0008; }
 .enc-cell.empty { opacity: .6; }
 .enc-cell.rolling { border-color: var(--purple); filter: blur(.5px); }
 .enc-cell.landed { animation: encLand .26s cubic-bezier(.2,1.6,.4,1); }
@@ -1544,24 +1535,14 @@ body.last-spin .lastspin-vig { opacity: 1; animation: vigPulse 1.3s ease-in-out 
 .enc-pot { display: inline-block; font-size: calc(32px * var(--sc)); font-weight: 900; color: var(--gold); text-shadow: 0 2px 14px rgba(255,210,63,.5); font-variant-numeric: tabular-nums; }
 .enc-pot.pop { animation: gpop .45s cubic-bezier(.2,1.5,.4,1); }
 .enc-pot-u { font-size: 14px; font-weight: 800; color: var(--gold); }
-.enc-mul { min-width: 2.6em; font-size: 17px; font-weight: 900; color: var(--pink); text-align: left; }
-.enc-mul.pop { animation: gpop .45s cubic-bezier(.2,1.5,.4,1); }
 .enc-msg { min-height: calc(34px * var(--sc)); margin-top: 6px; font-size: calc(12px * var(--sc)); color: var(--txt2); line-height: 1.45; }
 .enc-msg b { color: #fff; }
-.enc-msg.bad { color: #ffb3ba; }
 .encore-box.up { animation: encUp .7s ease-out; }
 @keyframes encUp { 0% { box-shadow: 0 0 0 rgba(255,210,63,0); } 30% { box-shadow: 0 0 30px rgba(255,210,63,.85), inset 0 0 24px rgba(255,210,63,.35); } 100% { box-shadow: 0 0 0 rgba(255,210,63,0); } }
-.encore-box.bust { border-color: var(--red); background: linear-gradient(180deg, rgba(255,93,108,.22), rgba(110,0,20,.12)); }
-.encore-box.bust:not(.settled-view) { animation: bustShake .6s ease-in-out; }
-@keyframes bustShake { 0%,100% { transform: translateX(0); } 14% { transform: translateX(-7px); } 30% { transform: translateX(7px); } 46% { transform: translateX(-5px); } 62% { transform: translateX(4px); } }
-.encore-box.bust .enc-pot { color: var(--dim); text-shadow: none; }
 .enc-pot-wrap .half.l { clip-path: inset(0 50% 0 0); animation: halfL .9s cubic-bezier(.5,0,.9,.4) forwards; }
 .enc-pot-wrap .half.r { position: absolute; left: 0; top: 0; clip-path: inset(0 0 0 50%); animation: halfR .9s cubic-bezier(.5,0,.9,.4) forwards; }
 @keyframes halfL { 0% { transform: none; opacity: 1; } 25% { transform: translate(-2px,-4px) rotate(-3deg); } 100% { transform: translate(-30px, 64px) rotate(-38deg); opacity: 0; } }
 @keyframes halfR { 0% { transform: none; opacity: 1; } 25% { transform: translate(2px,-4px) rotate(3deg); } 100% { transform: translate(30px, 70px) rotate(42deg); opacity: 0; } }
-.shard { position: absolute; left: 50%; top: 50%; width: 8px; height: 10px; pointer-events: none; background: linear-gradient(135deg, #ffd23f, #ff5d6c); clip-path: polygon(0 0, 100% 20%, 60% 100%);
-  animation: shardFly .9s ease-out forwards; }
-@keyframes shardFly { 0% { transform: translate(-50%,-50%) rotate(0); opacity: 1; } 100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy) + 40px)) rotate(var(--rot)); opacity: 0; } }
 .enc-foot { display: flex; gap: 8px; }
 .enc-foot .bigbtn { flex: 1; padding: calc(14px * var(--sc)) calc(8px * var(--sc)); font-size: calc(15px * var(--sc)); }
 .enc-foot .bigbtn.ghost b { color: var(--gold); }
@@ -1572,9 +1553,9 @@ body.last-spin .lastspin-vig { opacity: 1; animation: vigPulse 1.3s ease-in-out 
 @media (prefers-reduced-motion: reduce) {
   .fx-banner, .fx-banner.out, .fx-banner.fever, .fx-banner .fxb-txt, .fxp, .fxb-flash, .red-flash, .last-tag.on, body.last-spin .lastspin-vig, .bi-vig, .boss-intro, .bi-card,
   .lvup-modal, .lu-card, .lu-burst, .lu-to, .reels.fever-on::before, .reels.fever-on::after, .fever-wrap.hot .fv-track, .fever-wrap.hot .fv-track::after, .fever-wrap.active .fv-fill,
-  .reel.sowing, .reel.sprout .rslot.center .sym, .intro-reels span.sprout > *, .reel.skull-hit, .enc-cell.skull, .enc-cell.landed, .encore-box.up, .encore-box.bust, .shard, .hold-lock, .reels .reel.hold-keep { animation: none; }
+  .reel.sowing, .reel.sprout .rslot.center .sym, .intro-reels span.sprout > *, .reel.skull-hit, .enc-cell.skull, .enc-cell.landed, .encore-box.up, .hold-lock, .reels .reel.hold-keep { animation: none; }
   .fv-fill { transition: none; }
-  .reels, .reels.antic-zoom { transform: none; transition: none; }
+  .reels { transform: none; transition: none; }
 }
 
 /* 클리어 화면 하단 버튼(정산/앵콜/다음) — 긴 클리어 화면에서도 항상 손이 닿게 화면 하단에 붙인다 */

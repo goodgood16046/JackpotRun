@@ -540,6 +540,9 @@ const cell = (sym, tag = "") => ({ sym, tag });
 
 // 배율 표기(소수 2자리·끝0/점 제거) — Kotlin fmtMul 캐논.
 const fmtMul = (v) => v.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+// 태그 키(crown/seven/coin…)를 화면에 보일 이름으로 — 노트 · 배너 공용.
+const TAG_SHOW_LABEL = { crown: "👑 왕관", seven: "🍎 황금사과", coin: "🌰 도토리", prism: "🌈 프리즘", curse: "💀 저주", bell: "🔔 종" };
+const tagLabel = (t) => TAG_SHOW_LABEL[t] || t;
 
 export function rollRaw(rng, mods, reel = C.REEL, seedActive = false) {
   const cells = Array.from({ length: reel }, () => cell(weighted(rng, mods)));
@@ -802,13 +805,13 @@ export function evaluate(rng, raw, mods, spinIndex, spinsPerStage, flamePenalty 
       for (const t in tagCount) if (tagCount[t] > curBestN) { curBestN = tagCount[t]; curBest = t; }
       if (hasSlotShard && curBest) {
         tagCount[curBest] = (tagCount[curBest] || 0) + 1;
-        notes.push(`🧩 밭조각 — ${curBest} 태그 +1`);
+        notes.push(`🧩 밭조각 — ${tagLabel(curBest)} 태그 +1`);
       }
       if (hasJpWand) {
         // 잭팟마법봉: prism 태그 제외한 최다 태그
         let wpBest = null, wpBestN = 0;
         for (const t in tagCount) { if (t === "prism") continue; if (tagCount[t] > wpBestN) { wpBestN = tagCount[t]; wpBest = t; } }
-        if (wpBest) { tagCount[wpBest] = (tagCount[wpBest] || 0) + 1; notes.push(`🪄 풍년지팡이 — ${wpBest} 태그 +1 (prism 제외)`); }
+        if (wpBest) { tagCount[wpBest] = (tagCount[wpBest] || 0) + 1; notes.push(`🪄 풍년지팡이 — ${tagLabel(wpBest)} 태그 +1 (prism 제외)`); }
       }
     }
     // 최다 태그 선택
@@ -997,7 +1000,7 @@ export function evaluate(rng, raw, mods, spinIndex, spinsPerStage, flamePenalty 
   //  7️⃣ 럭키7(LUCKY7): 3개+ → EXP/점수/코인 7배. ★배수 상한(specialMul 캡)으로 폭주 제어.
   //   🔏전설봉인기(mods.legendStable): 럭키7 자체는 결정적(3개+면 항상 발동)이라 안정화 대상 아님(표기만).
   const luckyN = cells.filter((c) => c.sym.id === "lucky7").length;
-  if (luckyN >= 3) { lucky7 = true; specialMul *= 7; score *= 7; coins *= 7; notes.push(`7️⃣ 럭키7 ×${luckyN} — 7배!${mods.legendStable ? " 🔏안정" : ""}`); }
+  if (luckyN >= 3) { lucky7 = true; specialMul *= 7; score *= 7; coins *= 7; notes.push(`🍎 황금사과 ×${luckyN} — 7배!${mods.legendStable ? " 🔏안정" : ""}`); }
   //  🌈 프리즘(PRISM_SYM): 무작위 프리즘급 미니효과 1택(폭 좁게). 여러개면 각각 1택.
   //   🔏전설봉인기(mods.legendStable): 랜덤 대신 최선 효과(EXP ×1.5)로 안정 발동(변동 완화). deepOnly 장치·근사.
   const prismN = cells.filter((c) => c.sym.special === "PRISM_SYM").length;
@@ -2022,7 +2025,7 @@ export const ARCHETYPES = [
   { family: "book",   ref: "tag:학습", e: "📘", n: "도서관장", metric: "exp" },
   { family: "gem",    ref: "gem",      e: "💎", n: "보석상",   metric: "score" },
   { family: "skull",  ref: "skull",    e: "☠", n: "강령학파", metric: "exp" },
-  { family: "coin",   ref: "coin",     e: "🌰", n: "조폐국",   metric: "coin" },
+  { family: "coin",   ref: "coin",     e: "🌰", n: "도토리 창고",   metric: "coin" },
   { family: "flame",  ref: "flame",    e: "🔥", n: "화력발전", metric: "exp" },
 ];
 export const ARCH_BY_FAMILY = Object.fromEntries(ARCHETYPES.map((a) => [a.family, a]));
